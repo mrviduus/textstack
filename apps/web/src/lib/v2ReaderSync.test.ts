@@ -1,4 +1,4 @@
-import { ApiError, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type PageHighlight, type PagePosition, type PageQuotation, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v2Store } from '../api/v2'
 import { createV2ReaderSync, KEEPALIVE_BUDGET, v2ReaderSyncApi, type V2ReaderSyncApi, type V2SaveStatus, type V2SyncTarget } from './v2ReaderSync'
@@ -37,7 +37,7 @@ const deferred = <T>() => {
 
 let api: { [K in keyof V2ReaderSyncApi]: ReturnType<typeof vi.fn> }
 let statuses: V2SaveStatus[]
-let drawnLists: PageHighlight[][]
+let drawnLists: (PageHighlight | PageQuotation)[][]
 /** The places offered to the host (`onNewerPlace`). */
 let newer: PagePosition[]
 /** A write recorded before every other here. */
@@ -98,6 +98,21 @@ describe('createV2ReaderSync', () => {
       ])
       await loading
       expect(drawnLists.map((l) => l.map((h) => h.id))).toEqual([[H1]])
+    })
+
+    it('loadHighlights_LegacyAnchorRow_ListedAsAQuotation_NeverWrittenBack', async () => {
+      // #1195: kept as a quotation (text, colour, note), never drawn, never rewritten on the server.
+      const Q = '55555555-5555-4555-8555-555555555555'
+      api.annotations.mockResolvedValue([
+        annotation({ id: H1 }),
+        annotation({ id: Q, selectedText: 'older', noteText: 'kept', color: 'green', locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterId: 'c', startOffset: 0, endOffset: 5 } } }),
+      ])
+      const s = await opened()
+      expect(drawnLists[0][1]).toEqual({ id: Q, quotation: true, selectedText: 'older', color: 'green', at: Date.parse('2026-11-01T00:00:00.000Z') })
+      expect(s.note(Q)).toBe('kept')
+      await stored(s, entry(pos(2), [hl()]))
+      expect(api.putAnnotation.mock.calls.map((c) => c[0])).not.toContain(Q)
+      expect(api.deleteAnnotation).not.toHaveBeenCalled()
     })
 
     it('restore_StateOnAnotherFileVersion_NoPosition_FirstWriteOnThisFile', async () => {

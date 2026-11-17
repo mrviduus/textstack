@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import type { V2Annotation, V2ReadingState } from '../api/v2'
 import {
-  annotationHighlight, codePoints, decideServerState, pageNameRefusal, highlightWrite, isUuid, ownAnnotationWrite, ownStateWrite,
+  annotationHighlight, annotationQuotation, codePoints, decideServerState, pageNameRefusal, highlightWrite, isUuid, ownAnnotationWrite, ownStateWrite,
   positionWrite, sameJson, spineIndexOf, statePosition, syncableText, type PageHighlight,
 } from './v2LocalSync'
-import { BOOKMARK_COLOR, isBookmark, isPosition } from './v2PageStore'
+import { BOOKMARK_COLOR, entryFor, isBookmark, isPosition } from './v2PageStore'
 
 const CFI = 'epubcfi(/6/14!/4/2/1:0)'
 const pos = { cfi: CFI, quote: 'It was a bright cold day', index: 6, fraction: 0.41, at: Date.parse('2026-11-10T10:00:00Z') }
@@ -326,6 +326,29 @@ describe('v2LocalSync', () => {
     }
     expect(annotationHighlight(a)).toMatchObject({ id: 'a', cfi: CFI, index: 6, quote: 'bright', selectedText: 'bright cold' })
     expect(annotationHighlight({ ...a, locator: { version: 1, scheme: 'textstack-anchor-v1', value: {} } })).toBeNull()
+  })
+
+  it('annotationQuotation_LiveAnchorOnly_NeverSyncable', () => {
+    // #1195: the legacy reader's highlights are listed as quotations, never written back.
+    const a: V2Annotation = {
+      id: 'a', bookId: 'b', fileId: 'f', selectedText: 'bright cold', noteText: 'n', color: 'pink',
+      locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterId: 'c', startOffset: 0, endOffset: 5 } },
+      createdAt: '2026-11-10T00:00:00Z', updatedAt: '2026-11-10T00:00:00Z', deletedAt: null, revision: 1,
+    }
+    const q = annotationQuotation(a)!
+    expect(q).toEqual({ id: 'a', quotation: true, selectedText: 'bright cold', color: 'pink', at: Date.parse('2026-11-10T00:00:00Z') })
+    expect(annotationQuotation({ ...a, deletedAt: '2026-11-11T00:00:00Z' })).toBeNull()
+    expect(annotationQuotation({ ...a, selectedText: '  ' })).toBeNull()
+    expect(annotationQuotation({ ...a, locator: { version: 1, scheme: 'epub-cfi', value: CFI, quote: 'b' } })).toBeNull()
+    const asHighlight = q as unknown as PageHighlight
+    expect(syncableText(asHighlight)).toBeNull()
+    expect(highlightWrite(asHighlight, 'b', 'f', 1)).toBeNull()
+  })
+
+  it('entryFor_QuotationsKept_MalformedDropped', () => {
+    const q = { id: 'a', quotation: true, selectedText: 'x' }
+    const e = entryFor(JSON.stringify({ v: 1, book: { sha256: 's', size: 1 }, position: null, highlights: [], quotations: [q, { id: 'b', selectedText: 'y' }, { ...q, selectedText: '' }] }), { sha256: 's', size: 1 })
+    expect(e?.quotations).toEqual([q])
   })
 
   it('bookmark_WrittenAndPulledAsAnAnnotationOfColourBookmark_SamePageFormBack', () => {

@@ -69,7 +69,7 @@ describe('sniffFormat', () => {
     expect(book.indexOf('%PDF-')).toBeLessThan(1024)
     expect(sniffFormat(bytes(book))).toBe('fb2')
     expect(sniffFormat(bytes(`﻿  ${book}`))).toBe('fb2')
-    expect(() => sniffFormat(bytes('<html><body>%PDF-1.4</body></html>'))).toThrow(/not a book this reader opens/)
+    expect(sniffFormat(bytes('<html><body>%PDF-1.4</body></html>'))).toBe('html')
     expect(sniffFormat(bytes(`${'\x41'.repeat(900)}%PDF-1.4\n`))).toBe('pdf')
     expect(sniffFormat(bytes(`\n\n%PDF-1.7\n`))).toBe('pdf')
   })
@@ -77,8 +77,8 @@ describe('sniffFormat', () => {
   it('pdfAfterAnHtmlWarningOrDoctype_PdfUnlessTheFileIsAnHtmlPage', () => {
     // S5 review: junk before the header may start with `<` (a server's PHP warning); an HTML page quoting it is no PDF.
     expect(sniffFormat(bytes('<br />\n<b>Warning</b>: something in x.php on line 3<br />\n%PDF-1.4\n'))).toBe('pdf')
-    expect(() => sniffFormat(bytes('<!DOCTYPE html><title>%PDF-1.4</title>'))).toThrow(/not a book this reader opens/)
-    expect(() => sniffFormat(bytes('<HTML lang="en"><body>%PDF-1.4</body></HTML>'))).toThrow(/not a book this reader opens/)
+    expect(sniffFormat(bytes('<!DOCTYPE html><title>%PDF-1.4</title>'))).toBe('html')
+    expect(sniffFormat(bytes('<HTML lang="en"><body>%PDF-1.4</body></HTML>'))).toBe('html')
     // An FB2 whose root comes after a long comment (past the first KiB) and that quotes the marker early.
     const late = fb2('Late root', '<section><p>p</p></section>').replace('<FictionBook', `<!-- %PDF-1.4 ${'x'.repeat(1500)} --><FictionBook`)
     expect(late.indexOf('<FictionBook')).toBeGreaterThan(1024)
@@ -86,8 +86,15 @@ describe('sniffFormat', () => {
   })
 
   it('unknownOrEmpty_Refused', () => {
-    for (const b of ['', 'plain text', '<html><body>FictionBook</body></html>', '<FictionBookmark/>', png(1, 1, [0, 0, 0])])
+    for (const b of ['', 'plain text', '<?xml version="1.0"?><FictionBookmark/>', 'text <p>later</p>', png(1, 1, [0, 0, 0])])
       expect(() => sniffFormat(bytes(b))).toThrow(/not a book this reader opens/)
+  })
+
+  it('htmlClip_PageOrFragment_Html', () => {
+    // Owner decision 5: a clip is the article's HTML, often a Readability fragment with no <html> root.
+    for (const b of ['<html><body>FictionBook</body></html>', '\ufeff  <!-- c --><!DOCTYPE html><p>x</p>', '<div id="readability-page-1"><p>x</p></div>', '\n<p>x</p>', '<FictionBookmark/>'])
+      expect(sniffFormat(bytes(b)), b).toBe('html')
+    expect(isTextual('html')).toBe(true)
   })
 })
 

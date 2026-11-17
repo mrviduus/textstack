@@ -2006,8 +2006,50 @@ try {
   const at = await waitFor(m.from, (x) => x.type === 'relocate' && x.index === 1, 'relocate to page 2').catch(() => null)
   check(!!at, 'and the view shows page 2')
 
-  // Positions of the other shape: neither is applied (store.mjs keeps both shapes; restore tells them apart).
   const cbzBook = m.book
+
+  // An HTML clip (owner decision 5): a Readability fragment, hostile bits in it; one sanitized section, text features as EPUB's.
+  console.log('html clip')
+  const pw = "(top.__pwned=1)"
+  const clipText = Array.from({ length: 30 }, (_, i) => `<p>Paragraph ${i + 1}. ${'Sphinx of black quartz, judge my vow. The quick brown fox jumps over the lazy dog. '.repeat(3)}</p>`).join('')
+  writeFileSync(resolve(dir, 'tsclip.html'), `<title>TS CLIP</title><div id="readability-page-1"><h1>Chapter One</h1>${clipText}<script>${pw}</script><img src="x" onerror="${pw}">`
+    + `<a href="javascript:${pw}">j</a><svg onload="${pw}"></svg><iframe srcdoc="<script>${pw}</script>"></iframe><form action="https://evil.tst"><input name="p"></form></div>`)
+  m = await open('tsclip.html')
+  check(m.type === 'opened' && m.format === 'html' && m.textual && m.annotatable && m.searchable && m.sections === 1 && m.title === 'TS CLIP',
+    `opened as html: one section, textual, annotatable, searchable (${m.format}, ${m.sections}, ${m.title}${m.error ? `, ${m.error}` : ''})`)
+  check(await showsText(), 'its text is rendered')
+  check(await shown(() => !document.querySelector('script,iframe,svg,form,input,[onerror],[onload],a[href^="javascript"]')), 'its section holds no script, frame, svg, form, handler or javascript: link')
+  await checkSelection('html clip, paginated')
+  from = messages.length
+  const clipFrame = await frameWith('black quartz')
+  await select(clipFrame, 'black quartz', 0, 'black quartz', 'black quartz'.length)
+  await settled()
+  call('window.__fol.highlightSelection()')
+  const clipHl = await waitFor(from, (x) => x.type === 'highlighted', 'a highlight on the clip').catch(() => null)
+  check(clipHl?.selectedText === 'black quartz' && /^epubcfi\(/.test(clipHl.cfi), `a highlight is made on the clip (${clipHl?.cfi})`)
+  check(!(await Promise.all(page.frames().map((fr) => fr.evaluate(() => !!top.__pwned).catch(() => false)))).some(Boolean), 'no clip script ran')
+  // #1195: quotations (legacy anchor annotations): listed after the drawn highlights, never drawn, never in a store.
+  const quoted = (x) => x.type === 'highlight-list' && x.highlights.some((h) => h.quotation)
+  m = await open('tsclip.html', JSON.stringify({ v: 1, book: m.book, position: null, highlights: [], quotations: [{ id: 'q1', quotation: true, selectedText: 'an older one', at: 1 }] }))
+  let ql = await waitFor(m.from, quoted, 'a list with the restored quotation').catch(() => null)
+  check(JSON.stringify(ql?.highlights) === JSON.stringify([{ id: 'q1', cfi: '', color: 'yellow', text: 'an older one', at: 1, quotation: true }]), `a restored quotation is listed (${JSON.stringify(ql?.highlights)})`)
+  from = messages.length
+  call(`window.__fol.addHighlights(${JSON.stringify([{ id: 'q2', quotation: true, selectedText: 'pulled later', color: 'pink', at: 2 }])})`)
+  const listedQ = await waitFor(from, (x) => x.type === 'highlights', 'addHighlights answered').catch(() => null)
+  ql = await waitFor(from, quoted, 'a list with both quotations').catch(() => null)
+  check(listedQ?.highlights?.[0]?.status === 'listed' && ql?.highlights.map((h) => h.id).join() === 'q1,q2', `a pulled quotation is listed too (${ql?.highlights.map((h) => h.id)})`)
+  from = messages.length
+  call('window.__fol.removeHighlight("q1")')
+  ql = await waitFor(from, (x) => x.type === 'highlight-list', 'the list without q1').catch(() => null)
+  call('window.__fol.goTo("")')
+  await waitFor(from, (x) => x.type === 'log' && /a quotation has no place/.test(x.msg), 'goTo("") ignored').catch(() => null)
+  check(ql?.highlights.map((h) => h.id).join() === 'q2' && !messages.slice(from).some((x) => x.type === 'highlight-removed'), 'a quotation removed leaves the list only (no highlight-removed: its row is never written)')
+  from = messages.length
+  call('window.__fol.next()')
+  const qStore = await waitFor(from, (x) => x.type === 'store', 'a store after the page turn').catch(() => null)
+  check(!!qStore && !('quotations' in JSON.parse(qStore.json)), 'no quotation in the page\'s store')
+
+  // Positions of the other shape: neither is applied (store.mjs keeps both shapes; restore tells them apart).
   m = await open('tsformat.cbz', JSON.stringify({ v: 1, book: cbzBook, highlights: [], position: { cfi: 'epubcfi(/6/4)', quote: 'Paragraph', index: 1, fraction: 1, at: 1 } }))
   check(m.restored.position === 'page not found, stayed at start', `a quoted position on a CBZ is not applied (${m.restored.position})`)
   m = await open('tsformat.fb2')

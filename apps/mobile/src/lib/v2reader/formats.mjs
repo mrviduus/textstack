@@ -8,10 +8,12 @@ const u16 = (b, at) => (b[at] << 8) | b[at + 1]
 
 /** Bytes searched for the FB2 root: room for a declaration, a long comment or a doctype before it. */
 const FB2_WINDOW = 4096
+/** An HTML file's start: a UTF-8 BOM, white space and comments, then a doctype or an element (not `<?xml`). */
+const HTML_START = /^(\xef\xbb\xbf)?\s*(<!--[\s\S]*?-->\s*)*<(!doctype html|[a-z][\w-]*)[\s/>]/i
 
 /**
  * The container: `zip` (EPUB, CBZ, FBZ — told apart by `zipFormat`), `mobi` (MOBI6, KF8/AZW3, or the KF8
- * half of a MOBI/KF8 combo), `pdf`, `fb2`; throws, with the message the host shows (`open-failed`), for what this page does not read or refuses. Cheap and
+ * half of a MOBI/KF8 combo), `pdf`, `fb2`, `html` (a clip); throws, with the message the host shows (`open-failed`), for what this page does not read or refuses. Cheap and
  * pure: the page calls it before it touches the open book, so a refusal leaves that book as it was.
  */
 export function sniffFormat(bytes) {
@@ -35,8 +37,10 @@ export function sniffFormat(bytes) {
   // the first KiB, is that, whatever it quotes. Other junk before the header (a server's HTML warning
   // `<br />…`) is still a PDF's.
   const head = ascii(bytes, 0, 1024)
-  const markup = /<FictionBook[\s>]/.test(ascii(bytes, 0, FB2_WINDOW).replace(/\0/g, '')) || /<html[\s>]|<!doctype html/i.test(head)
-  if (!markup && head.includes('%PDF-')) return 'pdf'
+  const fb2Root = /<FictionBook[\s>]/.test(ascii(bytes, 0, FB2_WINDOW).replace(/\0/g, ''))
+  if (!fb2Root && !/<html[\s>]|<!doctype html/i.test(head) && head.includes('%PDF-')) return 'pdf'
+  // An HTML clip (owner decision 5): UTF-8 markup, a whole page or a fragment, that opens with an element.
+  if (!fb2Root && HTML_START.test(head)) return 'html'
   // The last candidate: anything that is not an FB2 is refused there as "not a book".
   checkFb2(bytes)
   return 'fb2'

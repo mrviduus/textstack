@@ -15,6 +15,22 @@ const item = (o: object = {}) => ({ id: ID, cfi: CFI, color: 'green', text: 'Hel
 const listMsg = (highlights: unknown, o: object = {}) => ({ type: 'highlight-list', key: 'ab', highlights, ...o })
 
 describe('v2 reader highlights', () => {
+  it('highlightList_Quotations_AfterTheDrawnOnes_OldestFirst_NoPlace', () => {
+    // #1195: legacy anchor annotations, listed by their text, never drawn.
+    const drawn = [{ id: ID, cfi: CFI, quote: 'Hello', selectedText: 'Hello', color: 'green', at: 9 }]
+    const quotes = [{ id: 'q2', selectedText: 'second', at: 2 }, { id: 'q1', selectedText: 'first', color: 'pink', at: 1 }]
+    expect(highlightList(drawn, new Set([ID]), () => 0, quotes)).toEqual([
+      { id: ID, cfi: CFI, color: 'green', text: 'Hello', at: 9 },
+      { id: 'q1', cfi: '', color: 'pink', text: 'first', at: 1, quotation: true },
+      { id: 'q2', cfi: '', color: 'yellow', text: 'second', at: 2, quotation: true },
+    ])
+  })
+
+  it('readHighlightList_QuotationKept_ACfiLessHighlightDropped', () => {
+    const q = item({ id: 'q1', cfi: '', quotation: true })
+    expect(readHighlightList(listMsg([q, item({ id: 'h2', cfi: '' }), item({ id: 'h3', quotation: 'yes', cfi: '' })]))!.highlights).toEqual([q])
+  })
+
   it('palette_TheLegacyFourInTheirOrder_EachWithAFill', () => {
     expect(HIGHLIGHT_COLORS).toEqual(['yellow', 'green', 'pink', 'blue'])
     expect(HIGHLIGHT_COLORS.map((c) => /^#[0-9a-f]{6}$/.test(HIGHLIGHT_FILL[c]))).toEqual([true, true, true, true])

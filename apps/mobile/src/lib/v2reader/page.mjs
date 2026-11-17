@@ -14,7 +14,7 @@ import { mergeOverlay } from './overlays.mjs'
 import { STAGE_COLORS, readMarkWords, sameMark, wordMarksIn } from './wordMarks.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../../../../packages/shared/src/reader/fractionPosition'
-import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, isQuotation, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 import { openableHref, rectInPage, sentenceOf, sentenceOfRange, trimRange } from './tap.mjs'
 import { MAX_SELECTION_CFI, selectionMessage } from './selection.mjs'
@@ -28,6 +28,7 @@ import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2L
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 import { createLightbox, imageAt } from './lightbox.mjs'
+import { clipBook } from './clip.mjs'
 import { tapAction } from './tapZone.mjs'
 import { MAX_CHAPTER_TEXT_BYTES, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween } from './chapters.mjs'
 import { MAX_RESULTS, SEARCH_FILL, readQuery, searchItems } from './search.mjs'
@@ -82,6 +83,8 @@ let spokenCfi = null
 /** This file's identity and its entry. No save until the stored one is restored. */
 let book = null
 let entry = null
+/** #1195: the open book's quotations (legacy anchor annotations): listed, never drawn, never in a `store`. */
+let quotes = []
 /**
  * The host is moving the view: from `open` until its restore has run, and during a host `goTo` (a sync
  * adopt or move). Its relocates save nothing and nothing is echoed back: the host already holds that
@@ -955,7 +958,7 @@ const drawnIds = () => new Set([...overlays.values()].flatMap((a) => (a.hl ? [a.
  */
 function postList() {
   if (!entry) return
-  post({ type: 'highlight-list', key: book.sha256, highlights: highlightList(entry.highlights, drawnIds(), compareCfi) })
+  post({ type: 'highlight-list', key: book.sha256, highlights: highlightList(entry.highlights, drawnIds(), compareCfi, quotes) })
 }
 
 /** The entry's bookmark list, built again (the set of found bookmarks may have changed); a new version only if it did. */
@@ -1094,6 +1097,11 @@ function recolorHighlight(id, color) {
  * (the entry's absence alone tombstones nothing: entryChanges never reads a missing highlight as a delete).
  */
 function removeHighlight(id) {
+  // #1195: a quotation leaves the list only (tombstoned elsewhere); nothing is sent, so its row is never written.
+  if (quotes.some((q) => q.id === id)) {
+    quotes = quotes.filter((q) => q.id !== id)
+    return postList()
+  }
   const d = drawnHighlight(id, 'removeHighlight')
   if (!d) return
   entry = { ...entry, highlights: entry.highlights.filter((x) => x.id !== id) }
@@ -1160,6 +1168,8 @@ async function makeBookFor(bytes, name, kind) {
     }
     return { format: 'pdf', book }
   }
+  // An HTML clip: one section, sanitized (clip.mjs).
+  if (kind === 'html') return { format: 'html', book: clipBook(bytes) }
   if (kind === 'mobi') {
     const { MOBI, unzlibSync } = formatModule('mobi')
     // MOBI6 or KF8 (AZW3, or a MOBI/KF8 combo's KF8 half), foliate's choice; formats.mjs checked its header.
@@ -1363,7 +1373,7 @@ async function open(bytes, name, kind, mine) {
   // never pre-matched on the source text: `&#x72;efresh` spells it past a text match. EPUB hands each
   // section through transformTarget, and so does KF8 (the fork's mobi.js); MOBI6 has none, so its section
   // documents are cleaned where they are made. FB2 and CBZ sections are built by foliate from whitelisted
-  // elements only.
+  // elements only, and an HTML clip's by clip.mjs.
   const nb = made.book
   if (nb.transformTarget) nb.transformTarget.addEventListener('data', ({ detail }) => {
     if (!/html/.test(detail.type)) return
@@ -1494,6 +1504,11 @@ async function addHighlightsNow(list) {
   const result = []
   for (const raw of Array.isArray(list) ? list : []) {
     if (!entry || !annotatable || mine !== viewSeq) return
+    if (isQuotation(raw)) {
+      if (!quotes.some((q) => q.id === raw.id)) quotes = [...quotes, raw]
+      result.push({ id: raw.id, status: 'listed' })
+      continue
+    }
     const h = withHighlight(emptyEntry(book), raw).highlights[0]
     if (!h || entry.highlights.some((x) => x.id === h.id)) {
       result.push({ id: raw?.id, status: h ? 'already drawn' : 'not a highlight' })
@@ -1517,6 +1532,9 @@ async function addHighlightsNow(list) {
 async function restoreInto(json, stale) {
   const stored = json ? entryFor(json, book) : null
   entry = stored ?? emptyEntry(book)
+  // #1195: the host's quotations are listed, never part of the entry the page stores.
+  quotes = entry.quotations ?? []
+  delete entry.quotations
   // The bookmarks found are this entry's (a second restore of the same view replaces them); none can be made until
   // they are placed and the position has landed.
   placed.clear()
@@ -1711,6 +1729,7 @@ window.__fol = {
   // on is saved, built as a relocate's save is. Not arrived: nothing changes.
   goTo: (target, chosen = false) => navigate(async () => {
     if (!view?.book) return
+    if (target === '') return log('warn', 'goTo ignored: a quotation has no place')
     if (target && typeof target === 'object' && !isPosition(target)) return log('warn', 'goTo ignored: not a position')
     if (isPosition(target) ? !fits(target) : format === 'pdf' && String(target).startsWith('epubcfi(')) return log('warn', 'goTo ignored: wrong position kind for this book')
     if (isPdfPage(target) && target.page > view.book.sections.length) return log('warn', 'goTo ignored: page not in this book')
