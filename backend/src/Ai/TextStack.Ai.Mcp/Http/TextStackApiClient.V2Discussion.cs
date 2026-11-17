@@ -4,7 +4,7 @@ using Contracts.V2;
 namespace TextStack.Ai.Mcp.Http;
 
 /// <summary>
-/// The discussion tools' upstream, V2 only (<see cref="McpBridgeOptions.V2"/>): shares and checkpoints
+/// The discussion tools' upstream: shares and checkpoints
 /// under <c>/me/v2</c>. Answers come back as the server's JSON, a refusal as its message and status.
 /// </summary>
 public sealed partial class TextStackApiClient

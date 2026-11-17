@@ -399,7 +399,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
                 """, new { user, book, file });
 
             using var http = _apps[^1].CreateClient();
-            var options = new TextStack.Ai.Mcp.McpBridgeOptions { ApiBaseUrl = "http://localhost/", SiteHost = "localhost", McpToken = Access(account), V2 = true };
+            var options = new TextStack.Ai.Mcp.McpBridgeOptions { ApiBaseUrl = "http://localhost/", SiteHost = "localhost", McpToken = Access(account) };
             var mcp = new TextStack.Ai.Mcp.Tools.McpToolCatalog(
                 new TextStack.Ai.Mcp.Http.TextStackApiClient(http, options, new TextStack.Ai.Mcp.Auth.StaticEnvTokenProvider(options)));
             async Task<JsonElement> Call(string tool, object args)
@@ -426,11 +426,6 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             await Call("save_insight", new { bookId = book, chapterSlug = "c1", text = "Sagan opens with scale." });
             var insight = Assert.Single((await Call("get_my_insights", new { bookId = book })).GetProperty("insights").EnumerateArray());
             Assert.Equal("Shores", insight.GetProperty("chapterTitle").GetString());
-
-            // A retired tool says so, never an empty answer.
-            var review = await mcp.CallAsync("get_chapter_review", JsonSerializer.SerializeToElement(new { bookId = book, chapterSlug = "c1" }), Ct);
-            Assert.True(review.IsError);
-            Assert.Contains("retired", ((ModelContextProtocol.Protocol.TextContentBlock)review.Content[0]).Text);
         }
     }
 

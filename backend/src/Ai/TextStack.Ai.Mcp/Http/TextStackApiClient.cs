@@ -7,33 +7,20 @@ using TextStack.Ai.Mcp.Auth;
 namespace TextStack.Ai.Mcp.Http;
 
 /// <summary>
-/// Thin, stateless client over the existing public TextStack HTTP API.
+/// Thin, stateless client over the TextStack V2 sync API (<c>/me/v2</c>). The MCP server reuses the real
+/// endpoints — their validation, auth and per-user isolation — instead of touching the DB.
 ///
-/// AI-047 shipped <see cref="SearchBooksAsync"/>. AI-048a adds the read tools:
-/// <see cref="GetBookAsync"/> + <see cref="GetChapterAsync"/> (public) and
-/// <see cref="GetHighlightsAsync"/> / <see cref="GetVocabularyAsync"/>
-/// (Bearer, token from <see cref="IMcpTokenProvider"/>).
-/// The MCP server reuses the real endpoints — their validation, site resolution,
-/// auth, and spoiler gate — instead of touching the DB.
-///
-/// The Host header is set per-request so <c>SiteContextMiddleware</c> resolves the
-/// site (also satisfies <c>LanguageMiddleware</c>'s Site.DefaultLanguage = "en"
-/// fallback for bare, unprefixed public routes). User-scoped calls add
-/// <c>Authorization: Bearer {token}</c>.
-///
-/// Non-2xx is treated as "no data" for reads (empty result). A 401 on a
-/// user-scoped call surfaces as <see cref="McpUnauthorizedException"/> so the
-/// handler can map it to the auth-required message. Transport / timeout / parse
-/// failures THROW (<see cref="HttpRequestException"/>,
-/// <see cref="OperationCanceledException"/>, <see cref="JsonException"/>) — the
-/// catalog's shared wrapper maps these to a clean <c>IsError</c> tool result.
+/// Every call is user-scoped: the Host header plus <c>Authorization: Bearer {token}</c> (token from
+/// <see cref="IMcpTokenProvider"/>). A 401 surfaces as <see cref="McpUnauthorizedException"/> so the
+/// handler can map it to the auth-required message. Transport / timeout / parse failures THROW
+/// (<see cref="HttpRequestException"/>, <see cref="OperationCanceledException"/>, <see cref="JsonException"/>)
+/// — the catalog's shared wrapper maps these to a clean <c>IsError</c> tool result.
 /// </summary>
 public sealed partial class TextStackApiClient
 {
     private readonly HttpClient _http;
     private readonly string _siteHost;
     private readonly IMcpTokenProvider _tokenProvider;
-    private readonly bool _v2;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -47,421 +34,17 @@ public sealed partial class TextStackApiClient
         _http = http;
         _siteHost = options.SiteHost;
         _tokenProvider = tokenProvider;
-        _v2 = options.V2;
     }
 
-    /// <summary>Use the V2 sync API (<c>/me/v2</c>), <see cref="McpBridgeOptions.V2"/>.</summary>
-    public bool UsesV2 => _v2;
-
-    // ── search_books (AI-047) ───────────────────────────────────────────────────
-
-    /// <summary>
-    /// <c>GET /search?q={query}&amp;limit={limit}</c>. Non-success → empty.
-    /// </summary>
-    public async Task<PaginatedResult<SearchResultDto>> SearchBooksAsync(
-        string query,
-        int? limit,
-        CancellationToken ct)
-    {
-        var url = $"/search?q={Uri.EscapeDataString(query)}";
-        if (limit is { } l)
-            url += $"&limit={l}";
-
-        using var request = PublicRequest(HttpMethod.Get, url);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-        {
-            var result = await response.Content.ReadFromJsonAsync<PaginatedResult<SearchResultDto>>(JsonOptions, ct);
-            return result ?? EmptySearch;
-        }
-
-        return EmptySearch;
-    }
-
-    // ── get_book (public) ────────────────────────────────────────────────────────
-
-    /// <summary><c>GET /books/{slug}</c>. Not found / non-success → null.</summary>
-    public async Task<BookDetailJson?> GetBookAsync(string slug, CancellationToken ct)
-    {
-        var url = $"/books/{Uri.EscapeDataString(slug)}";
-        using var request = PublicRequest(HttpMethod.Get, url);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<BookDetailJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    // ── get_chapter (public) ─────────────────────────────────────────────────────
-
-    /// <summary><c>GET /books/{slug}/chapters/{chapterSlug}</c>. Non-success → null.</summary>
-    public async Task<ChapterJson?> GetChapterAsync(string slug, string chapterSlug, CancellationToken ct)
-    {
-        var url = $"/books/{Uri.EscapeDataString(slug)}/chapters/{Uri.EscapeDataString(chapterSlug)}";
-        using var request = PublicRequest(HttpMethod.Get, url);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<ChapterJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    // ── list_my_highlights (Bearer) ──────────────────────────────────────────────
-
-    /// <summary>
-    /// <c>GET /me/highlights/{editionId}</c>. 401 → <see cref="McpUnauthorizedException"/>;
-    /// other non-success → empty list.
-    /// </summary>
-    public async Task<IReadOnlyList<HighlightJson>> GetHighlightsAsync(Guid editionId, CancellationToken ct)
-    {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/highlights/{editionId}", ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-        {
-            var result = await response.Content.ReadFromJsonAsync<List<HighlightJson>>(JsonOptions, ct);
-            return result ?? [];
-        }
-
-        return [];
-    }
-
-    // ── list_my_vocabulary (Bearer) ──────────────────────────────────────────────
-
-    /// <summary>
-    /// <c>GET /me/vocabulary/words?stage=&amp;search=&amp;limit=&amp;offset=</c>.
-    /// Omits any null param (API defaults apply). 401 →
-    /// <see cref="McpUnauthorizedException"/>; other non-success → empty (legacy) or the refusal (V2).
-    /// </summary>
-    public async Task<ApiResult<VocabularyPageJson>> GetVocabularyAsync(
-        int? stage, string? search, int? limit, int? offset, CancellationToken ct)
-    {
-        if (_v2) return await GetV2VocabularyAsync(stage, search, limit, offset, ct);
-        return new(await GetLegacyVocabularyAsync(stage, search, limit, offset, ct), null);
-    }
-
-    private async Task<VocabularyPageJson> GetLegacyVocabularyAsync(int? stage, string? search, int? limit, int? offset, CancellationToken ct)
-    {
-        var query = new List<string>();
-        if (stage is { } s) query.Add($"stage={s}");
-        if (!string.IsNullOrEmpty(search)) query.Add($"search={Uri.EscapeDataString(search)}");
-        if (limit is { } l) query.Add($"limit={l}");
-        if (offset is { } o) query.Add($"offset={o}");
-        var url = "/me/vocabulary/words" + (query.Count > 0 ? "?" + string.Join("&", query) : "");
-
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-        {
-            var result = await response.Content.ReadFromJsonAsync<VocabularyPageJson>(JsonOptions, ct);
-            return result ?? EmptyVocab;
-        }
-
-        return EmptyVocab;
-    }
-
-    // ── vocabulary writes (Bearer) ───────────────────────────────────────────────
-    // A refusal keeps the server's reason (and status: a 429 stops a batch, a 404 names a bad id).
-
-    /// <summary>
-    /// <c>POST /me/vocabulary/words</c> — one word. 200 → <c>SaveWordResponse</c>. <paramref name="operationId"/>
-    /// is the call's (legacy has no idempotency key and ignores it; V2 needs it, <see cref="UsesV2"/>).
-    /// </summary>
-    public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, Guid? operationId, CancellationToken ct)
-    {
-        if (_v2) return await SaveV2WordAsync(word, operationId!.Value, ct);
-        return await SendAsync(HttpMethod.Post, "/me/vocabulary/words", word, ct);
-    }
-
-    /// <summary><c>PATCH /me/vocabulary/words/{id}</c>. A null field is left unchanged.</summary>
-    public async Task<ApiResult<JsonElement>> UpdateWordAsync(
-        Guid id, string? translation, string? definition, CancellationToken ct)
-    {
-        if (_v2) return await UpdateV2WordAsync(id, translation, definition, ct);
-        return await SendAsync(HttpMethod.Patch, $"/me/vocabulary/words/{id}", new UpdateWordJson(translation, definition), ct);
-    }
-
-    /// <summary><c>DELETE /me/vocabulary/words/{id}</c>. 204 → success (V2: 200, the tombstone).</summary>
+    /// <summary><c>DELETE /me/v2/vocabulary/words/{id}</c>. 200 (the tombstone) → success.</summary>
     public Task<ApiResult<JsonElement>> DeleteWordAsync(Guid id, CancellationToken ct) =>
-        SendAsync<object>(HttpMethod.Delete, (_v2 ? "/me/v2" : "/me") + $"/vocabulary/words/{id}", null, ct);
+        SendAsync<object>(HttpMethod.Delete, $"/me/v2/vocabulary/words/{id}", null, ct);
 
     /// <summary>One authorized JSON request (a body when given), answered by <see cref="ReadResultAsync"/>.</summary>
     private async Task<ApiResult<JsonElement>> SendAsync<T>(HttpMethod method, string url, T? body, CancellationToken ct)
     {
         using var request = await AuthorizedRequestAsync(method, url, ct);
         if (body is not null) request.Content = JsonContent.Create(body, options: JsonOptions);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        return await ReadResultAsync(response, ct);
-    }
-
-    // ── save_highlight (Bearer, WRITE) ───────────────────────────────────────────
-
-    /// <summary>
-    /// <c>POST /me/highlights</c> with <c>{ editionId, chapterId, anchorJson, color,
-    /// selectedText, noteText }</c> — the first WRITE tool. An MCP client has no DOM,
-    /// so it cannot produce a real reader anchor; the caller synthesizes a minimal
-    /// W3C text-quote <paramref name="anchorJson"/> (exact = selectedText) so the
-    /// jsonb column is satisfied and the web reader can best-effort re-anchor.
-    /// 401 → <see cref="McpUnauthorizedException"/> (write NEVER issued without a
-    /// usable token, enforced in <see cref="AuthorizedRequestAsync"/>); other
-    /// non-success (2xx-but-not-201, 4xx) → null (handler maps to a clean error).
-    /// </summary>
-    public async Task<HighlightJson?> SaveHighlightAsync(
-        Guid editionId, Guid chapterId, string anchorJson, string color, string selectedText, string? noteText, CancellationToken ct)
-    {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/highlights", ct);
-        request.Content = JsonContent.Create(
-            new CreateHighlightJson(editionId, chapterId, anchorJson, color, selectedText, noteText),
-            options: JsonOptions);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<HighlightJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    // ── my library (Bearer) — the UPLOADED half of the library ───────────────────
-    //
-    // A user's own uploads are a different aggregate from the catalog: UserBook /
-    // UserChapter, their own tables, their own chunks. They have NO editionId and
-    // cannot be given one, so every tool below is keyed by `bookId` = UserBook.Id.
-    // Passing one of these ids to an edition-scoped tool (
-    // list_my_highlights) is a 404 / an empty list, not a partial answer.
-
-    /// <summary>
-    /// <c>GET /me/library/search?q={query}&amp;tags={tags}</c> — Postgres FTS over the
-    /// user's own uploads, one hit per book carrying its best-matching chapter.
-    /// Needs no RAG index.
-    ///
-    /// <para>Returns <b>null</b> on failure, and an empty list only when the search really matched
-    /// nothing. The distinction is the whole point: this endpoint spent its life answering 500, and
-    /// mapping that to an empty list told the caller "you have no books about this" — a confident,
-    /// wrong answer that reads exactly like a true one.</para>
-    ///
-    /// <para>401 → <see cref="McpUnauthorizedException"/>.</para>
-    /// </summary>
-    public async Task<IReadOnlyList<UserBookSearchHitJson>?> SearchMyLibraryAsync(
-        string query, string? tags, CancellationToken ct)
-    {
-        if (_v2) return await SearchMyLibraryV2Async(query, tags, ct);
-        var url = $"/me/library/search?q={Uri.EscapeDataString(query)}";
-        if (!string.IsNullOrWhiteSpace(tags))
-            url += $"&tags={Uri.EscapeDataString(tags)}";
-
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-        {
-            var result = await response.Content.ReadFromJsonAsync<List<UserBookSearchHitJson>>(JsonOptions, ct);
-            return result ?? [];
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// <c>GET /me/books/{bookId}</c> — an upload's metadata and chapter list. The
-    /// chapter list carries each chapter's <c>id</c>, which is what
-    /// <c>save_my_highlight</c> needs. 401 → <see cref="McpUnauthorizedException"/>;
-    /// other non-success (incl. someone else's book → 404) → null.
-    /// </summary>
-    public async Task<UserBookDetailJson?> GetMyBookAsync(Guid bookId, CancellationToken ct)
-    {
-        if (_v2) return await GetMyBookV2Async(bookId, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/books/{bookId}", ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<UserBookDetailJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    /// <summary>
-    /// <c>GET /me/books/{bookId}/chapters/{chapterSlug}</c> — one chapter's HTML,
-    /// which the catalog strips and caps exactly as it does for <c>get_chapter</c>.
-    /// 401 → <see cref="McpUnauthorizedException"/>; other non-success → null.
-    /// </summary>
-    public async Task<UserChapterJson?> GetMyChapterAsync(Guid bookId, string chapterSlug, CancellationToken ct)
-    {
-        if (_v2) return await GetMyChapterV2Async(bookId, chapterSlug, ct);
-        var url = $"/me/books/{bookId}/chapters/{Uri.EscapeDataString(chapterSlug)}";
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<UserChapterJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    // ── my-library WRITES (Bearer) ───────────────────────────────────────────────
-
-    /// <summary>
-    /// <c>GET /me/highlights/userbook/{bookId}</c> — highlights on one of the user's uploads. A
-    /// different route from the edition one because they are different aggregates; passing a bookId
-    /// to <see cref="GetHighlightsAsync"/> would return an empty list rather than an error.
-    ///
-    /// <para>Returns <b>null</b> — not an empty list — when the book is not this user's (the endpoint
-    /// answers 404). The difference matters here in a way it does not for the other reads: an empty
-    /// list is a truthful answer to "what have I highlighted", so collapsing "not your book" into it
-    /// would let a wrong id read as a book with no marks. That is the same confusion this route
-    /// exists to avoid, arriving by a different door.</para>
-    ///
-    /// <para>401 → <see cref="McpUnauthorizedException"/>.</para>
-    /// </summary>
-    public async Task<IReadOnlyList<HighlightJson>?> GetUserBookHighlightsAsync(Guid bookId, CancellationToken ct)
-    {
-        if (_v2) return await GetUserBookHighlightsV2Async(bookId, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/highlights/userbook/{bookId}", ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-        {
-            var result = await response.Content.ReadFromJsonAsync<List<HighlightJson>>(JsonOptions, ct);
-            return result ?? [];
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// <c>POST /me/highlights</c> for an UPLOADED book — same endpoint as
-    /// <see cref="SaveHighlightAsync"/>, the other side of its edition/user-book XOR. The API has
-    /// accepted this shape since user-book highlights shipped; only the MCP tool surface was missing.
-    /// A non-PDF upload requires <paramref name="userChapterId"/>, which <c>get_my_chapter</c> and
-    /// <c>get_my_book</c> supply. 401 → <see cref="McpUnauthorizedException"/>; other non-success → null.
-    /// </summary>
-    public async Task<HighlightJson?> SaveUserBookHighlightAsync(
-        Guid userBookId, Guid userChapterId, string anchorJson, string color, string selectedText,
-        string? noteText, CancellationToken ct)
-    {
-        if (_v2) return await SaveUserBookHighlightV2Async(userBookId, userChapterId, color, selectedText, noteText, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/highlights", ct);
-        request.Content = JsonContent.Create(
-            new CreateUserBookHighlightJson(userBookId, userChapterId, anchorJson, color, selectedText, noteText),
-            options: JsonOptions);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<HighlightJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    // ── insights (Bearer) — conclusions written back into a book ─────────────────
-
-    /// <summary>
-    /// <c>GET /me/insights?userBookId=…|editionId=…</c> — everything already worked out about this
-    /// book, in reading order. This is the continuity: a later session reads it and does not redo
-    /// work.
-    ///
-    /// <para>Returns <b>null</b> — not an empty list — when the book does not exist or is not this
-    /// user's, for the same reason <see cref="GetUserBookHighlightsAsync"/> does: an empty list is a
-    /// truthful answer to "what have I worked out about this book", so a wrong id must not be able
-    /// to borrow it.</para>
-    ///
-    /// <para>401 → <see cref="McpUnauthorizedException"/>.</para>
-    /// </summary>
-    public async Task<IReadOnlyList<BookInsightJson>?> GetInsightsAsync(
-        Guid? editionId, Guid? userBookId, CancellationToken ct)
-    {
-        // V2 has no catalog editions: an edition's insights stay on legacy's route (410 in v2 mode).
-        if (_v2 && userBookId is { } bookId) return await GetInsightsV2Async(bookId, ct);
-        var url = editionId is { } e ? $"/me/insights?editionId={e}" : $"/me/insights?userBookId={userBookId}";
-
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.OK)
-        {
-            var result = await response.Content.ReadFromJsonAsync<List<BookInsightJson>>(JsonOptions, ct);
-            return result ?? [];
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// <c>POST /me/insights</c> — save one conclusion against a chapter slug, or against the whole
-    /// book when <paramref name="chapterSlug"/> is null. Saving over an existing one REPLACES it.
-    /// 401 → <see cref="McpUnauthorizedException"/>; other non-success → null.
-    /// </summary>
-    public async Task<BookInsightJson?> SaveInsightAsync(
-        Guid? editionId, Guid? userBookId, string? chapterSlug, string text, string? question,
-        CancellationToken ct)
-    {
-        if (_v2 && userBookId is { } bookId) return await SaveInsightV2Async(bookId, chapterSlug, text, question, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/insights", ct);
-        request.Content = JsonContent.Create(
-            new SaveInsightJson(editionId, userBookId, chapterSlug, text, question), options: JsonOptions);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-
-        if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<BookInsightJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    // ── chapter review (Bearer) ──────────────────────────────────────────────────
-
-    /// <summary>
-    /// <c>GET /me/chapter-review</c> — the whole review context in one call. Unlike the reads above,
-    /// a refusal is NOT collapsed into null: the server's message (spoiler gate, unknown slug, bad
-    /// part) is what tells the model what to do next, so it comes back as <see cref="ApiResult{T}.Error"/>.
-    /// </summary>
-    public async Task<ApiResult<JsonElement>> GetChapterReviewAsync(
-        Guid? editionId, Guid? userBookId, string chapterSlug, int? part, CancellationToken ct)
-    {
-        var url = (editionId is { } e ? $"/me/chapter-review?editionId={e}" : $"/me/chapter-review?userBookId={userBookId}")
-            + $"&chapterSlug={Uri.EscapeDataString(chapterSlug)}"
-            + (part is { } p ? $"&part={p}" : "");
-
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        return await ReadResultAsync(response, ct);
-    }
-
-    /// <summary>
-    /// <c>PUT /me/chapter-review</c>. <paramref name="review"/> is forwarded untouched — the server is
-    /// the only validator, and a 400 carries every problem, which is relayed line by line.
-    /// </summary>
-    public async Task<ApiResult<JsonElement>> SaveChapterReviewAsync(
-        Guid? editionId, Guid? userBookId, string chapterSlug, JsonElement review, CancellationToken ct)
-    {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Put, "/me/chapter-review", ct);
-        request.Content = JsonContent.Create(
-            new SaveChapterReviewJson(editionId, userBookId, chapterSlug, review), options: JsonOptions);
-
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         return await ReadResultAsync(response, ct);
     }
@@ -502,123 +85,7 @@ public sealed partial class TextStackApiClient
         return new(default, $"upstream answered {(int)response.StatusCode}", response.StatusCode);
     }
 
-    // ── reading state (Bearer) ───────────────────────────────────────────────────
-
-    /// <summary>
-    /// <c>GET /me/library/shelves</c> — the reader's shelf, both book kinds in one response with
-    /// titles and progress already joined. This is the only endpoint that answers "what am I
-    /// reading" without the caller stitching three others together.
-    /// </summary>
-    public async Task<ShelvesJson?> GetShelvesAsync(CancellationToken ct)
-    {
-        if (_v2) return (await ReadingV2Async(ct)).Shelves;
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, "/me/library/shelves", ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<ShelvesJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    /// <summary>
-    /// <c>GET /me/books</c> — every upload, not paged. The shelves response is capped and filtered to
-    /// in-progress, so this is what answers "everything I have", including books never opened.
-    /// </summary>
-    public async Task<IReadOnlyList<MyBookJson>?> GetMyBooksAsync(CancellationToken ct)
-    {
-        // ponytail: get_my_reading reads the V2 feeds twice (shelves, then this); one read if it ever matters.
-        if (_v2) return (await ReadingV2Async(ct)).All;
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, "/me/books", ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<IReadOnlyList<MyBookJson>>(JsonOptions, ct);
-
-        return null;
-    }
-
-    /// <summary><c>GET /me/progress/{editionId}</c>. 404 when the reader has never opened it.</summary>
-    public async Task<EditionProgressJson?> GetEditionProgressAsync(Guid editionId, CancellationToken ct)
-    {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/progress/{editionId}", ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<EditionProgressJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    /// <summary><c>GET /me/books/{id}/progress</c>. 404 when the reader has never opened it.</summary>
-    public async Task<UserBookProgressJson?> GetUserBookProgressAsync(Guid bookId, CancellationToken ct)
-    {
-        if (_v2) return await GetUserBookProgressV2Async(bookId, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/books/{bookId}/progress", ct);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        ThrowIfRefused(response);
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<UserBookProgressJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    /// <summary>
-    /// <c>PUT /me/progress/{editionId}</c> — move a catalog book's position.
-    /// <para>
-    /// <c>percentUnit: "book"</c> is not optional decoration: without it <c>ProgressUnit.IsTrusted</c>
-    /// is false and the server stores the position while silently discarding the number.
-    /// </para>
-    /// </summary>
-    public async Task<bool> SetEditionProgressAsync(
-        Guid editionId, Guid chapterId, string locator, double? percent, CancellationToken ct)
-    {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Put, $"/me/progress/{editionId}", ct);
-        request.Content = JsonContent.Create(
-            new SetEditionProgressJson(chapterId, locator, percent, "book"), options: JsonOptions);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        ThrowIfRefused(response);
-        return response.IsSuccessStatusCode;
-    }
-
-    /// <summary>
-    /// <c>PUT /me/books/{id}/progress</c> — move an upload's position. Slug-native, so no chapter-id
-    /// lookup is needed here; the server validates the slug against the book.
-    /// <para>
-    /// <paramref name="locatorKind"/> is what makes the write land on a book last read as a PDF in
-    /// Original layout: the stored position is then <c>page:&lt;n&gt;</c>, and
-    /// <c>LocatorSpace.MayReplace</c> drops an undeclared write from another coordinate space
-    /// entirely — silently, from the caller's point of view, before this change reported it.
-    /// </para>
-    /// </summary>
-    public async Task<bool> SetUserBookProgressAsync(
-        Guid bookId, string? chapterSlug, string locator, double? percent, string? locatorKind,
-        CancellationToken ct)
-    {
-        if (_v2) return await SetUserBookProgressV2Async(bookId, chapterSlug, percent, ct);
-        using var request = await AuthorizedRequestAsync(HttpMethod.Put, $"/me/books/{bookId}/progress", ct);
-        request.Content = JsonContent.Create(
-            new SetUserBookProgressJson(chapterSlug, locator, percent, "book", locatorKind), options: JsonOptions);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        ThrowIfRefused(response);
-        return response.IsSuccessStatusCode;
-    }
-
     // ── request builders ─────────────────────────────────────────────────────────
-
-    // Public route: Host header only (site + EN default-language resolution).
-    private HttpRequestMessage PublicRequest(HttpMethod method, string url)
-    {
-        var request = new HttpRequestMessage(method, Relative(url));
-        request.Headers.Host = _siteHost;
-        return request;
-    }
 
     // Build a relative URI that PRESERVES any path prefix on BaseAddress (e.g.
     // ".../api/"). A leading slash would make HttpClient resolve from the host
@@ -663,22 +130,12 @@ public sealed partial class TextStackApiClient
         }
     }
 
-    /// <summary>
-    /// 401 → <see cref="McpUnauthorizedException"/>; 410 → <see cref="McpRetiredException"/>: in <c>Database:Mode=v2</c> the
-    /// catalog (edition) and chapter-review routes are gone (M5.1 Part C), and an empty answer would read as "nothing there".
-    /// </summary>
+    /// <summary>401 → <see cref="McpUnauthorizedException"/>.</summary>
     private static void ThrowIfRefused(HttpResponseMessage response)
     {
         if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
-        if (response.StatusCode is HttpStatusCode.Gone) throw new McpRetiredException();
     }
-
-    private static readonly PaginatedResult<SearchResultDto> EmptySearch = new(0, []);
-    private static readonly VocabularyPageJson EmptyVocab = new(0, []);
 }
-
-/// <summary>The upstream route is retired (410): the tool answers that it no longer applies, never an empty result.</summary>
-public sealed class McpRetiredException() : Exception("this feature is retired in this version.");
 
 /// <summary>
 /// Typed "no/invalid auth" signal for user-scoped tools. Raised when the token
@@ -714,85 +171,19 @@ public sealed class McpUnauthorizedException : Exception
     }
 }
 
-// ── Local DTOs mirroring the API's JSON (deliberately not a Contracts reference:
-//    this bridge is stateless and decoupled from the layered backend). Shapes
-//    must match the corresponding Api/Endpoints + Contracts records. ────────────
+// ── The shapes the tool catalog maps from. The V2 partials (TextStackApiClient.V2*.cs) read the
+//    Contracts.V2 DTOs and answer in these. ─────────────────────────────────────
 
-public sealed record PaginatedResult<T>(int Total, IReadOnlyList<T> Items);
-
-public sealed record SearchResultDto(
-    Guid ChapterId,
-    string? ChapterSlug,
-    string? ChapterTitle,
-    int ChapterNumber,
-    SearchEditionDto Edition,
-    IReadOnlyList<string>? Highlights);
-
-public sealed record SearchEditionDto(
-    Guid Id,
-    string Slug,
-    string Title,
-    string Language,
-    string? Authors,
-    string? CoverPath);
-
-// GET /books/{slug} → Contracts.Books.BookDetailDto (subset we surface).
-public sealed record BookDetailJson(
-    Guid Id,
-    string Slug,
-    string Title,
-    string Language,
-    string? Description,
-    IReadOnlyList<BookAuthorJson>? Authors,
-    IReadOnlyList<BookGenreJson>? Genres,
-    IReadOnlyList<ChapterSummaryJson>? Chapters);
-
-public sealed record BookAuthorJson(string Name);
-
-public sealed record BookGenreJson(string Name);
-
-// `Id` is deserialized because save_highlight needs a chapterId and its description tells the model
-// to take it from get_book. That was false for as long as this record omitted the field: the server
-// DTO (Contracts.Books.ChapterSummaryDto) has always carried it, the bridge just dropped it.
-public sealed record ChapterSummaryJson(Guid Id, int ChapterNumber, string? Slug, string Title, int? WordCount);
-
-// GET /books/{slug}/chapters/{chapterSlug} → Contracts.Books.ChapterDto (subset).
-public sealed record ChapterJson(
-    int ChapterNumber,
-    string? Slug,
-    string Title,
-    string Html,
-    ChapterNavJson? Prev,
-    ChapterNavJson? Next);
-
-public sealed record ChapterNavJson(string? Slug, string Title);
-
-// GET /me/highlights/{editionId} → HighlightDto[] (subset).
-// Also the POST /me/highlights response body (Created → HighlightDto).
+// A highlight; the chapter of an upload is UserChapterId.
 public sealed record HighlightJson(
     Guid Id,
     Guid? ChapterId,
-    // A highlight on an UPLOADED book carries its chapter here, not in ChapterId — the same
-    // edition/user-book split as everywhere else. Omitting it made every highlight listed off an
-    // upload report chapterId: null, so a model could not tell what it had already marked where.
     Guid? UserChapterId,
     string Color,
     string SelectedText,
     string? NoteText,
     DateTimeOffset CreatedAt);
 
-// POST /me/highlights request → CreateHighlightRequest (edition-scoped subset).
-// AnchorJson is a JSON string stored opaquely in the API's jsonb column; the MCP
-// bridge sends a synthesized W3C text-quote anchor (no DOM available client-side).
-public sealed record CreateHighlightJson(
-    Guid EditionId,
-    Guid ChapterId,
-    string AnchorJson,
-    string Color,
-    string SelectedText,
-    string? NoteText);
-
-// GET /me/vocabulary/words → { total, items: VocabWordDto[] } (subset of items).
 public sealed record VocabularyPageJson(int Total, IReadOnlyList<VocabWordJson> Items);
 
 public sealed record VocabWordJson(
@@ -805,28 +196,18 @@ public sealed record VocabWordJson(
     string? BookTitle,
     DateTimeOffset NextReviewAt);
 
-// POST /me/vocabulary/words → SaveWordRequest. No NativeLanguage: the server falls back to the
-// profile's, and nulls are dropped on the wire.
+// One word of add_vocabulary_words. UserBookId is read but not sent: a V2 example carries no book
+// (TextStackApiClient.V2Vocabulary.cs).
 public sealed record SaveWordJson(
     string Word,
     string Language,
     string? Translation,
     string? Definition,
-    Guid? EditionId,
     Guid? UserBookId,
     string? Sentence,
     string? BookTitle);
 
-// PATCH /me/vocabulary/words/{id} → UpdateWordRequest.
-public sealed record UpdateWordJson(string? Translation, string? Definition);
-
-// ── my-library DTOs (uploads). Mirror Contracts.UserBooks.*; deliberately a
-//    separate family from the catalog's Book*/Chapter* records above, because
-//    UserBook and Edition are separate aggregates and conflating the two is
-//    exactly the bug this surface exists to avoid. ─────────────────────────────
-
-// GET /me/library/search → UserBookSearchHitDto[]. `Id` is the UserBook id — the
-// only identifier an upload has. There is no editionId here, by construction.
+// `Id` is the book id — the only identifier an upload has.
 public sealed record UserBookSearchHitJson(
     Guid Id,
     string Title,
@@ -837,7 +218,6 @@ public sealed record UserBookSearchHitJson(
     string? Excerpt,
     string? ChapterSlug);
 
-// GET /me/books/{id} → UserBookDetailDto (subset we surface).
 public sealed record UserBookDetailJson(
     Guid Id,
     string Title,
@@ -849,18 +229,14 @@ public sealed record UserBookDetailJson(
     int? PublishedYear,
     int? TotalWordCount,
     string Status,
-    // True when the upload is a PDF the reader renders as the original document
-    // (ADR-012). It changes what a highlight written from here can do — see
-    // BuildSaveMyHighlight — so it is surfaced rather than left in the DTO.
+    // True when the upload is a PDF, read as the original document (ADR-012): a highlight written from
+    // here is saved and listed but not drawn over the page (BuildGetMyBook says so).
     bool HasOriginalPdf,
     IReadOnlyList<UserChapterSummaryJson>? Chapters);
 
 public sealed record UserChapterSummaryJson(
     Guid Id, int ChapterNumber, string? Slug, string Title, int? WordCount);
 
-// GET /me/books/{id}/chapters/{slug} → UserChapterDto (subset).
-// Note `Previous`, not `Prev` — the user-book DTO spells it out where the
-// catalog's ChapterDto abbreviates.
 public sealed record UserChapterJson(
     Guid Id,
     int ChapterNumber,
@@ -873,17 +249,6 @@ public sealed record UserChapterJson(
 
 public sealed record UserChapterNavJson(int ChapterNumber, string? Slug, string Title);
 
-// POST /me/highlights request, user-book side of the XOR. EditionId / ChapterId are
-// simply absent (JsonOptions drops nulls) and the API's record defaults them to null.
-public sealed record CreateUserBookHighlightJson(
-    Guid UserBookId,
-    Guid UserChapterId,
-    string AnchorJson,
-    string Color,
-    string SelectedText,
-    string? NoteText);
-
-// GET /me/insights → BookInsightDto[]; also the POST response body.
 public sealed record BookInsightJson(
     Guid Id,
     Guid? EditionId,
@@ -897,33 +262,16 @@ public sealed record BookInsightJson(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
-// POST /me/insights request → SaveInsightRequest.
-public sealed record SaveInsightJson(
-    Guid? EditionId,
-    Guid? UserBookId,
-    string? ChapterSlug,
-    string Text,
-    string? Question);
-
 /// <summary>A call that either produced a value or a message worth showing the model.</summary>
 /// <summary><see cref="Code"/> is a V2 refusal's machine code (<c>book_not_found</c>, …), null for every other upstream.</summary>
 public sealed record ApiResult<T>(T? Value, string? Error, HttpStatusCode? Status = null, string? Code = null);
 
-// PUT /me/chapter-review request → SaveChapterReviewRequest.
-public sealed record SaveChapterReviewJson(
-    Guid? EditionId,
-    Guid? UserBookId,
-    string ChapterSlug,
-    JsonElement Review);
-
-// Every non-2xx from the chapter-review routes → ReviewErrorDto.
+// Every structured refusal: a V2 error body ({ error, message, code, errors }) or ProblemDetails (detail).
 public sealed record ReviewErrorJson(string? Error, string? Message, List<ReviewFieldErrorJson>? Errors, string? Detail = null, string? Code = null);
 
 public sealed record ReviewFieldErrorJson(string Path, string Code, string Message);
 
-
-// GET /me/library/shelves → LibraryShelvesDto. Only the shelves an assistant needs to answer
-// "what am I reading" and "what did I just finish".
+// get_my_reading's shelves: "what am I reading" and "what did I just finish".
 public sealed record ShelvesJson(
     IReadOnlyList<ShelfItemJson>? ContinueReading,
     IReadOnlyList<ShelfItemJson>? RecentlyAdded,
@@ -931,8 +279,6 @@ public sealed record ShelvesJson(
 
 public sealed record ShelfItemJson(
     Guid Id,
-    // "userbook" (an upload, addressed by bookId) or "savedbook" (a catalog edition, editionId).
-    // The two halves of the tool catalog split on exactly this.
     string Type,
     string Title,
     string? Author,
@@ -941,7 +287,7 @@ public sealed record ShelfItemJson(
     DateTimeOffset? LastOpenedAt,
     string? ChapterSlug);
 
-// GET /me/books → UserBookListDto[] (the subset that answers "what is on my shelf").
+// get_my_reading's allBooks: every upload, opened or not.
 public sealed record MyBookJson(
     Guid Id,
     string Title,
@@ -953,25 +299,8 @@ public sealed record MyBookJson(
     string? ProgressChapterSlug,
     DateTimeOffset? CompletedAt);
 
-// GET /me/progress/{editionId} → ReadingProgressDto.
-public sealed record EditionProgressJson(
-    Guid EditionId,
-    Guid ChapterId,
-    string? ChapterSlug,
-    string Locator,
-    double? Percent,
-    DateTimeOffset UpdatedAt,
-    DateTimeOffset? CompletedAt);
-
-// GET /me/books/{id}/progress → UserBookProgressDto.
 public sealed record UserBookProgressJson(
     string? ChapterSlug,
     string? Locator,
     double? Percent,
     DateTimeOffset? UpdatedAt);
-
-public sealed record SetEditionProgressJson(
-    Guid ChapterId, string Locator, double? Percent, string PercentUnit);
-
-public sealed record SetUserBookProgressJson(
-    string? ChapterSlug, string? Locator, double? Percent, string PercentUnit, string? LocatorKind);

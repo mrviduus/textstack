@@ -39,11 +39,10 @@ public sealed class McpServerHarness : IAsyncDisposable
         McpEndpoint = mcpEndpoint;
     }
 
-    /// <param name="v2">The bridge's <see cref="McpBridgeOptions.V2"/>.</param>
-    public static async Task<McpServerHarness> StartAsync(CancellationToken ct, bool v2 = false)
+    public static async Task<McpServerHarness> StartAsync(CancellationToken ct)
     {
         var stub = await StubBackend.StartAsync(ct);
-        return await StartInternalAsync(stub, stub.BaseUrl, ct, v2);
+        return await StartInternalAsync(stub, stub.BaseUrl, ct);
     }
 
     /// <summary>
@@ -60,7 +59,7 @@ public sealed class McpServerHarness : IAsyncDisposable
         return await StartInternalAsync(stub, deadUrl, ct);
     }
 
-    private static async Task<McpServerHarness> StartInternalAsync(StubBackend stub, string apiBaseUrl, CancellationToken ct, bool v2 = false)
+    private static async Task<McpServerHarness> StartInternalAsync(StubBackend stub, string apiBaseUrl, CancellationToken ct)
     {
         var mcpPort = FreeTcpPort();
         var options = new McpBridgeOptions
@@ -68,7 +67,6 @@ public sealed class McpServerHarness : IAsyncDisposable
             ApiBaseUrl = apiBaseUrl,
             SiteHost = "textstack.app",
             Transport = McpTransport.Http,
-            V2 = v2,
         };
         // BuildHttp wires HttpContextTokenProvider (per-request bearer from the
         // Authorization header) — http mode never uses a static token here.

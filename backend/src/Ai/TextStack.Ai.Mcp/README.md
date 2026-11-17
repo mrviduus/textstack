@@ -5,31 +5,28 @@ library to Claude Desktop, Cursor, or any [Model Context Protocol](https://model
 client. Search and read your books, and manage your highlights and
 vocabulary straight from your AI assistant.
 
-It exposes **21 tools** with `Features:V2Api` off, **25** on (`share_chapter`, `save_checkpoint`, `list_checkpoints`, `get_shared_chapter`); the manifest and the bridge follow the same flag:
+It exposes **18 tools**:
 
 | Tool | What it does |
 |------|--------------|
-| `search_books` | Search the public book catalog by query |
-| `get_book` | Fetch a book's metadata and chapter list by slug |
-| `get_chapter` | Fetch the full text of a single chapter |
-| `search_my_library` | Search the books **you uploaded** (requires sign-in) |
+| `search_my_library` | Search your books by title or author (requires sign-in) |
 | `get_my_book` | Fetch one of your uploads: metadata + chapter list (requires sign-in) |
 | `get_my_chapter` | Fetch the full text of one chapter of your upload (requires sign-in) |
 | `save_my_highlight` | Highlight a passage in a book you uploaded (requires sign-in) |
 | `list_my_book_highlights` | List the highlights in a book you uploaded (requires sign-in) |
 | `save_insight` | Write a conclusion back into a book, against a chapter or the whole book (requires sign-in) |
 | `get_my_insights` | Read back everything already worked out about a book (requires sign-in) |
-| `list_my_highlights` | List your saved highlights (requires sign-in) |
-| `save_highlight` | Save a passage to your highlights (requires sign-in) |
 | `list_my_vocabulary` | List your saved vocabulary words, with their ids (requires sign-in) |
 | `add_vocabulary_words` | Save up to 20 words with translations to your vocabulary (requires sign-in) |
 | `update_vocabulary_word` | Fix a saved word's translation or definition (requires sign-in) |
 | `delete_vocabulary_word` | Remove one word from your vocabulary (requires sign-in) |
-| `get_my_reading` | What you are reading now and every upload — no arguments (requires sign-in) |
+| `get_my_reading` | What you are reading now and every book — no arguments (requires sign-in) |
 | `get_book_progress` | How far you have got in one book (requires sign-in) |
 | `set_book_progress` | Record a chapter you finished, here or elsewhere (requires sign-in) |
-| `get_chapter_review` | Start a chapter review: method, chapter text, your highlights and words, open threads (requires sign-in) |
-| `save_chapter_review` | Save the finished review; its questions join your practice queue (requires sign-in) |
+| `share_chapter` | Snapshot one chapter for a discussion (requires sign-in) |
+| `save_checkpoint` | Save one checkpoint of a discussion (requires sign-in) |
+| `list_checkpoints` | Read a book's discussion checkpoints (requires sign-in) |
+| `get_shared_chapter` | Read a chapter shared from the reader's Discuss (requires sign-in) |
 
 ## Install
 
@@ -64,13 +61,8 @@ Add to your `claude_desktop_config.json`:
 ```
 
 The server speaks MCP over **stdio** by default — exactly what a local desktop
-client needs. The catalog tools (`search_books`, `get_book`, `get_chapter`) work
-without signing in.
-
-Your own uploads are a separate half of the library, reached by the `*_my_*`
-tools and identified by a `bookId`. A `bookId` is not an `editionId`: passing one
-to `ask_book` or `list_my_highlights` returns nothing rather than an error, so
-keep the two apart.
+client needs. Every tool works on your own account, and a book is identified by
+its `bookId`.
 
 ## Auth (for your highlights / vocabulary)
 
