@@ -12,6 +12,7 @@ import { isFractionOnly } from './fractionPosition'
 import { isPdfPage } from './pdfPagePosition'
 import { decideNewerPosition, serverProvablyNewer, type NewerPositionAction } from './newerPosition'
 import { MAX_SELECTED_TEXT } from './v2Locators'
+import { isQuotation, type PageQuotation } from './v2PageStore'
 
 export interface PagePosition {
   /** Absent on a fraction-only position (a transitional server locator): restored by `fraction`, never pushed. */
@@ -61,6 +62,8 @@ export function spineIndexOf(cfi: string): number | null {
  * ones; an older stored one is tolerated, not sent).
  */
 export function syncableText(h: PageHighlight): string | null {
+  // #1195: a quotation (a legacy anchor row) is never written back.
+  if (isQuotation(h)) return null
   const text = h.selectedText ?? h.quote
   return typeof text === 'string' && text.trim() && text.length <= MAX_SELECTED_TEXT ? text : null
 }
@@ -182,6 +185,12 @@ export function annotationHighlight(a: V2Annotation): PageHighlight | null {
     quote: l.quote || codePoints(a.selectedText, 64), selectedText: a.selectedText,
     prefix: l.prefix ?? '', suffix: l.suffix ?? '', color: a.color, at: Date.parse(a.createdAt),
   }
+}
+
+/** #1195: a pulled live `textstack-anchor-v1` annotation as the page's quotation (listed, never drawn); null for any other. */
+export function annotationQuotation(a: V2Annotation): PageQuotation | null {
+  const q: PageQuotation = { id: a.id, quotation: true, selectedText: a.selectedText, color: a.color, at: Date.parse(a.createdAt) }
+  return a.locator?.scheme === 'textstack-anchor-v1' && !a.deletedAt && isQuotation(q) ? q : null
 }
 
 /** JSON values compared structurally: key order ignored (jsonb keeps none), undefined members absent. */

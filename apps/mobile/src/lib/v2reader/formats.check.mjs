@@ -2,7 +2,7 @@
 // opens one small book per format (fixtures.mjs writeFormatFixtures) and must answer as README "Formats" says, one
 // story per row and bullet: each format reader runs only when its first book opens; EPUB, MOBI, FB2/FBZ (UTF-16 too),
 // AZW3 and a combo (its KF8 half) open and draw; CBZ has no text features and saves and restores its page by name;
-// a fraction-only position (#1187) restores without saving; PDF opens, pages, saves and resumes by `pdf-page` and
+// a fraction-only position (#1187) restores without saving; an HTML clip opens only with the host's format, sanitized; PDF opens, pages, saves and resumes by `pdf-page` and
 // never takes a CFI; a DRM, damaged, entity-declaring or unknown file is refused, leaving the open book reading;
 // a hostile PDF neither runs script nor leaves the file; an older WebView still reads a PDF or says why not.
 // The reader's features (selection, search, highlights, bookmarks, chrome) are not this check's: their modules'
@@ -89,10 +89,10 @@ try {
   const loaded = () => call('Object.keys(window.__tsFormats).sort().join(",")')
   const storeFrom = (from, what) => waitFor(from, (x) => x.type === 'store', what).then((s) => JSON.parse(s.json)).catch(() => null)
   /** Opens `file`; resolves with `opened` or `open-failed`, after `restored` for an opened book. */
-  const open = async (file, stored = null) => {
+  const open = async (file, stored = null, format = null) => {
     const from = messages.length
     const stale = new Set(page.frames())
-    await call(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)})`)
+    await call(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)}, ${JSON.stringify(format)})`)
     const m = await waitFor(from, (x) => (x.type === 'opened' || x.type === 'open-failed') && (x.book?.name ?? x.name) === file, `${file} to open`)
     if (m.type === 'opened') {
       await call(`window.__fol.restore(${JSON.stringify(stored)})`)
@@ -190,6 +190,21 @@ try {
     const img = document.querySelector('img')
     return img?.naturalWidth === 60 && (await (await fetch(img.src)).blob()).type === 'image/svg+xml'
   }), 'its SVG page is rendered as an image (typed image/svg+xml)')
+
+  // An HTML clip (owner decision 5): never by bytes, only with the host's format; one sanitized section.
+  console.log('html clip')
+  const pw = '(top.__pwned=1)'
+  const clipText = Array.from({ length: 3 }, (_, i) => `<p>Paragraph ${i + 1}. Sphinx of black quartz, judge my vow.</p>`).join('')
+  writeFileSync(resolve(dir, 'tsclip.html'), `<!doctype html><title>TS CLIP</title><div id="readability-page-1"><h1>Chapter One</h1>${clipText}<script>${pw}</script><img src="x" onerror="${pw}">`
+    + `<a href="javascript:${pw}">j</a><svg onload="${pw}"></svg><iframe srcdoc="<script>${pw}</script>"></iframe><form action="https://evil.tst"><input name="p"></form></div>`)
+  m = await open('tsclip.html')
+  check(m.type === 'open-failed' && /not a book this reader opens/.test(m.error), `a clip without the host's format is refused (${m.error})`)
+  m = await open('tsclip.html', null, 'html')
+  check(m.type === 'opened' && m.format === 'html' && m.textual && m.annotatable && m.sections === 1 && m.title === 'TS CLIP' && await showsText(m),
+    `with the host's format it opens as html, one section, and draws (${m.format}, ${m.sections}, ${m.title}${m.error ? `, ${m.error}` : ''})`)
+  check(await shown(() => !document.querySelector('script,iframe,svg,form,input,[onerror],[onload],a[href^="javascript"]'), m.stale)
+    && !(await Promise.all(page.frames().map((fr) => fr.evaluate(() => !!top.__pwned).catch(() => false)))).some(Boolean),
+  'its section holds no script, frame, svg, form, handler or javascript: link, and no clip script ran')
 
   console.log('pdf')
   const violations = () => call('window.__violations ?? []')

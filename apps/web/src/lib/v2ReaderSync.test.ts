@@ -1,4 +1,4 @@
-import { ApiError, type PageHighlight, type PagePosition, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type PageHighlight, type PagePosition, type PageQuotation, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v2Store } from '../api/v2'
 import { createV2ReaderSync, KEEPALIVE_BUDGET, v2ReaderSyncApi, type V2ReaderSyncApi, type V2SaveStatus, type V2SyncTarget } from './v2ReaderSync'
@@ -37,7 +37,7 @@ const deferred = <T>() => {
 
 let api: { [K in keyof V2ReaderSyncApi]: ReturnType<typeof vi.fn> }
 let statuses: V2SaveStatus[]
-let drawnLists: PageHighlight[][]
+let drawnLists: (PageHighlight | PageQuotation)[][]
 /** The places offered to the host (`onNewerPlace`). */
 let newer: PagePosition[]
 /** A write recorded before every other here. */
