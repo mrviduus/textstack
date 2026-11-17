@@ -24,6 +24,7 @@ public static partial class ServiceCollectionExtensions
             // invalid_payload) instead of a bare 400. For every route, as Development already did.
             .Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = true)
             .AddSingleton<V2Readiness>()
+            .AddSingleton<SelectedDatabaseProbe>()
             // The legacy pace counts V2 sessions (#1313); it answers none while V2 is off or down.
             .AddSingleton<Application.ReadingTracking.IV2PaceTotals, V2PaceTotals>()
             // On V2's accounts: IUserRepository itself is bound to legacy until M5.1.

@@ -45,7 +45,8 @@ public static partial class ServiceCollectionExtensions
                     .Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
 
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
-        services.AddLegacyIdentityPorts();
+        var mode = DatabaseMode.Read(configuration);
+        services.AddSelectedIdentityPorts(mode).AddSelectedAuthentication(mode);
 
         services.AddTextStackFileStores(configuration);
 

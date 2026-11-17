@@ -1,4 +1,5 @@
-using Microsoft.EntityFrameworkCore;
+using System.Data.Common;
+using Dapper;
 
 namespace Api.Extensions;
 
@@ -26,8 +27,8 @@ internal static class CollationDrift
     /// record no version at all and cannot drift, so they are left out rather than reported as a
     /// third state nobody can act on.
     /// </summary>
-    public static Task<List<string>> DriftedAsync(DbContext db, CancellationToken ct = default) =>
-        db.Database.SqlQueryRaw<string>(
+    public static async Task<List<string>> DriftedAsync(DbConnection db, CancellationToken ct = default) =>
+        (await db.QueryAsync<string>(new CommandDefinition(
             """
             SELECT datname || ': created under ' || datcollversion || ', OS now provides '
                      || coalesce(pg_database_collation_actual_version(oid), 'no version') AS "Value"
@@ -35,5 +36,5 @@ internal static class CollationDrift
             WHERE datcollversion IS NOT NULL
               AND datcollversion IS DISTINCT FROM pg_database_collation_actual_version(oid)
             ORDER BY datname
-            """).ToListAsync(ct);
+            """, cancellationToken: ct))).AsList();
 }

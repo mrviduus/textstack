@@ -9,21 +9,22 @@ Prepare a bounded, tested switch from legacy to V2. Reuse the existing repositor
 accepted backup rehearsals. [V2 plan](v2-plan.md) §5 remains the cutover contract.
 
 Deployment of #1356 succeeded on 2026-11-16. The production readiness endpoint still reports V2 off.
-The current API binds `IAuthService` to legacy; OAuth/device/MCP identity ports are also legacy.
-V2 endpoints still validate a legacy account and create a shadow V2 user. These are unfinished M5.1
-dependencies, not switches an operator can enable today.
+The default remains legacy. Part B now provides the V2 identity selection, but compatibility,
+assistant book reads and release-entry/rehearsal gates still prevent a production switch.
+The shadow-user bridge runs only in legacy mode; native mode validates the current V2 account.
 
 ## Independently reviewable parts
 
 | Part | Minimum scope | Verification |
 |---|---|---|
-| A: HTTP write barrier (this PR) | Default-off `Maintenance:WriteFreeze`; 503 before handlers and auth use stamps; omit API database sweeps and startup model seeding; preserve reads without creating shadow users | Real API pipeline plus middleware, OAuth/MCP stamp, shadow-user and background-registration tests |
-| B: database and identity selection | Strict startup selection of `Database:Mode`; bind auth/admin services and all identity ports together in API and Worker; move concrete auth handlers to the existing contracts; make V2 gates validate V2 accounts without legacy/shadow writes | Legacy mode with V2 unavailable; V2-only user login/refresh/logout/reset/device/OAuth/MCP-key/account-delete/guest-merge; admin/reader token separation; no accidental fallback |
+| A: HTTP write barrier (merged #1357) | Default-off `Maintenance:WriteFreeze`; 503 before handlers and auth use stamps; omit API database sweeps and startup model seeding; preserve reads without creating shadow users | Real API pipeline plus middleware, OAuth/MCP stamp, shadow-user and background-registration tests |
+| B: database and identity selection (this PR) | Strict startup `Database:Mode`; selected Api auth/admin services and five identity ports in both hosts; native account checks; selected readiness and Worker loops | Real HTTP on PostgreSQL with legacy unreachable: register/login/refresh/reset/device/OAuth/MCP keys/account delete/guest merge/admin; deterministic reset-boundary tests; legacy behavior retained |
 | C: compatibility and MCP aliases | Inventory old private reads/writes, map retained operations to V2, explicitly retire catalog operations; log app version, route and outcome; coordinate book-tool parity with #1346 | Old-route write matrix, ownership checks, retry/idempotence, no silently dropped sessions/annotations; MCP scenarios on a V2-only book |
 | D: M5.2 rehearsal and release entry points | Runbook, final archive, complete stop/drain/freeze sequence, current-build ETL and validation, both clients, MCP and rollback | One full rehearsal on an isolated restored backup; device evidence; explicit owner approval before production |
 
-Parts B/C do not belong to Part A's PR. None of these rows closes M5 by itself. No schema change,
-reader implementation, legacy deletion, production ETL or feature-flag change belongs to Part A.
+Parts A and B are separate PRs; C/D remain pending. None of these rows closes M5 by itself.
+No schema change, reader implementation, legacy deletion, production ETL or production flag change
+belongs to either preparation PR.
 
 ## Part A: HTTP barrier contract
 
@@ -51,6 +52,36 @@ by a flag; database-level enforcement and its rollback must be rehearsed as part
 
 Verification and rollback for this part: test both flag values; recreate the Api with the flag false
 to resume HTTP writes. No data or schema migration is involved.
+
+## Part B: selected identity, not a release switch
+
+- `DATABASE_MODE=legacy` is the Compose default in both Api and Worker. `v2` requires
+  `FEATURES_V2API=true` and `ConnectionStrings:V2`. Unknown/blank mode values fail startup. Recreate
+  both processes to change it; there is no per-request database choice or outage fallback.
+- Api reader/admin auth selects the existing service contracts. Users, sessions, OAuth, device
+  logins and MCP keys select one database together. In native mode the legacy identity mirror is
+  inert. Worker selects those ports but does not issue HTTP sessions.
+- Native private requests validate the current V2 user, role and credential-reset stamp. The check
+  is memoized within a request only. New signed JWTs retain full issue-time precision alongside
+  standard `iat`, so an immediate post-reset sign-in works; older tokens fall back to whole-second
+  `iat`. Reader/admin audiences remain separate.
+- Primary health/schema/collation probes use the selected pool. `/health/ready` reports `db.mode`.
+  Native private `/me` routes skip the legacy sites lookup; public catalog reads remain legacy
+  until retirement. Migrations and ETL keep their explicit source/target settings.
+- Native Worker holds its single-consumer lock on V2 and runs V2 ingestion, selected credential
+  retention and heartbeat. Legacy ingestion, enrichment, guest cleanup and watchers do not start.
+  Api legacy database sweeps/model seeding also do not run in native mode. Trace writers select V2;
+  Ops readers/retention remain tracked in #1090. Native inactive-empty-guest cleanup is #1358.
+  Part C must align spend reads with V2 traces before enabling paid AI handlers; do not bypass that
+  gap by granting the route marker to a legacy AI handler. The cutover runbook must stop the old
+  Worker before starting the native one; the selected-database lock is not a cross-mode rollout lock.
+- Until Part C adapts or retires them, unmarked private routes and mutation handlers return retryable
+  503 `v2_compatibility_pending` in native mode. `V2SelectedRoute` is granted only to reviewed handlers
+  using selected identity/V2 dependencies; marking a legacy handler is not a workaround for the gate.
+  This deliberately prevents mixed-database writes, and means **native mode is not ready for end users yet**.
+
+No production setting is changed by this PR. Rolling the mode back after real native writes may lose
+those writes; Part D must verify the archive, smoke checks and the rollback boundary before the switch.
 
 ## Reader dependency before the switch
 

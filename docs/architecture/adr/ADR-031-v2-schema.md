@@ -361,8 +361,11 @@ is never edited (ADR-026); the rows and rules above read with these deltas:
   under the user row's `FOR SHARE`, so a reset committing meanwhile is seen. A grant is connected only
   for a consent requested after the stamp, and the reset expires approved, unexchanged OAuth requests
   as it expires approved device logins. Every sign-in takes that lock, so none
-  commits beside a reset unseen. `iat` has whole seconds: a token minted in the reset's own second is
-  refused too. The stamp is the database's clock and `iat` the api's: one host (compose) keeps them one
+  commits beside a reset unseen. Standard `iat` has whole seconds. M5.1 adds the signed
+  `ts_iat_ticks` issue-time claim (UTC ticks) so a fresh sign-in in the reset's own second is not
+  rejected. It is read only after signature/audience validation; older tokens use the conservative
+  whole-second `iat` fallback and a token minted before the reset is refused. The stamp is the
+  database's clock and the issue time the api's: one host (compose) keeps them one
   clock; split across hosts, their skew is a window in which a pre-reset token passes.
 - **`user_refresh_tokens`:** `kind text NOT NULL`, `ck_user_refresh_tokens_kind` (`reader`, `admin`)
   replaces the `adm.` hash prefix; `token_hash` stays unique across kinds. `family_id uuid NOT NULL`

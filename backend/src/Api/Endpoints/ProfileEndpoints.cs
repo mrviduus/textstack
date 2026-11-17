@@ -1,3 +1,4 @@
+using Api.V2;
 using Api.Extensions;
 using Api.Mapping;
 using Application.Auth;
@@ -20,7 +21,7 @@ public static class ProfileEndpoints
 
     public static void MapProfileEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/me/profile").WithTags("Profile").RejectOAuthTokens();
+        var group = app.MapGroup("/me/profile").WithMetadata(V2SelectedRoute.Instance).WithTags("Profile").RejectOAuthTokens();
 
         group.MapGet("/", GetProfile).WithName("GetProfile");
         group.MapPut("/", UpdateProfile).WithName("UpdateProfile");

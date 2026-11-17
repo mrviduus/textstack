@@ -59,7 +59,8 @@ public class V2GateFilterTests
         {
             [Api.Middleware.WriteFreezeMiddleware.ConfigurationKey] = writeFreeze.ToString(),
         }).Build();
-        var result = await new V2Gate(readiness ?? _ready, _shadows, _legacy.Object, _auth, config).InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
+        var result = await new V2Gate(readiness ?? _ready, _shadows, _legacy.Object, _auth, config,
+            _v2Users.Object, new Infrastructure.Persistence.DatabaseMode(false)).InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
         {
             reached = true;
             return endpointThrows is null ? ValueTask.FromResult<object?>(Results.Ok()) : throw endpointThrows;
@@ -123,6 +124,30 @@ public class V2GateFilterTests
 
         await Assert.ThrowsAsync<PostgresException>(() =>
             GateAsync(user.Id, endpointThrows: new PostgresException("connection lost", "FATAL", "FATAL", "57P01")));
+        await _ready.GetAsync();
+
+        Assert.Equal(2, _checks);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_LegacyDatabaseError_RethrowsAndKeepsTheV2ReadinessCache()
+    {
+        _legacy.Setup(d => d.Users).Throws(new PostgresException("connection lost", "FATAL", "FATAL", "57P01"));
+
+        await Assert.ThrowsAsync<PostgresException>(() => GateAsync(Guid.NewGuid()));
+        await _ready.GetAsync();
+
+        Assert.Equal(1, _checks);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_V2ErrorEnsuringTheShadowRow_EmptiesTheReadinessCacheAndRethrows()
+    {
+        var user = LegacyUser();
+        _v2Users.Setup(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new PostgresException("connection lost", "FATAL", "FATAL", "57P01"));
+
+        await Assert.ThrowsAsync<PostgresException>(() => GateAsync(user.Id));
         await _ready.GetAsync();
 
         Assert.Equal(2, _checks);

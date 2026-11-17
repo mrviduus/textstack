@@ -12,7 +12,7 @@ public static class AccountEndpoints
 {
     public static void MapAccountEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/me/account").WithTags("Account").RejectOAuthTokens();
+        var group = app.MapGroup("/me/account").WithMetadata(V2SelectedRoute.Instance).WithTags("Account").RejectOAuthTokens();
 
         group.MapDelete("/", DeleteAccount)
             .WithName("DeleteAccount")

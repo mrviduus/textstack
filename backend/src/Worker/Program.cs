@@ -13,6 +13,7 @@ using TextStack.Observability;
 using Worker.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
+var databaseMode = DatabaseMode.Read(builder.Configuration);
 
 // OpenTelemetry
 builder.Services.AddTextStackTelemetry(builder.Configuration, "textstack-worker");
@@ -37,7 +38,7 @@ builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
 // Register IAppDbContext for scoped services (creates context via factory)
 builder.Services.AddScoped<IAppDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
-builder.Services.AddLegacyIdentityPorts();
+
 
 builder.Services.AddTextStackFileStores(builder.Configuration);
 
@@ -52,6 +53,7 @@ builder.Services.AddSingleton<IImageOptimizer, ImageOptimizer>();
 
 // Application services (for ISsgRouteProvider, etc.)
 builder.Services.AddApplication();
+builder.Services.AddSelectedIdentityPorts(databaseMode);
 
 // HTTP client factory (for OllamaLlmService + etc.)
 builder.Services.AddHttpClient();
@@ -65,13 +67,6 @@ TextStack.Ai.Agents.ServiceCollectionExtensions.AddAiAgents(builder.Services);
 builder.Services.AddScoped<Application.Agents.EnrichmentAgent>();
 builder.Services.AddSingleton<BookMetadataGenerator>();
 builder.Services.AddSingleton<IBookMetadataGenerator, EnrichmentAgentMetadataGenerator>();
-// Single consumer (ADR-022/023), enforced: a second copy waits here before any other service starts.
-// Must stay FIRST among hosted services.
-builder.Services.AddHostedService(sp => new SingleInstanceLock(connectionString, sp.GetRequiredService<ILogger<SingleInstanceLock>>()));
-// Startup observability: probe EVERY provider the route table references, once, before any worker
-// loop starts — and open that provider's circuit if it is unreachable, so the loops skip instead of
-// hammering. Supersedes the old EnrichmentKeyCheck.
-builder.Services.AddHostedService<AiProviderReadinessCheck>();
 builder.Services.AddSingleton<ITagSuggestionGenerator, TagSuggestionGenerator>();
 builder.Services.AddSingleton<IngestionWorkerService>();
 // Enrichment-reliability: executor (atomic claim + terminal status) used only by the sweep worker
@@ -79,30 +74,8 @@ builder.Services.AddSingleton<IngestionWorkerService>();
 // singleton IBookMetadataGenerator.
 builder.Services.AddSingleton<UserBookEnrichmentService>();
 builder.Services.AddSingleton<UserIngestionService>();
-builder.Services.AddHostedService<IngestionWorker>();
-// Transitional (dropped at M6.4): V2 uploads' chapters. Idle unless Features:V2Api and ConnectionStrings:V2.
-builder.Services.AddSingleton<V2IngestionService>();
-builder.Services.AddHostedService<V2IngestionWorker>();
-// Sweep: drains Pending (API re-enrich reaches the worker here) + reclaims stale Running rows.
-builder.Services.AddHostedService<MetadataEnrichmentWorker>();
-builder.Services.AddHostedService<StuckJobsMetricsWorker>();
-
-// SSG Rebuild handled by dedicated ssg_worker container (apps/web/scripts/ssg-worker.mjs)
-
-// Guest cleanup (purge inactive guests every 2h)
-builder.Services.AddHostedService<GuestCleanupWorker>();
-
-// Retention: expired tokens, old AI text, idle tutor sessions, finished SSG jobs (daily)
-builder.Services.AddHostedService<RetentionCleanupWorker>();
-
-// Heartbeat file for docker healthcheck
-builder.Services.AddHostedService<HeartbeatWorker>();
-
-// TextStack watcher (optional, enable via config)
-if (builder.Configuration.GetValue("TextStack:EnableWatcher", false))
-{
-    builder.Services.AddHostedService<TextStackWatcher>();
-}
+// Select complete loop sets: no legacy ingestion, guest sweep or metadata write runs in V2 mode.
+builder.Services.AddSelectedWorkerLoops(builder.Configuration, databaseMode, connectionString);
 
 var host = builder.Build();
 host.Run();

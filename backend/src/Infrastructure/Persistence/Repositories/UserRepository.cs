@@ -19,11 +19,9 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
     /// <summary>
     /// The guard of a credential minted from an access token issued at <c>@tokenIssuedAt</c> (its
     /// <c>iat</c>), over <c>users u</c>: false once the account's password was reset after it. Read
-    /// under <c>FOR SHARE</c> by the writer, so a reset committing meanwhile is seen. <c>iat</c> has
-    /// whole seconds, so a token minted in the reset's own second is refused too, until a refresh replaces it.
-    /// The stamp is the database's clock (<c>clock_timestamp()</c>), <c>iat</c> the api's: both run on
-    /// one host (compose), so they are one clock. Split them across hosts and their skew becomes a
-    /// window in which a pre-reset token passes.
+    /// under <c>FOR SHARE</c> by the writer, so a reset committing meanwhile is seen. The stamp and
+    /// <c>iat</c> (full ticks; whole seconds only on older tokens) both come from the api's clock
+    /// (<see cref="SessionTokenRepository.ResetPasswordAsync"/>), so database clock skew opens no window.
     /// </summary>
     internal const string NotResetSinceToken = "(u.credentials_reset_at IS NULL OR u.credentials_reset_at <= @tokenIssuedAt)";
 

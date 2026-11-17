@@ -34,7 +34,7 @@ public class PathGatesTests : IAsyncLifetime
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddScoped(_ => new AuthService(
+        builder.Services.AddScoped<IAuthService>(_ => new AuthService(
             db: null!,
             jwtSettings: Options.Create(new JwtSettings { SecretKey = Secret, Issuer = Issuer }),
             googleSettings: Options.Create(new GoogleSettings { ClientId = "unused.apps.googleusercontent.com" })));
