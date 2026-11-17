@@ -84,29 +84,8 @@ public class RetentionCleanupWorker(
             () => services.GetRequiredService<IDeviceLoginRepository>().DeleteExpiredAsync(tokenCutoff, ct), ct);
         await DeleteAsync("OAuth grants",
             () => services.GetRequiredService<IOAuthRepository>().DeleteDeadGrantsAsync(tokenCutoff, ct), ct);
-        var db = services.GetRequiredService<IAppDbContext>();
-        // Traces keep their cost, tokens and latency for spend history; only the text goes.
-        // Batches: the first run rewrites months of text (~750 MB); one statement would be one huge
-        // transaction. Both modes: the ETL does not copy legacy traces/runs and legacy lives till M6 (#941).
-        await DeleteAsync("LLM trace texts (scrubbed)", async () =>
-        {
-            int batch, total = 0;
-            do
-            {
-                batch = await db.LlmTraces.Where(LlmTraceTextToScrub(now)).OrderBy(t => t.Id).Take(ScrubBatch)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(t => t.SystemPrompt, (string?)null)
-                        .SetProperty(t => t.MessagesJson, ScrubbedMessages)
-                        .SetProperty(t => t.ResponseText, (string?)null)
-                        .SetProperty(t => t.ToolCallsJson, (string?)null), ct);
-                total += batch;
-            } while (batch == ScrubBatch && !ct.IsCancellationRequested);
-            return total;
-        }, ct);
-        await DeleteAsync("agent runs",
-            () => db.AgentRuns.Where(OldAgentRun(now)).ExecuteDeleteAsync(ct), ct);
-        // In v2 mode new traces and runs land on V2: the same rules there. The remaining Ops sweeps
-        // stay off legacy after cutover (#1090).
+        // In v2 mode traces and runs live on V2: the same rules there. Legacy is read-only after the
+        // cutover (a write fails, 25006) and archived till M6 drops it: no legacy sweep (#1090, #1031).
         if (services.GetService<DatabaseMode>()?.IsV2 == true)
         {
             var aiCutoff = now - AiTextRetention;
@@ -125,6 +104,27 @@ public class RetentionCleanupWorker(
                 () => services.GetRequiredService<V2AgentRunWriter>().DeleteOlderThanAsync(aiCutoff, ct), ct);
             return;
         }
+        var db = services.GetRequiredService<IAppDbContext>();
+        // Traces keep their cost, tokens and latency for spend history; only the text goes.
+        // Batches: the first run rewrites months of text (~750 MB); one statement would be one huge
+        // transaction (#941).
+        await DeleteAsync("LLM trace texts (scrubbed)", async () =>
+        {
+            int batch, total = 0;
+            do
+            {
+                batch = await db.LlmTraces.Where(LlmTraceTextToScrub(now)).OrderBy(t => t.Id).Take(ScrubBatch)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(t => t.SystemPrompt, (string?)null)
+                        .SetProperty(t => t.MessagesJson, ScrubbedMessages)
+                        .SetProperty(t => t.ResponseText, (string?)null)
+                        .SetProperty(t => t.ToolCallsJson, (string?)null), ct);
+                total += batch;
+            } while (batch == ScrubBatch && !ct.IsCancellationRequested);
+            return total;
+        }, ct);
+        await DeleteAsync("agent runs",
+            () => db.AgentRuns.Where(OldAgentRun(now)).ExecuteDeleteAsync(ct), ct);
         await DeleteAsync("tutor sessions",
             () => db.TutorSessions.Where(OldTutorSession(now)).ExecuteDeleteAsync(ct), ct);
         await DeleteAsync("SSG rebuild jobs", async () =>

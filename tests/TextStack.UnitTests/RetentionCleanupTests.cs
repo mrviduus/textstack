@@ -12,24 +12,33 @@ namespace TextStack.UnitTests;
 public class RetentionCleanupTests
 {
     [Fact]
-    public async Task CleanupAsync_NativeMode_SelectedCredentialPortsThenLegacyAiSweeps()
+    public async Task CleanupAsync_V2Mode_CredentialPortsAndV2AiSweeps_LegacyUntouched()
     {
-        // Legacy traces/runs are not copied by the ETL and legacy lives till M6: still scrubbed (#941).
+        // After the cutover legacy is read-only and archived till M6: a legacy sweep would fail every day (#1031).
         var oauth = new Mock<IOAuthRepository>();
-        var legacyResolved = new TaskCompletionSource();
+        var legacyResolved = false;
+        var lastSweep = new TaskCompletionSource();
         await using var services = new ServiceCollection()
             .AddSingleton(new Infrastructure.Persistence.DatabaseMode(true))
-            .AddScoped<IAppDbContext>(_ => { legacyResolved.TrySetResult(); return Mock.Of<IAppDbContext>(); })
+            .AddScoped<IAppDbContext>(_ => { legacyResolved = true; return Mock.Of<IAppDbContext>(); })
             .AddScoped(_ => Mock.Of<ISessionTokenRepository>())
             .AddScoped(_ => Mock.Of<IDeviceLoginRepository>())
-            .AddScoped(_ => oauth.Object).BuildServiceProvider();
+            .AddScoped(_ => oauth.Object)
+            // The last V2 rule: resolving its writer marks the end of the sweep (the failure is logged).
+            .AddScoped<Infrastructure.Persistence.Repositories.V2AgentRunWriter>(_ =>
+            {
+                lastSweep.TrySetResult();
+                throw new InvalidOperationException("no V2 database in a unit test");
+            })
+            .BuildServiceProvider();
         using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance);
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
-        await legacyResolved.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await worker.StopAsync(TestContext.Current.CancellationToken);
 
         oauth.Verify(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.False(legacyResolved);
     }
 
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
