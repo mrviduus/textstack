@@ -376,8 +376,14 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
     private async Task<Annotation> SaveAsync(Book book, string text, string color = "yellow", string? note = null, string locator = AnchorC1) =>
         (await _repo.SaveAsync(book.UserId, new Annotation
         {
-            Id = Guid.NewGuid(), UserId = book.UserId, BookId = book.Id, FileId = book.CurrentFile!.Id,
-            SelectedText = text, NoteText = note, Locator = locator, Color = color,
+            Id = Guid.NewGuid(),
+            UserId = book.UserId,
+            BookId = book.Id,
+            FileId = book.CurrentFile!.Id,
+            SelectedText = text,
+            NoteText = note,
+            Locator = locator,
+            Color = color,
         }, null, Ct)).Current!;
 
     [Fact]
