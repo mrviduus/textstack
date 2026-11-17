@@ -9,7 +9,7 @@ import { EPUB } from './.vendor/foliate-js/epub.js'
 import { compare as compareCfi } from './.vendor/foliate-js/epubcfi.js'
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.vendor/foliate-js/vendor/zip.js'
 import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/vocabKey'
-import { rangeToLocator, textNodes } from '../../../../../packages/reader-engine/src/text'
+import { SELECTION_SETTLE_MS, rangeToLocator, textNodes } from './text'
 import { mergeOverlay } from './overlays.mjs'
 import { STAGE_COLORS, readMarkWords, sameMark, wordMarksIn } from './wordMarks.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
@@ -23,7 +23,6 @@ import { navKey } from './chrome.mjs'
 import { HIGHLIGHT_FILL, colorOf, highlightList, isHighlightColor, sameRangeHighlight } from './highlights.mjs'
 import { atTop, bookmarkList, bookmarkRange, bookmarkText, isBookmark, startsWithin } from './bookmarks.mjs'
 import { BOOKMARK_COLOR } from '../../../../../packages/shared/src/reader/v2PageStore'
-import { SELECTION_SETTLE_MS } from '../../../../../packages/reader-engine/src/timing'
 import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
@@ -194,7 +193,7 @@ const SVG = 'http://www.w3.org/2000/svg'
 const GLOSS_COLOR = 'rgba(59, 130, 246, 0.8)'
 /**
  * The product's inline translation — saved-word underline + italic label centred
- * above the word (reader-engine LABEL_LOOK, E44). foliate calls it again with fresh rects on every
+ * above the word (the retired engine's LABEL_LOOK, E44). foliate calls it again with fresh rects on every
  * expand (font size, viewport), so the label follows the word without our own layout code.
  */
 function glossOf(rects, text, el) {
@@ -343,7 +342,7 @@ function onLoad({ detail: { doc, index } }) {
 let selectionSent = null
 let selectionTimer = 0
 /**
- * `selection` once the selection stops changing (a drag fires selectionchange all the way: reader-engine's
+ * `selection` once the selection stops changing (a drag fires selectionchange all the way: text.ts
  * settle time) and whenever the view moves it (a `relocate`, a scroll, a resize); `selection-cleared` once the
  * one sent is gone.
  */
@@ -456,7 +455,7 @@ const sectionEndShown = () => {
 
 /**
  * Text the reader can see: not white space, and drawn (a `display: none` page number has no box). The text nodes
- * are reader-engine's (`textNodes`: no script, style or noscript content).
+ * are text.ts's (`textNodes`: no script, style or noscript content).
  */
 const ink = (n) => /\S/.test(n.data) && (n.parentElement?.getClientRects().length ?? 0) > 0
 const atOrAfter = (el, n) => !!(el.compareDocumentPosition(n) & (Node.DOCUMENT_POSITION_FOLLOWING | Node.DOCUMENT_POSITION_CONTAINED_BY))

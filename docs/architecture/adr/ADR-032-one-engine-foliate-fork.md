@@ -1,6 +1,6 @@
 # ADR-032 — One reader engine for V2: a fork of foliate-js, every format
 
-**Status:** Accepted · **Date:** 2026-11-07 · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §7 · **Amends:** [ADR-029](ADR-029-foliate-for-v2-epub.md) (fork instead of pin + patches; all formats; scrolled option), [ADR-012](ADR-012-pdf-original-first-lazy-parse.md) (PDF moves to foliate after a gate), [ADR-031](ADR-031-v2-schema.md) (`book_files.format` CHECK) · **Supersedes after R8:** [ADR-025](ADR-025-reader-engine-package.md) · **Keeps:** ADR-019 (position rules, over CFI), ADR-031 locator schemes · **Implementation:** [#1128](https://github.com/mrviduus/textstack/issues/1126)
+**Status:** Accepted; supersedes ADR-025 (R8 done: `packages/reader-engine` deleted at M6, 2026-11-17) · **Date:** 2026-11-07 · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §7 · **Amends:** [ADR-029](ADR-029-foliate-for-v2-epub.md) (fork instead of pin + patches; all formats; scrolled option), [ADR-012](ADR-012-pdf-original-first-lazy-parse.md) (PDF moves to foliate after a gate), [ADR-031](ADR-031-v2-schema.md) (`book_files.format` CHECK) · **Supersedes after R8:** [ADR-025](ADR-025-reader-engine-package.md) · **Keeps:** ADR-019 (position rules, over CFI), ADR-031 locator schemes · **Implementation:** [#1128](https://github.com/mrviduus/textstack/issues/1126)
 
 ## Context
 
