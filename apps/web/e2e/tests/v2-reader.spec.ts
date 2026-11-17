@@ -258,8 +258,8 @@ test.describe('V2 reader page @v2', () => {
     await context.close()
   })
 
-  // #1263: the bars hide while reading; keys and an edge tap turn the page; a tap off any word toggles the bars.
-  test('readV2Chrome_TextAndEdgeTapsKeysAndTheBarsNext_TurnAndToggleAsTheyShould', async ({ browser }) => {
+  // #1263: the bars hide while reading; keys and the bar's arrows turn the page; on desktop a click never does, the mouse shows the bars.
+  test('readV2Chrome_DesktopClicksKeysAndTheBarsNext_TurnAndShowAsTheyShould', async ({ browser }) => {
     const context = await v2Context(browser, email('v2bars'))
     const page = await context.newPage()
     const bookId = await uploadFixture(page)
@@ -275,40 +275,28 @@ test.describe('V2 reader page @v2', () => {
     await page.keyboard.press('PageUp')
     await expect(status(page)).toHaveText(first)
 
-    // A tap off any word in the centre toggles the bars (a blank point of the book: between paragraphs, the spread's
-    // column gap; never under the shown bars); a word on an edge turns (a word in the centre opens its popup, #1269:
-    // the word popup spec below); focus stays in the book.
+    // Desktop (a fine pointer): a click in the book turns no page (a blank point in the centre, the page's own margins
+    // on both edges); the mouse shows the bars and 3 s without a move hides them. Touch keeps the tap zones (tapZone.mjs).
     const frames = page.frames().filter((f) => f.url().startsWith('blob:'))
     const texts = await Promise.all(frames.map((f) => f.evaluate(() => document.body?.innerText ?? '').catch(() => '')))
     const section = frames[texts.findIndex((t) => t.includes(FIRST_SECTION_TEXT))]
-    const a = (await section.locator('p').nth(0).boundingBox())!
+    const line = (await section.locator('p').nth(0).boundingBox())!.y + 12
     const width = page.viewportSize()!.width
-    const line = a.y + 12
     const blank = await blankCentrePoint(page)
     await page.mouse.click(blank.x, blank.y)
+    await page.mouse.click(10, line)
+    await page.mouse.click(width - 10, line)
     await expect(main).toHaveAttribute('data-bars', 'shown')
-    await page.mouse.click(blank.x, blank.y)
-    await expect(main).toHaveAttribute('data-bars', 'hidden')
-    await page.mouse.click(width - a.x - 30, line)
-    await expect(status(page)).not.toHaveText(first)
-    await page.mouse.click(a.x + 15, line)
     await expect(status(page)).toHaveText(first)
+    await expect(main).toHaveAttribute('data-bars', 'hidden', { timeout: 5_000 })
 
-    // Keys with focus inside the book: the page forwards them (`key`).
+    // Keys with focus inside the book, after a click in the page's margin: forwarded from the page's own document.
     expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('IFRAME')
     await page.keyboard.press('ArrowRight')
     await expect(status(page)).not.toHaveText(first)
+    const turned = (await status(page).textContent()) ?? ''
     await page.keyboard.press('Escape')
     await expect(main).toHaveAttribute('data-bars', 'shown')
-
-    // The very edges (the page's own margin): left back, right on; a turn hides the bars.
-    await page.mouse.click(10, line)
-    await expect(status(page)).toHaveText(first)
-    await expect(main).toHaveAttribute('data-bars', 'hidden')
-    await page.mouse.click(width - 10, line)
-    await expect(status(page)).not.toHaveText(first)
-    // A key after a click in the page's margin: forwarded from the page's own document.
-    const turned = (await status(page).textContent()) ?? ''
     await page.keyboard.press('ArrowLeft')
     await expect(status(page)).toHaveText(first)
 
@@ -323,7 +311,7 @@ test.describe('V2 reader page @v2', () => {
   })
 
   // #1269: a word in the centre opens its popup, translated by the host (the page has no network) from the book's
-  // language into the reader's, with the sentence; the bars and the place stay; its close closes it.
+  // language into the reader's, with the sentence; the place stays (the bars follow the mouse on desktop); its close closes it.
   test('readV2WordPopup_ACentreWordTapped_ItsTranslationInAPopup_TheBarsAndThePlaceStay', async ({ browser }) => {
     const context = await v2Context(browser, email('v2word'))
     const asked = await withTranslation(context)
@@ -345,7 +333,6 @@ test.describe('V2 reader page @v2', () => {
     // The context is the tapped word's own sentence (not the paragraph's label sentence).
     const own = new RegExp(`\\b${word!.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
     expect(asked.at(-1)).toMatchObject({ text: word!.word, sourceLang: 'en', targetLang: 'uk', sentence: expect.stringMatching(own) })
-    await expect(main).toHaveAttribute('data-bars', 'hidden')
     await expect(status(page)).toHaveText(before)
 
     await popup.getByRole('button', { name: 'Close' }).first().click()

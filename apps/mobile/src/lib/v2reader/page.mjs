@@ -133,6 +133,15 @@ let awaitingRestore = false
 let readerActed = false
 const onInput = () => { readerActed = true }
 for (const type of ['pointerdown', 'wheel', 'keydown', 'touchstart']) document.addEventListener(type, onInput, { capture: true, passive: true })
+/** A mouse moving over the book, for the web host's bars (its own document never sees it): at most one per 250 ms. Touch never. */
+let lastMove = 0
+const onMove = (e) => {
+  const now = Date.now()
+  if (e.pointerType !== 'mouse' || now - lastMove < 250) return
+  lastMove = now
+  post({ type: 'pointer-move' })
+}
+document.addEventListener('pointermove', onMove, { passive: true })
 /**
  * The last `selection` sent: its range (edge whitespace dropped), text, CFI, sentence. What `highlightSelection`
  * highlights when no selection is live: kept after the selection is cleared (tapping a host button may clear the
@@ -316,6 +325,7 @@ document.addEventListener('click', (e) => {
 function onLoad({ detail: { doc, index } }) {
   // Any book, CBZ too: the reader acting in a section is the reader acting (`readerActed`).
   for (const type of ['pointerdown', 'wheel', 'keydown', 'touchstart']) doc.addEventListener(type, onInput, { capture: true, passive: true })
+  doc.addEventListener('pointermove', onMove, { passive: true })
   doc.addEventListener('keydown', onKey)
   // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
   if (!textual) return doc.addEventListener('click', (e) => post(tapAt(doc, e)))
