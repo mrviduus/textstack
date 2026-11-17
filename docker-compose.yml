@@ -275,7 +275,8 @@ services:
     logging: *default-logging
     image: ${IMAGE_REGISTRY:-textstack}-admin:${IMAGE_TAG:-latest}
     build:
-      # Root context — see ssg-worker above.
+      # Root context: the workspace lockfile and pnpm-workspace.yaml live here,
+      # and `catalog:` cannot be resolved without them.
       context: .
       dockerfile: apps/admin/Dockerfile
     container_name: textstack_admin_prod
@@ -350,70 +351,6 @@ services:
           memory: 256M
         reservations:
           memory: 64M
-
-  # ===========================================
-  # SSG Worker - prerenders SEO pages
-  # ===========================================
-
-  ssg-worker:
-    logging: *default-logging
-    image: ${IMAGE_REGISTRY:-textstack}-ssg-worker:${IMAGE_TAG:-latest}
-    build:
-      # Root context: the workspace lockfile and pnpm-workspace.yaml live here,
-      # and `catalog:` cannot be resolved without them.
-      context: .
-      dockerfile: apps/web/Dockerfile.ssg-worker
-      args:
-        GIT_SHA: "${GIT_SHA:-}"
-    container_name: textstack_ssg_worker
-    # Single consumer: startup fails every Running ssg job, so a second ssg-worker would kill a live render.
-    # tini reaps Chromium/chrome_crashpad children left behind by Puppeteer.
-    # Without this, each prerender leaves a <defunct> Z process on the host
-    # (28 chromium + 28 crashpad zombies observed over a few hours of SSG
-    # activity). Doesn't change behaviour, just keeps the process table clean.
-    init: true
-    environment:
-      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
-      API_URL: http://api:8080
-      API_HOST: localhost
-      POLL_INTERVAL: "5000"
-      INDEXNOW_KEY: ${INDEXNOW_KEY:-}
-      INDEXNOW_ENABLED: ${INDEXNOW_ENABLED:-false}
-      # Errors only, scrubbed (apps/web/scripts/ssgSentry.mjs). Same DSN and project as the .NET
-      # services, tagged service=ssg-worker; off when empty, and off in Development like them.
-      SENTRY_DSN: ${SENTRY_DSN:-}
-      SENTRY_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-    volumes:
-      - ./apps/web/dist:/repo/apps/web/dist
-    restart: always
-    healthcheck:
-      # Two questions, because the first one alone gave the wrong answer.
-      #
-      # ssg-worker.mjs writes /tmp/ssg-worker-alive every 30s — that is
-      # liveness, and it is all this used to ask. So a worker that had failed
-      # every rebuild for an hour reported "Up (healthy)", which is what
-      # `docker compose ps` said while crawlers were being served stale pages.
-      # A process that is running and getting nothing done is not healthy.
-      #
-      # The second file holds the outcome of the last job, written by
-      # setJobStatus. Absent means nothing has run yet, which is fine on a
-      # fresh container and must not read as failure.
-      test: ["CMD-SHELL", "find /tmp/ssg-worker-alive -mmin -2 | grep -q . && { [ ! -f /tmp/ssg-worker-last-job ] || [ \"$$(cat /tmp/ssg-worker-last-job)\" != Failed ]; }"]
-      interval: 60s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    depends_on:
-      api:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 512M
 
   # ===========================================
   # Observability - Aspire Dashboard (all-in-one: traces, logs, metrics)

@@ -28,10 +28,6 @@ services:
     build:
       cache_from: ["type=gha,scope=compose-admin"]
       cache_to: ["type=gha,scope=compose-admin,mode=max,ignore-error=true"]
-  ssg-worker:
-    build:
-      cache_from: ["type=gha,scope=compose-ssg-worker"]
-      cache_to: ["type=gha,scope=compose-ssg-worker,mode=max,ignore-error=true"]
   mcp-server:
     build:
       cache_from: ["type=gha,scope=compose-mcp-server"]

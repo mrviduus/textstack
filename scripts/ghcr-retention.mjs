@@ -229,7 +229,7 @@ async function main() {
   const keepNewest = Math.max(5, Number(env.KEEP_NEWEST ?? 10))
   const keepDays = Math.max(1, Number(env.KEEP_DAYS ?? 14))
   const maxDelete = Math.max(0, Number(env.MAX_DELETE ?? 150))
-  const packages = (env.PACKAGES ?? 'api worker admin ssg-worker migrator mcp-server web').split(/\s+/).filter(Boolean)
+  const packages = (env.PACKAGES ?? 'api worker admin migrator mcp-server web').split(/\s+/).filter(Boolean)
   if (!Number.isFinite(keepNewest) || !Number.isFinite(keepDays) || !Number.isFinite(maxDelete)) throw new Error('KEEP_NEWEST, KEEP_DAYS and MAX_DELETE must be numbers')
 
   const { full: shas, live } = await protectedShas(repo, Math.max(1, Number(env.DEPLOYS ?? 5)))
