@@ -12,7 +12,7 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF → parse → SEO pages
 
 **Prerequisites**: Docker, .NET 10 SDK, Node.js (`.nvmrc`), pnpm
 
-**CI/CD**: Push to `main` → auto-deploy (no SSG rebuild). SSG is frozen (#992: no nightly rebuild); rebuild on demand via the admin panel, `make rebuild-ssg`, or a manual deploy with `rebuild_ssg`.
+**CI/CD**: Push to `main` → auto-deploy. No SSG any more (M6): nginx answers `410 Gone` for the retired catalog URLs (`/en/books|authors|genres|search|sitemap`, `sitemap.xml`).
 
 ## V2 program (active)
 
@@ -57,10 +57,7 @@ make up                       # Start services
 make up / down / restart / logs / status
 make build                    # docker compose up -d --build
 make rebuild                  # full rebuild --no-cache
-make clean-ssg                # remove dist/ssg*
 make fix-permissions          # Fix volume permissions
-make featured SLUGS="a b c"   # Replace the Popular shelf (run on the server; ranks 1..N in order)
-make featured-show            # Print the current Popular shelf
 
 # After editing .env, `docker compose restart <svc>` does NOT re-read env vars
 # (they are baked in at container creation). Use force-recreate:
@@ -68,7 +65,6 @@ make featured-show            # Print the current Popular shelf
 
 # Deploy
 # Deploy: merge to main (deploy.yml). Break-glass: gh workflow run deploy.yml [-f rollback_commit=<sha>]
-make rebuild-ssg              # Queue a Full SSG rebuild job (ssg-worker), follow it to the end
 
 # Database
 make backup                   # Backup to ~/backups/textstack/
@@ -167,7 +163,7 @@ Cross-platform TS code shared by **both** web and mobile, consumed via source pa
 
 User routes live under `/me`; `/internal` is local-only by middleware. Every other route is listed in `tests/TextStack.UnitTests/Routes/routes.public.txt` — a new public route fails `PublicRoutesSnapshotTests` until it is added there.
 
-**Site resolution**: Single-site permanent (ADR-007). `SiteContextMiddleware` resolves host → SiteId. The single site id is exposed process-wide via `ICurrentSite` (config `Site:Id`, default `SiteConstants.DefaultSiteId`); EF global query filters key on it (see `ISiteScoped`). The dev `?site=` override was removed (R1b) — internal host-less callers (e.g. `ssg-worker.mjs`) must send a resolvable `Host` header.
+**Site resolution**: Single-site permanent (ADR-007). `SiteContextMiddleware` resolves host → SiteId. The single site id is exposed process-wide via `ICurrentSite` (config `Site:Id`, default `SiteConstants.DefaultSiteId`); EF global query filters key on it (see `ISiteScoped`). The dev `?site=` override was removed (R1b) — internal host-less callers must send a resolvable `Host` header.
 
 **Patterns**:
 - Endpoints: `Map{Domain}Endpoints()` in `Api/Endpoints/`
@@ -279,4 +275,4 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 | Every API route group | [`internal/claude/api-endpoints.md`](internal/claude/api-endpoints.md) |
 | Where things live (key files table) | [`internal/claude/key-files.md`](internal/claude/key-files.md) |
 | Mobile: Expo, offline, reading path, Play/OTA release | [`internal/claude/mobile.md`](internal/claude/mobile.md) |
-| CI/CD, deployment, nginx, MCP server, telemetry, verifying SSG | [`internal/claude/operations.md`](internal/claude/operations.md) |
+| CI/CD, deployment, nginx, MCP server, telemetry | [`internal/claude/operations.md`](internal/claude/operations.md) |

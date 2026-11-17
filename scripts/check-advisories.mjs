@@ -145,8 +145,7 @@ export const KNOWN = {
     needs: '>=4.6.6',
     why:
       'zod 3.25.76 now only through @expo/cli (the dev server / build CLI), which depends on zod 3; ' +
-      'no fixed 3.x exists. The production path (puppeteer > chromium-bidi, SSG prerender) is on ' +
-      'zod 4.6.7 since puppeteer 25.16. Forcing 3 -> 4 inside Expo is how a mobile build breaks.',
+      'no fixed 3.x exists. Forcing 3 -> 4 inside Expo is how a mobile build breaks.',
   },
   'GHSA-qr28-fpjm-wq7f': {
     since: '2026-10-30',
