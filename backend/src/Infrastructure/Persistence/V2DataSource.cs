@@ -18,6 +18,10 @@ public sealed class V2DataSource(string? connectionString) : IV2UnitOfWork, IDis
     public ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken ct) =>
         (_dataSource ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")).OpenConnectionAsync(ct);
 
+    /// <summary>A synchronous open, for a caller that cannot await (the AI spend seed).</summary>
+    public NpgsqlConnection OpenConnection() =>
+        (_dataSource ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")).OpenConnection();
+
     public async Task<V2Transaction> BeginAsync(CancellationToken ct)
     {
         var conn = await OpenConnectionAsync(ct);

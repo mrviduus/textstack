@@ -51,7 +51,21 @@ public sealed partial class TextStackApiClient
     private async Task<IReadOnlyList<ChapterHeadingDto>> V2ChaptersAsync(Guid bookId, Guid fileId, CancellationToken ct)
     {
         var listed = await SendAsync<object>(HttpMethod.Get, $"/me/v2/books/{bookId}/files/{fileId}/chapters", null, ct);
-        return listed.Error is null ? listed.Value.Deserialize<FileChaptersDto>(JsonOptions)?.Items ?? [] : [];
+        // Never "no chapters" for a list that did not come: the book was just read, so any refusal is an error.
+        if (listed.Error is { } e) throw new HttpRequestException(e, null, listed.Status);
+        return listed.Value.Deserialize<FileChaptersDto>(JsonOptions)?.Items ?? [];
+    }
+
+    /// <summary>A read's refusal: 404 is "not there" (the tool says so), anything else is the tool's error.</summary>
+    private static void ThrowUnlessNotFound(ApiResult<JsonElement> read)
+    {
+        if (read.Status is not HttpStatusCode.NotFound) throw new HttpRequestException(read.Error, null, read.Status);
+    }
+
+    /// <summary>A write's refusal: a 4xx is the tool's "rejected" answer, a 5xx (or none) its error.</summary>
+    private static void ThrowIfServerFault(ApiResult<JsonElement> write)
+    {
+        if (write.Status is null || (int)write.Status >= 500) throw new HttpRequestException(write.Error, null, write.Status);
     }
 
     /// <summary>A V2 chapter's id for the tools: stable per (file, key), so a listed id saves into the same chapter.</summary>
@@ -76,19 +90,24 @@ public sealed partial class TextStackApiClient
         if ((await V2BookAsync(bookId, ct))?.CurrentFile is not { } file) return null;
         var read = await SendAsync<object>(HttpMethod.Get,
             $"/me/v2/books/{bookId}/files/{file.Id}/chapters/{Uri.EscapeDataString(chapterKey)}", null, ct);
-        if (read.Error is not null) return null;
+        if (read.Error is not null) { ThrowUnlessNotFound(read); return null; }
         var c = read.Value.Deserialize<ChapterDto>(JsonOptions)!;
         static UserChapterNavJson? Nav(ChapterHeadingDto? h) => h is null ? null : new(h.ChapterNumber, h.ChapterKey, h.Title);
         return new UserChapterJson(ChapterId(file.Id, c.ChapterKey), c.ChapterNumber, c.ChapterKey, c.Title, c.Html, c.WordCount,
             Nav(c.Previous), Nav(c.Next));
     }
 
-    /// <summary>V2 has no full-text search: the query matches the title or the author. Tags are not filtered.</summary>
-    private async Task<IReadOnlyList<UserBookSearchHitJson>> SearchMyLibraryV2Async(string query, CancellationToken ct)
+    /// <summary>
+    /// V2 has no full-text search: the query matches the title or the author; <paramref name="tags"/> (comma-separated)
+    /// must all be on the book, as legacy's filter, case-insensitive.
+    /// </summary>
+    private async Task<IReadOnlyList<UserBookSearchHitJson>> SearchMyLibraryV2Async(string query, string? tags, CancellationToken ct)
     {
         var q = query.Trim();
+        var wanted = (tags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return (await V2BooksAsync(ct))
             .Where(b => b.Title.Contains(q, StringComparison.OrdinalIgnoreCase) || b.Author?.Contains(q, StringComparison.OrdinalIgnoreCase) == true)
+            .Where(b => wanted.All(t => b.Tags.Contains(t, StringComparer.OrdinalIgnoreCase)))
             .Select(b => new UserBookSearchHitJson(b.Id, b.Title, b.Author, null, b.Language ?? "", 1, null, null))
             .ToList();
     }
@@ -97,7 +116,7 @@ public sealed partial class TextStackApiClient
     {
         if (await V2BookAsync(bookId, ct) is null) return null;
         var feed = await PullAllAsync<AnnotationDto>("/me/v2/annotations/changes", ct);
-        if (feed.Error is not null) return null;
+        if (feed.Error is { } e) throw new HttpRequestException(e, null, feed.Status);
         return feed.Value!
             .Where(a => a.BookId == bookId && a.DeletedAt is null)
             .OrderBy(a => a.CreatedAt)
@@ -116,8 +135,6 @@ public sealed partial class TextStackApiClient
             && root.GetProperty("value").TryGetProperty("chapterKey", out var key) ? key.GetString() : null;
     }
 
-    private const int V2MaxSelectedText = 4000;
-
     /// <summary>
     /// <c>PUT /me/v2/annotations/{id}</c>: the same synthesized text quote as legacy's write (no DOM here), as a
     /// <c>textstack-anchor-v1</c> on the chapter <paramref name="chapterId"/> names in the book's current file.
@@ -125,13 +142,15 @@ public sealed partial class TextStackApiClient
     private async Task<HighlightJson?> SaveUserBookHighlightV2Async(
         Guid bookId, Guid chapterId, string color, string selectedText, string? noteText, CancellationToken ct)
     {
-        // ponytail: legacy's 200-assistant-highlights-per-book ceiling is not counted on V2; add it to the
-        // annotations write if an assistant ever floods a book.
+        // ponytail: legacy's 200-assistant-highlights-per-book ceiling is not counted on V2 (the write is rate
+        // limited per user, highlight-write); add it to the annotations write if an assistant ever floods a book.
         if ((await V2BookAsync(bookId, ct))?.CurrentFile is not { } file) return null;
         var chapter = (await V2ChaptersAsync(bookId, file.Id, ct)).FirstOrDefault(c => ChapterId(file.Id, c.ChapterKey) == chapterId);
         if (chapter is null) return null;
 
-        var text = selectedText.Length > V2MaxSelectedText ? selectedText[..V2MaxSelectedText] : selectedText;
+        const int max = SyncLimits.MaxSelectedText;
+        // Cut as the server's text rule does: never between the halves of a surrogate pair.
+        var text = selectedText.Length <= max ? selectedText : selectedText[..(char.IsHighSurrogate(selectedText[max - 1]) ? max - 1 : max)];
         var locator = JsonSerializer.SerializeToElement(new
         {
             version = 1,
@@ -140,7 +159,7 @@ public sealed partial class TextStackApiClient
         });
         var saved = await SendAsync(HttpMethod.Put, $"/me/v2/annotations/{Guid.NewGuid()}",
             new AnnotationRequest(null, bookId, file.Id, text, noteText, locator, color), ct);
-        if (saved.Error is not null) return null;
+        if (saved.Error is not null) { ThrowIfServerFault(saved); return null; }
         var a = saved.Value.Deserialize<AnnotationDto>(JsonOptions)!;
         return new HighlightJson(a.Id, null, chapterId, a.Color, a.SelectedText, a.NoteText, a.CreatedAt);
     }
@@ -148,13 +167,15 @@ public sealed partial class TextStackApiClient
     private async Task<IReadOnlyList<BookInsightJson>?> GetInsightsV2Async(Guid bookId, CancellationToken ct)
     {
         var listed = await SendAsync<object>(HttpMethod.Get, $"/me/v2/books/{bookId}/insights", null, ct);
-        return listed.Error is null ? listed.Value.Deserialize<List<InsightDto>>(JsonOptions)!.Select(ToInsightJson).ToList() : null;
+        if (listed.Error is not null) { ThrowUnlessNotFound(listed); return null; }
+        return listed.Value.Deserialize<List<InsightDto>>(JsonOptions)!.Select(ToInsightJson).ToList();
     }
 
     private async Task<BookInsightJson?> SaveInsightV2Async(Guid bookId, string? chapterSlug, string text, string? question, CancellationToken ct)
     {
         var saved = await SendAsync(HttpMethod.Post, $"/me/v2/books/{bookId}/insights", new InsightRequest(chapterSlug, text, question), ct);
-        return saved.Error is null ? ToInsightJson(saved.Value.Deserialize<InsightDto>(JsonOptions)!) : null;
+        if (saved.Error is not null) { ThrowIfServerFault(saved); return null; }
+        return ToInsightJson(saved.Value.Deserialize<InsightDto>(JsonOptions)!);
     }
 
     private static BookInsightJson ToInsightJson(InsightDto i) =>
@@ -172,7 +193,8 @@ public sealed partial class TextStackApiClient
     private async Task<ReadingStateDto?> V2ReadingStateAsync(Guid bookId, CancellationToken ct)
     {
         var read = await SendAsync<object>(HttpMethod.Get, $"/me/v2/books/{bookId}/reading-state", null, ct);
-        return read.Error is null ? read.Value.Deserialize<ReadingStateDto>(JsonOptions) : null;
+        if (read.Error is not null) { ThrowUnlessNotFound(read); return null; }
+        return read.Value.Deserialize<ReadingStateDto>(JsonOptions);
     }
 
     private async Task<UserBookProgressJson?> GetUserBookProgressV2Async(Guid bookId, CancellationToken ct) =>

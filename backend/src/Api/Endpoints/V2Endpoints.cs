@@ -86,7 +86,7 @@ public static class V2Endpoints
         v2.MapGet("/annotations/changes", (HttpContext h, IAuthService a, AnnotationSyncService s, string? cursor, string? limit, CancellationToken ct) =>
             Send(s.ChangesAsync(User(h, a), cursor, limit, ct)));
         v2.MapPut("/annotations/{id:guid}", (HttpContext h, IAuthService a, AnnotationSyncService s, Guid id, AnnotationRequest body, CancellationToken ct) =>
-            Send(s.SaveAsync(User(h, a), id, body, ct)));
+            Send(s.SaveAsync(User(h, a), id, body, ct))).RequireRateLimiting("highlight-write"); // legacy's per-user cap, MCP writes too
         v2.MapDelete("/annotations/{id:guid}", (HttpContext h, IAuthService a, AnnotationSyncService s, Guid id, CancellationToken ct) =>
             Send(s.DeleteAsync(User(h, a), id, ct)));
 

@@ -403,14 +403,16 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         var page = await _repo.ListAllAsync(moby.UserId, null, null, false, 10, 0, Ct);
         var blueWhales = await _repo.ListAllAsync(moby.UserId, "whale", "blue", true, 1, 0, Ct);
 
-        // Newest first; the deleted one, the one in a removed book and another reader's are not in it.
-        Assert.Equal(3, page.TotalCount);
-        Assert.Equal(noted.Id, page.Items[1].Id);
-        var item = page.Items[2];
-        Assert.Equal((quoted.Id, moby.Title, "Chapter One", "c1"), (item.Id, item.BookTitle, item.ChapterTitle, item.ChapterKey));
+        // Newest first; the deleted one and another reader's are not in it. The removed book's stays, marked (#982).
+        Assert.Equal(4, page.TotalCount);
+        Assert.Equal(("Trashed", true), (page.Items[0].BookTitle, page.Items[0].BookRemoved));
+        Assert.Equal(noted.Id, page.Items[2].Id);
+        var item = page.Items[3];
+        Assert.Equal((quoted.Id, moby.Title, false, "Chapter One", "c1"), (item.Id, item.BookTitle, item.BookRemoved, item.ChapterTitle, item.ChapterKey));
         AssertSameJson("""{"chapterKey":"c1","prefix":"before ","exact":"Quoted","suffix":" after","startOffset":7,"endOffset":13}""", item.AnchorJson);
-        Assert.Equal("{}", page.Items[1].AnchorJson); // a CFI is no anchor the page can show
-        // Searched in the text and the note, by colour, oldest first, a page of one: the total counts both.
-        Assert.Equal((2, quoted.Id), (blueWhales.TotalCount, Assert.Single(blueWhales.Items).Id));
+        // The V2 reader's epub-cfi highlight shows as its quote with its context.
+        AssertSameJson("""{"prefix":"","exact":"Call me","suffix":""}""", page.Items[2].AnchorJson);
+        // Searched in the text and the note, by colour, oldest first, a page of one: the total counts all three.
+        Assert.Equal((3, quoted.Id), (blueWhales.TotalCount, Assert.Single(blueWhales.Items).Id));
     }
 }

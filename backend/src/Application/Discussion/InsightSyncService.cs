@@ -16,7 +16,6 @@ namespace Application.Discussion;
 public sealed class InsightSyncService(ILibraryRepository library, IBookInsightRepository insights, IBookChapterRepository chapters)
 {
     public const int MaxText = 20_000;
-    public const int MaxChapterKey = 300;
     public const int MaxQuestion = 1000;
 
     /// <summary>The book's insights in reading order: the whole book first, then by chapter number, an unplaced one last.</summary>
@@ -41,7 +40,7 @@ public sealed class InsightSyncService(ILibraryRepository library, IBookInsightR
     {
         // "" means the whole book, as null: never two book-level rows.
         var chapterKey = string.IsNullOrWhiteSpace(r.ChapterKey) ? null : r.ChapterKey.Trim();
-        if ((RequiredText(r.Text, "text", MaxText) ?? Text(chapterKey, "chapterKey", MaxChapterKey) ?? Text(r.Question, "question", MaxQuestion))
+        if ((RequiredText(r.Text, "text", MaxText) ?? Text(chapterKey, "chapterKey", SyncLimits.MaxChapterKey) ?? Text(r.Question, "question", MaxQuestion))
             is { } invalid) return invalid;
 
         var book = await library.GetAsync(userId, bookId, ct);
