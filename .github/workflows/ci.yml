@@ -730,16 +730,15 @@ jobs:
           # which meant the suite ran on production defaults: guest-session 3
           # (16 legitimate guest creates starve it) and clip 20 (a dozen classes
           # seed a book by clipping). Harmless while the limiter was inert, fatal
-          # the moment it works. GUEST_DAILY_ENRICHMENT_CAP is 3 because the cap
-          # test skips itself above 10 - at the default 50 it asserted nothing.
+          # the moment it works.
           GUEST_SESSION_PERMIT_LIMIT=50
           USER_LOGIN_PERMIT_LIMIT=100
           CLIP_PERMIT_LIMIT=200
           ACCOUNT_DELETE_PERMIT_LIMIT=50
           DEVICE_CODE_PERMIT_LIMIT=50
           MCP_KEYS_PERMIT_LIMIT=100
-          GUEST_DAILY_ENRICHMENT_CAP=3
-          # The V2 sync API, against the textstack_v2 the step below migrates (tests/…/V2).
+          # What production runs (M5 cutover): V2 mode, against the textstack_v2 migrated below.
+          DATABASE_MODE=v2
           FEATURES_V2API=true
           EOF
 
@@ -757,6 +756,14 @@ jobs:
       - name: Build containers
         run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
 
+      # Before `up -d`: in V2 mode the api's readiness reads textstack_v2. migrator-v2 sits behind
+      # profile `v2` (#1053); `compose run` enables it. Also the only check of its compose wiring.
+      - name: V2 migrator runs through compose
+        run: |
+          COMPOSE="docker compose -f docker-compose.yml -f .github/docker-compose.ci-db.yml"
+          $COMPOSE run --rm migrator-v2 up
+          $COMPOSE run --rm migrator-v2 status
+
       # The ci-db overlay publishes Postgres on loopback for the DB-backed integration tests.
       - name: Start services
         run: docker compose -f docker-compose.yml -f .github/docker-compose.ci-db.yml up -d
@@ -764,17 +771,6 @@ jobs:
       - name: Wait for API health
         run: |
           timeout 120 bash -c 'until curl -s http://localhost:8080/health; do sleep 5; done'
-
-      # The only place migrator-v2's compose wiring runs at all: it sits behind profile `v2` and no
-      # deploy enables it (#1053), so its image tag, entrypoint path and PGDATABASE would otherwise
-      # rot unwatched. `compose run` enables the service's own profile. The migrations themselves are
-      # covered by the round trip in the backend job; this is about the service definition. It runs
-      # after the api started, on purpose: the api must not need it, and its V2 suite needs its output.
-      - name: V2 migrator runs through compose
-        run: |
-          COMPOSE="docker compose -f docker-compose.yml -f .github/docker-compose.ci-db.yml"
-          $COMPOSE run --rm migrator-v2 up
-          $COMPOSE run --rm migrator-v2 status
 
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -786,13 +782,6 @@ jobs:
       # Idempotent, as in the e2e job.
       - name: Create admin user for integration tests
         run: docker compose exec -T api dotnet Api.dll create-admin admin@textstack.app admin Admin
-
-      # The baseline seed has no edition ChapterReviewEndpointTests can use, so the class skipped
-      # every run: green with the review round trip untested. Test data only; idempotent.
-      - name: Seed editions for chapter-review tests
-        run: >-
-          docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"'
-          < tests/TextStack.IntegrationTests/Fixtures/chapter-review-editions.sql
 
       # Everything EXCEPT the rate-limit enforcement test. That one deliberately drains the whole
       # guest-session bucket (60 consecutive POST /auth/guest until one is rejected), and the bucket
@@ -807,8 +796,10 @@ jobs:
           API_URL: http://localhost:8080
           # The V2 classes fail (not skip) if /me/v2 is not mapped: FEATURES_V2API is on above.
           V2_API_TESTS: "1"
-          # DB-backed tests (DeviceAuth, RefreshTokenHardening, UserBookOriginalFile, …) skip without it.
+          # DB-backed tests skip without these: the legacy database (SchemaDrift, HealthReadyLibrary)
+          # and textstack_v2, where V2 mode keeps identity (DeviceAuth, RefreshTokenHardening).
           TEST_DB_CONNECTION: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
+          TEST_V2_DB_CONNECTION: "Host=localhost;Port=5432;Database=textstack_v2;Username=app;Password=changeme"
 
       # Restarting the API drops the in-memory limiter partitions, so this starts from a full
       # bucket and cannot be starved by the run above.
@@ -830,7 +821,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.v2reader == 'true') }}
     runs-on: ubuntu-latest
-    # v2reader: the web build ships the V2 page from apps/mobile/src/lib/v2reader; a page-only PR must meet "E2E on V2".
+    # v2reader: the web build ships the V2 page from apps/mobile/src/lib/v2reader; a page-only PR must meet the e2e gate.
     # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
     steps:
@@ -861,9 +852,10 @@ jobs:
           USER_LOGIN_PERMIT_LIMIT=100
           CLIP_PERMIT_LIMIT=200
           ACCOUNT_DELETE_PERMIT_LIMIT=50
-          GUEST_DAILY_ENRICHMENT_CAP=3
           ADMIN_EMAIL=admin@textstack.app
           ADMIN_PASSWORD=admin
+          DATABASE_MODE=v2
+          FEATURES_V2API=true
           EOF
 
       - name: Create volume dirs for non-root containers
@@ -878,6 +870,10 @@ jobs:
       # Same images and cache scopes as `docker`; see the note there.
       - name: Build containers
         run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
+
+      # Before `up -d`, as in `docker`: V2 mode reads textstack_v2.
+      - name: Migrate textstack_v2
+        run: docker compose run --rm migrator-v2 up
 
       - name: Start services
         run: docker compose up -d
@@ -960,78 +956,11 @@ jobs:
       - name: Build web app
         run: pnpm -C apps/web build
 
-      # Split on purpose, after looking at what this suite actually earns.
-      #
-      # 20 of the 70 commits touching apps/web/e2e were about flakes, timeouts and
-      # waits — a third of the suite's maintenance went to keeping the suite running.
-      # And the one production incident in its strongest coverage area (reading
-      # position lost to a 23505 upsert race, 2026-08-07) was caught by Sentry, not
-      # by these tests: a single-threaded Playwright script cannot produce a
-      # concurrent write. The suite reliably catches broken wiring — a page that
-      # stops rendering, a route that 404s, a button that vanished — and reliably
-      # does not catch logic or concurrency.
-      #
-      # So the shallow, cheap part gates production and the rest reports. A Google
-      # CDN hiccup should never again hold a deploy (it did, 2026-08-20).
-      #
-      # One exception to "logic reports, never gates": @reader-smoke
-      # (reader-smoke.spec.ts), the reader's core promise — position survives a
-      # reload, Next/Prev keeps the place, a highlight paints in its own chapter
-      # only, a failed progress GET does not stop saving. ~10s, polls only, its own
-      # users and fixture text. Here rather than in a new job because `e2e` is
-      # already a required context and a new job would not be; in this invocation
-      # rather than its own step to keep the gate in one place.
-      # Same path filter as the job, deliberately: the reader depends on contexts,
-      # the API client, packages/ and the progress/highlight endpoints, so a
-      # narrower list would be a guess that misses one.
-      #
-      # @reader-pdf (reader-pdf.spec.ts) joins it: the Original-layout PDF opens, jumps, highlights
-      # and resumes. Its user uploads the engine's 40-page fixture; Original needs no worker.
-      - name: E2E smoke + reader smoke — gates the PR
+      # One pass, in V2 mode (what production runs). V2_E2E=1: a /me/v2 404 fails the V2 specs
+      # instead of skipping them.
+      - name: E2E — gates the PR
         working-directory: apps/web
-        run: pnpm test:e2e --grep "@smoke|@reader-smoke|@reader-pdf"
-        env:
-          CI: true
-          API_URL: http://localhost:8080
-          BASE_URL: http://localhost:5173
-          ADMIN_URL: http://localhost:81
-
-      # Reported, not blocking. Read the summary and the uploaded report; a failure
-      # here is a real signal worth acting on, it just does not stop a release.
-      - name: E2E full — reported, does not gate
-        id: e2e-full
-        continue-on-error: true
-        working-directory: apps/web
-        run: pnpm test:e2e --grep-invert "@smoke|@reader-smoke|@reader-pdf"
-        env:
-          CI: true
-          API_URL: http://localhost:8080
-          BASE_URL: http://localhost:5173
-          ADMIN_URL: http://localhost:81
-
-      - name: Flag non-blocking E2E failures
-        if: steps.e2e-full.outcome == 'failure'
-        run: |
-          echo "::warning title=E2E (non-blocking)::Full E2E suite failed. Deploy was NOT blocked — see the playwright-report artifact."
-          echo "### ⚠️ Full E2E suite failed (non-blocking)" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Smoke passed, so the deploy proceeded. Download the \`playwright-report\` artifact for details." >> "$GITHUB_STEP_SUMMARY"
-
-      # The web app on V2 (#1025 M2.7): the runs above are the flag off (production today), where the
-      # @v2 spec skips; this pass turns it on. The knob is baked at container creation (CLAUDE.md), so
-      # api and worker (the transitional extraction) are recreated, after migrator-v2 builds textstack_v2.
-      - name: Turn on V2 (Features:V2Api, textstack_v2 migrated)
-        if: ${{ !cancelled() }}
-        run: |
-          echo "FEATURES_V2API=true" >> .env
-          docker compose run --rm migrator-v2 up
-          docker compose up -d --force-recreate --no-deps api worker
-          timeout 120 bash -c 'until curl -sf http://localhost:8080/health; do sleep 3; done'
-
-      - name: E2E on V2 — gates the PR
-        if: ${{ !cancelled() }}
-        working-directory: apps/web
-        run: pnpm test:e2e --grep @v2
+        run: pnpm test:e2e
         env:
           CI: true
           V2_E2E: "1"
@@ -1041,7 +970,6 @@ jobs:
 
       # ADR-025 phase 2 slice 7, the Phase 3 gate: the engine's reading line and scroll cost on real
       # chapters in Chromium (jsdom has no layout). Its own Vite page, no API; ~5s.
-      # After the full run, so a red gate here never skips that run's report.
       - name: Reader engine geometry — gates the PR
         working-directory: packages/reader-engine
         run: pnpm test:geometry
@@ -1061,7 +989,7 @@ jobs:
       # one not captured.
       - name: Dump service logs on failure
         if: failure()
-        run: docker compose logs --no-color api migrator worker   # migrator-v2 is profile-gated; this job never starts it
+        run: docker compose logs --no-color api migrator worker
 
       - name: Stop services
         if: always()

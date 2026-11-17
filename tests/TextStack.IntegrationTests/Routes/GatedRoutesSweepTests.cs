@@ -76,7 +76,9 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
             configure(req);
 
             using var resp = await _fixture.Client.SendAsync(req, Ct);
-            if (resp.StatusCode != expected)
+            // v2 mode answers an unported legacy route 410 before any gate (SelectedDatabaseGuard): no
+            // handler runs either way. Goes with the 410 branch (M6 B2), when those routes 404.
+            if (resp.StatusCode != expected && resp.StatusCode != HttpStatusCode.Gone)
                 failures.Add($"{route} -> {(int)resp.StatusCode}");
         }
         return failures;
@@ -102,6 +104,6 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
         using var resp = await _fixture.Client.SendAsync(req, Ct);
 
         Assert.False(resp.IsSuccessStatusCode, $"{path} -> {(int)resp.StatusCode}");
-        Assert.Contains(resp.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.NotFound, HttpStatusCode.BadRequest });
+        Assert.Contains(resp.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.NotFound, HttpStatusCode.BadRequest, HttpStatusCode.Gone });
     }
 }
