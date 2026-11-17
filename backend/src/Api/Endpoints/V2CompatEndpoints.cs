@@ -40,9 +40,10 @@ public static class V2CompatEndpoints
         var items = page.Items.Select(h => new HighlightListItemDto(
             h.Id, h.SelectedText, h.AnchorJson, h.Color, h.NoteText, h.CreatedAt,
             null, null, null, null,
-            h.BookId, h.BookTitle, null,
+            // A removed book's highlight carries only the title it had, as legacy's deleted book (#982).
+            h.BookRemoved ? null : h.BookId, h.BookRemoved ? null : h.BookTitle, null,
             null, h.ChapterId, null, h.ChapterTitle, null, h.ChapterKey,
-            null));
+            h.BookRemoved ? h.BookTitle : null));
         return Results.Ok(new { items, totalCount = page.TotalCount });
     }
 }

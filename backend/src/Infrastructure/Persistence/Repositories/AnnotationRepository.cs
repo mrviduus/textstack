@@ -33,10 +33,11 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
     }
 
     // Two fixed statements (newest/oldest), every value a parameter. The chapter is the current file's row for the
-    // locator's chapterKey; a PDF anchor gets kind: pdf as the legacy anchor had it.
+    // locator's chapterKey; a PDF anchor gets kind: pdf as the legacy anchor had it; an epub-cfi one (the V2 reader's)
+    // its quote context. A removed book's highlights stay listed, under the title it had (legacy's #982).
     private const string ListAllFrom = """
         FROM annotations a
-        JOIN books b ON b.user_id = a.user_id AND b.id = a.book_id AND b.removed_at IS NULL
+        JOIN books b ON b.user_id = a.user_id AND b.id = a.book_id
         """;
 
     private const string ListAllWhere = """
@@ -48,10 +49,13 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
 
     private const string ListAllSelect = $"""
         SELECT count(*) OVER ()::int AS Total, a.id AS Id, a.selected_text AS SelectedText,
-            (CASE WHEN jsonb_typeof(a.locator->'value') IS DISTINCT FROM 'object' THEN jsonb_build_object()
+            (CASE WHEN a.locator->>'scheme' = 'epub-cfi' THEN jsonb_build_object(
+                      'prefix', coalesce(a.locator->>'prefix', ''), 'exact', a.selected_text, 'suffix', coalesce(a.locator->>'suffix', ''))
+                  WHEN jsonb_typeof(a.locator->'value') IS DISTINCT FROM 'object' THEN jsonb_build_object()
                   WHEN a.locator->>'scheme' = 'pdf-page' THEN (a.locator->'value') || jsonb_build_object('v', 1, 'kind', 'pdf')
                   ELSE a.locator->'value' END)::text AS AnchorJson,
             a.color AS Color, a.note_text AS NoteText, a.created_at AS CreatedAt, a.book_id AS BookId, b.title AS BookTitle,
+            b.removed_at IS NOT NULL AS BookRemoved,
             c.id AS ChapterId, c.title AS ChapterTitle, c.chapter_key AS ChapterKey
         {ListAllFrom}
         LEFT JOIN LATERAL (
@@ -75,11 +79,11 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         var total = rows.Count > 0 ? rows[0].Total
             : offset == 0 ? 0 : await conn.ExecuteScalarAsync<int>(new CommandDefinition($"SELECT count(*)::int {ListAllFrom} {ListAllWhere}", args, cancellationToken: ct));
         return new(total, rows.Select(r => new AnnotationListItem(r.Id, r.SelectedText, r.AnchorJson, r.Color, r.NoteText, r.CreatedAt,
-            r.BookId, r.BookTitle, r.ChapterId, r.ChapterTitle, r.ChapterKey)).ToList());
+            r.BookId, r.BookTitle, r.BookRemoved, r.ChapterId, r.ChapterTitle, r.ChapterKey)).ToList());
     }
 
     private sealed record ListRow(int Total, Guid Id, string SelectedText, string AnchorJson, string Color, string? NoteText,
-        DateTimeOffset CreatedAt, Guid BookId, string BookTitle, Guid? ChapterId, string? ChapterTitle, string? ChapterKey);
+        DateTimeOffset CreatedAt, Guid BookId, string BookTitle, bool BookRemoved, Guid? ChapterId, string? ChapterTitle, string? ChapterKey);
 
     public async Task<Annotation?> GetAsync(Guid userId, Guid id, CancellationToken ct)
     {
