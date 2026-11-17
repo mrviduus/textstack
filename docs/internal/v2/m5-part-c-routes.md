@@ -163,4 +163,8 @@ What the ports do:
 - **MCP** (`TEXTSTACK_MCP_V2` on): the my-library, progress, reading and insight tools read and write `/me/v2`;
   new `GET/POST /me/v2/books/{id}/insights`. Edition and chapter-review tools answer an error (their routes 410).
 - **Clips:** `POST /me/books/clip` imports a V2 book (origin `{kind: clip, sourceUrl}`) and stores the page as its one
-  `html` file through the V2 part + complete (V2 quota). No chapter extraction: the V2 reader reads the page.
+  `html` file through the V2 part + complete (V2 quota), and queues its chapter extraction (the html extractor) for the
+  assistant tools; the V2 reader reads the page itself. The same page again is the book that holds it (its bytes stored
+  if an earlier attempt stopped short). A refusal is legacy's `{error: message}`, 413 for the storage limit, else 400.
+  Accepted gap: the extension's recent-clips list (`GET /me/books?shelf=readlater`) and its delete (`DELETE
+  /me/books/{id}`) answer 410 in v2 mode; clips are read and removed from the library instead.

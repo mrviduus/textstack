@@ -53,9 +53,11 @@ public static class V2CompatEndpoints
         if (UserBooksEndpoints.InvalidClip(request) is { } invalid) return invalid;
         var (bookId, refused) = await clips.ClipAsync(http.GetUserId(auth)!.Value, request.Title, request.Author,
             request.Language ?? "en", string.IsNullOrWhiteSpace(request.SourceUrl) ? null : request.SourceUrl, request.Html, ct);
+        // The extension reads legacy's {error: message}: the readable message, 413 for the storage limit, else 400.
         return refused is null
             ? Results.Ok(new UploadUserBookResponse(bookId!.Value, Guid.Empty, "Ready", false))
-            : Results.Json(refused.Body, statusCode: refused.Status);
+            : Results.Json(new { error = (refused.Body as Contracts.V2.V2Error)?.Message ?? "The clip could not be saved" },
+                statusCode: refused.Status == StatusCodes.Status413PayloadTooLarge ? 413 : 400);
     }
 
     /// <summary>The legacy explain on V2: the genre from the caller's V2 book, no tools (they read legacy's catalog).</summary>

@@ -227,7 +227,6 @@ public class LibraryContentServiceTests
 
     // #1128: extraction stays EPUB/PDF only (ADR-032 decided 5); the new formats are read on the device.
     [Theory]
-    [InlineData("html")]
     [InlineData("mobi")]
     [InlineData("azw3")]
     [InlineData("fb2")]
