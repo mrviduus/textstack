@@ -1,6 +1,7 @@
 # TextStack Admin Panel
 
-Admin interface for managing books, authors, and content.
+A shell: login and an empty home page. The catalog management pages were retired in M6
+(owner decision D2, `docs/internal/v2/m6-deletion-plan.md` A1). Settings are edited by SQL.
 
 ## Quick Start
 
@@ -14,28 +15,6 @@ docker compose up admin
 
 **URL**: http://localhost:81
 
-## Folder Structure
-
-```
-src/
-├── api/         # Admin API client
-├── components/  # Admin UI components
-├── context/     # React contexts
-├── pages/       # Admin pages
-└── styles/      # Admin-specific styles
-```
-
-## Key Pages
-
-| Page | Description |
-|------|-------------|
-| Dashboard | Overview stats |
-| Books | Book listing + management |
-| Upload | Upload new EPUB/PDF |
-| Ingestion Jobs | Monitor parsing jobs |
-| Authors | Author management |
-| Sites | Multi-site configuration |
-
 ## Commands
 
 ```bash
@@ -43,23 +22,6 @@ pnpm dev      # Start dev server
 pnpm build    # Type-check + build
 pnpm preview  # Preview production build
 ```
-
-## Features
-
-### Book Upload
-- Drag & drop EPUB/PDF
-- Metadata extraction
-- Ingestion job creation
-
-### Ingestion Monitoring
-- Job status tracking
-- Error logs
-- Retry failed jobs
-
-### Content Management
-- Edit book metadata
-- Manage authors/genres
-- SEO fields editing
 
 ## Environment Variables
 
@@ -69,4 +31,4 @@ VITE_API_URL=http://localhost:8080
 
 ## Authentication
 
-Admin panel requires authentication. Access controlled via user roles in database.
+`/admin/auth/*` (cookie session). Create an account with `create-admin <email> <password>`.
