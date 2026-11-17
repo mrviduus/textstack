@@ -31,7 +31,7 @@ to undo except the freeze: [unfreeze](#9-unfreeze) and investigate. From step 6 
 | No deploy during the window | `[mac]` `gh pr list --state open --json number,autoMergeRequest -q '.[]\|select(.autoMergeRequest)\|.number'` | empty (disable each listed auto-merge) | a deploy is running: `gh run list --workflow deploy.yml -L 1` |
 | Owner's phone runs the new build | owner, on the phone: Profile → version | the build that contains the #1374 fix | older build |
 | V2 schema current | `[server]` `make migrate-v2-status` | no pending versions | pending: `make migrate-v2` first |
-| Legacy is ready | `[server]` `curl -s localhost:8080/health/ready` | `"db":{"status":"ok","mode":"legacy"}`, `"v2":{"status":"ok"}` | anything else |
+| Legacy is ready | `[server]` `curl -s localhost:8080/health/ready` | `"db":{"status":"ok","mode":"legacy"}`, `"v2":{"status":"off"}` (the flag is still off before the flip: expected) | `db` not ok, or mode not `legacy` |
 | Disk for the dump | `[server]` `df -h ~ && du -sh data/postgres-prod` | free > 2 × the DB size | less |
 | `.env` copy | `[server]` `cp .env ~/archive/env.pre-v2-cutover && chmod 600 ~/archive/env.pre-v2-cutover` | file exists | — |
 
@@ -66,14 +66,16 @@ systemctl --user stop seo-publish-poller seo-backfill-poller quality-poller 2>/d
 . ./.env && docker exec -i textstack_db_prod psql -XA -F' | ' -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 SELECT 'user_ingestion_jobs' j, count(*) FILTER (WHERE status = 1) running, count(*) FILTER (WHERE status = 0) queued FROM user_ingestion_jobs
 UNION ALL SELECT 'ingestion_jobs', count(*) FILTER (WHERE status = 1), count(*) FILTER (WHERE status = 0) FROM ingestion_jobs
-UNION ALL SELECT 'book_quality_jobs', count(*) FILTER (WHERE status IN (1,2)), count(*) FILTER (WHERE status = 0) FROM book_quality_jobs
+UNION ALL SELECT 'book_quality_jobs', count(*) FILTER (WHERE status = 1), count(*) FILTER (WHERE status = 0) FROM book_quality_jobs
 UNION ALL SELECT 'auto_publish_jobs', count(*) FILTER (WHERE status IN (1,2,4)), count(*) FILTER (WHERE status = 0) FROM auto_publish_jobs
 UNION ALL SELECT 'seo_backfill_jobs', count(*) FILTER (WHERE status = 1), count(*) FILTER (WHERE status = 0) FROM seo_backfill_jobs
 UNION ALL SELECT 'ssg_rebuild_jobs', count(*) FILTER (WHERE status IN ('Running','1')), count(*) FILTER (WHERE status IN ('Queued','0')) FROM ssg_rebuild_jobs;
 SQL
 ```
 
-Expected: `running` = 0 on every row. A running job: wait and re-run the query (an ingestion takes seconds to a
+Expected: `running` = 0 on every row. A `book_quality_jobs` row in status 2 is a finished review waiting for an
+admin, not running. The unit list may show `codegen-poller` crash-looping: not a TextStack writer, harmless,
+leave it. A running job: wait and re-run the query (an ingestion takes seconds to a
 minute). A queued `user_ingestion_jobs` row is carried as a non-ready upload (`cleanupActions`), not lost. Then:
 
 ```sh
@@ -118,7 +120,11 @@ Expected: `* [new tag] pre-v2-cutover -> pre-v2-cutover`.
 ## 5. ETL and validation
 
 The source role and the large-object preflight, once: [v2-etl.md §1](v2-etl.md#1-the-source-role-etl_reader)
-(Provision, then Preflight; the preflight must print `0`). Then:
+(Provision, then Preflight; the preflight must print `0`). The `etl_reader` password can be made on the server
+and never shown: in one ssh session, `ETL_READER_PASSWORD=$(openssl rand -hex 24); export ETL_READER_PASSWORD`,
+the scripted Provision, then build the connection string from the same variable
+(`export ConnectionStrings__Default="Host=db;Port=5432;Database=$POSTGRES_DB;Username=etl_reader;Password=$ETL_READER_PASSWORD"`)
+instead of the `read -rs` below. Nothing prints it; `unset` both at the end. Then:
 
 ```sh
 # [server]
@@ -253,6 +259,9 @@ took writes after the rollback).
 
 - `[mac]` `gh issue comment 1031` with the log's timings and the validate counts; tick #1013.
 - Leave legacy read-only and the large-object revoke in place; drop `etl_reader` ([v2-etl.md §1 Clean up](v2-etl.md#clean-up)).
+  Legacy is read-only now, so `DROP OWNED BY` needs a read-write transaction of its own:
+  `psql … -d "$POSTGRES_DB" -c "BEGIN READ WRITE" -c "DROP OWNED BY etl_reader" -c "COMMIT"`, then `DROP ROLE etl_reader`
+  from `-d postgres`. Production log: [v2-cutover-2026-11-17.md](v2-cutover-2026-11-17.md).
 - The pollers and `ssg-worker` stay stopped. Deploys leave `ssg-worker` down while `.env` says `DATABASE_MODE=v2`.
   M6 deletes it.
 - A deploy's legacy migrator only reads while nothing is pending (`database/migrate.sh`): a new legacy migration

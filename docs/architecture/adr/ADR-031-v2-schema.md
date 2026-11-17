@@ -160,15 +160,15 @@ Numbering and rows (2026-10-26) from [data-model.md](../data-model.md). "Archive
 | 20 | `ssg_rebuild_jobs` | 11,659 | retired (data archived only) | |
 | 21 | ~~`ssg_rebuild_results`~~ | — | already dropped (`0006`) | |
 | 22 | `users` | 357 | → `users` | every column; `role = 'reader'`; guests stay guests |
-| 23 | `user_refresh_tokens` | 170 | → `user_refresh_tokens` | sessions survive the cutover |
+| 23 | `user_refresh_tokens` | 170 | → `user_refresh_tokens` | sessions survive the cutover; **not carried: see Amended 2026-11-17.** |
 | 24 | `admin_users` | 1 | → `users` (reshaped) | matched by email (case-insensitive) or inserted with its `password_hash`; `role = 'admin'` (legacy `Admin/Editor/Moderator` all collapse) |
 | 25 | `admin_refresh_tokens` | 0 | → `user_refresh_tokens` (reshaped) | shape folded; nothing to copy |
 | 26 | `password_reset_tokens` | 0 | → `password_reset_tokens` | |
 | 27 | `device_authorizations` | 4 | → `device_authorizations` | |
-| 28 | `oauth_clients` | 3 | → `oauth_clients` | |
-| 29 | `oauth_authorization_requests` | 1 | → `oauth_authorization_requests` (reshaped) | `user_id` gains its FK |
-| 30 | `oauth_grants` | 3 | → `oauth_grants` | MCP connections survive |
-| 31 | `mcp_access_keys` | 1 | → `mcp_access_keys` | minus `site_id` |
+| 28 | `oauth_clients` | 3 | → `oauth_clients` | **Not carried: see Amended 2026-11-17.** |
+| 29 | `oauth_authorization_requests` | 1 | → `oauth_authorization_requests` (reshaped) | `user_id` gains its FK; **not carried: see Amended 2026-11-17.** |
+| 30 | `oauth_grants` | 3 | → `oauth_grants` | MCP connections survive; **not carried: see Amended 2026-11-17.** |
+| 31 | `mcp_access_keys` | 1 | → `mcp_access_keys` | minus `site_id`; **not carried: see Amended 2026-11-17.** |
 | 32 | `admin_settings` | 6 | → `admin_settings` | |
 | 33 | `user_books` | 96 | → `books` (reshaped) | same id; title, author, language, cover → `cover_key`, `origin {"kind":"upload"}` (clips `{"kind":"clip","sourceUrl":…}`); `tags`, `description`, `genre`, `published_year` kept; `page_count`, `toc_json` → `book_files`; `progress_*`, `is_read`/`read_at` → `reading_state` |
 | 34 | `user_chapters` | 2,710 | transitional → `book_chapters` | keyed to the book's one file; `slug` → `chapter_key` (null → `'ch-' \|\| chapter_number`); generated `search_vector` not carried |
@@ -460,3 +460,11 @@ Wire rules: [v2-sync-protocol.md](../../internal/v2/v2-sync-protocol.md) "Annota
 - `user_books.takedown_at`: its meaning is carried into V2 as content-removed (`books.removed_at` and
   `book_files.content_removed_at` = `takedown_at`, no bytes, no chapters; `internal/ops/v2-etl.md` §4);
   the column itself stays retired (decided item 3).
+
+## Amended 2026-11-17 — sessions and assistant connections were not carried (M5, [#1031](https://github.com/mrviduus/textstack/issues/1031))
+
+- Rows 23 and 28–31 of the inventory (`user_refresh_tokens`, `oauth_clients`, `oauth_authorization_requests`,
+  `oauth_grants`, `mcp_access_keys`) were planned as copies; the ETL did not carry them. The tables exist on
+  V2 and started empty.
+- Effect at the production switch (2026-11-17): every user signed in again, and MCP connectors were
+  connected again. Log: [`v2-cutover-2026-11-17.md`](../../../internal/ops/v2-cutover-2026-11-17.md).

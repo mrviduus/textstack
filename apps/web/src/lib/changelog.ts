@@ -70,7 +70,7 @@ export const SEED: ReaderEntry[] = [
 export type StepState = 'done' | 'now' | 'next'
 export interface MoveStep { title: string; text: string; state: StepState }
 
-export const MOVE_UPDATED = '2026-11-16'
+export const MOVE_UPDATED = '2026-11-17'
 
 export const MOVE_STEPS: MoveStep[] = [
   { state: 'done', title: 'A new home for your data',
@@ -83,20 +83,19 @@ export const MOVE_STEPS: MoveStep[] = [
     text: 'It opens the book file straight from your device: no waiting, no network, no account needed. On the web and Android.' },
   { state: 'done', title: 'The new reading screen catches up',
     text: 'Menus, page turns, highlights with colours and notes, your reading position on every device, listening, the words you saved marked in the text, pictures full screen, bookmarks, search in the book, and talking a chapter over with your assistant.' },
-  { state: 'now', title: 'The switch',
-    text: 'Your books, reading positions, highlights and words move to the new home, and the new reading screen opens every book, saved articles too. You keep reading where you were.' },
+  { state: 'done', title: 'The switch',
+    text: 'Your books, reading positions, highlights and words moved to the new home on 17 November, and the new reading screen opens every book, saved articles too. You keep reading where you were.' },
+  { state: 'now', title: 'Old parts retire',
+    text: 'The old reading screen and the public catalogue go away. TextStack becomes your own library, nothing else.' },
   { state: 'next', title: 'PDF books on the new reading screen',
     text: 'PDF books open in the new reading screen from the switch on, with their pages as they are. Next: highlights in them, and searching them.' },
   { state: 'next', title: 'Tests on real phones',
     text: 'Very large books, a full phone, older Android versions.' },
-  { state: 'next', title: 'Old parts retire',
-    text: 'The old reading screen and the public catalogue go away. TextStack becomes your own library, nothing else.' },
 ]
 
 /** Questions still open about the move, in reader words. Nothing private goes here. */
 export const MOVE_OPEN: string[] = [
   'What the reading screen says when you read further on another device. What it does is decided; the exact words are not.',
-  'The date of the switch. It comes after a full rehearsal on a copy of your data.',
 ]
 
 /** Percent of the road: a step in progress counts as half. */
