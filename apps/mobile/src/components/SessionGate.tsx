@@ -12,7 +12,7 @@ import { readerGateState, READER_SESSION_GATE_TIMEOUT_MS, gateMemory, gateGaveUp
  * Wraps the two places where someone commits to keeping something: **opening a
  * book** (progress, highlights, vocabulary — every one of those writes needs a
  * server row) and **uploading one**. Minting at app launch instead would spend
- * a session on people who only browsed the catalog.
+ * a session on people who only looked around.
  *
  * Upload was added on 2026-09-28, after a device run found a fresh install
  * being offered "Create a free account" on the upload screen. The reasoning

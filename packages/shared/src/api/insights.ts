@@ -9,7 +9,7 @@ import { listInsights } from './v2'
  * ChatGPT, where the reader already has their profile and their history; what
  * comes home is the result, hung on the book's spine. `chapterSlug` names the
  * chapter it is about, or is null for the whole book — that null one is the
- * конспект's overview.
+ * book summary's overview.
  *
  * The server resolves each slug to its chapter number and title at read time and
  * returns them in reading order, so a client renders the list as it comes.
@@ -34,9 +34,9 @@ export interface BookInsight {
 }
 
 /**
- * Everything already worked out about one book. Pass exactly one id. `v2`: the caller's switch
- * (`onV2()`): the legacy route answers 410 there. V2 keeps a user book's insights (no review, no
- * delete route); a catalog edition's are none (the catalog retired, #992).
+ * Everything already worked out about one book. Pass exactly one id. Every caller passes `v2 = true`:
+ * V2 keeps a user book's insights (no review, no delete route); an `editionId` has none (the catalog
+ * retired, #992). The `v2 = false` branch calls the removed `/me/insights` and is dead (#1406).
  */
 export function getBookInsights(
   target: { userBookId: string } | { editionId: string },

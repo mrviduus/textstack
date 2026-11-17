@@ -1,4 +1,4 @@
-// How the Android host hands the page a book without `file://` (#1228, ADR-029 Decision 4, docs/01-architecture/
+// How the Android host hands the page a book without `file://` (#1228, ADR-029 Decision 4, docs/internal/v2/
 // v2-reader-android-bytes.md): the page is loaded under BOOK_ORIGIN, the origin Android reserves for app content,
 // and a native interceptor (patches/react-native-webview@*.patch, RNCWebViewClient.shouldInterceptRequest) serves
 // exactly the files BOOK_PATH matches from the app's `files/v2/`, nothing else. Pure: the host, the CSP

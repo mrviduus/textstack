@@ -6,7 +6,7 @@ import { useTheme } from '../../context/ThemeContext'
 import type { DownloadInfo } from '../../context/DownloadContext'
 
 /**
- * The offline-download button on both book screens (catalog + upload): one
+ * The offline-download button on the book screen: one
  * download engine (DownloadContext), so one four-state button —
  * cached → Remove, downloading → Cancel %, failed chapters → Retry, else Download.
  * Each screen passes its own button/text style.

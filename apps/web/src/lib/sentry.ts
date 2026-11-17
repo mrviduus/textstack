@@ -1,5 +1,5 @@
 /**
- * Browser error reporting for web. Same contract as the backend, the ssg-worker and mobile: **no DSN, no
+ * Browser error reporting for web. Same contract as the backend and mobile: **no DSN, no
  * SDK** — dev, CI and e2e build without `VITE_SENTRY_DSN`, so nothing loads and nothing is sent. With
  * one (set in `apps/web/production.env`: a browser DSN is public by design), `@sentry/react` loads lazily,
  * in its own chunk (`sentryClient.ts`), off the main bundle.
@@ -16,7 +16,7 @@ let sentry: Promise<SentryModule | null> | null = null
 
 const stripQuery = (url: string) => url.replace(/[?#].*$/, '')
 
-/** The backend's SentryScrubber rules (and the ssg-worker's): our tokens, Bearer, JWTs, MCP keys, query strings. */
+/** The backend's SentryScrubber rules: our tokens, Bearer, JWTs, MCP keys, query strings. */
 const SECRETS: [RegExp, string][] = [
   [/\bBearer\s+[^\s"',;]+/gi, 'Bearer [redacted]'],
   [/\/mcp\/k\/[^\s/?#"']+/g, '/mcp/k/[redacted]'],

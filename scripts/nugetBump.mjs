@@ -76,7 +76,7 @@ export function bumpPackages(xmlText, latest) {
     if (!to || held.has(name)) continue
 
     // A cross-package constraint can make a legal minor unbuildable — this file
-    // documents an NU1109 where EF Core and Npgsql disagreed. That is what the
+    // documents an NU1109 (an Npgsql version mismatch). That is what the
     // build, the tests and the migration check in CI are for; this stays a
     // proposal, never a push.
     const kind = jump(declared, to)

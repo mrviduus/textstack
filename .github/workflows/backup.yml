@@ -121,9 +121,6 @@ jobs:
             exit 1
           fi
 
-      # No nightly SSG rebuild since #992: the SSG tree is frozen (search sent 6 clicks in 90 days).
-      # Rebuild by hand when the catalog changes: admin panel or `make rebuild-ssg`.
-
       # Runs even when the backup failed — a full disk is the usual reason it does.
       # Failing here fires the same failure notification as a broken backup.
       - name: Disk space alarm (>= 85%)

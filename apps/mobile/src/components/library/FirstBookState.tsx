@@ -19,14 +19,9 @@ import { PressableScale } from '../ui/PressableScale'
  *     2026-09-06 reversal (`lib/capabilities.ts`, ADR-014 §3). Uploading is what
  *     makes the rest of the app do anything for a book they already want to
  *     finish, and "bring your own book" is the product's first claim, so it is
- *     the primary. Catalog underneath.
- *   - A device with no session at all cannot: `POST /me/books/upload` has no
- *     bearer token, and mobile mints a guest only when a book is opened. For
- *     them the catalog is promoted, and it is not a consolation prize — opening
- *     one classic is what mints the session that makes the other branch
- *     available. Upload stays as the link that asks for an account, because a
- *     primary "Upload a book" landing on a sign-in wall would be the same broken
- *     promise the tap-a-word coachmark used to make.
+ *     the primary.
+ *   - A device with no session at all: the upload route mints one (SessionGate),
+ *     so Upload stays primary, and a second link asks for an account.
  *
  * The branch moved without this file changing, which was the point of putting
  * the policy in one pure function. Only the reasons above are new.

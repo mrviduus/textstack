@@ -690,8 +690,7 @@ export default function UserBookDetailScreen() {
                 {book.completedAt ? 'Mark as unread' : 'Mark as read'}
               </Text>
             </TouchableOpacity>
-            {/* Offline download. Same four states as a catalog book — the two
-                libraries now share one download engine (DownloadContext). */}
+            {/* Offline download (DownloadContext). */}
             <DownloadButton
               dl={dl}
               cached={cached}

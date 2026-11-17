@@ -101,8 +101,8 @@ public static class SentryBootstrap
     }
 
     /// <summary>
-    /// Tag naming the process an event came from (<c>api</c>, <c>worker</c>, <c>mcp-server</c>; the
-    /// Node ssg-worker sets <c>ssg-worker</c>). Every host shares one Sentry project, so this is how
+    /// Tag naming the process an event came from (<c>api</c>, <c>worker</c>, <c>mcp-server</c>; the web
+    /// app tags <c>web</c>). Every host shares one Sentry project, so this is how
     /// an issue is filtered to one of them. Values are the docker-compose service names.
     /// </summary>
     public const string ServiceTag = "service";
@@ -115,7 +115,7 @@ public static class SentryBootstrap
         options.AttachStacktrace = true;
         options.DefaultTags[ServiceTag] = service;
 
-        // No SQL text, at the source: the DiagnosticSource integration records EF Core / Npgsql
+        // No SQL text, at the source: the DiagnosticSource integration records Npgsql
         // `db.*` spans whose description is the full statement, and transactions never pass Scrub().
         // Costs the API's traces their database child spans; the http.server transaction and its
         // outgoing-HTTP and AI spans are unaffected. ScrubTransaction blanks db.* as a backstop.

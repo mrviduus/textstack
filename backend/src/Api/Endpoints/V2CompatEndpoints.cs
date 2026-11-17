@@ -79,7 +79,7 @@ public static class V2CompatEndpoints
                 statusCode: refused.Status == StatusCodes.Status413PayloadTooLarge ? 413 : 400);
     }
 
-    /// <summary>The legacy explain on V2: the genre from the caller's V2 book, no tools (they read legacy's catalog).</summary>
+    /// <summary>The legacy explain on V2: the genre from the caller's V2 book, no tools (they read the retired catalog).</summary>
     private static Task<IResult> Explain(
         [FromBody] ExplainRequest request, HttpContext http, IConfiguration config, IOptions<OpenAiOptions> openAi,
         TextStack.Ai.Core.ILlmService llm, IAuthService auth, ILibraryRepository library, ToolCallingSession toolSession,

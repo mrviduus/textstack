@@ -161,7 +161,7 @@ public static class SentryScrubber
     /// crumb carries the send time rather than the original — a sub-second difference in ordering
     /// context, worth it for a guaranteed-scrubbed payload.)
     ///
-    /// EF Core command breadcrumbs are dropped ENTIRELY, not redacted. Caught in first-run
+    /// EF Core command breadcrumbs (EF Core left in M6; the guard stays) are dropped ENTIRELY. Caught in first-run
     /// verification: an event's breadcrumb trail carried <c>Executed DbCommand … SELECT …</c> with
     /// the full SQL inline in the MESSAGE, so nulling <c>data</c> did not stop it. That is the same
     /// class of leak (<c>SetDbStatementForText</c>) this integration deliberately avoided by not

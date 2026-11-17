@@ -3,7 +3,7 @@ using static TextStack.IntegrationTests.V2.V2ApiFixture;
 
 namespace TextStack.IntegrationTests.V2;
 
-/// <summary>v2-sync-protocol.md "Endpoints", the library rows, against the running stack (V2 mode, <see cref="V2ApiFixture"/>).</summary>
+/// <summary>v2-sync-protocol.md "Endpoints", the library rows, against the running stack (<see cref="V2ApiFixture"/>).</summary>
 public class V2LibraryEndpointTests(V2ApiFixture v2) : IClassFixture<V2ApiFixture>
 {
     [Fact]

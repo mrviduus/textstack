@@ -1,7 +1,7 @@
 /**
- * The V2 sync API (`/me/v2/*`, mapped only with `Features:V2Api` on) for both clients: one typed
+ * The V2 sync API (`/me/v2/*`) for both clients: one typed
  * function per route, the wire shapes of `backend/src/Contracts/V2/V2Dtos.cs` field by field.
- * The contract is docs/01-architecture/v2-sync-protocol.md. Platform-free: the caller's `initApi`
+ * The contract is docs/internal/v2/v2-sync-protocol.md. Platform-free: the caller's `initApi`
  * decides cookies (web) or Bearer (mobile); `authFetch` retries a 401 once and nothing else.
  *
  * `revision` is a number: a V2 revision is a per-row write count (an int64 on the server) that stays
@@ -36,7 +36,7 @@ export interface V2Status {
 }
 
 /**
- * The legacy user-book progress row (`GET /me/books/{id}/progress`), the shape both clients'
+ * The progress shape (from the retired `GET /me/books/{id}/progress`) both clients'
  * readers restore from; a V2 reading state is mapped onto it.
  */
 export interface UserBookProgressDto {
@@ -57,7 +57,7 @@ export interface UserBookProgressDto {
  */
 export type V2WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: UserBookProgressDto }
 
-/** A sign-in's `merge` (V2 on, a guest merged): guest id → account id, only the ids that changed. */
+/** A sign-in's `merge` (a guest merged): guest id → account id, only the ids that changed. */
 export interface V2MergeMap {
   books?: Record<string, string>
   files?: Record<string, string>

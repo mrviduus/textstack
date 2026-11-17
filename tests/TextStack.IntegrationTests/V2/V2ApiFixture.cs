@@ -17,7 +17,7 @@ public sealed record V2Response(HttpStatusCode Status, JsonElement Body)
 }
 
 /// <summary>
-/// <see cref="LiveApiFixture"/>'s V2 mode: the running stack with <c>textstack_v2</c> migrated
+/// The <c>/me/v2</c> tests' fixture beside <see cref="LiveApiFixture"/>: the running stack with <c>textstack_v2</c> migrated
 /// (<c>make migrate</c>). Opt-in by
 /// <c>V2_API_TESTS=1</c>; set, a stack whose <c>/me/v2</c> is not mapped fails every test instead of
 /// skipping it, so a run that meant to cover V2 cannot go green without it. Two test users

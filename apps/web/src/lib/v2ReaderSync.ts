@@ -1,5 +1,5 @@
 /**
- * The web V2 reader's reader data on the server (#1226; docs/01-architecture/v2-reader-web-hosting.md S5): one
+ * The web V2 reader's reader data on the server (#1226; docs/internal/v2/v2-reader-web-hosting.md S5): one
  * session per open of the production route. Online-only, no outbox:
  * - **No reading-state read, no session.** `restore` throws when the state cannot be read (the host offers a
  *   retry); the page is restored only from the server's place, so nothing is ever written over a place unseen.

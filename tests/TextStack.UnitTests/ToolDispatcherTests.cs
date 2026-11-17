@@ -102,7 +102,7 @@ public class ToolDispatcherTests
         Assert.False(results[2].Ok);
     }
 
-    // ---- per-invocation DI scope (parallel tools must not share scoped services, e.g. DbContext) ----
+    // ---- per-invocation DI scope (parallel tools must not share scoped services, e.g. a DB connection) ----
 
     private sealed class ScopedMarker
     {
@@ -137,7 +137,7 @@ public class ToolDispatcherTests
             ctx, TestContext.Current.CancellationToken);
 
         Assert.All(results, r => Assert.True(r.Ok));
-        // Different scope per invocation → different scoped instances (no shared DbContext hazard).
+        // Different scope per invocation → different scoped instances (no shared scoped-service hazard).
         Assert.NotEqual(results[0].Result!.Value.GetString(), results[1].Result!.Value.GetString());
     }
 

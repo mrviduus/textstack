@@ -66,7 +66,7 @@ export interface Capabilities {
    * *user books first, catalogue second*, and a policy that answers "bring the
    * book you actually want to finish" with a sign-in wall contradicts it. The
    * thesis wins. Recorded as a reversal in
-   * `docs/01-architecture/adr/ADR-014-guest-sessions.md` §3.
+   * `docs/architecture/adr/ADR-014-guest-sessions.md` §3.
    *
    * Nothing on the server changed, because nothing had to. A guest resolves to
    * the `Guest` entitlement tier — one book, 50 MB (`Entitlements:Tiers:Guest`,
@@ -76,7 +76,7 @@ export interface Capabilities {
    *
    * `hasSession`, not `true`, because `POST /me/books/upload` needs a bearer
    * token and mobile mints a guest from exactly one trigger — opening a book
-   * (`SessionGate`, which also wraps the upload route). An install that has only ever browsed the catalog has
+   * (`SessionGate`, which also wraps the upload route). An install that never opened a book has
    * no session and no row to hang a file on, so for it this is still false and
    * the affordance still asks for an account. See "Open" in the ADR.
    *
