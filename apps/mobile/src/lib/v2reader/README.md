@@ -1,8 +1,8 @@
 # V2 reader page
 
-The page that renders a local EPUB, MOBI/AZW3, FB2, CBZ or PDF (see Formats) in the V2 reader's WebView ([ADR-029](../../../../../docs/01-architecture/adr/ADR-029-foliate-for-v2-epub.md)).
+The page that renders a local EPUB, MOBI/AZW3, FB2, CBZ or PDF (see Formats) in the V2 reader's WebView ([ADR-029](../../../../../docs/architecture/adr/ADR-029-foliate-for-v2-epub.md)).
 foliate-js parses and renders the book; our code adds word tap, the inline translation label, highlights and
-the reading position. Slice R1 of [v2-plan.md](../../../../../docs/01-architecture/v2-plan.md) §7: the page
+the reading position. Slice R1 of [v2-plan.md](../../../../../docs/internal/v2/v2-plan.md) §7: the page
 and its build only. Hosted by `V2ReaderScreen.tsx` (R2): in production on the reader route `app/my-books/read/[bookId]/…` when V2 is on (M5 #1031); the dev route `app/dev/epub-v2.tsx` (its library list) is hidden from production Metro, see metro.config.js.
 
 | File | What |
@@ -1042,7 +1042,7 @@ Making srcdoc work took five app-wide additions (measured on the experiment bran
 own document the page carries only its own policy, and the app needs `frame-src 'self'` plus a location that sends
 the frame's headers itself (nginx drops server-level `add_header` there, #857, and those carry `frame-ancestors
 'none'` and `X-Frame-Options: DENY`). Still one origin: a script past the page CSP reaches the app through `parent`
-(`docs/01-architecture/v2-reader-web-hosting.md`).
+(`docs/internal/v2/v2-reader-web-hosting.md`).
 
 ```bash
 pnpm -C apps/web check:v2-reader-prod-csp   # CI, ~15 s: shell + script work under the app CSP read from nginx (EPUB, fonts, MOBI); srcdoc, header-less, foreign-framed, unfilled, un-nonced script and tampered script do not; nginx's reader locations send the handler's headers
