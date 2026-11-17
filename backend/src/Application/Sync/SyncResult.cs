@@ -87,6 +87,7 @@ public static class SyncCodes
     public const string QuotaExceeded = "quota_exceeded";
     public const string LengthRequired = "length_required";
     public const string V2Unavailable = "v2_unavailable";
+    public const string ReviewExists = "review_exists";
 
     public static int StatusOf(string code) => Table(code).Status;
 
@@ -114,6 +115,7 @@ public static class SyncCodes
         QuotaExceeded => (413, "Storage limit reached."),
         LengthRequired => (411, "Send the part with its Content-Length."),
         V2Unavailable => (503, "Sync is paused; reading is unaffected."),
+        ReviewExists => (409, "This chapter has a structured review, which an insight does not replace."),
         _ => throw new ArgumentOutOfRangeException(nameof(code), code, "Not a code of the sync protocol."),
     };
 }

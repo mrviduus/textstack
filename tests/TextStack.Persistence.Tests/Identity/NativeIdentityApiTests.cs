@@ -370,6 +370,54 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
         }
     }
 
+    [Fact]
+    public async Task AnAssistantReadsAndAnnotatesAV2OnlyBookThroughMcp()
+    {
+        var (client, target) = await ApiAsync();
+        using (client)
+        {
+            var account = await RegisterAsync(client);
+            var (user, book, file) = (UserId(account), Guid.NewGuid(), Guid.NewGuid());
+            await ExecAsync(target, """
+                INSERT INTO books (id,user_id,title,author,origin) VALUES (@book,@user,'Cosmos','Sagan','{"kind":"upload"}');
+                INSERT INTO book_files (id,user_id,book_id,sha256,byte_size,original_name,format)
+                    VALUES (@file,@user,@book,repeat('a',64),10,'cosmos.epub','epub');
+                INSERT INTO book_chapters (id,user_id,book_id,file_id,chapter_key,chapter_number,title,html,plain_text,created_at) VALUES
+                    (gen_random_uuid(),@user,@book,@file,'c1',1,'Shores','<p>The cosmos is all that is.</p>','The cosmos is all that is.',now()),
+                    (gen_random_uuid(),@user,@book,@file,'c2',2,'Harmony','<p>Worlds.</p>','Worlds.',now());
+                """, new { user, book, file });
+
+            using var http = _apps[^1].CreateClient();
+            var options = new TextStack.Ai.Mcp.McpBridgeOptions { ApiBaseUrl = "http://localhost/", SiteHost = "localhost", McpToken = Access(account), V2 = true };
+            var mcp = new TextStack.Ai.Mcp.Tools.McpToolCatalog(
+                new TextStack.Ai.Mcp.Http.TextStackApiClient(http, options, new TextStack.Ai.Mcp.Auth.StaticEnvTokenProvider(options)));
+            async Task<JsonElement> Call(string tool, object args)
+            {
+                var result = await mcp.CallAsync(tool, JsonSerializer.SerializeToElement(args), Ct);
+                var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
+                Assert.False(result.IsError == true, $"{tool}: {text}");
+                return JsonSerializer.Deserialize<JsonElement>(text);
+            }
+
+            Assert.Contains("Cosmos", (await Call("search_my_library", new { query = "sagan" })).GetRawText());
+            var chapters = (await Call("get_my_book", new { bookId = book })).GetProperty("chapters");
+            var shores = chapters[0].GetProperty("chapterId").GetGuid();
+            Assert.Contains("all that is", (await Call("get_my_chapter", new { bookId = book, chapterSlug = "c1" })).GetProperty("text").GetString());
+
+            await Call("save_my_highlight", new { bookId = book, chapterId = shores, selectedText = "all that is", noteText = "the opening line" });
+            var marked = (await Call("list_my_book_highlights", new { bookId = book })).GetProperty("highlights");
+            Assert.Equal(shores, Assert.Single(marked.EnumerateArray()).GetProperty("chapterId").GetGuid());
+
+            await Call("set_book_progress", new { bookId = book, chapterSlug = "c1" });
+            Assert.Equal("c2", (await Call("get_book_progress", new { bookId = book })).GetProperty("chapterSlug").GetString());
+            Assert.Contains("Cosmos", (await Call("get_my_reading", new { })).GetProperty("reading").GetRawText());
+
+            await Call("save_insight", new { bookId = book, chapterSlug = "c1", text = "Sagan opens with scale." });
+            var insight = Assert.Single((await Call("get_my_insights", new { bookId = book })).GetProperty("insights").EnumerateArray());
+            Assert.Equal("Shores", insight.GetProperty("chapterTitle").GetString());
+        }
+    }
+
     /// <summary>Both LLM seams (Translate's factory, Explain's gateway): a fixed answer, the system prompts kept.</summary>
     private sealed class FakeLlm : Domain.LLM.ILlmServiceFactory, Domain.LLM.ILlmService, TextStack.Ai.Core.ILlmService
     {

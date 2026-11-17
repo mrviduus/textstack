@@ -37,5 +37,6 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<ReadingSyncService>()
             .AddSingleton<AnnotationSyncService>()
             .AddSingleton<VocabularySyncService>()
-            .AddSingleton<DiscussionSyncService>();
+            .AddSingleton<DiscussionSyncService>()
+            .AddSingleton<InsightSyncService>();
 }

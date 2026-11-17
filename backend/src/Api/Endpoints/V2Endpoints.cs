@@ -123,6 +123,10 @@ public static class V2Endpoints
             Send(s.ListCheckpointsAsync(User(h, a), bookId, chapterKey, cursor, limit, ct)));
         v2.MapDelete("/checkpoints/{id:guid}", (HttpContext h, IAuthService a, DiscussionSyncService s, Guid id, CancellationToken ct) =>
             Send(s.DeleteCheckpointAsync(User(h, a), id, ct)));
+        v2.MapGet("/books/{bookId:guid}/insights", (HttpContext h, IAuthService a, InsightSyncService s, Guid bookId, CancellationToken ct) =>
+            Send(s.ListAsync(User(h, a), bookId, ct)));
+        v2.MapPost("/books/{bookId:guid}/insights", (HttpContext h, IAuthService a, InsightSyncService s, Guid bookId, InsightRequest body, CancellationToken ct) =>
+            Send(s.SaveAsync(User(h, a), bookId, body, ct))).RequireRateLimiting("insights");
         v2.MapPut("/books/{bookId:guid}/checkpoint-saving", (HttpContext h, IAuthService a, DiscussionSyncService s, Guid bookId, CheckpointSavingRequest body, CancellationToken ct) =>
             Send(s.SetCheckpointSavingAsync(User(h, a), bookId, body, ct)));
     }

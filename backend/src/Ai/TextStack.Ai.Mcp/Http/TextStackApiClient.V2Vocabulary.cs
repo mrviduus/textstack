@@ -27,19 +27,10 @@ public sealed partial class TextStackApiClient
     {
         // ponytail: pulls the whole feed (500 cards a request) on every call; a server-side list when a
         // vocabulary outgrows a few thousand words.
-        var cards = new List<VocabularyWordDto>();
-        string? cursor = null;
-        do
-        {
-            var url = $"/me/v2/vocabulary/changes?limit={V2FeedPage}" + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
-            // Never "no words" for a page that did not come: a refusal is the tool's error, with the server's message.
-            var result = await SendAsync<object>(HttpMethod.Get, url, null, ct);
-            if (result.Error is { } refused) return new(null, refused, result.Status, result.Code);
-            var page = result.Value.Deserialize<ChangeFeedDto<VocabularyWordDto>>(JsonOptions)
-                ?? throw new JsonException("vocabulary feed page was empty");
-            cards.AddRange(page.Items);
-            cursor = page.HasMore ? page.Cursor : null;
-        } while (cursor is not null);
+        // Never "no words" for a page that did not come: a refusal is the tool's error, with the server's message.
+        var feed = await PullAllAsync<VocabularyWordDto>("/me/v2/vocabulary/changes", ct);
+        if (feed.Error is { } refused) return new(null, refused, feed.Status, feed.Code);
+        var cards = feed.Value!;
 
         var term = search?.Trim();
         var listed = cards
