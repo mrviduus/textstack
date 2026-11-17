@@ -4,7 +4,7 @@ import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import NetInfo from '@react-native-community/netinfo'
-import { ApiError, currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
+import { ApiError, currentReviewChapter, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
 import { v2Offers } from '@textstack/shared'
 import { useV2 } from '../../src/context/AuthContext'
 import { userBooksApi } from '../../src/lib/userBooksApi'
@@ -38,6 +38,7 @@ import { ChapterReviewAction } from '../../src/components/library/ReviewChapterB
 import { useBookReviews } from '../../src/hooks/useBookReviews'
 import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
+import { useCoverSource } from '../../src/hooks/useCoverSource'
 
 /**
  * Everything this screen needs, read off the device: the book payload rebuilt
@@ -136,6 +137,7 @@ export default function UserBookDetailScreen() {
   // V2 (#1025): no retry, collections, insights or chapter reviews on a V2 book (V2_FEATURES).
   const v2 = useV2()
   const [book, setBook] = useState<UserBookDetailResponse | null>(null)
+  const [coverSource, onCoverError] = useCoverSource(book?.coverPath)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<'offline' | 'failed' | 'notfound' | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -569,7 +571,8 @@ export default function UserBookDetailScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Image
-            source={book.coverPath ? getStorageUrl(book.coverPath) : undefined}
+            source={coverSource}
+            onError={onCoverError}
             style={[styles.cover, { backgroundColor: colors.border }]}
             contentFit="cover"
           />
