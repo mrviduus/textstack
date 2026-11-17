@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useUserTags } from '../../hooks/useUserTags'
 import { useCollections } from '../../hooks/useCollections'
+import { useV2 } from '../../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import type { LibrarySource } from '../../hooks/useLibrarySource'
 
 const TAG_LIMIT = 10
@@ -32,6 +34,8 @@ export function LibrarySidebar({
 }: Props) {
   const { t } = useTranslation()
   const { tags } = useUserTags()
+  // V2 (#1031): no catalog shelf, no collections.
+  const v2 = useV2()
   const { collections, create } = useCollections()
   const [creatingCollection, setCreatingCollection] = useState(false)
   const [newCollectionName, setNewCollectionName] = useState('')
@@ -88,7 +92,7 @@ export function LibrarySidebar({
           <span className="library-sidebar-v3__label">{t('library.sidebar.uploads')}</span>
           <span className="library-sidebar-v3__count">{counts.uploads}</span>
         </button>
-        <button
+        {v2Offers(v2, 'catalog') && <button
           type="button"
           className={`library-sidebar-v3__item ${isSourceActive('catalog') ? 'library-sidebar-v3__item--active' : ''}`}
           onClick={() => onSourceChange('catalog')}
@@ -96,7 +100,7 @@ export function LibrarySidebar({
           <span className="material-icons-outlined">bookmark</span>
           <span className="library-sidebar-v3__label">{t('library.sidebar.catalog')}</span>
           <span className="library-sidebar-v3__count">{counts.catalog}</span>
-        </button>
+        </button>}
       </div>
 
       {visibleTags.length > 0 && (
@@ -126,7 +130,7 @@ export function LibrarySidebar({
         </div>
       )}
 
-      <div className="library-sidebar-v3__section">
+      {v2Offers(v2, 'collections') && <div className="library-sidebar-v3__section">
         <h3 className="library-sidebar-v3__heading">{t('library.sidebar.collections')}</h3>
         {collections.map((c) => (
           <button
@@ -172,7 +176,7 @@ export function LibrarySidebar({
             {t('library.sidebar.newCollection')}
           </button>
         )}
-      </div>
+      </div>}
     </nav>
   )
 }

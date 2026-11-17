@@ -3,6 +3,7 @@ import { PERCENT_UNIT_BOOK, PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from 
 import type { ReadingProgressDto, GuestMergeSkipReason } from '@textstack/shared'
 
 import { authFetch as meFetch, API_BASE, ApiError } from './client'
+import { refuseOnV2 } from './v2'
 
 /** /me/* data calls: the shared cookie-mode client (401 → refresh → retry). The session
  *  flow below (login/refresh/logout/guest/device) stays on the local `authFetch`, which
@@ -208,6 +209,7 @@ export async function getProgress(editionId: string): Promise<ReadingProgressDto
  */
 export async function readProgress(editionId: string, signal?: AbortSignal): Promise<ReadingProgressDto | null | undefined> {
   try {
+    await refuseOnV2('catalog')
     return await meFetch<ReadingProgressDto>(`/me/progress/${editionId}`, { signal })
   } catch (e) {
     return e instanceof ApiError && e.status === 404 ? null : undefined
@@ -219,7 +221,9 @@ export interface AllProgressResponse {
   items: ReadingProgressDto[]
 }
 
+// M5 (#1031): `/me/progress` and `/me/library` are the retiring catalog's; refused on V2 (410), before any request.
 export async function getAllProgress(): Promise<AllProgressResponse> {
+  await refuseOnV2('catalog')
   return meFetch<AllProgressResponse>('/me/progress')
 }
 
@@ -227,6 +231,7 @@ export async function upsertProgress(editionId: string, data: UpsertProgressRequ
   // Every web writer funnels through here, so the unit is declared once. The
   // server stores a percentage only when it knows what it is a fraction of —
   // see Application.ReadingTracking.ProgressUnit.
+  await refuseOnV2('catalog')
   return meFetch<ReadingProgressDto>(`/me/progress/${editionId}`, json('PUT', { ...data, percentUnit: PERCENT_UNIT_BOOK }))
 }
 
@@ -265,16 +270,19 @@ export interface LibraryResponse {
 }
 
 export async function getLibrary(): Promise<LibraryResponse> {
+  await refuseOnV2('catalog')
   return meFetch<LibraryResponse>('/me/library')
 }
 
 export async function addToLibrary(editionId: string): Promise<LibraryItem> {
+  await refuseOnV2('catalog')
   return meFetch<LibraryItem>(`/me/library/${editionId}`, {
     method: 'POST',
   })
 }
 
 export async function removeFromLibrary(editionId: string): Promise<void> {
+  await refuseOnV2('catalog')
   await meFetch<void>(`/me/library/${editionId}`, {
     method: 'DELETE',
   })

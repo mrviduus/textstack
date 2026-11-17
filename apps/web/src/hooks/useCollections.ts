@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { collectionsApi, type Collection } from '@textstack/shared'
+import { collectionsApi, v2Offers, type Collection } from '@textstack/shared'
+import { v2Status } from '../api/v2'
 
 const { listCollections, createCollection: apiCreate, updateCollection: apiUpdate, deleteCollection: apiDelete } = collectionsApi
 
@@ -13,6 +14,8 @@ async function load(force: boolean): Promise<Collection[]> {
   if (inflight) return inflight
   inflight = (async () => {
     try {
+      // No collections on V2 (`/me/library/collections` answers 410, #1031): none, never asked.
+      if (!v2Offers(await v2Status(), 'collections')) return []
       const data = await listCollections()
       cache = { ts: Date.now(), data }
       subs.forEach((s) => s(data))

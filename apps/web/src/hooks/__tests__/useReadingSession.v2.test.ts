@@ -39,9 +39,9 @@ describe('useReadingSession on V2', () => {
     expect(submitSession).not.toHaveBeenCalled()
   })
 
-  it('keeps a catalog session on the legacy route', () => {
+  it('never posts a catalog session to the legacy route (410 on V2)', () => {
     readAndLeave({ editionId: 'e1' })
-    expect(JSON.parse(localStorage.getItem('reading.pendingSessions') || '[]')[0].clientSessionId).toBeUndefined()
-    expect(navigator.sendBeacon).toHaveBeenCalled()
+    expect(localStorage.getItem('reading.pendingSessions')).toBeNull()
+    expect(navigator.sendBeacon).not.toHaveBeenCalled()
   })
 })

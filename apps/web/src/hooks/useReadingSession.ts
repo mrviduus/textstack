@@ -96,13 +96,16 @@ export function useReadingSession(options: UseReadingSessionOptions) {
     sessionActiveRef.current = false
     activeSecondsRef.current = 0
 
+    // On V2 only an upload's session has a route (`/me/v2`); a legacy one would answer 410: not kept.
+    const legacyOnV2 = v2Enabled() && !session.clientSessionId
+
     // Always save to localStorage first (beacon is best-effort, can't detect server errors)
-    savePendingSession(session)
+    if (!legacyOnV2) savePendingSession(session)
 
     // V2 has no beacon route (a PUT): the queue sends it now, and again until it is acked.
     if (session.clientSessionId) void flushPendingSessions()
     // Try sendBeacon as fast path (fire-and-forget)
-    else if (navigator.sendBeacon) {
+    else if (!legacyOnV2 && navigator.sendBeacon) {
       const payload = JSON.stringify(session)
       navigator.sendBeacon(`/api/me/reading/sessions?tz=${-new Date().getTimezoneOffset()}`, new Blob([payload], { type: 'application/json' }))
     }
@@ -262,7 +265,8 @@ export async function flushPendingSessions() {
         // — otherwise it retries forever and floods the endpoint.
         // 400 = the server rejected the payload itself; retrying the same bytes can never succeed.
         // Transient errors (network / 5xx) stay queued and are retried next flush.
-        if (err instanceof ApiError && (err.status === 404 || err.status === 400)) done.push(session)
+        // 410 = a legacy session refused on V2 (no route there): dropped.
+        if (err instanceof ApiError && [400, 404, 410].includes(err.status)) done.push(session)
       }
     }
 
