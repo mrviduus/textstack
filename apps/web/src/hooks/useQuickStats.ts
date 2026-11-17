@@ -84,8 +84,9 @@ export function useQuickStats({ includeReading = true }: { includeReading?: bool
       .catch(() => {})
   }, [isAuthenticated, includeReading, offered])
 
-  // Optimistically update when a review is submitted
+  // Optimistically update when a review is submitted (not on V2: the legacy cache is left alone)
   useEffect(() => {
+    if (!offered) return
     const handler = () => {
       setData(prev => {
         if (!prev) return prev
@@ -100,7 +101,7 @@ export function useQuickStats({ includeReading = true }: { includeReading?: bool
     }
     window.addEventListener('vocab-review-submitted', handler)
     return () => window.removeEventListener('vocab-review-submitted', handler)
-  }, [])
+  }, [offered])
 
   return offered ? data : null
 }

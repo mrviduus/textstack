@@ -87,7 +87,7 @@ export function VocabularyPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const {
-    words, total, allTotal, loading, error, stats,
+    words, total, loading, error, stats,
     filters, applyFilters, loadMore,
     removeWord, removeAll, editWord,
     refresh,
@@ -226,9 +226,11 @@ export function VocabularyPage() {
   }
 
   const dueCount = stats?.dueNow ?? 0
-  // M5 (#1031): no vocabulary stats on V2; the unfiltered word count keeps practice and delete-all reachable under any filter.
+  // M5 (#1031): no vocabulary stats on V2 (a stale legacy figure is never read): the current list counts, and
+  // practice / delete-all stay while a filter or search may be hiding words; hidden only on the unfiltered empty list.
   const statsOffered = v2Offers(v2, 'vocabStats')
-  const totalWords = stats?.totalWords ?? (statsOffered ? 0 : allTotal)
+  const totalWords = statsOffered ? (stats?.totalWords ?? 0) : total
+  const hasWords = statsOffered ? !!stats && totalWords > 0 : total > 0 || !!(filters.search || filters.stage)
 
   const bannerContent = () => {
     if (!stats) return null
@@ -317,7 +319,7 @@ export function VocabularyPage() {
         )}
 
         {/* Start practice card (from Practice) */}
-        {isAuthenticated && (stats || !statsOffered) && totalWords > 0 && (
+        {isAuthenticated && hasWords && (
           <div className="practice-page__card">
             <div className="practice-page__settings">
               {!v2.enabled && <div className="practice-page__setting">
@@ -423,7 +425,7 @@ export function VocabularyPage() {
         )}
 
         {/* Delete all */}
-        {(stats || !statsOffered) && totalWords > 0 && (
+        {hasWords && (
           <div className="vocab-delete-all-row">
             <button
               className={`vocab-delete-all ${confirmDeleteAll ? 'vocab-delete-all--confirming' : ''}`}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getReadingPace, type ReadingPaceDto } from '../api/readingTracking'
-import { useAuth } from '../context/AuthContext'
-import { FALLBACK_WPM, ApiError } from '@textstack/shared'
+import { useAuth, useV2 } from '../context/AuthContext'
+import { FALLBACK_WPM, ApiError, v2Offers } from '@textstack/shared'
 
 const CACHE_KEY = 'textstack.readingPace'
 const TTL_MS = 60 * 60 * 1000
@@ -40,38 +40,54 @@ function loadPace(): Promise<ReadingPaceDto> {
   return inflight
 }
 
-export function useReadingPace(): ReadingPaceDto {
+interface PaceState { pace: ReadingPaceDto; answered: boolean }
+
+/** The pace and whether it is an answer (the server's, the cache's, or V2's fallback) rather than the placeholder. */
+function usePace(): PaceState {
   const { isAuthenticated } = useAuth()
-  const [pace, setPace] = useState<ReadingPaceDto>(() => readCache()?.value ?? FALLBACK_PACE)
+  // M5 (#1031): no pace route on V2: the legacy cache is not read, no call is made, and the fallback pace is the
+  // answer, so the V2 reader keeps its time left.
+  const offered = v2Offers(useV2(), 'readingStats')
+  const [state, setState] = useState<PaceState>(() => {
+    const cached = offered ? readCache() : null
+    return cached ? { pace: cached.value, answered: true } : { pace: FALLBACK_PACE, answered: !offered }
+  })
 
   useEffect(() => {
     if (!isAuthenticated) {
-      setPace(FALLBACK_PACE)
+      setState({ pace: FALLBACK_PACE, answered: false })
+      return
+    }
+    if (!offered) {
+      setState({ pace: FALLBACK_PACE, answered: true })
       return
     }
     const cached = readCache()
     if (cached && Date.now() - cached.ts < TTL_MS) {
-      setPace(cached.value)
+      setState({ pace: cached.value, answered: true })
       return
     }
     let cancelled = false
     loadPace()
-      .then((p) => { if (!cancelled) setPace(p) })
-      // M5 (#1031): V2 has no pace route and refuses the read (410) before any request: the fallback pace
-      // is then the answer (a copy, so `useFetchedReadingPace` counts it), and the V2 reader keeps its time left.
-      .catch((e) => { if (!cancelled && e instanceof ApiError && e.status === 410) setPace({ ...FALLBACK_PACE }) })
+      .then((p) => { if (!cancelled) setState({ pace: p, answered: true }) })
+      // V2 refused the read (410) before any request, the probe having answered after this render: the fallback answers.
+      .catch((e) => { if (!cancelled && e instanceof ApiError && e.status === 410) setState({ pace: FALLBACK_PACE, answered: true }) })
     return () => { cancelled = true }
-  }, [isAuthenticated])
+  }, [isAuthenticated, offered])
 
-  return pace
+  return state
+}
+
+export function useReadingPace(): ReadingPaceDto {
+  return usePace().pace
 }
 
 /**
  * The pace in words per minute, `null` until there is one from the server (this call's answer or the cached
  * one): the V2 reader shows no time left before then (#1262). The server's own fallback pace is an answer, and
- * so is a V2 refusal (M5 #1031): the fallback pace.
+ * so is V2's (M5 #1031): the fallback pace.
  */
 export function useFetchedReadingPace(): number | null {
-  const pace = useReadingPace()
-  return pace === FALLBACK_PACE ? null : pace.wpm
+  const { pace, answered } = usePace()
+  return answered ? pace.wpm : null
 }
