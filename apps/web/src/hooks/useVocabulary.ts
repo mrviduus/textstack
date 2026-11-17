@@ -23,6 +23,8 @@ export function useVocabulary() {
   const { isAuthenticated } = useAuth()
   const [words, setWords] = useState<VocabWordDto[]>([])
   const [total, setTotal] = useState(0)
+  /** The count with no stage or search filter, from the last unfiltered load (M5 #1031: V2 has no stats to count). */
+  const [allTotal, setAllTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState<VocabStatsDto | null>(null)
@@ -37,6 +39,7 @@ export function useVocabulary() {
       const result = await getWords(active)
       setWords(result.items)
       setTotal(result.total)
+      if (!active.stage && !active.search) setAllTotal(result.total)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
@@ -116,7 +119,7 @@ export function useVocabulary() {
   }, [filters, fetchWords])
 
   return {
-    words, total, loading, error, stats,
+    words, total, allTotal, loading, error, stats,
     filters, applyFilters, loadMore,
     removeWord, removeAll, editWord,
     refresh: () => { fetchWords(); fetchStats() },

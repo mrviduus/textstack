@@ -87,7 +87,7 @@ export function VocabularyPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const {
-    words, total, loading, error, stats,
+    words, total, allTotal, loading, error, stats,
     filters, applyFilters, loadMore,
     removeWord, removeAll, editWord,
     refresh,
@@ -112,6 +112,10 @@ export function VocabularyPage() {
     const saved = parseInt(localStorage.getItem('practiceBatch') || '', 10)
     return (REVIEW_BATCH_SIZES as readonly number[]).includes(saved) ? saved : DEFAULT_BATCH_SIZE
   })
+
+  // M5 (#1031): V2 turned on while a now-hidden tab was open: back to All (those tabs filter no stage).
+  const hiddenTab = (activeTab === 'pending' && !v2Offers(v2, 'pendingWords')) || (activeTab === 'lookups' && !v2Offers(v2, 'wordLookups'))
+  useEffect(() => { if (hiddenTab) setActiveTab('all') }, [hiddenTab])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -222,9 +226,9 @@ export function VocabularyPage() {
   }
 
   const dueCount = stats?.dueNow ?? 0
-  // M5 (#1031): no vocabulary stats on V2; the word list's own count keeps practice and delete-all reachable.
+  // M5 (#1031): no vocabulary stats on V2; the unfiltered word count keeps practice and delete-all reachable under any filter.
   const statsOffered = v2Offers(v2, 'vocabStats')
-  const totalWords = stats?.totalWords ?? (statsOffered ? 0 : total)
+  const totalWords = stats?.totalWords ?? (statsOffered ? 0 : allTotal)
 
   const bannerContent = () => {
     if (!stats) return null

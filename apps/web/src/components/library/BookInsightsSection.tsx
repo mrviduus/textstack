@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
+import { insightChapterLabel, insightDateLabel, v2Offers, type BookInsight } from '@textstack/shared'
+import { useV2 } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { chapterReviewPath } from '../../hooks/useBookReviews'
 import { LocalizedLink } from '../LocalizedLink'
@@ -31,6 +32,8 @@ interface Props {
 
 export function BookInsightsSection({ insights, onRemove, userBookId, bookSlug }: Props) {
   const { t } = useTranslation()
+  // M5 (#1031): no chapter review on V2: no link to one.
+  const reviewOffered = v2Offers(useV2(), 'chapterReview')
   // The id being removed, so the row can say so and cannot be double-submitted.
   const [removing, setRemoving] = useState<string | null>(null)
 
@@ -92,7 +95,7 @@ export function BookInsightsSection({ insights, onRemove, userBookId, bookSlug }
             )}
 
             {/* A structured review has its own page; the Markdown below is its fallback rendering. */}
-            {insight.review && insight.chapterSlug && (userBookId || bookSlug) && (
+            {reviewOffered && insight.review && insight.chapterSlug && (userBookId || bookSlug) && (
               <LocalizedLink
                 className="book-insights__review-link"
                 to={chapterReviewPath(userBookId ? { userBookId } : { bookSlug: bookSlug! }, insight.chapterSlug)}

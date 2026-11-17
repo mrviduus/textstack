@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getReadingPace, type ReadingPaceDto } from '../api/readingTracking'
 import { useAuth } from '../context/AuthContext'
-import { FALLBACK_WPM } from '@textstack/shared'
+import { FALLBACK_WPM, ApiError } from '@textstack/shared'
 
 const CACHE_KEY = 'textstack.readingPace'
 const TTL_MS = 60 * 60 * 1000
@@ -57,7 +57,9 @@ export function useReadingPace(): ReadingPaceDto {
     let cancelled = false
     loadPace()
       .then((p) => { if (!cancelled) setPace(p) })
-      .catch(() => { /* keep fallback */ })
+      // M5 (#1031): V2 has no pace route and refuses the read (410) before any request: the fallback pace
+      // is then the answer (a copy, so `useFetchedReadingPace` counts it), and the V2 reader keeps its time left.
+      .catch((e) => { if (!cancelled && e instanceof ApiError && e.status === 410) setPace({ ...FALLBACK_PACE }) })
     return () => { cancelled = true }
   }, [isAuthenticated])
 
@@ -66,7 +68,8 @@ export function useReadingPace(): ReadingPaceDto {
 
 /**
  * The pace in words per minute, `null` until there is one from the server (this call's answer or the cached
- * one): the V2 reader shows no time left before then (#1262). The server's own fallback pace is an answer.
+ * one): the V2 reader shows no time left before then (#1262). The server's own fallback pace is an answer, and
+ * so is a V2 refusal (M5 #1031): the fallback pace.
  */
 export function useFetchedReadingPace(): number | null {
   const pace = useReadingPace()

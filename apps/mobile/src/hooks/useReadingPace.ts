@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { readingTrackingApi, FALLBACK_WPM } from '@textstack/shared'
-import { refuseOnV2 } from '../lib/v2'
+import { FALLBACK_WPM, ApiError } from '@textstack/shared'
+import { readingTrackingApi } from '../lib/readingTrackingApi'
 
 let cached: number | null = null
 
@@ -21,7 +21,8 @@ export function useReadingPace(enabled: boolean): number {
 
 /**
  * The same pace, `null` until the call has answered (or when it failed with nothing cached): the V2 reader
- * shows no time left before then (#1262). The server's own fallback pace is an answer.
+ * shows no time left before then (#1262). The server's own fallback pace is an answer, and so is a V2
+ * refusal (M5 #1031: no pace route on V2): the fallback pace, so the V2 reader keeps its time left.
  */
 export function useFetchedReadingPace(enabled: boolean): number | null {
   const [wpm, setWpm] = useState<number | null>(cached)
@@ -29,8 +30,7 @@ export function useFetchedReadingPace(enabled: boolean): number | null {
   useEffect(() => {
     if (!enabled || cached != null) return
     let cancelled = false
-    // M5 (#1031): no pace on V2 (its route answers 410): not asked for; the fallback pace stands.
-    refuseOnV2('readingStats').then(() => readingTrackingApi.getReadingPace())
+    readingTrackingApi.getReadingPace()
       .then(p => {
         if (cancelled) return
         // Guard the wire value: a zero would divide by zero downstream.
@@ -39,7 +39,11 @@ export function useFetchedReadingPace(enabled: boolean): number | null {
           setWpm(p.wpm)
         }
       })
-      .catch(() => { /* offline or signed out — the fallback pace is fine */ })
+      .catch((e) => {
+        // V2 refused the read before any request (410): the fallback pace is the answer.
+        if (!cancelled && e instanceof ApiError && e.status === 410) { cached = FALLBACK_WPM; setWpm(FALLBACK_WPM) }
+        // Otherwise offline or signed out — the fallback pace is fine.
+      })
     return () => { cancelled = true }
   }, [enabled])
 

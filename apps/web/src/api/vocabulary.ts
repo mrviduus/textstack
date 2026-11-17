@@ -357,6 +357,7 @@ export async function getReaderVocab(): Promise<ReaderVocabWordDto[]> {
 }
 
 export async function markAsKnown(id: string): Promise<VocabWordDto> {
+  await refuseOnV2('markAsKnown')
   return authFetch<VocabWordDto>(`/me/vocabulary/words/${id}/known`, { method: 'PUT' })
 }
 

@@ -65,12 +65,17 @@ export default function VocabularyScreen() {
   const [words, setWords] = useState<VocabularyWordDto[]>([])
   const [stats, setStats] = useState<VocabularyStatsDto | null>(null)
   const [tab, setTab] = useState<TabKey>('all')
+  // V2 turned on while a now-hidden tab was open: back to All.
+  const hiddenTab = (tab === 'pending' && !v2Offers(v2, 'pendingWords')) || (tab === 'lookups' && !v2Offers(v2, 'wordLookups'))
+  useEffect(() => { if (hiddenTab) setTab('all') }, [hiddenTab])
   const [sort, setSort] = useState<SortKey>('recent')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
+  /** The count with no stage or search filter, from the last unfiltered load (M5 #1031: V2 has no stats to count). */
+  const [allTotal, setAllTotal] = useState(0)
   // Survives a cold start. It used to be plain `useState`, so "the setting
   // persists" only meant "this tab stayed mounted" — kill the app and Blitz
   // silently became Flashcards again, which reads as the app ignoring you.
@@ -130,6 +135,7 @@ export default function VocabularyScreen() {
         setWords(res.items)
       }
       setTotal(res.total)
+      if (!activeFilter && !search) setAllTotal(res.total)
       setLoadError(null)
       offsetRef.current = currentOffset + res.items.length
       if (!loadMore && st) setStats(st)
@@ -319,7 +325,7 @@ export default function VocabularyScreen() {
         stats={stats}
         dueCount={dueCount}
         onPractice={() => router.push(`/vocabulary/review?reviewMode=${reviewMode}`)}
-        statsHidden={!v2Offers(v2, 'vocabStats') && total > 0}
+        statsHidden={!v2Offers(v2, 'vocabStats') && allTotal > 0}
         onSmartSession={v2Offers(v2, 'tutor') ? () => router.push('/tutor') : undefined}
         smartSessionLabel={t('tutor.entry.cta')}
       />
