@@ -984,7 +984,6 @@
   "userBook.enrichFailed": "Couldn't generate details",
   "userBook.enrichRetry": "Retry",
   "userBook.enriching": "Generating book details…",
-  "userBook.readV2": "Open in the V2 reader",
   "userMenu.anonymousReader": "Anonymous reader",
   "speakButton.listen": "Listen to pronunciation",
   "speakButton.loading": "Loading speech, tap to cancel",
