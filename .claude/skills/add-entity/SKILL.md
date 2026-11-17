@@ -1,46 +1,51 @@
 ---
 name: add-entity
-description: Add a new EF Core entity + SQL migration to TextStack (with optional writer service). Use when persisting a new kind of record — table, DbSet, mapping, migration, and wiring. Covers the AppDbContext partial pattern and the LlmTrace/AgentRun-style writer.
+description: Add a new table to TextStack — plain SQL migration, Dapper repository with inline SQL, Persistence.Tests story test, DI wiring. Use when persisting a new kind of record.
 ---
 
-# Add an EF Core entity + SQL migration
+# Add a table + Dapper repository
 
-Pattern mirrors `LlmTrace` / `EvalRun` / `AgentRun`. Domain stays framework-free; mapping lives in an
-`AppDbContext.<Area>.cs` partial; the DbSet is exposed on both `IAppDbContext` and `AppDbContext`.
+One database (`textstack_v2`), Dapper over one `V2DataSource` (ADR-028), plain SQL migrations (ADR-026).
+No EF Core, no stored procedures, no `.sql` files for queries: SQL is inline, next to the method that
+runs it (`docs/architecture/data-access.md` rule 13). Copy the smallest existing example:
+`AdminSettingsRepository` + `AdminSettingsRepositoryTests`.
 
 ## Steps
 
-1. **Entity** — `backend/src/Domain/Entities/<Name>.cs`: a plain POCO, `required` on non-null strings,
-   `Guid? UserId` + `User? User` for an optional owner FK. XML-doc says which table + where the mapping lives.
-   Big JSON blobs go in a single `string` property mapped to `jsonb` (read whole, not queried per field).
+1. **Migration** — next free number in `database/migrations/` ([`database/README.md`](../../../database/README.md)):
+   `NNNN_<name>.up.sql` (header: what / why / issue / compatibility / down) with `CREATE TABLE`, keys,
+   FKs and indexes (`pk_<table>`, `ix_<table>_<cols>`, `fk_<table>_<target>_<col>`, `ck_<table>_<rule>`),
+   and `NNNN_<name>.down.sql` that drops it. snake_case names. Add a line to the tree in
+   `database/README.md` and the table to `docs/architecture/data-model.md`.
 
-2. **Mapping** — new partial `backend/src/Infrastructure/Persistence/AppDbContext.<Area>.cs`:
-   `private static void Configure<Area>(ModelBuilder b)` with `ToTable("<snake_case>")`, indexes for the
-   hot query (e.g. `HasIndex(x => new { x.UserId, x.CreatedAt }).HasFilter("user_id IS NOT NULL")`),
-   `.HasColumnType("jsonb")` / `"numeric(10,6)"` where needed, and the FK with
-   `.OnDelete(DeleteBehavior.SetNull)` for an optional owner. **Snake_case is automatic** (global convention).
+2. **Domain type** (if the record has behaviour or is shared) — `backend/src/Domain/<Area>/<Name>.cs`,
+   plain C#, no framework. A row read by one query can be a `record` next to the repository.
 
-3. **Wire**: call `Configure<Area>(modelBuilder)` in `AppDbContext.OnModelCreating`; add
-   `DbSet<<Name>> <Plural> => Set<<Name>>();` to `AppDbContext.cs` AND `DbSet<<Name>> <Plural> { get; }`
-   to `IAppDbContext`.
+3. **Interface** — `backend/src/Application/<Area>/I<Name>Repository.cs`. Application owns it; callers
+   depend on it, not on Dapper.
 
-4. **Migration** — plain SQL, written by hand ([`database/README.md`](../../../database/README.md),
-   ADR-026): `database/migrations/NNNN_add_<name>.up.sql` (header: what / why / issue / compatibility /
-   down) with the `CREATE TABLE`, keys, FKs and indexes the mapping declares (`pk_<table>`,
-   `ix_<table>_<cols>`, `fk_<table>_<target>_<col>` — the names EF would give), and
-   `NNNN_add_<name>.down.sql` that drops it. Update `docs/architecture/data-model.md` in the same PR.
+4. **Repository** — `backend/src/Infrastructure/Persistence/Repositories/<Name>Repository.cs`:
+   `public sealed class <Name>Repository(V2DataSource dataSource) : I<Name>Repository`; each method
+   opens a connection (`await using var conn = await dataSource.OpenConnectionAsync(ct)`) and runs a
+   `private const string` SQL through `new CommandDefinition(sql, params, cancellationToken: ct)`.
+   Writes that must land together with another repository's: the method takes `NpgsqlTransaction? tx`
+   and the use case opens one with `IV2UnitOfWork` (see `ClipService`; data-access.md rule 6).
+   User-owned rows: every query filters by `user_id`.
 
-5. **Writer** (optional, for observability records like agent runs): interface in `Ai.Core`
-   (`I<Name>Writer`), `Db<Name>Writer` in `Application/Ai` (scoped, `: global::TextStack.Ai.Core.I<Name>Writer`,
-   maps a framework-free record → entity, serializes blobs to jsonb), registered
-   `AddScoped<...I<Name>Writer, Db<Name>Writer>()` in `Application/DependencyInjection.cs`.
+5. **Wire** — add `.AddSingleton<I<Name>Repository, <Name>Repository>()` to `AddTextStackDataAccess`
+   in `backend/src/Infrastructure/Persistence/DataSource.cs`, and the interface to the list in
+   `tests/TextStack.UnitTests/V2DataAccessRegistrationTests.cs`.
 
-6. **Verify on real Postgres**: `make migrate` (mounts `database/`, no rebuild), then `\d <table>` +
-   a jsonb insert/read roundtrip. CI's backend job runs `database/tests/roundtrip.sh` (up, down, up)
-   and `SchemaDriftTests`, which fails if the mapping and the SQL disagree on a column.
+6. **Test** — `tests/TextStack.Persistence.Tests/<Area>/<Name>RepositoryTests.cs` on real Postgres
+   (`V2PostgresFixture`, Testcontainers, built by `database/migrate.sh`). A few story tests that read
+   like the feature (`{Method}_{Scenario}_{Expected}`), not one per edge case.
+
+7. **Verify** — `make migrate` then `\d <table>`; `dotnet test tests/TextStack.Persistence.Tests`
+   (needs Docker). CI runs `database/tests/roundtrip.sh` (up, down, up, plus `invariants.sql`).
 
 ## Gotchas
-- Don't add `<Version>` to a csproj — central versions in `Directory.Packages.props`.
+- Never edit an applied migration (the runner checks its checksum); add the next number.
 - `make migrate` uses this checkout's `database/`; a plain `docker compose up` uses the image's copy,
   so rebuild (`docker compose build migrator`) before relying on that.
-- Never edit an applied migration file (the runner checks its checksum); add the next number.
+- Only the migrator migrates (ADR-021); the Api never does.
+- Don't add `<Version>` to a csproj — central versions in `Directory.Packages.props`.

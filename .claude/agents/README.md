@@ -1,17 +1,16 @@
 # TextStack — Claude Code roles & workflow
 
 Project-local Claude Code config. **All senior.** Each agent is a focused persona with its own
-system prompt + tool access (`.claude/agents/*.md`). Files live under `.claude/` which is gitignored
-(personal config) — to share with a team, commit selected files (not `settings.local.json`).
+system prompt + tool access (`.claude/agents/*.md`). Files live under `.claude/`; agents, commands and skills are tracked, `settings.local.json` is not.
 
 ## The roles
 
 | Agent | When to use | Owns |
 |-------|-------------|------|
 | **architect** | Before any non-trivial feature — design first | Layering, data model, ADRs, trade-offs, the plan |
-| **backend-engineer** | Server-side work | API/Application/Domain/Infra, EF migrations, `TextStack.Ai.*`, Worker |
+| **backend-engineer** | Server-side work | API/Application/Domain/Infra, SQL migrations + Dapper, `TextStack.Ai.*`, Worker |
 | **frontend-engineer** | Web/admin UI | React, hooks, SSE clients, i18n, `packages/` |
-| **mobile-engineer** | Mobile app | Expo Router, WebView reader, EAS, Android launch |
+| **mobile-engineer** | Mobile app | Expo Router, V2 reader host, EAS, Android |
 | **qa-automation** | Verify before ship — adversarially | xUnit/Vitest/Playwright, eval suites, blind spots, CI |
 | **tech-writer** | After a feature lands | PR write-ups, ADRs, architecture docs, `CLAUDE.md` |
 | **product-manager** | When *what/why/for whom* is unclear | Scope, DoD, value framing, PR slicing, roadmap |
@@ -45,14 +44,15 @@ phase/feature, tech-writer when the decision is worth recording.
 
 Commands are mechanical recipes; agents are personas. Use a command inside an agent's run when it fits.
 
-## Skills (`.claude/skills/` — not set up)
+## Skills (`.claude/skills/`)
 
-Optional. Add a skill when a multi-step procedure recurs verbatim (e.g. "add a new ITool",
-"add an EF entity + migration + writer", "run a prod eval"). Until then the agents' system prompts
-encode the conventions. Ask to scaffold one when a pattern keeps repeating.
+- `add-entity` — a new table: SQL migration + Dapper repository + Persistence test.
+- `add-tool` — a new agent tool (`ITool`).
+
+Add a skill when a multi-step procedure recurs verbatim.
 
 ## Conventions every role inherits (see `CLAUDE.md`)
 
-Clean Architecture · central package versions (`Directory.Packages.props`) · snake_case EF ·
+Clean Architecture · central package versions (`Directory.Packages.props`) · snake_case SQL, Dapper, no EF ·
 small PRs, one area label each · **deploy only via GitHub Actions** (never manual SSH) · every LLM call through
-the `ILlmService` gateway · eval gates split into deterministic (CI) + judged/live (prod).
+the `ILlmService` gateway · evals: deterministic in CI, live ones skip without a key.
