@@ -310,10 +310,10 @@ public class UserIngestionService
             // If title was auto-generated, update with extracted title
             if (!string.IsNullOrEmpty(result.Metadata.Title))
             {
-                // Both forms: books uploaded before the placeholder was cleaned hold the raw name.
+                // Both forms: the raw file name, or the upload's cleaned placeholder.
                 var originalFileName = Path.GetFileNameWithoutExtension(job.UserBookFile.OriginalFileName);
                 if (job.UserBook.Title == originalFileName
-                    || job.UserBook.Title == Application.UserBooks.UserBookService.TitleFromFileName(job.UserBookFile.OriginalFileName))
+                    || job.UserBook.Title == TextStack.Extraction.Utilities.BookTitleCleaner.Clean(originalFileName))
                     job.UserBook.Title = result.Metadata.Title;
             }
 

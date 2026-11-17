@@ -1,4 +1,3 @@
-using Api.V2;
 using System.Text.Json.Serialization;
 using Api.Extensions;
 using Api.Mapping;
@@ -21,7 +20,7 @@ public static class DeviceAuthEndpoints
 
     public static void MapDeviceAuthEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/auth/device").WithMetadata(V2SelectedRoute.Instance).WithTags("Auth").RejectOAuthTokens();
+        var group = app.MapGroup("/auth/device").WithTags("Auth").RejectOAuthTokens();
 
         group.MapPost("/code", RequestDeviceCode).WithName("DeviceRequestCode").RequireRateLimiting("device-code");
         group.MapPost("/token", PollDeviceToken).WithName("DevicePollToken").RequireRateLimiting("device-token");

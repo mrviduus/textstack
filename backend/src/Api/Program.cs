@@ -3,12 +3,8 @@ using Api.Extensions;
 using Api.Middleware;
 using Application;
 using Application.AdminAuth;
-using Application.Common.Interfaces;
-using Application.UserBooks;
-using Domain.Enums;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
@@ -55,7 +51,6 @@ builder.Services.AddOpenApi();
 // Application layer + AI platform (eval runners, agents, tools).
 builder.Services
     .AddApplication()
-    .AddTextStackAiEvals()
     .AddTextStackAgents()
     .AddAuthSettings(builder.Configuration);
 
@@ -69,7 +64,6 @@ var storagePath = Infrastructure.Services.FileStoreRegistration.StorageRoot(buil
 builder.Services
     .AddTextStackPersistence(connectionString, builder.Configuration)
     .AddTextStackContentServices(builder.Configuration)
-    .AddTextStackHostedServices(writeFreeze || databaseMode.IsV2)
     .AddTextStackRateLimiting(builder.Configuration)
     .AddTextStackV2Api();
 
@@ -419,7 +413,7 @@ app.UseMiddleware<WriteFreezeMiddleware>();
 app.UseMiddleware<Api.Middleware.McpKeyAuthMiddleware>();
 
 app.UseRateLimiter();
-if (databaseMode.IsV2) app.UseMiddleware<SelectedDatabaseGuard>();
+if (databaseMode.IsV2) app.UseMiddleware<AccountGuard>();
 
 // Guest activity tracking (update LastActiveAt, debounced 10 min)
 app.UseWhen(_ => !writeFreeze, branch => branch.UseMiddleware<Api.Middleware.GuestActivityMiddleware>());
@@ -435,69 +429,18 @@ app.UseWhen(
 app.UsePathGates();
 
 app.MapAdminAuthEndpoints();
-app.MapAdminEndpoints();
-app.MapAdminSettingsEndpoints();
-app.MapAdminDiagnosticsEndpoints();
 app.MapAppConfigEndpoints();
 app.MapAuthEndpoints();
 app.MapDeviceAuthEndpoints();
 app.MapMcpManifestEndpoints();
 app.MapProfileEndpoints();
 app.MapAccountEndpoints();
-app.MapUserDataEndpoints();
-app.MapHighlightsEndpoints();
-app.MapInsightsEndpoints();
-app.MapChapterReviewEndpoints();
 app.MapMcpKeysEndpoints();
 app.MapOAuthEndpoints();
 app.MapTranslationEndpoints();
-app.MapExplainEndpoints();
-app.MapUserBooksEndpoints();
-app.MapLibraryShelvesEndpoints();
-app.MapCollectionsEndpoints();
-app.MapReadingTrackingEndpoints();
-app.MapAdminAiQualityEndpoints();
-app.MapTutorEndpoints();
-app.MapVocabularyEndpoints();
 app.MapTtsEndpoints();
-app.MapInternalEndpoints();
 app.MapV2Endpoints();
 app.MapV2CompatEndpoints();
-
-// CLI: backfill-pdf-page-counts [--dry-run] — PDF-2: fill UserBook.PageCount for PDF uploads
-// ingested before it was stored, from the stored file's page tree. Per-book update; a failure
-// is logged and skipped. Idempotent.
-if (args.Length > 0 && args[0] == "backfill-pdf-page-counts")
-{
-    var dryRun = args.Contains("--dry-run");
-    using var cliScope = app.Services.CreateScope();
-    var db = cliScope.ServiceProvider.GetRequiredService<IAppDbContext>();
-    var storage = cliScope.ServiceProvider.GetRequiredService<IFileStorageService>();
-
-    var books = await db.UserBooks
-        .Where(PdfPageCountBackfill.NeedsPageCount)
-        .Select(b => new
-        {
-            b.Id,
-            Path = b.BookFiles.Where(f => f.Format == BookFormat.Pdf)
-                .OrderByDescending(f => f.UploadedAt).Select(f => f.StoragePath).FirstOrDefault(),
-        })
-        .Where(x => x.Path != null)
-        .ToListAsync();
-
-    var (updated, failed) = await PdfPageCountBackfill.RunAsync(
-        books.Select(x => (x.Id, x.Path!)),
-        path =>
-        {
-            using var stream = File.OpenRead(storage.GetFullPath(path));
-            return TextStack.Extraction.Extractors.PdfTextExtractor.CountPages(stream);
-        },
-        (id, pages) => dryRun ? Task.CompletedTask : db.UserBooks.Where(b => b.Id == id)
-            .ExecuteUpdateAsync(s => s.SetProperty(b => b.PageCount, pages)),
-        Console.WriteLine);
-    Console.WriteLine($"{(dryRun ? "DRY RUN — " : "")}{updated} updated, {failed} failed, of {books.Count}");
-    return;
-}
 
 // CLI: create-admin command. One role since ADR-031 decided 7 (editor and moderator collapsed to admin).
 if (args.Length > 0 && args[0] == "create-admin")
@@ -513,87 +456,6 @@ if (args.Length > 0 && args[0] == "create-admin")
 
     var admin = await adminAuthService.CreateAdminAsync(args[1], args[2], CancellationToken.None);
     Console.WriteLine(admin is null ? $"Error: an admin with email {args[1]} already exists" : $"Admin user created: {admin.Email} ({admin.Role})");
-    return;
-}
-
-// CLI: backfill-vocabulary-embeddings — AI-058. Embeds every vocabulary_words row whose
-// embedding IS NULL (across ALL users), in batches, and writes the vectors back. It calls
-// OpenAI and costs money — one embedding request per word.
-if (args.Length > 0 && args[0] == "backfill-vocabulary-embeddings")
-{
-    const int batchSize = 100;
-
-    Console.WriteLine("############################################################");
-    Console.WriteLine("#  COST WARNING — this calls the OpenAI embeddings API.    #");
-    Console.WriteLine("#  One embedding request is billed per word with a NULL    #");
-    Console.WriteLine("#  embedding, across ALL users. Unlike the edition         #");
-    Console.WriteLine("#  backfill, this is NOT free.                             #");
-    Console.WriteLine("############################################################");
-
-    using var cliScope = app.Services.CreateScope();
-    var db = cliScope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var embedder = cliScope.ServiceProvider.GetRequiredService<global::TextStack.Ai.Core.IEmbeddingService>();
-
-    var totalPending = await db.VocabularyWords.CountAsync(w => w.Embedding == null);
-    Console.WriteLine($"Words pending embedding: {totalPending}");
-
-    var embedded = 0;
-    while (true)
-    {
-        var batch = await db.VocabularyWords
-            .Where(w => w.Embedding == null)
-            .OrderBy(w => w.Id)
-            .Take(batchSize)
-            .ToListAsync();
-        if (batch.Count == 0)
-            break;
-
-        var texts = batch
-            .Select(w => $"{w.Word}. {w.Definition} {w.Sentence}".Trim())
-            .ToList();
-        var vectors = await embedder.EmbedBatchAsync(texts, CancellationToken.None);
-        for (var i = 0; i < batch.Count; i++)
-            batch[i].Embedding = vectors[i];
-
-        await db.SaveChangesAsync(CancellationToken.None);
-        embedded += batch.Count;
-        Console.WriteLine($"Embedded {embedded}/{totalPending}...");
-    }
-
-    Console.WriteLine($"Done: {embedded} vocabulary word embedding(s) written.");
-    return;
-}
-
-// CLI: cluster-vocabulary [userId?] — AI-058. Rebuilds semantic concept clusters. With a
-// userId, rebuilds that user (across all their sites' words for the resolved site is handled
-// per-user inside the service via BuildAll when no id is given). $0 — reuses stored embeddings.
-if (args.Length > 0 && args[0] == "cluster-vocabulary")
-{
-    using var cliScope = app.Services.CreateScope();
-    var service = cliScope.ServiceProvider.GetRequiredService<Application.Vocabulary.ConceptClusteringService>();
-
-    if (args.Length >= 2 && Guid.TryParse(args[1], out var userId))
-    {
-        var db = cliScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var sites = await db.VocabularyWords
-            .Where(w => w.UserId == userId && !w.IsRetired && w.Embedding != null)
-            .Select(w => w.SiteId)
-            .Distinct()
-            .ToListAsync();
-
-        Console.WriteLine($"Clustering vocabulary for user {userId} across {sites.Count} site(s)...");
-        var created = 0;
-        foreach (var siteId in sites)
-            created += await service.BuildForUserAsync(userId, siteId, CancellationToken.None);
-        Console.WriteLine($"Done: {created} concept cluster(s) created.");
-    }
-    else
-    {
-        Console.WriteLine("Clustering vocabulary for all eligible users...");
-        var created = await service.BuildAllAsync(CancellationToken.None);
-        Console.WriteLine($"Done: {created} concept cluster(s) created.");
-    }
-
     return;
 }
 

@@ -1,5 +1,4 @@
 using Application.Ai;
-using Application.Common.Interfaces;
 using Application.Vocabulary;
 using Domain.LLM;
 using Microsoft.AspNetCore.Mvc;
@@ -12,28 +11,10 @@ public static class TranslationEndpoints
 {
     public static void MapTranslationEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/translate").WithTags("Translation");
-
-        group.MapPost("", Translate).WithName("Translate").RequireRateLimiting("translate");
-        group.MapGet("/languages", GetLanguages).WithName("GetTranslationLanguages");
-
-        // Also map without /api/ prefix for nginx compatibility
-        app.MapPost("/translate", Translate).WithTags("Translation").WithName("TranslateCompat").RequireRateLimiting("translate");
+        app.MapGet("/api/translate/languages", GetLanguages).WithTags("Translation").WithName("GetTranslationLanguages");
     }
 
-    private static Task<IResult> Translate(
-        [FromBody] TranslateRequest request,
-        IConfiguration config,
-        IOptions<OpenAiOptions> openAi,
-        ILlmServiceFactory llmFactory,
-        IAppDbContext db,
-        IFrequencyFilter freqFilter,
-        ILogger<Program> logger,
-        CancellationToken ct) =>
-        TranslateAsync(request, token => ExplainEndpoints.ResolveGenreAsync(request.Genre, request.BookId, db, logger, token),
-            config, openAi, llmFactory, freqFilter, logger, ct);
-
-    /// <summary>The translation, with the book's genre from <paramref name="resolveGenre"/>: legacy's tables or V2's (V2CompatEndpoints).</summary>
+    /// <summary>The translation, with the book's genre from <paramref name="resolveGenre"/>: the caller's V2 book (V2CompatEndpoints).</summary>
     internal static async Task<IResult> TranslateAsync(
         TranslateRequest request,
         Func<CancellationToken, Task<string?>> resolveGenre,

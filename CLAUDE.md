@@ -90,7 +90,6 @@ dotnet format textstack.sln                  # Backend
 
 # CLI commands (via dotnet run --project backend/src/Api --)
 # create-admin <email> <password>            (always Admin: Editor/Moderator collapse to Admin on V2, ADR-031 decided 7)
-# backfill-pdf-page-counts [--dry-run]   (fills null UserBook.PageCount for PDF uploads)
 # etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]   (legacy -> textstack_v2 data, v2-plan §5.2, internal/ops/v2-etl.md; not the schema: that is `make migrate-v2`)
 #   credentials via env ConnectionStrings__Default / ConnectionStrings__V2 or Passfile=, never argv (refused): ConnectionStrings__Default=… make etl-v2 ARGS=--dry-run
 

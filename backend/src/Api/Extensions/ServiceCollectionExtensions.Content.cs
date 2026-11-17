@@ -11,7 +11,7 @@ namespace Api.Extensions;
 public static partial class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Content + product services: vocabulary SRS, image optimization, user-book services, email,
+    /// Content + product services: vocabulary SRS, image optimization, email,
     /// the shared HttpClient, and TTS (incl. its startup-cleanup hosted service).
     /// </summary>
     public static IServiceCollection AddTextStackContentServices(
@@ -25,33 +25,8 @@ public static partial class ServiceCollectionExtensions
             options.OllamaTimeoutSeconds = configuration.GetValue("Ollama:TimeoutSeconds", 30);
         });
 
-        // Application services on the SRS library, user books and email — Api-only, so not in
-        // AddApplication, which the Worker calls too (#1108).
-        // The single writer of SRS state — shared by ordinary review and Smart session.
-        services.AddScoped<Application.Vocabulary.VocabularyReviewRecorder>();
-        services.AddScoped<Application.Vocabulary.RetirementSweeper>();
-        services.AddScoped<Application.Vocabulary.ClusterCandidateService>();
-        services.AddScoped<Application.Vocabulary.ConceptClusteringService>();
-        services.AddScoped<Application.Admin.AdminService>();
-
         // Image optimization
         services.AddSingleton<IImageOptimizer, ImageOptimizer>();
-
-        // User books
-        services.AddScoped<Application.UserBooks.UserBookService>();
-        services.AddSingleton(new Application.UserBooks.ChunkedUploadStore(
-            Path.Combine(Path.GetTempPath(), "textstack-uploads")));
-        services.AddScoped<Application.UserBooks.MetadataService>();
-        services.AddScoped<Application.UserBooks.TagService>();
-        services.AddScoped<Application.Collections.CollectionService>();
-        services.AddScoped<Application.UserBooks.BulkActionService>();
-        services.AddScoped<Application.UserBooks.BookStatsService>();
-        services.AddScoped<Application.UserBooks.UserBookSearchService>();
-        services.AddScoped<Application.Library.LibraryShelvesService>();
-
-        // Chapter review (docs/internal/features/chapter-review.md)
-        services.AddScoped<Application.ChapterReview.ChapterReviewService>();
-        services.AddScoped<Application.ChapterReview.ReviewQuestionService>();
 
         // Email (Resend)
         services.Configure<EmailSettings>(options =>

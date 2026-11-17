@@ -31,7 +31,7 @@ public static class V2Endpoints
     {
         if (!app.Configuration.GetValue<bool>("Features:V2Api")) return;
 
-        var v2 = app.MapGroup("/me/v2").WithMetadata(V2SelectedRoute.Instance).WithTags("V2 sync").AddEndpointFilter<V2Gate>();
+        var v2 = app.MapGroup("/me/v2").WithTags("V2 sync").AddEndpointFilter<V2Gate>();
         var maxPartBytes = app.Configuration.GetValue("V2:MaxPartBytes", DefaultMaxPartBytes);
         var status = Results.Ok(new V2StatusDto(maxPartBytes));
         v2.MapGet("/status", () => status);

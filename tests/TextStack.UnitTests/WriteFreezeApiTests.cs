@@ -69,14 +69,4 @@ public class WriteFreezeApiTests
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void HostedServices_FreezeOmitsApiDatabaseWriters(bool freeze)
-    {
-        var services = new ServiceCollection();
-        services.AddTextStackHostedServices(freeze);
-        Assert.Equal(freeze ? 0 : 5, services.Count(s => s.ServiceType == typeof(IHostedService)));
-    }
 }

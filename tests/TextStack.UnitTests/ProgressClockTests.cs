@@ -72,34 +72,6 @@ public class ProgressClockTests
     }
 
     [Fact]
-    public void ApplyProgressUpdate_StoresClampedClientTimestamp_AndServerUpdatedAt()
-    {
-        var target = new ReadingProgress { Locator = "x", ClientUpdatedAt = ServerNow };
-        var before = DateTimeOffset.UtcNow;
-
-        UserDataEndpoints.ApplyProgressUpdate(
-            target, new UpsertProgressRequest(Guid.NewGuid(), "scroll:a:0", 0.5, DateTimeOffset.UtcNow.AddDays(3), ProgressUnit.Book), 0);
-
-        Assert.True(target.UpdatedAt >= before);
-        Assert.Equal(target.UpdatedAt + ProgressClock.MaxClientSkew, target.ClientUpdatedAt);
-    }
-
-    [Fact]
-    public void ApplyProgressUpdate_NoClientTimestamp_StampsServerNowSoOlderQueuedWriteIsStale()
-    {
-        // Mark finished / unread and MCP send no stamp. Storing null made the row "never stale", so a
-        // queued write recorded BEFORE the mark (an offline flush) undid it on arrival.
-        var target = new ReadingProgress { Locator = "x", ClientUpdatedAt = ServerNow };
-
-        UserDataEndpoints.ApplyProgressUpdate(
-            target, new UpsertProgressRequest(Guid.NewGuid(), "scroll:a:0", 1.0, null, ProgressUnit.Book), 0);
-
-        Assert.Equal(target.UpdatedAt, target.ClientUpdatedAt);
-        var queuedEarlier = target.UpdatedAt.AddSeconds(-30);
-        Assert.True(ProgressClock.IsStale(queuedEarlier, target.ClientUpdatedAt, DateTimeOffset.UtcNow));
-    }
-
-    [Fact]
     public void IsNewer_LateFlushedOlderReading_Loses()
     {
         // #942: the guest's offline position reached the server later, but was read earlier.

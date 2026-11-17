@@ -1,5 +1,4 @@
 using Api.Middleware;
-using Api.V2;
 using Application.Auth;
 using Application.Identity;
 using Domain.Enums;
@@ -11,7 +10,7 @@ using Moq;
 
 namespace TextStack.UnitTests;
 
-public class SelectedDatabaseGuardTests
+public class AccountGuardTests
 {
     private sealed class Clock(DateTimeOffset now) : TimeProvider { public override DateTimeOffset GetUtcNow() => now; }
 
@@ -36,7 +35,7 @@ public class SelectedDatabaseGuardTests
             auth.Setup(a => a.ValidateAccessTokenIdentity(It.IsAny<string>())).Returns((string value) => tokens.ValidateAccessToken(value));
             var reached = false;
 
-            await new SelectedDatabaseGuard(_ => { reached = true; return Task.CompletedTask; }, new(true)).InvokeAsync(http, auth.Object, users.Object);
+            await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }, new(true)).InvokeAsync(http, auth.Object, users.Object);
 
             Assert.Equal(millis == 700, reached);
             Assert.Equal(millis == 700 ? 200 : 401, http.Response.StatusCode);
@@ -57,77 +56,32 @@ public class SelectedDatabaseGuardTests
         var users = new Mock<IUserRepository>(); // every account is gone
         var reached = false;
 
-        await new SelectedDatabaseGuard(_ => { reached = true; return Task.CompletedTask; }, new(true)).InvokeAsync(http, auth.Object, users.Object);
+        await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }, new(true)).InvokeAsync(http, auth.Object, users.Object);
 
         Assert.Equal(expectedReached, reached);
         Assert.Equal(expectedReached ? 200 : 401, http.Response.StatusCode);
     }
 
-    // The retired surface in one table: old-build routes, hidden features, chapter review, catalog admin.
-    [Theory]
-    [InlineData("GET", "/me/books/{id:guid}", "/me/books/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11")]
-    [InlineData("PUT", "/me/progress/{editionId:guid}", "/me/progress/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11")]
-    [InlineData("GET", "/me/reading/stats", "/me/reading/stats")]
-    [InlineData("GET", "/me/library/shelves", "/me/library/shelves")]
-    [InlineData("PUT", "/me/chapter-review/", "/me/chapter-review")]
-    [InlineData("POST", "/admin/editions/{id:guid}/publish", "/admin/editions/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11/publish")]
-    public async Task AnOldAppBuildCallingARetiredRoute_Gets410AndTheCallIsLogged(string method, string pattern, string path)
-    {
-        var http = Request(path, null, selected: false, pattern: pattern);
-        http.Request.Method = method;
-        http.Request.Headers[Api.Middleware.AppVersionMiddleware.VersionHeader] = "1.4.2";
-        var logger = new ListLogger();
-        var reached = false;
-
-        await new SelectedDatabaseGuard(_ => { reached = true; return Task.CompletedTask; }, new(true), logger)
-            .InvokeAsync(http, Mock.Of<IAuthService>(), new Mock<IUserRepository>(MockBehavior.Strict).Object);
-
-        Assert.False(reached);
-        Assert.Equal(410, http.Response.StatusCode);
-        http.Response.Body.Position = 0;
-        Assert.Contains("gone_in_v2", new StreamReader(http.Response.Body).ReadToEnd());
-        var line = Assert.Single(logger.Lines);
-        Assert.Contains($"{method} {pattern}", line);
-        Assert.Contains("1.4.2", line);
-    }
-
-    private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger<SelectedDatabaseGuard>
-    {
-        public List<string> Lines { get; } = [];
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
-        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            Lines.Add(formatter(state, exception));
-    }
-
     [Fact]
     public async Task LegacyMode_DoesNotQueryV2()
     {
-        var http = Request("/me/books", null, selected: false);
+        var http = Request("/me/books", null);
         var reached = false;
         var users = new Mock<IUserRepository>(MockBehavior.Strict);
-        await new SelectedDatabaseGuard(_ => { reached = true; return Task.CompletedTask; }, new(false))
+        await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }, new(false))
             .InvokeAsync(http, Mock.Of<IAuthService>(), users.Object);
         Assert.True(reached);
         users.VerifyNoOtherCalls();
     }
 
-    private static DefaultHttpContext Request(string path, JwtTokens? tokens, bool selected = true, string? pattern = null)
+    private static DefaultHttpContext Request(string path, JwtTokens? tokens)
     {
-        if (pattern is not null)
-        {
-            var routed = Request(path, tokens, selected);
-            routed.SetEndpoint(new Microsoft.AspNetCore.Routing.RouteEndpoint(_ => Task.CompletedTask,
-                Microsoft.AspNetCore.Routing.Patterns.RoutePatternFactory.Parse(pattern), 0, EndpointMetadataCollection.Empty, "test"));
-            return routed;
-        }
         var services = new ServiceCollection();
         if (tokens is not null) services.AddSingleton(tokens);
         var http = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
         http.Request.Path = path;
         http.Request.Method = "GET";
         http.Response.Body = new MemoryStream();
-        http.SetEndpoint(new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(selected ? [V2SelectedRoute.Instance] : Array.Empty<object>()), "test"));
         return http;
     }
 }

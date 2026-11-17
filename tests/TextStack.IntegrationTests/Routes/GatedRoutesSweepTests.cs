@@ -6,8 +6,7 @@ using TextStack.Tests.Routes;
 namespace TextStack.IntegrationTests.Routes;
 
 /// <summary>
-/// ADR-024: every <c>/me</c> route called with no credential answers 401, and every <c>/internal</c>
-/// route called from outside the docker network answers 403. The route list comes
+/// ADR-024: every <c>/me</c> route called with no credential answers 401. The route list comes
 /// from the Api's own endpoint table (<see cref="ApiRouteTable"/>), so a route added tomorrow is
 /// swept tomorrow without anyone editing this file.
 ///
@@ -40,9 +39,8 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
     [Fact]
     public void RouteTable_GatedRoutes_AreFound()
     {
-        // Guards the sweeps against sweeping nothing: an empty table would pass them vacuously.
-        Assert.True(ApiRouteTable.Routes.Count(r => r.Under("/me")) > 50);
-        Assert.True(ApiRouteTable.Routes.Count(r => r.Under("/internal")) >= 5);
+        // Guards the sweep against sweeping nothing: an empty table would pass it vacuously.
+        Assert.True(ApiRouteTable.Routes.Count(r => r.Under("/me")) > 5);
     }
 
     [Fact]
@@ -50,19 +48,6 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
     {
         var failures = await SweepAsync("/me", HttpStatusCode.Unauthorized, _ => { });
         Assert.True(failures.Count == 0, "Answered anonymously without 401:\n" + string.Join("\n", failures));
-    }
-
-    /// <summary>
-    /// "Outside" the way production sees it: through the proxy chain, which ForwardedHeaders turns
-    /// into the client's own address. A direct call from the test host would not do: Docker
-    /// publishes ports from a bridge address, which is on the allow-list by design.
-    /// </summary>
-    [Fact]
-    public async Task EveryInternalRoute_FromOutside_Returns403()
-    {
-        var failures = await SweepAsync("/internal", HttpStatusCode.Forbidden,
-            req => req.Headers.Add("X-Forwarded-For", "203.0.113.7"));
-        Assert.True(failures.Count == 0, "Answered an outside caller without 403:\n" + string.Join("\n", failures));
     }
 
     private async Task<List<string>> SweepAsync(string prefix, HttpStatusCode expected, Action<HttpRequestMessage> configure)
@@ -76,9 +61,7 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
             configure(req);
 
             using var resp = await _fixture.Client.SendAsync(req, Ct);
-            // v2 mode answers an unported legacy route 410 before any gate (SelectedDatabaseGuard): no
-            // handler runs either way. Goes with the 410 branch (M6 B2), when those routes 404.
-            if (resp.StatusCode != expected && resp.StatusCode != HttpStatusCode.Gone)
+            if (resp.StatusCode != expected)
                 failures.Add($"{route} -> {(int)resp.StatusCode}");
         }
         return failures;
@@ -104,6 +87,6 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
         using var resp = await _fixture.Client.SendAsync(req, Ct);
 
         Assert.False(resp.IsSuccessStatusCode, $"{path} -> {(int)resp.StatusCode}");
-        Assert.Contains(resp.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.NotFound, HttpStatusCode.BadRequest, HttpStatusCode.Gone });
+        Assert.Contains(resp.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.NotFound, HttpStatusCode.BadRequest });
     }
 }

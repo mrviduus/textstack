@@ -1,4 +1,3 @@
-using Api.V2;
 using System.Text.Json;
 using Api.Extensions;
 using Api.Services;
@@ -34,7 +33,7 @@ public static class OAuthEndpoints
     {
         app.MapGet("/.well-known/oauth-authorization-server", Metadata).WithTags("OAuth").ExcludeFromDescription();
 
-        var oauth = app.MapGroup("/oauth").WithMetadata(V2SelectedRoute.Instance).WithTags("OAuth");
+        var oauth = app.MapGroup("/oauth").WithTags("OAuth");
         oauth.MapGet("/authorize", Authorize).RequireRateLimiting("oauth-browser");
         oauth.MapGet("/requests/{id:guid}", GetRequest).RequireRateLimiting("oauth-browser");
         oauth.MapPost("/authorize/approve", Approve).RequireRateLimiting("oauth-browser").RejectOAuthTokens();
@@ -48,7 +47,7 @@ public static class OAuthEndpoints
         oauth.MapGet("/token-status", (HttpContext http, IAuthService auth) =>
             http.GetUserId(auth) is null ? Results.Unauthorized() : Results.NoContent()).ExcludeFromDescription();
 
-        var grants = app.MapGroup("/me/oauth/grants").WithMetadata(V2SelectedRoute.Instance).WithTags("OAuth").RejectOAuthTokens();
+        var grants = app.MapGroup("/me/oauth/grants").WithTags("OAuth").RejectOAuthTokens();
         grants.MapGet("", ListGrants).WithName("ListOAuthGrants");
         grants.MapDelete("/{id:guid}", RevokeGrant).WithName("RevokeOAuthGrant");
     }

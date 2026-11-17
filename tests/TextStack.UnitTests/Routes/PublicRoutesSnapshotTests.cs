@@ -38,11 +38,9 @@ public class PublicRoutesSnapshotTests
     public void RouteTable_IncludesTestLoginAndGatedRoutes()
     {
         // Guards the snapshot against comparing an empty or partial table: the flag reached the app,
-        // and the gated prefixes are really there to be excluded.
+        // and the gated /me prefix is really there to be excluded.
         var routes = ApiRouteTable.Routes;
         Assert.Contains(routes, r => r.ToString() == "POST /auth/test-login");
         Assert.Contains(routes, r => r.Under("/me"));
-        Assert.Contains(routes, r => r.Under("/internal"));
-        Assert.Contains(routes, r => r.Under("/admin") && !r.Under("/admin/auth"));
     }
 }

@@ -17,7 +17,7 @@ public static class AuthEndpoints
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/auth").WithMetadata(V2SelectedRoute.Instance).WithTags("Auth").RejectOAuthTokens();
+        var group = app.MapGroup("/auth").WithTags("Auth").RejectOAuthTokens();
 
         group.MapPost("/register", Register).WithName("RegisterWithEmail").RequireRateLimiting("user-login");
         group.MapPost("/login", LoginWithEmail).WithName("LoginWithEmail").RequireRateLimiting("user-login");
