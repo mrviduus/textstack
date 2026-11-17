@@ -7,6 +7,7 @@
  * (`createV2Books`, `uploadV2File`, #1121): this file keeps the probe, the DTOs and the device IO.
  */
 import { uuid } from 'expo-modules-core'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
 import {
   v2Api, ApiError, isOfflineError, V2_OFF, v2Offers, placeToV2Locator, createSha256, parsePdfPageLocator,
@@ -25,30 +26,78 @@ import { getUserBookV2State, setUserBookV2State, saveUserBookLocalProgress } fro
 // ---- The switch ---------------------------------------------------------------------------------
 
 let probe: Promise<V2Switch> | null = null
+/**
+ * THE switch (M5 #1031): the server's last answer for this account. Every V2-or-legacy decision reads it — `v2Enabled`,
+ * `onV2`/`switched`, `useV2`, the reader route — so they never disagree. Hydrated from the device before the first
+ * route renders (`v2Hydrated`, app/_layout.tsx): an offline cold start or a 503 pause keeps the last answer and its
+ * reader; only the server's 200/404 changes it; sign-out and an account change forget it (`forgetV2Answer`).
+ */
 let known: V2Switch = V2_OFF
-/** The last probe never reached the server: off until the network is back, then asked again. */
+/** Bumped by `forgetV2Answer`: a probe started before it answers for the previous account, and is dropped. */
+let generation = 0
+const listeners = new Set<(s: V2Switch) => void>()
+const setKnown = (s: V2Switch) => {
+  known = s
+  for (const l of listeners) l(s)
+}
+/** Called with the switch whenever it changes (hydrated, answered, forgotten): AuthContext's `useV2`. Returns the unsubscribe. */
+export function onV2Change(l: (s: V2Switch) => void): () => void {
+  listeners.add(l)
+  return () => { listeners.delete(l) }
+}
+/** `known` is newer than the device's copy (the server answered, or the answer was forgotten): a late read keeps out. */
+let settled = false
+const LAST_ANSWER_KEY = 'v2.lastStatus'
+const hydrate = () => AsyncStorage.getItem(LAST_ANSWER_KEY).then((v) => {
+  const s = v ? (JSON.parse(v) as V2Switch) : null
+  if (!settled && s && typeof s.enabled === 'boolean') setKnown({ enabled: s.enabled, maxPartBytes: Number(s.maxPartBytes) || 0 })
+}, () => {})
+/** The stored answer is in `known` (a local read, never the network): the root layout waits for it. */
+export let v2Hydrated: Promise<void> = hydrate()
+const answer = (s: V2Switch, gen: number) => {
+  if (gen !== generation) return known // the previous account's probe
+  settled = true
+  setKnown(s)
+  AsyncStorage.setItem(LAST_ANSWER_KEY, JSON.stringify(s)).catch(() => {})
+  return s
+}
+/** Sign-out, an auth failure, another account signing in: the answer was the previous account's. Asked again next. */
+export function forgetV2Answer() {
+  generation++
+  settled = true
+  setKnown(V2_OFF)
+  probe = null
+  unreached = false
+  AsyncStorage.removeItem(LAST_ANSWER_KEY).catch(() => {})
+}
+/** Tests only: a new app start reads the stored answer again. */
+export const reloadLastV2AnswerForTests = () => (v2Hydrated = hydrate())
+/** The last probe never reached the server: the last answer stands until the network is back, then asked again. */
 let unreached = false
 
 /**
- * `GET /me/v2/status`, once per app start with a session: 200 on, 404 (unmapped) off for this start
- * (sync stays legacy). A 401 (no session yet) is asked again by the next call; a network failure —
- * the usual mobile cold start — or a 503 is off until `reprobeV2AfterReconnect`. Started by the
- * session (AuthContext) and by the first call that needs the answer, whichever comes first.
+ * `GET /me/v2/status`, once per app start with a session: 200 on, 404 (unmapped) off; both stored. A 401 (no
+ * session yet) is asked again by the next call; a network failure — the usual mobile cold start — or a 503 keeps
+ * the last answer until `reprobeV2AfterReconnect`. Started by the session (AuthContext) and by the first call that
+ * needs the answer, whichever comes first.
  */
 export function startV2Probe(): Promise<V2Switch> {
   if (probe) return probe
   const seen = onlineEvents
+  const gen = generation
   probe = v2Api.getStatus().then(
-    (s) => (known = { enabled: true, maxPartBytes: s.maxPartBytes }),
+    (s) => answer({ enabled: true, maxPartBytes: s.maxPartBytes }, gen),
     (e) => {
+      if (gen !== generation) return known // the previous account's probe: nothing of it stays
+      if (e instanceof ApiError && e.status === 404) return answer(V2_OFF, gen)
       if (e instanceof ApiError && e.status === 401) probe = null
-      // Never reached, or V2 paused (503 `v2_unavailable`): asked again after a reconnect. 404 = unmapped, off.
+      // Never reached, or V2 paused (503 `v2_unavailable`): asked again after a reconnect.
       else if ((unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503))) {
         watchReconnect()
         // The network came back while this one was in flight: that reconnect is spent, so ask again now.
         if (onlineEvents !== seen) forgetUnreached()
       }
-      return V2_OFF
+      return known
     },
   )
   return probe
@@ -87,8 +136,10 @@ export function reprobeV2AfterReconnect(): Promise<V2Switch> {
   return startV2Probe()
 }
 
-/** The probe's answer once it has settled (off before): for the synchronous paths. */
+/** The switch now (the stored answer until this start's probe answers): for the synchronous paths, the reader route. */
 export const v2Enabled = () => known.enabled
+/** The whole switch now: AuthContext's first `useV2` value. */
+export const v2Known = () => known
 
 /** Every call site checks one thing: `if (await onV2()) …`. */
 export const onV2 = async () => (await startV2Probe()).enabled
@@ -144,6 +195,9 @@ export const v2Store = {
 export function resetV2ForTests() {
   probe = null
   known = V2_OFF
+  generation++
+  listeners.clear()
+  settled = false
   unreached = false
   unwatch?.()
   unwatch = null
@@ -303,6 +357,7 @@ export async function getV2UserBook(id: string): Promise<UserBookDetailResponse>
     // From the reading pull (the library) or the reader's read; fetched only on a miss (#1118 puts it on the book).
     completedAt: (v2Store.states.get(id) ?? await readState(id))?.completedAt ?? null,
     hasOriginalPdf: isPdf(b),
+    hasFile: !!b.currentFile?.hasContent,
     originalFileBytes: isPdf(b) ? b.currentFile!.byteSize : null,
     pageCount: b.currentFile?.pageCount ?? null,
     fileId: b.currentFile?.id ?? null,

@@ -1,7 +1,7 @@
 import { lazy, useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, isOfflineError, v2Api } from '@textstack/shared'
-import { fetchV2FileBytes, pullV2Books, v2Book, v2Status } from '../api/v2'
+import { fetchV2FileBytes, pullV2Books, v2Answer, v2Book, v2Status } from '../api/v2'
 import { SeoHead } from '../components/SeoHead'
 import { V2ReaderHost, type V2HostBook } from '../components/reader/V2ReaderHost'
 import { DOWNLOAD_STALL_MS, READY_DEADLINE_NETWORK_MS } from '../../../mobile/src/lib/v2reader/deadlines.mjs'
@@ -20,7 +20,8 @@ export const STALL_GRACE_MS = 1000
 class NoFile extends Error {}
 
 // V2 off: the legacy reader, rendered here (not a redirect: /read itself is this page, M5 #1031). Deleted at M6.
-const LegacyReaderPage = lazy(() => import('./ReaderPage').then((m) => ({ default: m.ReaderPage })))
+const loadLegacy = () => import('./ReaderPage')
+const LegacyReaderPage = lazy(() => loadLegacy().then((m) => ({ default: m.ReaderPage })))
 
 type Load = { percent: number | null } | { error: string; retry: boolean } | null
 
@@ -42,7 +43,8 @@ export function V2ReaderPage() {
   const highlightShown = () => setSearch((p) => { const n = new URLSearchParams(p); n.delete('highlight'); return n }, { replace: true })
   const { language } = useLanguage()
   const { t } = useTranslation()
-  const [enabled, setEnabled] = useState<boolean | null>(null)
+  // The probe's answer at once when this start has one (an in-app open); else waited for (a cold load).
+  const [enabled, setEnabled] = useState<boolean | null>(v2Answer)
   const [book, setBook] = useState<V2HostBook | null>(null)
   const [load, setLoad] = useState<Load>(null)
   /** Retry (a failed load, or the host's reload after its bytes went into a frame that never answered). */
@@ -50,6 +52,8 @@ export function V2ReaderPage() {
 
   useEffect(() => {
     let live = true
+    // ponytail: a cold load fetches the legacy chunk beside the probe (no waterfall when V2 is off), wasted when on; goes at M6.
+    if (v2Answer() === null) void loadLegacy().catch(() => {})
     void v2Status().then((s) => { if (live) setEnabled(s.enabled) })
     return () => { live = false }
   }, [])

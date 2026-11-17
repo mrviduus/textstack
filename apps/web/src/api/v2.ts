@@ -19,6 +19,8 @@ import type { UserBook, UserBookDetail, UserChapter, UploadResponse, UserBookPro
 
 let probe: Promise<V2Switch> | null = null
 let known: V2Switch = V2_OFF
+/** The server answered this start's probe: `known` is its answer, not the default. */
+let answered = false
 /**
  * `GET /me/v2/status`, once per app start, started by the session (AuthContext, the moment a user
  * is set): 200 on, 404 (unmapped) / 503 / offline off for this start (sync stays legacy). Only a
@@ -27,7 +29,10 @@ let known: V2Switch = V2_OFF
 export function startV2Probe(): Promise<V2Switch> {
   settleV2Session()
   probe ??= v2Api.probeV2().then(
-    (s) => (known = s),
+    (s) => {
+      answered = true
+      return (known = s)
+    },
     () => { probe = null; return V2_OFF },
   )
   return probe
@@ -43,6 +48,9 @@ export async function v2Status(): Promise<V2Switch> {
 
 /** The probe's answer once it has settled (off before): for the synchronous paths. */
 export const v2Enabled = () => known.enabled
+
+/** The probe's answer if this start has one, else null (not asked yet, or in flight): the reader route picks at once. */
+export const v2Answer = (): boolean | null => (answered ? known.enabled : null)
 
 /** Every call site checks one thing: `if (await onV2()) …`. */
 export const onV2 = async () => (await v2Status()).enabled
@@ -87,6 +95,7 @@ export const v2Store = {
 export function resetV2ForTests() {
   probe = null
   known = V2_OFF
+  answered = false
   rearmV2Session()
   v2Store.reset()
 }
@@ -177,6 +186,7 @@ export async function getV2UserBook(id: string): Promise<UserBookDetail> {
     updatedAt: b.updatedAt,
     completedAt: state?.completedAt ?? null,
     pageCount: b.currentFile?.pageCount ?? null,
+    hasFile: !!b.currentFile?.hasContent,
   }
 }
 

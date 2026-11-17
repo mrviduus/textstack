@@ -81,7 +81,8 @@ import { useTts } from '../../hooks/useTts'
 import { createListener, speakingJs, spokenOf, ttsLang } from '../../lib/v2reader/listen.mjs'
 
 /**
- * The V2 reader (ADR-029) on Android, dev builds only: reached through `app/dev/epub-v2.tsx`.
+ * The V2 reader (ADR-029) on Android: the reader route `app/my-books/read/[bookId]/…` when V2 is on (M5 #1031), and
+ * the dev route `app/dev/epub-v2.tsx` (dev builds only, with its library list).
  * Hosts the generated page and drives the contract in src/lib/v2reader/README.md:
  * ready → openUrl → opened → restore → restored, then store / relocate / word / openLink.
  */
@@ -176,6 +177,9 @@ const freshNonce = () => nonceFromUuid(uuid.v4())
  */
 type Opening = { file: string; name: string; format?: string | null }
 const isStaged = (file: string) => file.startsWith('staging/')
+
+/** The reader route's Back waits this long for the page's `book-closed` (its save in), then leaves anyway. */
+const LEAVE_FALLBACK_MS = 1500
 
 /** Logs a failure; `show` also puts it on screen (the screen's `showError`: a full disk as a human message, hostErrors.ts). */
 const fail = (what: string, show?: (e: unknown) => void) => (e: unknown) => {
@@ -590,6 +594,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }))
   // Leaving the screen ends the speech through the listener: a host-side end is never a failure toast elsewhere.
   useEffect(() => () => listener.stop(), [])
+  useEffect(() => () => { if (leaving.current) clearTimeout(leaving.current) }, [])
   // The word bar or selection toolbar that started a Listen closed (or another opened): its speech stops, its mark goes.
   useEffect(() => {
     listener.follow(spokenOf(popup))
@@ -639,11 +644,34 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const flushPage = useCallback(() => { webView.current?.injectJavaScript(FLUSH_JS) }, [])
   useFlushOnLeave(flushPage)
 
+  // The reader route (`/my-books/read/[bookId]/…`, M5 #1031) names its book `bookId`; the dev route's deep link `book`.
+  const params = useLocalSearchParams<{ book?: string; bookId?: string; highlight?: string }>()
+  const linkedBook = params.book ?? params.bookId
+  /**
+   * On the reader route the book is the screen: Back flushes it (`CLOSE_BOOK_JS`) and leaves the route on its
+   * `book-closed`, or after LEAVE_FALLBACK_MS if that never comes. The dev route's list stays dev-only.
+   */
+  const onRoute = !!params.bookId
+  const leaving = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const leave = () => {
+    if (leaving.current) clearTimeout(leaving.current)
+    leaving.current = null
+    if (router.canGoBack()) router.back()
+    else router.replace('/')
+  }
   /**
    * Back or the top bar: the list at once (the hidden page takes no tap or key from here), then the book ends
    * once the page's pending save is in (`CLOSE_BOOK_JS`: `store`, then `book-closed`). No page to flush: at once.
+   * On the reader route: the same flush, then the route is left (above).
    */
   const closeBook = () => {
+    if (onRoute) {
+      if (leaving.current) return
+      if (!ready.current) return leave()
+      leaving.current = setTimeout(leave, LEAVE_FALLBACK_MS)
+      webView.current?.injectJavaScript(CLOSE_BOOK_JS)
+      return
+    }
     setBook(false)
     deadlines.answered()
     if (ready.current) webView.current?.injectJavaScript(CLOSE_BOOK_JS)
@@ -938,13 +966,16 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       upload: uploadRetained,
       guest: capabilitiesFor(user).isGuest,
     }).then(() => {
-      refreshBooks()
       // A pull may have brought another device's notes (#1312 review): the editor and the sheet read them again.
       refreshNotes()
       // And saved words (#1271): the marks too.
       refreshVocab()
-    }, fail('sync'))
+      // The pass counts once its books are on screen: a linked book it pulled is found first (#1361).
+      return refreshBooks()
+    }, fail('sync')).finally(() => setSyncPasses((n) => n + 1))
   }
+  /** Sync passes ended (either way): a linked book not in the library after one is not coming by itself. */
+  const [syncPasses, setSyncPasses] = useState(0)
   const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const syncSoon = () => {
     clearTimeout(syncTimer.current)
@@ -986,18 +1017,21 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
 
   /** A book only the server has: fetched on demand, then opened. */
-  const download = (b: LibraryBook) => {
+  const download = (b: LibraryBook): Promise<boolean> => {
     setOpenError(null)
     // As a pick's copy (#1273): a book opened while this one downloads is not replaced; the download stays in the library.
     const current = tracker.pick()
-    downloadV2Book(deviceLocalLibrary(), b.id, downloadIo).then(
+    return downloadV2Book(deviceLocalLibrary(), b.id, downloadIo).then(
       async (ok) => {
-        if (!ok) return
+        if (!ok) return false
         await refreshBooks()
-        if (!current()) return
-        open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
+        if (current()) open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
+        return true
       },
-      fail('download', showOpenError(t('reader.v2.failed.download'))),
+      (e: unknown) => {
+        fail('download', showOpenError(t('reader.v2.failed.download')))(e)
+        return false
+      },
     )
   }
 
@@ -1218,6 +1252,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }, fail('store', showError(t('reader.v2.failed.store'))))
         return
       case BOOK_CLOSED:
+        // The reader route's Back (#1361): the save is in, now leave.
+        if (leaving.current) return leave()
         // The closed book's pending save came first (CLOSE_BOOK_JS); a reopen meanwhile keeps it.
         if (!inBookRef.current) endBook()
         return
@@ -1467,21 +1503,36 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }, [notes, highlightList, bookmarks])
 
   // #1312: the dev route's deep link (the highlights screen): the book, opened once, then the highlight.
-  // M5 (#1031): the reader route (`/my-books/read/[bookId]/…`) names it `bookId`; a book only the server has is
-  // downloaded first (its highlight link is then dropped by that open).
-  const params = useLocalSearchParams<{ book?: string; bookId?: string; highlight?: string }>()
-  const linkedBook = params.book ?? params.bookId
+  // M5 (#1031): the reader route names it `bookId`; a book only the server has is downloaded first (its highlight link
+  // is then dropped by that open). Not in the library after a sync pass, or its download failed: an error with Retry.
   const linked = useRef(false)
+  const [linkFailed, setLinkFailed] = useState(false)
+  useEffect(() => {
+    linked.current = false
+    setLinkFailed(false)
+  }, [linkedBook])
   useEffect(() => {
     if (linked.current || !linkedBook) return
     const b = books.find((x) => x.id === linkedBook)
-    if (!b) return
+    if (!b) {
+      if (syncPasses > 0) setLinkFailed(true)
+      return
+    }
     linked.current = true
-    if (!b.local) return download(b)
+    setLinkFailed(false)
+    if (!b.local) {
+      download(b).then((ok) => { if (!ok) setLinkFailed(true) })
+      return
+    }
     open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
     // After `open`, which clears any earlier one.
     pendingHighlight.current = typeof params.highlight === 'string' ? params.highlight : null
-  }, [books, linkedBook])
+  }, [books, linkedBook, syncPasses])
+  const retryLink = () => {
+    linked.current = false
+    setLinkFailed(false)
+    sync.current()
+  }
 
   /** What translate and explain read the book as: its own language, else the app's (the legacy reader's rule). */
   const textLang = readerTextLanguage(bookLang, language)
@@ -1527,7 +1578,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('common.retry')}</Text></Pressable>
         </View>
       )}
-      {openError && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{openError}</Text>}
+      {linkFailed && (
+        <View>
+          <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{t('reader.v2.linkFailed')}</Text>
+          <Pressable onPress={retryLink} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('common.retry')}</Text></Pressable>
+        </View>
+      )}
+      {/* One error per failed deep link: its own (with Retry) over the download's. */}
+      {openError && !linkFailed && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{openError}</Text>}
       {error && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{error}</Text>}
       {offer && (
         <Pressable onPress={() => { goTo(offer, true); setOffer(null) }} accessibilityRole="button" style={styles.offer}>
@@ -1536,8 +1594,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       )}
     </>
   )
-  const hasNotices = !!(overdue || openError || error || offer)
+  const hasNotices = !!(overdue || linkFailed || openError || error || offer)
   const dismissNotices = () => {
+    setLinkFailed(false)
     setError(null)
     setOpenError(null)
     setOffer(null)

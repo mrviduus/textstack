@@ -21,9 +21,10 @@ import { useUserBookReaderSource } from '../../../../src/components/reader/useUs
  * starts writing progress against it.
  */
 export default function UserBookReaderScreen() {
-  // M5 (#1031): with V2 on (the probe's settled answer: read now, never waited for) the V2 reader is the reader, on
-  // Android (its only host). Every entry point lands here; the chapter slug is ignored, the book opens at its synced
-  // place. Fixed for this mount: a probe settling mid-read never swaps the reader. The legacy branch goes at M6.
+  // M5 (#1031): with V2 on (`v2Enabled`: the one switch, the stored answer until this start's; never waited for) the V2
+  // reader is the reader, on Android (its only host). Every entry point lands here; the chapter slug is ignored, the
+  // book opens at its synced place. Fixed for this mount: a probe settling mid-read never swaps the reader. The
+  // legacy branch goes at M6.
   const [v2] = useState(() => Platform.OS === 'android' && v2Enabled())
   if (v2) return <V2ReaderScreen />
   return (

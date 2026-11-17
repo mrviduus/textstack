@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
-import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { resetV2ForTests, reloadLastV2AnswerForTests, forgetV2Answer, v2Enabled, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, switched, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
 import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, feed, book, file, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
@@ -41,6 +42,25 @@ describe('mobile v2', () => {
     expect((await startV2Probe()).enabled).toBe(false)
     expect((await reprobeV2AfterReconnect()).enabled).toBe(false)
     expect(calls).toHaveLength(1)
+  })
+
+  // M5 (#1031): one switch. An offline cold start keeps the last answer (stored, read before the first route); sign-out forgets it.
+  it.each([[200, true], [404, false]])('v2Enabled_LastStartAnswered%i_AnOfflineStartKeepsIt_SignOutForgetsIt (%s)', async (status, on) => {
+    fakeApi({ 'GET /status': [status === 200 ? { status, body: { maxPartBytes: 1024 } } : { status }] })
+    await startV2Probe()
+    expect(v2Enabled()).toBe(on)
+    resetV2ForTests() // the next app start
+    await reloadLastV2AnswerForTests()
+    expect(v2Enabled()).toBe(on) // before any probe
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+    expect((await startV2Probe()).enabled).toBe(on)
+    expect(v2Enabled()).toBe(on)
+    forgetV2Answer()
+    expect(v2Enabled()).toBe(false)
+    await vi.waitFor(async () => expect(await AsyncStorage.getItem('v2.lastStatus')).toBeNull())
+    resetV2ForTests()
+    await reloadLastV2AnswerForTests()
+    expect(v2Enabled()).toBe(false)
   })
 
   it('asks again on a reconnect when the probe never reached the server', async () => {

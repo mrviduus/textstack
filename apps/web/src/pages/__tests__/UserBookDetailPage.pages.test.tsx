@@ -101,13 +101,33 @@ describe('UserBookDetailPage on V2', () => {
   // M5 (#1031): one Read button, /read is the V2 reader when V2 is on; it opens the file, chapters or not.
   it.each([[false, 0], [true, 1]])('V2 %s: a book with no chapter yet offers Start Reading %i times, no separate V2 link', async (on, shown) => {
     v2On = on
-    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [] })
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [], hasFile: on })
     renderPage()
     await screen.findByText('Test Book')
     const links = screen.queryAllByRole('link', { name: 'Start Reading' })
     expect(links).toHaveLength(shown)
     if (on) expect(links[0]).toHaveAttribute('href', '/en/library/my/bk-1/read')
     expect(screen.queryByRole('link', { name: 'Open in the V2 reader' })).toBeNull()
+    v2On = false
+  })
+
+  // Review #1361: V2 reads the raw file, so the extraction's state does not gate it; the file's bytes do.
+  it.each([['Processing', true, 1], ['Failed', true, 1], ['Ready', false, 0], ['Failed', false, 0]] as const)('V2 on: a %s book, file in %s, offers Start Reading %i times', async (status, hasFile, shown) => {
+    v2On = true
+    getUserBook.mockResolvedValue({ ...baseBook, status, metadataEnrichmentStatus: undefined, chapters: [], hasFile })
+    renderPage()
+    await screen.findByText('Test Book')
+    expect(screen.queryAllByRole('link', { name: 'Start Reading' })).toHaveLength(shown)
+    v2On = false
+  })
+
+  // The V2 reader opens at the synced place: a chapter row that named a chapter would not open there.
+  it.each([[false, 1], [true, 0]])('V2 %s: a chapter row is a reader link %i times', async (on, links) => {
+    v2On = on
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [{ id: 'c1', chapterNumber: 1, slug: '', title: 'The Pond', wordCount: null }] })
+    renderPage()
+    await screen.findByText('The Pond')
+    expect(screen.queryAllByRole('link', { name: /The Pond/ })).toHaveLength(links)
     v2On = false
   })
 })

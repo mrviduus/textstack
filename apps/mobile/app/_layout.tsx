@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { sweepTtsCache } from '../src/lib/deviceStorage'
 import { AppState, View } from 'react-native'
 import { Stack, useRouter, usePathname } from 'expo-router'
@@ -19,6 +19,10 @@ import { AutoUpdater } from '../src/components/AutoUpdater'
 import { UpdateBanner } from '../src/components/UpdateBanner'
 import { ForceUpdateGate } from '../src/components/ForceUpdateGate'
 import { useAppFonts } from '../src/theme/fonts'
+import { v2Hydrated } from '../src/lib/v2'
+
+/** The longest the launch waits on the V2 switch's stored answer (a local read; normally a few ms). */
+const V2_HYDRATE_MS = 1000
 
 SplashScreen.preventAutoHideAsync()
 
@@ -164,6 +168,12 @@ function AppContent() {
 
 function RootLayout() {
   const [fontsLoaded, fontError] = useAppFonts()
+  // The V2 switch's stored answer (lib/v2, M5 #1031) before the first route: the reader route reads it at mount.
+  // A device read, bounded: a hung storage never holds the launch (the switch then starts off).
+  const [v2Ready, setV2Ready] = useState(false)
+  useEffect(() => {
+    void Promise.race([v2Hydrated, new Promise((r) => setTimeout(r, V2_HYDRATE_MS))]).then(() => setV2Ready(true))
+  }, [])
 
   useEffect(() => {
     if (__DEV__) {
@@ -181,7 +191,7 @@ function RootLayout() {
   }, [])
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    if ((fontsLoaded || fontError) && v2Ready) {
       if (__DEV__) {
         console.log('[TextStack] Hiding splash, fontsLoaded:', fontsLoaded, 'fontError:', fontError)
       }
@@ -189,9 +199,9 @@ function RootLayout() {
       // or if already hidden — swallow with a warn rather than crashing the UI.
       SplashScreen.hideAsync().catch(e => console.warn('Splash hide failed:', e))
     }
-  }, [fontsLoaded, fontError])
+  }, [fontsLoaded, fontError, v2Ready])
 
-  if (!fontsLoaded && !fontError) return null
+  if ((!fontsLoaded && !fontError) || !v2Ready) return null
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

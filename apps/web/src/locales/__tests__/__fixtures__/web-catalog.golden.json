@@ -1324,6 +1324,7 @@
   "reader.v2.newerPlace": "Read further on another device ({percent}%): go there",
   "reader.v2.saveWordFailed": "Could not save word. Try again.",
   "reader.v2.cannotOpen": "Cannot open {name}: {reason}",
+  "reader.v2.linkFailed": "This book could not be opened on this device.",
   "reader.v2.notServed": "not a file the reader serves",
   "reader.v2.openedLateTwice": "it did not open in time, twice",
   "reader.v2.crashes": "this book crashes the reader",

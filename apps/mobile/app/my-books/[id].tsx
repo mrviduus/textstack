@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -383,6 +383,9 @@ export default function UserBookDetailScreen() {
   const { insights, reviews, removeInsight } = useBookReviews(isReady && book && v2Offers(v2, 'insights') ? { userBookId: book.id } : null)
   const isFailed = book?.status.toLowerCase() === 'failed'
   const isProcessing = book && !isReady && !isFailed
+  // M5 (#1031): the read route opens the V2 reader (its rule): it opens the file itself, chapters or not, at the synced
+  // place, so a chapter row cannot open at its chapter there.
+  const v2Reader = Platform.OS === 'android' && v2.enabled
 
   // A PDF read in Original layout is chapterless: its position is a `page:<N>`
   // locator with chapterSlug null. Looking only at the slug meant every
@@ -696,7 +699,9 @@ export default function UserBookDetailScreen() {
         )}
 
         {/* Action buttons */}
-        {isReady && book.chapters.length > 0 && (
+        {/* V2 reads the raw file (queued, processing or failed extraction alike) once its bytes are in. Unknown (an
+            offline copy cached before `hasFile`): chapters on the device mean the book was readable. No network. */}
+        {(v2Reader ? (book.hasFile ?? book.chapters.length > 0) : isReady && book.chapters.length > 0) && (
           <View style={styles.actions}>
             <AssistantMenu
               book={{
@@ -712,7 +717,8 @@ export default function UserBookDetailScreen() {
                 style={[styles.readBtn, { backgroundColor: colors.primary }]}
                 onPress={() => {
                   const first = book.chapters[0]
-                  const slug = continueSlug || (first ? userBookChapterSlug(first) : '')
+                  // `start`: a V2 book with no chapter yet (the V2 reader ignores the slug).
+                  const slug = continueSlug || (first ? userBookChapterSlug(first) : 'start')
                   router.push(`/my-books/read/${id}/${slug}`)
                 }}
               >
@@ -834,6 +840,7 @@ export default function UserBookDetailScreen() {
                 <TouchableOpacity
                   key={ch.id}
                   style={[styles.chapterRow, { borderBottomColor: colors.border }]}
+                  disabled={v2Reader}
                   onPress={() => router.push(`/my-books/read/${id}/${userBookChapterSlug(ch)}?pick=1`)}
                 >
                   <Text style={[styles.chapterNumber, { color: isCurrentChapter ? colors.primary : colors.textSecondary }]}>{i + 1}</Text>
