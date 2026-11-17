@@ -56,6 +56,7 @@ Three facts make one engine the cheaper path:
 5. **No server-side text extraction for new formats.** MOBI, AZW3, FB2 and CBZ files are stored and
    synced as bytes; nothing enqueues an `ingestion_jobs` row for them. EPUB and PDF keep the
    transitional extraction only while `book_chapters` lives (until R8).
+   *Amended (owner decision 5, wave 18):* html clips are extracted server-side too, for MCP chapter reads.
 6. **`packages/reader-engine` retires after R8.** Its proven parts are ported into the wrapper
    around the fork, not rewritten: `overlay.ts` (itself a port of foliate's overlayer), the
    `rangeToLocator` prefix/suffix builder the prototype already reuses, and ADR-019's position rules

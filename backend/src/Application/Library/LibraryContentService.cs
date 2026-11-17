@@ -105,7 +105,8 @@ public sealed class LibraryContentService(
     // Transitional (dropped at M6.4): the server extracts chapters for the readers that still need them.
     private async Task EnqueueExtractionAsync(BookFile file, CancellationToken ct)
     {
-        if (file.Format is "epub" or "pdf") await jobs.EnqueueAsync(file.UserId, file.BookId, file.Id, ct);
+        // html: a clip (ClipService), so assistants (MCP) see its chapters as they did legacy's.
+        if (file.Format is "epub" or "pdf" or "html") await jobs.EnqueueAsync(file.UserId, file.BookId, file.Id, ct);
     }
 
     /// <summary>The bytes of any version, with range support; <c>no_content</c> when the server holds none.</summary>

@@ -151,6 +151,20 @@ architecture, **no new tables**.
 
 **Mechanism** (`SelectedDatabaseGuard`): in v2 mode a private route or a write without `V2SelectedRoute` answers
 410 `{"error":"gone_in_v2"}`, logged at Information as `Gone in V2: {Route} from app {AppVersion}, outcome 410`
-(`X-App-Version`; `none` when absent). A route in `SelectedDatabaseGuard.Pending` keeps the retryable 503
-`v2_compatibility_pending` until its port lands; each port removes its lines. Legacy mode is unchanged: the guard
-is not in its pipeline.
+(`X-App-Version`; `none` when absent). The ported routes are mapped only in v2 mode by `V2CompatEndpoints`, on
+the legacy path and shape, marked and ordered ahead of the legacy handler (`WithOrder(-1)`). While the stack landed,
+a `Pending` table in the guard kept the routes not yet ported at 503 `v2_compatibility_pending`; PR 5 emptied and
+removed it. Legacy mode is unchanged: neither the guard nor `V2CompatEndpoints` is in its pipeline.
+
+What the ports do:
+- **All-highlights:** live annotations in live books, the legacy shape; no covers, `bookType=edition` lists none.
+- **Explain / translate:** anonymous as legacy, genre from the caller's V2 book, explain tools off (they read the
+  catalog). The daily AI budgets seed from V2 `llm_traces` (`ILlmSpendSource`); per-IP rate limits unchanged.
+- **MCP** (`TEXTSTACK_MCP_V2` on): the my-library, progress, reading and insight tools read and write `/me/v2`;
+  new `GET/POST /me/v2/books/{id}/insights`. Edition and chapter-review tools answer an error (their routes 410).
+- **Clips:** `POST /me/books/clip` imports a V2 book (origin `{kind: clip, sourceUrl}`) and stores the page as its one
+  `html` file through the V2 part + complete (V2 quota), and queues its chapter extraction (the html extractor) for the
+  assistant tools; the V2 reader reads the page itself. The same page again is the book that holds it (its bytes stored
+  if an earlier attempt stopped short). A refusal is legacy's `{error: message}`, 413 for the storage limit, else 400.
+  Accepted gap: the extension's recent-clips list (`GET /me/books?shelf=readlater`) and its delete (`DELETE
+  /me/books/{id}`) answer 410 in v2 mode; clips are read and removed from the library instead.

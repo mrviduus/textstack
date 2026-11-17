@@ -63,55 +63,32 @@ public class SelectedDatabaseGuardTests
         Assert.Equal(expectedReached ? 200 : 401, http.Response.StatusCode);
     }
 
+    // The retired surface in one table: old-build routes, hidden features, chapter review, catalog admin.
     [Theory]
-    [InlineData("GET", "/me/books/{id:guid}", "/me/books/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11", 410)]
-    [InlineData("DELETE", "/me/books/{id:guid}", "/me/books/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11", 410)]
-    [InlineData("PUT", "/me/progress/{editionId:guid}", "/me/progress/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11", 410)]
-    [InlineData("POST", "/admin/editions/{id:guid}/publish", "/admin/editions/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11/publish", 410)]
-    [InlineData("GET", "/me/reading/stats", "/me/reading/stats", 410)]
-    [InlineData("GET", "/me/library/shelves", "/me/library/shelves", 410)]
-    [InlineData("GET", "/me/highlights/all", "/me/highlights/all", 410)]
-    [InlineData("POST", "/explain/", "/explain", 410)]
-    [InlineData("POST", "/me/books/clip", "/me/books/clip", 503)]
-    public async Task UnadaptedNativeRoute_IsGoneOrPendingBeforeAnyUserLookup(string method, string pattern, string path, int expected)
+    [InlineData("GET", "/me/books/{id:guid}", "/me/books/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11")]
+    [InlineData("PUT", "/me/progress/{editionId:guid}", "/me/progress/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11")]
+    [InlineData("GET", "/me/reading/stats", "/me/reading/stats")]
+    [InlineData("GET", "/me/library/shelves", "/me/library/shelves")]
+    [InlineData("PUT", "/me/chapter-review/", "/me/chapter-review")]
+    [InlineData("POST", "/admin/editions/{id:guid}/publish", "/admin/editions/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11/publish")]
+    public async Task AnOldAppBuildCallingARetiredRoute_Gets410AndTheCallIsLogged(string method, string pattern, string path)
     {
         var http = Request(path, null, selected: false, pattern: pattern);
         http.Request.Method = method;
-        var reached = false;
-        var users = new Mock<IUserRepository>(MockBehavior.Strict);
-
-        await new SelectedDatabaseGuard(_ => { reached = true; return Task.CompletedTask; }, new(true))
-            .InvokeAsync(http, Mock.Of<IAuthService>(), users.Object);
-
-        Assert.False(reached);
-        Assert.Equal(expected, http.Response.StatusCode);
-        http.Response.Body.Position = 0;
-        Assert.Contains(expected == 410 ? "gone_in_v2" : "v2_compatibility_pending", new StreamReader(http.Response.Body).ReadToEnd());
-        users.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task GoneRoute_LogsRouteAppVersionAndOutcome()
-    {
-        var http = Request("/me/bookmarks", null, selected: false, pattern: "/me/bookmarks");
         http.Request.Headers[Api.Middleware.AppVersionMiddleware.VersionHeader] = "1.4.2";
         var logger = new ListLogger();
+        var reached = false;
 
-        await new SelectedDatabaseGuard(_ => Task.CompletedTask, new(true), logger)
-            .InvokeAsync(http, Mock.Of<IAuthService>(), Mock.Of<IUserRepository>());
+        await new SelectedDatabaseGuard(_ => { reached = true; return Task.CompletedTask; }, new(true), logger)
+            .InvokeAsync(http, Mock.Of<IAuthService>(), new Mock<IUserRepository>(MockBehavior.Strict).Object);
 
+        Assert.False(reached);
         Assert.Equal(410, http.Response.StatusCode);
+        http.Response.Body.Position = 0;
+        Assert.Contains("gone_in_v2", new StreamReader(http.Response.Body).ReadToEnd());
         var line = Assert.Single(logger.Lines);
-        Assert.Contains("GET /me/bookmarks", line);
+        Assert.Contains($"{method} {pattern}", line);
         Assert.Contains("1.4.2", line);
-        Assert.Contains("410", line);
-    }
-
-    [Fact]
-    public void Pending_EveryLineIsARealRoute()
-    {
-        var routes = TextStack.Tests.Routes.ApiRouteTable.Routes.Select(r => r.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Assert.All(SelectedDatabaseGuard.Pending, p => Assert.Contains(p, routes));
     }
 
     private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger<SelectedDatabaseGuard>

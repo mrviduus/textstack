@@ -5,6 +5,7 @@ using Application.Annotations;
 using Application.Auth;
 using Application.Library;
 using Application.Vocabulary;
+using Contracts.UserBooks;
 using Domain.LLM;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
@@ -30,6 +31,10 @@ public static class V2CompatEndpoints
         var highlights = app.MapGroup("/me/highlights").WithMetadata(V2SelectedRoute.Instance).WithTags("Highlights").AddEndpointFilter<V2Gate>();
         highlights.MapGet("/all", GetAllHighlights).WithOrder(-1);
 
+        // The browser extension's clip, same path and shape, so the extension needs no change.
+        app.MapGroup("/me/books").WithMetadata(V2SelectedRoute.Instance).WithTags("User Books").AddEndpointFilter<V2Gate>()
+            .MapPost("/clip", Clip).RequireRateLimiting("clip").WithOrder(-1);
+
         // Anonymous on purpose, as legacy (the reading loop): no V2Gate. Spend: V2 traces (V2LlmSpendSource).
         app.MapGroup("/explain").WithMetadata(V2SelectedRoute.Instance).WithTags("Explain")
             .MapPost("", Explain).RequireRateLimiting("explain").WithOrder(-1);
@@ -37,6 +42,23 @@ public static class V2CompatEndpoints
             .MapPost("", Translate).RequireRateLimiting("translate").WithOrder(-1);
         app.MapPost("/translate", Translate).WithMetadata(V2SelectedRoute.Instance).WithTags("Translation")
             .RequireRateLimiting("translate").WithOrder(-1);
+    }
+
+    /// <summary>
+    /// <c>POST /me/books/clip</c> on V2: legacy's checks, then a V2 book with one <c>html</c> file (<see cref="ClipService"/>).
+    /// Answered in legacy's shape. The page's chapter extraction is queued (for the assistant tools), but the V2 reader
+    /// reads the page itself, so <c>status</c> is <c>Ready</c> at once; <c>jobId</c> is empty (no legacy job to follow).
+    /// </summary>
+    private static async Task<IResult> Clip(HttpContext http, IAuthService auth, ClipService clips, [FromBody] ClipRequest request, CancellationToken ct)
+    {
+        if (UserBooksEndpoints.InvalidClip(request) is { } invalid) return invalid;
+        var (bookId, refused) = await clips.ClipAsync(http.GetUserId(auth)!.Value, request.Title, request.Author,
+            request.Language ?? "en", string.IsNullOrWhiteSpace(request.SourceUrl) ? null : request.SourceUrl, request.Html, ct);
+        // The extension reads legacy's {error: message}: the readable message, 413 for the storage limit, else 400.
+        return refused is null
+            ? Results.Ok(new UploadUserBookResponse(bookId!.Value, Guid.Empty, "Ready", false))
+            : Results.Json(new { error = (refused.Body as Contracts.V2.V2Error)?.Message ?? "The clip could not be saved" },
+                statusCode: refused.Status == StatusCodes.Status413PayloadTooLarge ? 413 : 400);
     }
 
     /// <summary>The legacy explain on V2: the genre from the caller's V2 book, no tools (they read legacy's catalog).</summary>

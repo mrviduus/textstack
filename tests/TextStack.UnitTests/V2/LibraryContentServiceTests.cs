@@ -212,10 +212,14 @@ public class LibraryContentServiceTests
         _library.Verify(l => l.AttachContentAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<Action>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    [Fact]
-    public async Task CompleteAsync_Attached_Is200AndThePartsGoAndExtractionIsQueued()
+    // html: a clip, extracted for the assistant tools' chapter reads (ADR-032 decided 5, amended wave 18).
+    [Theory]
+    [InlineData("epub")]
+    [InlineData("pdf")]
+    [InlineData("html")]
+    public async Task CompleteAsync_Attached_Is200AndThePartsGoAndExtractionIsQueued(string format)
     {
-        Attaches(new ContentAttachment(AttachOutcome.Attached, _file));
+        Attaches(new ContentAttachment(AttachOutcome.Attached, new BookFile { Id = FileId, UserId = User, BookId = BookId, Format = format }));
 
         var result = await CompleteAsync();
 
@@ -225,9 +229,8 @@ public class LibraryContentServiceTests
         _jobs.Verify(j => j.EnqueueAsync(User, BookId, FileId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // #1128: extraction stays EPUB/PDF only (ADR-032 decided 5); the new formats are read on the device.
+    // #1128: no extraction for the new formats (ADR-032 decided 5); they are read on the device.
     [Theory]
-    [InlineData("html")]
     [InlineData("mobi")]
     [InlineData("azw3")]
     [InlineData("fb2")]

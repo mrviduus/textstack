@@ -14,20 +14,11 @@ namespace Api.Middleware;
 /// V2 mode never falls back to legacy user handlers or accepts a reset/deleted account's JWT. A private
 /// route or a write without <see cref="V2SelectedRoute"/> is gone in V2 (410 <c>gone_in_v2</c>, M5.1 Part C,
 /// docs/internal/v2/m5-part-c-routes.md), logged with the caller's app version (v2-plan §5.4: the log ends
-/// the old-build window); a route in <see cref="Pending"/> is still being ported (retryable 503).
+/// the old-build window). The routes Part C ported are marked (V2CompatEndpoints).
 /// </summary>
 public sealed class SelectedDatabaseGuard(RequestDelegate next, DatabaseMode mode, ILogger<SelectedDatabaseGuard>? logger = null)
 {
     public static readonly object AccountItemKey = new();
-
-    /// <summary>
-    /// <c>METHOD /pattern</c> of the legacy routes Part C ports to V2 in its stacked PRs. Each port marks its V2
-    /// handler and removes its lines; empty, it goes.
-    /// </summary>
-    public static readonly IReadOnlySet<string> Pending = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "POST /me/books/clip",
-    };
 
     /// <summary>The matched route as <c>METHOD /pattern</c> (the route table's form); the path when unrouted.</summary>
     public static string RouteOf(HttpContext http) =>
@@ -48,18 +39,15 @@ public sealed class SelectedDatabaseGuard(RequestDelegate next, DatabaseMode mod
         if (endpoint is not null && (privatePath || mutation)
             && endpoint.Metadata.GetMetadata<V2SelectedRoute>() is null)
         {
-            // Never write the wrong database: a route is ported (marked), pending (503) or gone (410).
-            var route = RouteOf(http);
-            if (path.StartsWithSegments("/me/v2") || Pending.Contains(route))
+            // Never write the wrong database: a route is ported (marked) or gone (410).
+            if (path.StartsWithSegments("/me/v2"))
             {
                 http.Response.StatusCode = 503;
                 http.Response.Headers.RetryAfter = "60";
-                if (path.StartsWithSegments("/me/v2"))
-                    await http.Response.WriteAsJsonAsync(SyncResult.V2Unavailable.Body, http.RequestAborted);
-                else
-                    await http.Response.WriteAsJsonAsync(new { error = "v2_compatibility_pending" }, http.RequestAborted);
+                await http.Response.WriteAsJsonAsync(SyncResult.V2Unavailable.Body, http.RequestAborted);
                 return;
             }
+            var route = RouteOf(http);
             var appVersion = http.Request.Headers[AppVersionMiddleware.VersionHeader].ToString();
             logger?.LogInformation("Gone in V2: {Route} from app {AppVersion}, outcome 410",
                 route, appVersion.Length > 0 ? appVersion : "none");
