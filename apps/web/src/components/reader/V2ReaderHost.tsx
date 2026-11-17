@@ -1145,8 +1145,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           origin every nested frame gets its own. So the page shares the app's origin, and the page CSP is the
           only script barrier (README "Sandbox"). A book script past it would reach this origin's localStorage
           AND its /api session cookie. The shell itself is public (it carries no data, nginx serves it to
-          anyone); what is gated is the route that hands it a book, behind Features:V2Api (off in production).
-          A second origin is revisited before M5 (docs/01-architecture/v2-reader-web-hosting.md). */}
+          anyone); what is gated is the route that hands it a book: the reader's own `/me/v2` session.
+          A second origin: docs/internal/v2/v2-reader-web-hosting.md. */}
       <iframe key={frameLoad} ref={frame} id={BOOK_ID} title={t('v2Reader.frameTitle')} sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
       <footer ref={footer} className="reader-footer" onFocus={showBars} inert={lightboxOpen}>
         {reading && <V2SectionNav toc={toc} tocIndex={tocIndex} onGo={goToc} />}

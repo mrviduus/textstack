@@ -80,7 +80,7 @@ import { useTts } from '../../hooks/useTts'
 import { createListener, speakingJs, spokenOf, ttsLang } from '../../lib/v2reader/listen.mjs'
 
 /**
- * The V2 reader (ADR-029) on Android: the reader route `app/my-books/read/[bookId]/…` when V2 is on (M5 #1031), and
+ * The V2 reader (ADR-029) on Android: the reader route `app/my-books/read/[bookId]/…`, and
  * the dev route `app/dev/epub-v2.tsx` (dev builds only, with its library list).
  * Hosts the generated page and drives the contract in src/lib/v2reader/README.md:
  * ready → openUrl → opened → restore → restored, then store / relocate / word / openLink.
@@ -728,7 +728,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setPopup(null)
   }
   /**
-   * Saving a word (#1270): the legacy reader's Save, through the app's vocabulary API (V2 with the flag on), with the
+   * Saving a word (#1270): the legacy reader's Save, through the app's vocabulary API (V2), with the
    * word's sentence, the book and its title; what the answer shows: vocabSave.mjs. Off the reading path: nothing here
    * waits on it, a failure is a toast. No offline queue (the legacy reader has none).
    */
@@ -829,7 +829,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     })
     if (!capabilitiesFor(user).isGuest) return added()
     // A guest's 3rd and 10th word (legacy: counted on the reader's whole vocabulary): the open's words in memory (#1271).
-    // The rows once the feed is pulled (V2 on), else the server's list as before (nudgeCount).
+    // The rows once the feed is pulled (the server answered), else the server's list (nudgeCount).
     const count = await nudgeCount(
       async () => (await onV2()) && (await deviceLocalLibrary().cursor('vocabulary')) !== null,
       vocab.current,

@@ -4,12 +4,14 @@
 #   scripts/swap-web-dist.sh NEW DIST MANIFEST
 #
 #   NEW       vite's output for this release (index.html + assets/ + public/), already scanned
-#   DIST      the served tree, apps/web/dist — also home to ssg-worker's dist/ssg*
+#   DIST      the served tree, apps/web/dist
 #   MANIFEST  file list of the previous release (outside DIST: nginx serves DIST)
 #
-# Not `mv NEW DIST`. ssg-worker bind-mounts apps/web/dist, and a bind mount holds the
-# directory, not the path: after a rename it would keep writing SSG pages into the
-# old tree. So the release goes in file by file, and dist/ssg* is never touched:
+# dist/ssg*: the retired ssg-worker's trees (the catalog went in M6). The guards for
+# them stay until production's dist holds none (#1406); they cost nothing when absent.
+#
+# Not `mv NEW DIST` (open tabs still need the previous release's chunks): the release
+# goes in file by file, and dist/ssg* is never touched:
 #   1. assets/ — content-hashed names, unreachable until an index.html names them.
 #      A name already present is the same bytes and is skipped.
 #   2. every other file: the V2 reader script (reader-v2/page.*.js) first, index.html
@@ -18,8 +20,8 @@
 #   3. files the previous release shipped (MANIFEST) that this one does not: removed.
 #   4. assets referenced by neither this release, the previous index.html (one
 #      release of grace for open tabs), nor any dist/ssg* page: removed. The keep
-#      set walks HTML → JS → lazy imports → CSS → url() to a fixed point, as
-#      deploy.yml's SSG snapshot does: a naive HTML-only scan once deleted every
+#      set walks HTML → JS → lazy imports → CSS → url() to a fixed point:
+#      a naive HTML-only scan once deleted every
 #      React.lazy chunk on production (5e4070a).
 set -euo pipefail
 
@@ -36,8 +38,8 @@ chmod -R a+rX "$NEW"
 
 PAT='assets/[A-Za-z0-9_.-]+\.(js|css|mjs|cjs|woff2?|ttf|otf|eot|png|jpg|jpeg|svg|webp|gif|ico|map)'
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
-# NUL-separated files on stdin → referenced asset basenames. ssg-worker may swap a
-# tree mid-read; a vanished file is skipped, not an error.
+# NUL-separated files on stdin → referenced asset basenames. A file that
+# vanishes mid-read is skipped, not an error.
 refs() { xargs -0 -r grep -ohE "$PAT" 2>/dev/null | awk -F/ '{print $NF}' || true; }
 
 # --- 4a. Keep set, from what is live BEFORE anything changes.

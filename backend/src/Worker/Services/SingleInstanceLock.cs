@@ -16,7 +16,7 @@ namespace Worker.Services;
 /// </summary>
 public sealed class SingleInstanceLock(string connectionString, ILogger<SingleInstanceLock> logger) : IHostedService
 {
-    /// <summary>Arbitrary but fixed; the ssg-worker uses its own key (ssgJob.mjs).</summary>
+    /// <summary>Arbitrary but fixed.</summary>
     public const long Key = 0x54533001;
 
     private static readonly TimeSpan RetryEvery = TimeSpan.FromSeconds(5);

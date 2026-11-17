@@ -29,8 +29,8 @@ public sealed class ExtractionOptions
     /// composite SMask figures into the reading flow (ADR-012 S5a).
     /// Default: false — user-uploaded PDFs render pixel-perfect via PDF.js and
     /// "Ask this book" RAG re-renders pages via vision, so extracted chapter
-    /// <c>&lt;img&gt;</c> are dead weight. The admin-catalog reflow path sets
-    /// this true to preserve its inline figures. The rendered cover is unaffected
+    /// <c>&lt;img&gt;</c> are dead weight. Only tests set
+    /// this true since the admin-catalog reflow path retired (M6). The rendered cover is unaffected
     /// (always produced via <c>RenderFirstPageAsCover</c>). EPUB is unaffected.
     /// </summary>
     public bool ExtractInlineImages { get; init; }

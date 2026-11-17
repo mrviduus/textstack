@@ -6472,66 +6472,6 @@ html.dark .book-hero__read-btn--secondary {
   text-decoration: underline;
 }
 
-/* ---------------------------------------------------------------
-   Sitemap page — HTML sitemap for internal linking / SEO
-   --------------------------------------------------------------- */
-.sitemap-page {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 24px 16px 48px;
-}
-
-.sitemap-page h1 {
-  margin: 8px 0 24px;
-}
-
-.sitemap-section {
-  margin: 24px 0 32px;
-}
-
-.sitemap-section h2 {
-  font-size: 1.15rem;
-  margin: 0 0 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
-}
-
-.sitemap-count {
-  font-weight: 400;
-  font-size: 0.85rem;
-  color: var(--text-muted, #6b7280);
-  margin-left: 8px;
-}
-
-.sitemap-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.sitemap-list--columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 4px 16px;
-}
-
-.sitemap-list a {
-  color: var(--link, #1f6feb);
-  text-decoration: none;
-}
-
-.sitemap-list a:hover {
-  text-decoration: underline;
-}
-
-.sitemap-loading {
-  color: var(--text-muted, #6b7280);
-  font-style: italic;
-}
-
 /* Related content sections (contextual internal linking) */
 .genre-related,
 .author-related {

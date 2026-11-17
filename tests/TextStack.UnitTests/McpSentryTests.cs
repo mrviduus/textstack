@@ -221,7 +221,7 @@ public class McpSentryTests
     [Fact]
     public void Apply_DiagnosticSourceIntegration_IsRemoved()
     {
-        // It records EF Core / Npgsql db spans with the SQL as their description. The SDK has no public
+        // It records Npgsql db spans with the SQL as their description. The SDK has no public
         // getter, so this reads the internal list it edits; if Sentry renames it, this fails loudly.
         static string Integrations(SentryOptions o) =>
             typeof(SentryOptions).GetField("_defaultIntegrations",

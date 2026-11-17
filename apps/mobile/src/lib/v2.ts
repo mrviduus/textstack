@@ -67,7 +67,7 @@ export const reloadLastV2AnswerForTests = () => hydrate()
 let unreached = false
 
 /**
- * `GET /me/v2/status`, once per app start with a session: 200 on, 404 (unmapped) off; both stored. A 401 (no
+ * `GET /me/v2/status`, once per app start with a session: 200 on, 404 off (a server without the route); both stored. A 401 (no
  * session yet) is asked again by the next call; a network failure — the usual mobile cold start — or a 503 keeps
  * the last answer until `reprobeV2AfterReconnect`. Started by the session (AuthContext) and by the first call that
  * needs the answer, whichever comes first.
@@ -110,7 +110,7 @@ let onlineEvents = 0
  * The network coming back marks an unreached probe stale here, inside the NetInfo event (#1141).
  * Screens learn of a reconnect from a React effect, which runs after this and — children first —
  * before AuthContext's `reprobeV2AfterReconnect`: without this their calls still read the offline
- * answer and went legacy. Offline nothing changes: no event, no network wait on the reading path.
+ * answer and skipped the sync. Offline nothing changes: no event, no network wait on the reading path.
  */
 function watchReconnect() {
   if (unwatch) return

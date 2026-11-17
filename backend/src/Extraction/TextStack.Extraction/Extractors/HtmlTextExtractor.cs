@@ -11,7 +11,7 @@ namespace TextStack.Extraction.Extractors;
 /// Extracts a single clean web article ("Send to TextStack" clip) into reader chapters.
 /// Input is already-clean HTML (Readability runs in the browser extension); this just
 /// sanitizes via <see cref="HtmlCleaner"/>, splits on h1/h2 when multi-section, and pulls
-/// title/author/description metadata. Never enters the public Work/Edition/SSG path.
+/// title/author/description metadata.
 /// </summary>
 public sealed class HtmlTextExtractor : ITextExtractor
 {

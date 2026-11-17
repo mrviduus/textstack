@@ -1,7 +1,7 @@
 /**
  * Where the reader is, expressed as a place in the TEXT.
  *
- * [ADR-007](../../../../docs/01-architecture/adr/ADR-007-reader-autosave.md), accepted
+ * [ADR-007](../../../../docs/architecture/adr/ADR-007-reader-autosave.md), accepted
  * 2026-01-19, decided this and said why: *"The system stores a logical position in the text, not
  * visual coordinates… The following are explicitly not used: scrollY, page numbers,
  * viewport-based coordinates."* Its acceptance criteria include **"Font changes do not break

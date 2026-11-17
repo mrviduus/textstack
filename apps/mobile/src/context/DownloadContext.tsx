@@ -541,8 +541,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
    * - **It never evicts.** The budget stops the queue; it does not make room.
    *   Deleting a book the reader chose to keep, to fit one they never asked
    *   for, would be the app arguing with them.
-   * - **Their own uploads only.** The catalogue is 1,498 editions and stays a
-   *   deliberate tap.
+   * - **Their own uploads only.**
    * - **One at a time.** Each download is awaited in turn, so a manual one the
    *   reader is watching never races a background one for the connection.
    */
@@ -620,7 +619,7 @@ const PROCESSING_RECHECK_LIMIT = 25
 
         // Not paginated, on purpose and with a ceiling in mind: this is the
         // reader's OWN library, which the server caps at a tier's worth of
-        // uploads, not the 1,498-edition catalogue. If that stops being true
+        // uploads. If that stops being true
         // the fix is a page size here, not a second downloader.
         // A V2 store reset (account switch, guest → account re-key) during or after the listing makes
         // it the previous account's: deleting by it removes the new account's downloads (#1191). Read

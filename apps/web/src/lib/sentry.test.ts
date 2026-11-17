@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { ErrorEvent } from '@sentry/react'
 import { scrubEvent } from './sentry'
 
-// The same rules as the backend's SentryScrubber and the ssg-worker: no secret leaves the browser.
+// The same rules as the backend's SentryScrubber: no secret leaves the browser.
 describe('web Sentry scrub', () => {
   it('redacts tokens, Bearer, JWTs, MCP keys and query strings in messages, exception values and breadcrumbs', () => {
     const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl'

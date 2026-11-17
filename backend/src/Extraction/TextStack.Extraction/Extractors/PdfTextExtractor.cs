@@ -195,8 +195,8 @@ public sealed class PdfTextExtractor : ITextExtractor
                         // Inline-image extraction is gated (ADR-012 S5a). User PDFs
                         // render pixel-perfect via PDF.js and RAG re-renders pages via
                         // vision, so extracted chapter <img> are dead weight there
-                        // (flag off = text-only page). The admin-catalog reflow path
-                        // sets the flag true to keep its inline figures. The cover is
+                        // (flag off = text-only page). Only tests
+                        // set the flag true (the admin-catalog path retired in M6). The cover is
                         // unaffected — always rendered below via RenderFirstPageAsCover.
                         List<PdfTextElement> merged;
                         if (extractInlineImages)

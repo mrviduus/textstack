@@ -8,7 +8,7 @@ namespace TextStack.IntegrationTests.V2;
 
 /// <summary>
 /// v2-sync-protocol.md "Endpoints", the M2.6 rows (file bytes, cover, transitional chapters), against
-/// the running stack (V2 mode, <see cref="V2ApiFixture"/>). The chapters test needs the worker running
+/// the running stack (<see cref="V2ApiFixture"/>). The chapters test needs the worker running
 /// with the api's storage root and V2 database. The quota is pinned by the Persistence and unit tests:
 /// a tier limit cannot be set per test here.
 /// </summary>
