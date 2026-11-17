@@ -128,8 +128,8 @@ The most common path: run the published .NET global tool locally over stdio.
 dotnet tool install -g TextStack.Mcp
 ```
 
-This installs the `textstack-mcp` command. Runtime: .NET 10 SDK (the package
-rolls forward to future majors). On .NET 10 you can also run it without
+This installs the `textstack-mcp` command. Runtime: .NET 11 SDK (the package
+rolls forward to future majors). On .NET 10+ you can also run it without
 installing via `dnx textstack-mcp`.
 
 ### 2. Add it to `claude_desktop_config.json`
@@ -227,7 +227,7 @@ If you're hacking on the bridge from a checkout instead of the published tool:
   "mcpServers": {
     "textstack": {
       "command": "dotnet",
-      "args": ["/abs/path/backend/src/Ai/TextStack.Ai.Mcp/bin/Release/net10.0/TextStack.Ai.Mcp.dll"],
+      "args": ["/abs/path/backend/src/Ai/TextStack.Ai.Mcp/bin/Release/net11.0/TextStack.Ai.Mcp.dll"],
       "env": { "TEXTSTACK_API_URL": "https://textstack.app/api" }
     }
   }

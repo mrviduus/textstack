@@ -23,7 +23,7 @@ flowchart LR
 
     subgraph home["Home server · ports on 127.0.0.1"]
         nginx["nginx :80 · only ingress<br/>bots → dist/ssg, humans → SPA"]
-        api["api :8080<br/>ASP.NET Core · .NET 10<br/>REST · OAuth 2.1 · hosted jobs"]
+        api["api :8080<br/>ASP.NET Core · .NET 11<br/>REST · OAuth 2.1 · hosted jobs"]
         mcp["mcp-server :8090<br/>21 tools · HTTP bridge"]
         worker["worker<br/>ingestion · enrichment · cleanup"]
         ssg["ssg-worker<br/>Node · Puppeteer"]

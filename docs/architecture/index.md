@@ -58,7 +58,7 @@ quality-poller — shell scripts in infra/scripts/ that call the Claude CLI.
 
 ## Backend projects
 
-`backend/src/` — all in `textstack.sln`, target `net10.0`.
+`backend/src/` — all in `textstack.sln`, target `net11.0`.
 
 | Project | Role |
 |---------|------|

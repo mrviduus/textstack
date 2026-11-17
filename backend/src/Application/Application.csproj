@@ -4,10 +4,8 @@
     <PackageReference Include="Google.Apis.Auth" />
     <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <!-- IHttpClientFactory for tools that call external APIs (OpenLibrary tools) -->
     <PackageReference Include="Microsoft.Extensions.Http" />
-    <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" />
     <PackageReference Include="Npgsql" />

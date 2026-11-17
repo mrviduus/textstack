@@ -299,7 +299,8 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             // The daily budget starts from today's V2 traces (scaled up by the sample rate), never legacy's.
             var services = _apps[^1].Services;
             var rate = (decimal)services.GetRequiredService<TextStack.Ai.Llm.TracingOptions>().RateFor("explain");
-            Assert.Equal(0.05m / rate, services.GetRequiredService<TextStack.Ai.Core.ISpendTracker>().SpentTodayUsd("explain"));
+            // The tracker keeps whole micro-dollars; .NET 11 converts the double rate to decimal exactly.
+            Assert.Equal(Math.Round(0.05m / rate, 6, MidpointRounding.AwayFromZero), services.GetRequiredService<TextStack.Ai.Core.ISpendTracker>().SpentTodayUsd("explain"));
         }
     }
 

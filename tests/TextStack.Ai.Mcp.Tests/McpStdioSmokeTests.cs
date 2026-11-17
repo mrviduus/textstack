@@ -63,9 +63,9 @@ public class McpStdioSmokeTests
     // matching THIS test's build config, falling back across configs.
     private static string? LocateServerDll()
     {
-        // tests/TextStack.Ai.Mcp.Tests/bin/<cfg>/net10.0/  → repo-relative server bin.
+        // tests/TextStack.Ai.Mcp.Tests/bin/<cfg>/net11.0/  → repo-relative server bin.
         var testDir = AppContext.BaseDirectory;
-        var tfm = new DirectoryInfo(testDir).Name;                 // net10.0
+        var tfm = new DirectoryInfo(testDir).Name;                 // net11.0
         var cfg = new DirectoryInfo(testDir).Parent!.Name;         // Debug | Release
 
         // Walk up to the repo root (the dir that contains "backend").

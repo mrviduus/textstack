@@ -61,8 +61,6 @@
          (MCP_TRANSPORT=http): WithHttpTransport(o => o.Stateless = true) +
          MapMcp("/mcp") on a WebApplication. The stdio branch never touches it. -->
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" />
-    <PackageReference Include="Microsoft.Extensions.Http" />
   </ItemGroup>
 
   <!-- The http branch builds a WebApplication. ModelContextProtocol.AspNetCore
