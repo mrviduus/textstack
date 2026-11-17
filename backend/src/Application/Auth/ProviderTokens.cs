@@ -85,7 +85,13 @@ public class ProviderTokens(GoogleSettings? google = null, AppleSettings? apple 
             return null;
         }
 
-        var email = token.TryGetPayloadValue<string>("email", out var e) ? e : null;
+        // An email Apple has not verified counts as none (the relay address is used instead).
+        var email = token.TryGetPayloadValue<string>("email", out var e) && EmailVerified(token) ? e : null;
         return string.IsNullOrEmpty(token.Subject) ? null : new ProviderIdentity(token.Subject, email, null, null);
     }
+
+    // Apple sends email_verified as the string "true" or as a JSON boolean.
+    private static bool EmailVerified(JsonWebToken token) =>
+        token.TryGetPayloadValue<bool>("email_verified", out var verified) ? verified
+        : token.TryGetPayloadValue<string>("email_verified", out var text) && string.Equals(text, "true", StringComparison.OrdinalIgnoreCase);
 }
