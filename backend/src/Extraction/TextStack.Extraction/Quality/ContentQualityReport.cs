@@ -26,7 +26,7 @@ public enum ContentQualityIssue
 /// <summary>
 /// Deterministic content-quality verdict for one chapter.
 /// <see cref="Score"/> is 0-100, higher is cleaner. The caller decides the
-/// flag threshold (default 60 — see feat-0007).
+/// flag threshold (default 60).
 /// </summary>
 public sealed record ContentQualityReport(
     int Score,

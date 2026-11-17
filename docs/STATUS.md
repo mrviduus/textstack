@@ -27,7 +27,7 @@ TextStack is a personal library: you upload your own books and read them. The pu
 
 ## V2 — done
 
-The V2 program ([#1013](https://github.com/mrviduus/textstack/issues/1013)) finished on 2026-11-17: M5, the switch ([cutover log](../internal/ops/v2-cutover-2026-11-17.md)), and M6, legacy retirement, the same day ([plan](internal/v2/m6-deletion-plan.md), [drop note](../internal/ops/m6-legacy-drop-2026-11-17.md)). The plan and its audits are kept as history ([`v2-plan.md`](internal/v2/v2-plan.md), [`architecture/v2.md`](architecture/v2.md)).
+The V2 program ([#1013](https://github.com/mrviduus/textstack/issues/1013)) finished on 2026-11-17: M5, the switch ([cutover log](../internal/ops/v2-cutover-2026-11-17.md)), and M6, legacy retirement, the same day ([plan](internal/v2/m6-deletion-plan.md), [drop note](../internal/ops/m6-legacy-drop-2026-11-17.md)). The plan and its audits are kept as history ([`v2-plan.md`](internal/v2/v2-plan.md), [`architecture/v2.md`](architecture/v2.md)). Post-M6 text cleanup (wave 20, #1420–#1422): comments, docs, skills and agents describe the V2-only system.
 
 ## In flight
 
