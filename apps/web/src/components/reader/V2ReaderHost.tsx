@@ -470,7 +470,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     if (!ready.current || !o?.bytes) return
     openedBytes.current = o.bytes.byteLength
     deadlines.waitOpened(o.bytes.byteLength)
-    call('openBytes', [o.bytes, o.name], [o.bytes])
+    // The server's format for the file (a clip is 'html', which the page never guesses from bytes); none: the page sniffs.
+    call('openBytes', [o.bytes, o.name, o.sync?.format ?? null], [o.bytes])
     o.bytes = undefined
   }
 
@@ -677,7 +678,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         }
         case 'highlights':
           // addHighlights' answer: one not drawn is the server's but not where its text is in this file.
-          for (const h of m.highlights ?? []) if (h.status !== 'restored') console.warn(`[v2] highlight ${h.id} not drawn: ${h.status}`)
+          for (const h of m.highlights ?? []) if (h.status !== 'restored' && h.status !== 'listed') console.warn(`[v2] highlight ${h.id} not drawn: ${h.status}`)
           return
         case 'highlight-list': {
           // Untrusted: only what readHighlightList takes; another book's (a previous open's) is dropped.
@@ -688,8 +689,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           const want = pendingHighlight.current && l.highlights.find((h) => (sync.current?.real(h.id) ?? h.id) === pendingHighlight.current)
           if (want) {
             pendingHighlight.current = null
-            // The reader's own choice (they followed the link): saved where it lands (README, `goTo`).
-            hostMove('goTo', [want.cfi, true])
+            // The reader's own choice (they followed the link): saved where it lands (README, `goTo`). #1195: a
+            // quotation has no place: the link is done with, nothing moves.
+            if (!want.quotation) hostMove('goTo', [want.cfi, true])
             onHighlightShownRef.current?.()
           }
           return

@@ -104,7 +104,8 @@ export function V2TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights, bo
               const note = highlights.noteOf(h.id)
               return (
                 <li key={h.id} className="reader-toc-drawer__bookmark-item">
-                  <button type="button" className="reader-toc-drawer__item reader-toc-drawer__hl-item" onClick={() => { highlights.onGo(h); onClose() }}>
+                  {/* #1195: a quotation (the earlier reader's highlight) is listed, never drawn: nowhere to go. */}
+                  <button type="button" className="reader-toc-drawer__item reader-toc-drawer__hl-item" disabled={h.quotation} onClick={() => { highlights.onGo(h); onClose() }}>
                     <span className="reader-toc-drawer__hl-swatch" style={{ backgroundColor: COLOR_MAP[h.color] }} aria-hidden="true" />
                     {/* The book's text and the reader's note: React text only (untrusted). */}
                     <span className="reader-toc-drawer__hl-body">

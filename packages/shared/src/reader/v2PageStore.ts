@@ -27,11 +27,24 @@ export const isBookmark = (h: { color?: string | null } | null | undefined): boo
 
 export interface PageEntryBook { sha256: string; size: number; name?: string }
 
+/**
+ * #1195: a transitional `textstack-anchor-v1` annotation (the legacy reader's) as the page lists it: a quotation, its
+ * text and colour, never drawn, never written back (the server's row stays as it is). It rides the entry a host builds
+ * for `restore` (Android) or the web host's `addHighlights` list; the page keeps it out of its stores.
+ */
+export interface PageQuotation { id: string; quotation: true; selectedText: string; color?: string; at?: number }
+export const isQuotation = (q: unknown): q is PageQuotation => {
+  const x = q as Partial<PageQuotation> | null | undefined
+  return x?.quotation === true && typeof x.id === 'string' && x.id.length > 0 && typeof x.selectedText === 'string' && x.selectedText.trim().length > 0
+}
+
 export interface PageEntry {
   v: number
   book: PageEntryBook
   position: PagePosition | null
   highlights: PageHighlight[]
+  /** #1195: listed, never drawn nor stored back. */
+  quotations?: PageQuotation[]
 }
 
 export function emptyEntry(book: PageEntryBook): PageEntry {
@@ -61,7 +74,10 @@ export function entryFor(json: string | null | undefined, book: { sha256: string
   if (!Array.isArray(e.highlights)) return null
   // Only items this code can use. A stored highlight or position without its quote would throw on
   // restore, and a page that throws there never finishes restoring and never saves again.
-  return { ...e, position: isPosition(e.position) ? e.position : null, highlights: e.highlights.filter(isHighlight) as PageHighlight[] }
+  return {
+    ...e, position: isPosition(e.position) ? e.position : null, highlights: e.highlights.filter(isHighlight) as PageHighlight[],
+    quotations: Array.isArray(e.quotations) ? e.quotations.filter(isQuotation) : undefined,
+  }
 }
 
 export const withPosition = (e: PageEntry, p: unknown): PageEntry => (isPosition(p) ? { ...e, position: p } : e)

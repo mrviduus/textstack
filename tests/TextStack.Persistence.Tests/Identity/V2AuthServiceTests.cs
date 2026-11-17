@@ -450,16 +450,26 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal((first.User.Id, "Ann B"), (second.User!.Id, second.User.Name));
     }
 
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task LoginWithAppleAsync_EmailOfAnotherAccount_IsEmailTaken(bool inToken, bool asParameter)
+    [Fact]
+    public async Task LoginWithAppleAsync_TokenEmailOfAnotherAccount_IsEmailTaken()
     {
-        // Whether Apple's token or the client names it, another account's email signs nothing in.
         var (_, _, email) = await SignedInAsync();
-        _providers.Apple["token"] = new(Guid.NewGuid().ToString(), inToken ? email : null, null, null);
+        _providers.Apple["token"] = new(Guid.NewGuid().ToString(), email, null, null);
 
-        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithAppleAsync("token", null, asParameter ? email : null, Ct)).Status);
+        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithAppleAsync("token", null, null, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task LoginWithAppleAsync_BodyEmail_IgnoredForTheRelayEmail()
+    {
+        // Only the verified token's email counts: a body email (here another account's) is the client's word.
+        var (_, _, email) = await SignedInAsync();
+        var subject = Guid.NewGuid().ToString();
+        _providers.Apple["token"] = new(subject, null, null, null);
+
+        var result = await Auth.LoginWithAppleAsync("token", null, email, Ct);
+
+        Assert.Equal(Emails.AppleRelay(subject), result.User!.Email);
     }
 
     [Fact]
@@ -701,6 +711,6 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
         public override Task<ProviderIdentity?> VerifyGoogleAsync(string idToken) => Task.FromResult(Google.GetValueOrDefault(idToken));
 
-        public override ProviderIdentity? VerifyApple(string identityToken) => Apple.GetValueOrDefault(identityToken);
+        public override Task<ProviderIdentity?> VerifyAppleAsync(string identityToken, CancellationToken ct = default) => Task.FromResult(Apple.GetValueOrDefault(identityToken));
     }
 }

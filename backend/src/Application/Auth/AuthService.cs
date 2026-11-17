@@ -31,7 +31,7 @@ public partial class AuthService
         _db = db;
         _tokens = new JwtTokens(jwtSettings.Value);
         // Tests pass a fake; production builds the real verifier from settings.
-        _providers = providers ?? new ProviderTokens(googleSettings.Value, appleSettings?.Value);
+        _providers = providers ?? new ProviderTokens(googleSettings.Value, appleSettings?.Value, logger: logger);
         _clock = clock ?? TimeProvider.System;
         _logger = logger;
         _storage = storage;
@@ -82,11 +82,12 @@ public partial class AuthService
         string? email,
         CancellationToken ct)
     {
-        var apple = _providers.VerifyApple(identityToken);
+        var apple = await _providers.VerifyAppleAsync(identityToken, ct);
         if (apple == null) return null;
 
-        var resolvedEmail = email ?? apple.Email;
-        var user = await GetOrCreateAppleUserAsync(apple.Subject, resolvedEmail, fullName, ct);
+        // Only the verified token's email counts; the request body's is the client's word.
+        var user = await GetOrCreateAppleUserAsync(apple.Subject, apple.Email, fullName, ct);
+        if (user == null) return null;
 
         var accessToken = GenerateAccessToken(user);
         var refreshToken = await CreateRefreshTokenAsync(user.Id, ct);
@@ -1038,7 +1039,7 @@ public partial class AuthService
                 user.Email = payload.Email!;
                 user.Name = payload.Name;
                 user.Picture = payload.Picture;
-                if (!await SaveOrEmailTakenAsync(payload.Email, ct)) return null;
+                if (!await SaveOrEmailTakenAsync(ct)) return null;
             }
             return user;
         }
@@ -1054,11 +1055,11 @@ public partial class AuthService
         };
 
         _db.Users.Add(user);
-        return await SaveOrEmailTakenAsync(payload.Email, ct) ? user : null;
+        return await SaveOrEmailTakenAsync(ct) ? user : null;
     }
 
-    /// <summary>Commits the pending user change; false (and the change dropped) when another account holds the email.</summary>
-    private async Task<bool> SaveOrEmailTakenAsync(string? email, CancellationToken ct)
+    /// <summary>Commits the pending user change; false on a unique violation (another account holds the email or subject).</summary>
+    private async Task<bool> SaveOrEmailTakenAsync(CancellationToken ct)
     {
         try
         {
@@ -1068,7 +1069,7 @@ public partial class AuthService
         catch (DbUpdateException e) when (e.IsUniqueViolation())
         {
             // The context is scoped to this request and nothing else is saved on it after a refusal.
-            _logger?.LogWarning("Google sign-in refused: the email {Email} belongs to another account", email);
+            _logger?.LogWarning("Sign-in: the account's email or subject is held by another account");
             return false;
         }
     }
@@ -1098,7 +1099,8 @@ public partial class AuthService
         return raw;
     }
 
-    private async Task<User> GetOrCreateAppleUserAsync(
+    /// <summary>Null when the email is held by another account (<c>ix_users_email</c>): a refusal, not a 500.</summary>
+    private async Task<User?> GetOrCreateAppleUserAsync(
         string appleSubject, string? email, string? fullName, CancellationToken ct)
     {
         var user = await _db.Users.FirstOrDefaultAsync(x => x.AppleSubject == appleSubject, ct);
@@ -1126,7 +1128,11 @@ public partial class AuthService
         };
 
         _db.Users.Add(user);
-        await _db.SaveChangesAsync(ct);
-        return user;
+        if (await SaveOrEmailTakenAsync(ct)) return user;
+
+        // A concurrent first sign-in with this subject may have created it: sign into that account.
+        // Only when none exists is the email another account's.
+        _db.Users.Remove(user);
+        return await _db.Users.FirstOrDefaultAsync(x => x.AppleSubject == appleSubject, ct);
     }
 }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Application.AdminAuth;
 using Application.Auth;
 using Application.Identity;
@@ -48,7 +49,7 @@ public static class IdentityRegistration
         services.TryAddSingleton(sp => new JwtTokens(sp.GetRequiredService<IOptions<JwtSettings>>().Value,
             sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton(sp => new ProviderTokens(sp.GetRequiredService<IOptions<GoogleSettings>>().Value,
-            sp.GetRequiredService<IOptions<AppleSettings>>().Value));
+            sp.GetRequiredService<IOptions<AppleSettings>>().Value, logger: sp.GetService<ILogger<ProviderTokens>>()));
         services.RemoveAll<IAuthService>();
         services.RemoveAll<IAdminAuthService>();
         services.AddScoped<IAuthService, V2AuthService>();
