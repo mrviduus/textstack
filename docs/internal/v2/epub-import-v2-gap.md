@@ -1,5 +1,7 @@
 # EPUB import → open → resume: current code versus V2
 
+> **Historical (M6 done 2026-11-17).** The V2 program is finished: one database (`textstack_v2`), the V2 reader only, legacy dropped. Kept as the decision trail; current state: [`docs/STATUS.md`](../../STATUS.md).
+
 **Status: Research · 2026-10-29.** Code inspection only; no device, browser, API or database tests run.
 The [V2 target model](v2-target-model.md) records owner decisions. This audit does not authorize implementation.
 

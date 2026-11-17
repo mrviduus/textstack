@@ -1,43 +1,27 @@
 # Mobile app
 
-Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context small. Read when the task touches this area.
+Read when the task touches this area. Updated for M6 (2026-11-17): the catalog screens, the legacy reader and its SQLite chapter loaders are gone.
 
 ### Mobile App Architecture
 
-**Framework**: Expo 57, React Native 0.86.3, Expo Router (file-based routing). Upgraded 55 → 57 in one
-step on 2026-09-28: SDK 56 and 57 bundle the *same* third-party native modules, so stopping at 56
-would have bought a second upgrade for no reduction in risk. TypeScript is deliberately held at the
-workspace catalog's 5.9 and listed in `expo.install.exclude` — the SDK asks for 6.0, which is a major
-across web, admin and packages too and belongs in its own change.
+**Framework**: Expo 57, React Native 0.86.3, Expo Router (file-based routing). TypeScript is deliberately held at the
+workspace catalog's 5.9 and listed in `expo.install.exclude` (the SDK asks for 6.0, a major across the workspace).
 
-**Pages** (`apps/mobile/app/`): tabs (library, search, upload, vocabulary, profile; `index` redirects), auth, book detail, reader, highlights + review, stats, vocabulary + review, user book upload/read.
+**Pages** (`apps/mobile/app/`): tabs (`index`, library, upload, vocabulary, profile), `(auth)/login`, `onboarding/language`, book detail `my-books/[id]`, the reader `my-books/read/[bookId]/[chapterSlug].tsx` (renders `V2ReaderScreen`; the slug is ignored), `my-books/upload`, `highlights/`, `vocabulary/review`, static pages (about, privacy, terms, contact, connect, reset-password), dev route `dev/epub-v2.tsx` (`__DEV__` only).
 
 **Contexts** (`apps/mobile/src/context/`): AuthContext, DownloadContext, LanguageContext, NativeLanguageContext, ThemeContext, ToastContext.
 
-**Hooks** (`apps/mobile/src/hooks/`), e.g. useCardAnswer, useHaptics, useReaderChapter, useReaderPersistence, useReaderSettings, useReadingSession, useTts, useVocabularyReview.
+**Hooks** (`apps/mobile/src/hooks/`), e.g. useReaderBars, useReaderSettings, useTts, useVocabularyReview, useBookOffline, useHaptics, useFlushOnLeave.
 
-**API**: Single `apps/mobile/src/lib/api.ts` module (consolidated, not split like web).
+**API**: `apps/mobile/src/lib/api.ts`, over `@textstack/shared`'s client (`/me/v2` calls in `packages/shared/src/api/v2*.ts`).
 
-**Offline** (`src/lib/offlineDb.ts`, SQLite): covers BOTH catalogue editions and the reader's own uploads (uploads since 2026-09-14). Chapters **and, since 2026-09-27, a PDF upload's original file** (`src/lib/originalFileCache.ts`, under `Paths.document/originals/`, 2 GB budget with LRU eviction) — so a PDF opens offline in the same Original layout it has online instead of being substituted with its extracted text. When the original is missing it still falls back to reflow, and the server progress write is suppressed there to stop a chapter-space position overwriting a `page:<N>` one. `offlineDb.web.ts` is a no-op twin and **every export must exist in both** or the web bundle (which mobile e2e runs against) fails to resolve. Sign-out wipes cached uploads, never catalogue downloads, and the V2 reader's whole library (`<documents>/v2/` + the `textstack-v2` rows, #1070) after one push and a warning with what the server lacks; a library another real account owns is wiped at sign-in and its passes refused until then, a guest's carries over (`src/lib/v2reader/README.md` "Sign-out and identities"). Details: `internal/features/offline-reading.md#mobile`.
+**The reader** is the V2 page in a WebView (`apps/mobile/src/components/v2reader/V2ReaderScreen.tsx`, page and protocol in `src/lib/v2reader/`, its README is the reference). It opens the book's file retained on the device (`hostStorage.ts`, `<documents>/v2/`) and keeps positions, highlights, sessions and saved words in the local SQLite library `textstack-v2` (`localLibrary.ts`); `sync.ts` pushes an outbox and pulls change feeds beside it. **The reading path waits for neither a token nor a network**, and nothing on it may need an account. Sign-out wipes the V2 library after one push and a warning with what the server lacks (README "Sign-out and identities").
 
-**The reading path waits for neither a token nor a network, and that is a rule rather than a
-property.** Both chapter loaders (`src/hooks/useReaderChapter.ts`, `src/components/reader/useUserBookReaderSource.ts`)
-read SQLite **first** and only then ask the server, whose answer refreshes the stored row in place
-(`refreshCachedChapter`, an `UPDATE` that leaves `cached_at` alone — the insert would reorder the
-offline table of contents) and never re-renders the chapter under someone reading it. Network-first
-was not wrong on a plane, where `fetch` rejects at once; it was wrong on every network that is
-present but useless — a captive portal, a tunnel — where the reader waited out the socket timeout in
-front of a book already on the phone. `chapterLoadOrder.test.ts` pins the ordering, because nothing
-in CI can feel it.
+**Offline downloads**: `DownloadContext` still stores an upload as the old SQLite chapter rows (`src/lib/offlineDb.ts`), which the V2 reader does not read — open in [#1406](https://github.com/mrviduus/textstack/issues/1406). A PDF's original file cache is `src/lib/originalFileCache.ts`. `offlineDb.web.ts` and `v2reader/deviceLibrary.web.ts` are web twins and **every export must exist in both** or the web bundle (which mobile e2e runs against) fails to resolve.
 
-**What an account is still for**, now that reading needs none: cross-device sync, the upload quota,
-and **wiping one account's private files when it signs out** — without that last one a reader's PDF
-stays on the phone for whoever signs in next. Nothing on the reading path may grow a fourth reason.
-An automatic sweep also removes downloads whose book the account no longer has
-(`chooseOrphanedDownloads`), which is only safe because the listing it compares against either
-succeeded or threw.
+**What an account is still for**, now that reading needs none: cross-device sync, the upload quota, and wiping one account's private files when it signs out. Nothing on the reading path may grow a fourth reason.
 
-**E2E**: Playwright specs in `apps/mobile/e2e/tests/` — navigation, books, search, vocabulary, highlights, reader smoke. Not run by CI (needs a live backend).
+**E2E**: Playwright specs in `apps/mobile/e2e/tests/` (navigation, highlights, vocabulary, v2-sync). Not run by CI (needs a live backend).
 
 **Build**: EAS Build (cloud) for dev/prod. OTA updates via `expo-updates`.
 
@@ -51,7 +35,7 @@ fingerprint:generate --platform android` from `apps/mobile`: the hash moves with
 never reaches a build without it. Bumping the package:
 `pnpm patch react-native-webview@<new>`, re-apply the hunks, `pnpm patch-commit <dir>`, delete the old `.patch`,
 rerun `bookOrigin.test.ts` (it pins the Java serving rule to `bookOrigin.mjs`); an install fails loudly if a patch
-no longer applies. The web ssg-worker image installs only the web app, so its `pnpm deploy` allows an unused patch for that one command (`apps/web/Dockerfile.ssg-worker`); both images `COPY patches/` before installing.
+no longer applies.
 
 ### Releasing to Play Internal Testing
 

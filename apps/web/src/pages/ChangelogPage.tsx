@@ -39,10 +39,14 @@ function MoveToV2({ t }: { t: ReturnType<typeof useTranslation>['t'] }) {
           </li>
         ))}
       </ol>
-      <h3 className="move__open-heading">{t('changelog.move.open')}</h3>
-      <ul className="move__open">
-        {MOVE_OPEN.map((q) => <li key={q}>{q}</li>)}
-      </ul>
+      {MOVE_OPEN.length > 0 && (
+        <>
+          <h3 className="move__open-heading">{t('changelog.move.open')}</h3>
+          <ul className="move__open">
+            {MOVE_OPEN.map((q) => <li key={q}>{q}</li>)}
+          </ul>
+        </>
+      )}
     </section>
   )
 }

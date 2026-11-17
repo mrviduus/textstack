@@ -1,6 +1,6 @@
 # ADR-030 — Two databases, one cutover
 
-**Status:** Proposed · **Date:** 2026-10-30 · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §5 · **Builds on:** ADR-026, ADR-028 · **Supersedes:** the in-place/interim migration of ADR-027 (which stays Proposed-deferred as research input) · **Keeps:** ADR-021 (only the migrator migrates)
+**Status:** Done — cutover (M5) and legacy drop (M6) on 2026-11-17; one database, `textstack_v2`, one ledger in `database/` ([`m6-legacy-drop-2026-11-17.md`](../../../internal/ops/m6-legacy-drop-2026-11-17.md)) · **Date:** 2026-10-30 · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §5 · **Builds on:** ADR-026, ADR-028 · **Supersedes:** the in-place/interim migration of ADR-027 (which stays Proposed-deferred as research input) · **Keeps:** ADR-021 (only the migrator migrates)
 
 ## Context
 

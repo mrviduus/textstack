@@ -1,5 +1,7 @@
 # Local EPUB engine prototype
 
+> **Historical (M6 done 2026-11-17).** The V2 program is finished: one database (`textstack_v2`), the V2 reader only, legacy dropped. Kept as the decision trail; current state: [`docs/STATUS.md`](../../STATUS.md).
+
 **Status: Scoped prototype · 2026-10-29.** Owner approved testing a ready-made EPUB parsing/rendering
 core before implementing local import around the current renderer. This is not approval to replace
 the production reader or to accept the V2 schema. Implementation is a separate Code Agent task below.

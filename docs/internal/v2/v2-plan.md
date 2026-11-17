@@ -1,5 +1,7 @@
 # TextStack V2 — migration strategy and target architecture
 
+> **Historical (M6 done 2026-11-17).** The V2 program is finished: one database (`textstack_v2`), the V2 reader only, legacy dropped. Kept as the decision trail; current state: [`docs/STATUS.md`](../../STATUS.md).
+
 > **Status: Proposed · 2026-10-30.** Approved by the owner as the V2 program plan on 2026-10-30. It authorizes no production, schema or deploy change by itself; every slice below ships as its own PR with its own ADR/PDD where marked.
 > Audience: the owner (this is the golden path to study) and the agent sessions that execute one slice each.
 

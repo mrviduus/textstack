@@ -4,28 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Free book library w/ Kindle-like reader. Upload EPUB/PDF → parse → SEO pages + offline-first sync.
+Personal book library w/ a Kindle-like reader. Upload EPUB, MOBI, AZW3, FB2, CBZ or PDF → read it on web and Android, synced, offline on the phone.
 
-**Live**: [textstack.app](https://textstack.app/) (public) · [textstack.dev](https://textstack.dev/) (admin)
+**Live**: [textstack.app](https://textstack.app/) (app) · [textstack.dev](https://textstack.dev/) (admin shell)
 
-**Stack**: ASP.NET Core (API + Worker) + PostgreSQL + React + React Native (Expo)
+**Stack**: ASP.NET Core (API + Worker) + PostgreSQL (one database, `textstack_v2`, Dapper) + React + React Native (Expo)
 
 **Prerequisites**: Docker, .NET 10 SDK, Node.js (`.nvmrc`), pnpm
 
-**CI/CD**: Push to `main` → auto-deploy. No SSG any more (M6): nginx answers `410 Gone` for the retired catalog URLs (`/en/books|authors|genres|search|sitemap`, `sitemap.xml`).
+**CI/CD**: Push to `main` → auto-deploy.
 
-## V2 program (active)
+**History**: the V2 program (#1013) finished 2026-11-17: one database, one reader, the public catalog/SEO/SSG retired. Plan and decisions, kept as history: [`docs/internal/v2/`](docs/internal/v2/), ADR-029–032. Where the project is now: [`docs/STATUS.md`](docs/STATUS.md).
 
-The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](docs/architecture/adr/ADR-030-two-databases-one-cutover.md), plan [`docs/internal/v2/v2-plan.md`](docs/internal/v2/v2-plan.md), umbrella #1013). The public SEO catalog retires at the end (#992 decision; M6).
-
-- **`textstack_v2`** is the database Api and Worker read (`ConnectionStrings:V2`): own SQL ledger (`database/`, `make migrate`), Dapper repositories, `/me/v2/*` endpoints. The legacy database is read-only and archived until M6's drop; no code reads it (EF Core went at M6 B3).
-- **V2 reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android dev route (`__DEV__`) and web `/dev/reader-v2` (dev server only) and `/:lang/library/my/:id/read-v2` (always on). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script, asserted on build; nginx locations in `textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. The only reader (the old engine package was deleted at M6, ADR-025 superseded).
-- **Work runs in waves**: kickoff files `.claude/wave-<N>-prompt.md` (pipeline, quality bar, standing rules); current state in [`docs/STATUS.md`](docs/STATUS.md) and #1013 checkboxes. Locator schemes and roles: ADR-031.
-- **Keep the V2 status true, until M6 is done** (owner, 2026-11-14). Three places, one picture:
-  - **#1013:** a PR that finishes a milestone ticks its box (`Fixes #N` on the milestone issue). A new owner decision or blocker that moves the timeline gets its own issue, linked from #1013.
-  - **`docs/STATUS.md`:** updated in every wave-close PR.
-  - **The public road on `/changelog`:** `MOVE_STEPS` and `MOVE_UPDATED` in `apps/web/src/lib/changelog.ts`. Every wave-close PR sets each step's `state` (`done` / `now` / `next`) and the date, and adds or removes a `MOVE_OPEN` question when one opens or closes. Reader words, from the glossary; nothing owner-only, nothing about security. The close PR says which steps moved.
-  - When M6 is done: the last update marks every step `done`, then this rule and the `/changelog` block go.
+**The reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx` (route `app/my-books/read/…`; dev route `app/dev/epub-v2.tsx`, `__DEV__` only) and web `apps/web/src/components/reader/V2ReaderHost.tsx` (route `/:lang/library/my/:id/read`; dev route `/dev/reader-v2`, dev server only, `main.tsx`). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script; nginx locations in `infra/nginx/textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. iOS has no reader (M6 D4).
 
 ## Where to write things down
 
@@ -37,7 +28,7 @@ The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs b
 | `CHANGELOG.md` | **Frozen.** History up to the switch; never add to it. Older halves live in git history only. |
 | `internal/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
 | `docs/STATUS.md` | Where the project is *now*: in flight, deliberately-not-doing. Links to issues; never copies them. |
-| GitHub issues | **Every open item** (bug, review finding, deferred work), one issue each, labelled (`reader-engine`, `phase-3-gate`, …). A PR closes it with `Fixes #N`. Public: nothing private. Old STATUS items move to an issue when someone touches them. |
+| GitHub issues | **Every open item** (bug, review finding, deferred work), one issue each, labelled. A PR closes it with `Fixes #N`. Public: nothing private. Old STATUS items move to an issue when someone touches them. |
 
 Load-bearing decisions still go to `docs/architecture/adr/`. Details: `.claude/commands/changelog.md`.
 
@@ -48,8 +39,8 @@ Load-bearing decisions still go to `docs/architecture/adr/`. Details: `.claude/c
 cp .env.example .env          # Edit with real values
 make nginx-setup              # Install nginx config (Linux)
 make nginx-setup-mac          # Mac
-make fix-permissions          # Create data/library etc. owned by uid 1000 (else V2 uploads fail)
-make up                       # Start services
+make fix-permissions          # Create data/library etc. owned by uid 1000 (else uploads fail)
+make up                       # Start services (the migrator runs first; api/worker wait for it)
 
 # Docker
 make up / down / restart / logs / status
@@ -61,18 +52,24 @@ make fix-permissions          # Fix volume permissions
 # (they are baked in at container creation). Use force-recreate:
 #   docker compose up -d --force-recreate --no-deps <service>
 
-# Deploy
 # Deploy: merge to main (deploy.yml). Break-glass: gh workflow run deploy.yml [-f rollback_commit=<sha>]
 
-# Database
-make backup                   # Backup to ~/backups/textstack/
+# Database (textstack_v2; V2_POSTGRES_DB in .env)
+make backup                   # Checked dump to ~/backups/textstack/
 make backup-list              # List all backups
-make restore FILE=path.gz     # Restore from backup
+make restore FILE=path.gz     # Restore into an absent database (make migrate-drop first)
 docker compose exec db sh -c 'psql -U "$POSTGRES_USER" textstack_v2'   # DB shell (user from .env; prod's user is not `app`)
 docker compose down -v                      # Reset all (loses data)
 
+# Migrations: plain SQL in database/migrations (database/README.md, ADR-026). New change = NNNN_<name>.up.sql + .down.sql
+make migrate                  # migrator up, with this checkout's database/ mounted (no rebuild needed)
+make migrate-status           # applied / pending / unknown versions
+make migrate-down V=<n>       # revert versions above n — schema first, then the code
+make migrate-drop CONFIRM=textstack_v2   # drop the whole database (the baseline has no down)
+# Only the migrator migrates (ADR-021); the Api never does. Behind schema → /health/ready 503
+
 # Tests
-dotnet test                                 # All tests (.runsettings excludes Category=Load; none exist today)
+dotnet test                                 # All tests (.runsettings excludes Category=Load)
 dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
 dotnet test tests/TextStack.Extraction.Tests
@@ -82,15 +79,17 @@ pnpm -C apps/web test                       # Frontend unit tests (Vitest)
 pnpm -C apps/web test:watch                 # Watch mode
 pnpm -C apps/web test:e2e                   # Playwright E2E (headless)
 pnpm -C apps/web test:e2e:ui                # Playwright E2E (UI mode)
+node scripts/check-doc-links.mjs            # Every relative link in tracked .md files resolves (CI docs-links)
 
 # Lint
 dotnet format textstack.sln                  # Backend
 
-# CLI commands (via dotnet run --project backend/src/Api --)
-# create-admin <email> <password>            (always Admin: Editor/Moderator collapse to Admin on V2, ADR-031 decided 7)
+# CLI (via dotnet run --project backend/src/Api --)
+# create-admin <email> <password>            (one role: Admin, ADR-031 decided 7)
 
 # Local dev (no Docker)
-# From the repo root; the defaults /storage and /library are container paths. Two siblings, never nested:
+# From the repo root; the defaults /storage and /library are container paths. Two siblings, never nested.
+# ConnectionStrings__V2 must point at a textstack_v2 built by `make migrate`.
 export Storage__RootPath=data/storage Storage__LibraryRoot=data/library
 dotnet run --project backend/src/Api
 dotnet run --project backend/src/Worker
@@ -100,13 +99,6 @@ pnpm -C apps/admin dev        # http://localhost:81
 # Build
 pnpm -C apps/web build
 pnpm -C apps/admin build
-
-# Migrations: plain SQL in database/ for textstack_v2 (database/README.md, ADR-026). New change = NNNN_<name>.up.sql + .down.sql
-make migrate                  # migrator up (creates textstack_v2 if missing), this checkout's database/ mounted; `make up` runs it too
-make migrate-status           # applied / pending / unknown versions
-make migrate-down V=<n>       # revert versions above n — schema first, then the code
-make migrate-drop CONFIRM=textstack_v2   # the baseline's rollback: drops the database
-# Only the migrator migrates (ADR-021); the Api never does. Behind schema → /health/ready 503
 
 # Mobile app (apps/mobile)
 cd apps/mobile
@@ -126,9 +118,9 @@ npm run submit:android            # Submit to Google Play
 | API | http://localhost:8080 | https://textstack.app/api |
 | API Docs | http://localhost:8080/scalar/v1 | — |
 | Admin | http://localhost:81 | https://textstack.dev |
-| Aspire | http://127.0.0.1:18888 | — |
+| Aspire | http://127.0.0.1:18888 (`--profile observability`) | — |
 
-**Storage**: `./data/storage/` — catalog `{id[..2]}/{id}/{file}`, uploads `users/{userId[..2]}/{userId}/books/{userBookId}/` (`LocalFileStorageService.cs`). V2 library: `./data/library/` (`/library`, `Storage:LibraryRoot`), outside the public root — `library/…`, `uploads/…` (`LibraryFileStore.cs`).
+**Storage**: `./data/storage/` (`/storage`, public root) holds avatars and upload covers (`LocalFileStorageService.cs`). Book bytes: `./data/library/` (`/library`, `Storage:LibraryRoot`), outside the public root — `library/…`, `uploads/…` (`LibraryFileStore.cs`).
 
 ## Architecture
 
@@ -139,56 +131,50 @@ API → Application → Domain ← Infrastructure
 ```
 
 - **Domain**: Pure C#, no framework deps
-- **Application**: Business logic, interfaces (repositories, `IFileStorageService`)
+- **Application**: Business logic, repository interfaces
 - **Contracts**: Shared DTOs (request/response models) used by API and Application
-- **Infrastructure**: Dapper repositories on `textstack_v2` (snake_case), storage implementations
-- **API/Worker**: Orchestration, DI
+- **Infrastructure**: Dapper repositories over one `V2DataSource` (`Infrastructure/Persistence/`, ADR-028), file stores. No EF Core.
+- **API/Worker**: Orchestration, DI. The Worker runs `V2IngestionWorker` (server-side chapter extraction into the transitional `book_chapters`, kept by M6 D8 for MCP chapter tools and clips) and `RetentionCleanupWorker`.
 
-**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Tts` (Edge TTS), `Vocabulary` (DistractorGenerator), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server). There is no EPUB *builder* any more — `TextStack.Epub` was deleted 2026-09-28 with the export it existed for.
+**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server).
 
-### Shared Frontend Packages (`packages/`)
+### Shared Frontend Package (`packages/`)
 
-Cross-platform TS code shared by **both** web and mobile, consumed via source path-aliases (NOT published / built) — `apps/web` resolves them in `vite.config.ts` + `tsconfig.json`; mobile via its bundler config.
-- **`@textstack/shared`** (`packages/shared/src/`) — the canonical home for platform-agnostic logic: `api/` (client), `types/api`, `i18n/`, `anon/`, `reader/` (bookProgress, progressPayload, continueReading), `vocabLevel`, `vocabularyConstants`, `lib/pathPrefix`. Edit here, not in app copies, when changing logic both clients need.
+**`@textstack/shared`** (`packages/shared/src/`) — cross-platform TS shared by web and mobile, consumed via source path-aliases (not published / built; `apps/web` resolves it in `vite.config.ts` + `tsconfig.json`, mobile via its bundler config). The home for platform-agnostic logic: `api/` (client, `v2*` sync calls), `types/api`, `i18n/`, `reader/` (locators, `v2PageEntry`, progress), `lib/` (`capabilities`, `pathPrefix`, …), `vocabLevel`, `vocabularyConstants`. Edit here, not in app copies, when both clients need it.
 
-**Middleware pipeline** (order matters): `ForwardedHeaders` → `Cors` → `AppVersion` (mobile `X-App-Version` → log scope + Sentry tag) → `ExceptionMiddleware` → `UserStoragePolicy` (404 for an upload's files except its cover; must precede StaticFiles) → `StaticFiles(/storage)` → `/health` → `Routing` → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (conditional on `/admin/*`) → `PathGates` (`/me/*` → 401 without a user, `/internal/*` → 403 off the docker network; ADR-024)
+**Middleware pipeline** (`backend/src/Api/Program.cs`; order matters): `ForwardedHeaders` → `Cors` → `AppVersion` (mobile `X-App-Version` → log scope + Sentry tag) → `ExceptionMiddleware` → `UserStoragePolicy` (404 for an upload's files except its cover; must precede StaticFiles) → `StaticFiles(/storage)` → `/health`, `/health/ready` → `Routing` → `WriteFreeze` (off unless configured) → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `AccountGuard` (refuses tokens of a reset or deleted account) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (`/admin/*` except `/admin/auth`) → `PathGates` (`/me/*` → 401 without a user, `/internal/*` → 403 off the docker network; ADR-024)
 
-User routes live under `/me`; `/internal` is local-only by middleware. Every other route is listed in `tests/TextStack.UnitTests/Routes/routes.public.txt` — a new public route fails `PublicRoutesSnapshotTests` until it is added there.
-
-**Site resolution**: Single-site permanent (ADR-007); there is no site id in code any more.
+User routes live under `/me` (sync API under `/me/v2`); `/internal` is local-only by middleware. Every other route is listed in `tests/TextStack.UnitTests/Routes/routes.public.txt` — a new public route fails `PublicRoutesSnapshotTests` until it is added there.
 
 **Patterns**:
 - Endpoints: `Map{Domain}Endpoints()` in `Api/Endpoints/`
+- SQL inline, next to the method that runs it; no stored procedures (`docs/architecture/data-access.md` rule 13)
 - Test naming: `{Method}_{Scenario}_{Expected}`
 
 ### Frontend Architecture
 
-**No Redux/Zustand** — React Context only. Provider hierarchy in `App.tsx`:
+**No Redux/Zustand** — React Context only. Provider hierarchy in `apps/web/src/App.tsx`:
 ```
-BrowserRouter → SiteProvider → AuthProvider → GuestLimitsProvider → NativeLanguageProvider → DownloadProvider → AppRoutes
+BrowserRouter → AuthProvider → GuestLimitsProvider → NativeLanguageProvider → AppRoutes
   └─ /:lang/* → LanguageProvider → Header + page routes
 ```
 
-- **SiteProvider**: Fetches `/api/site/context`, provides `site` to all children
-- **AuthProvider**: Google Sign-In, email/password, Apple auth, auto-refresh token, skips Google for bots
-- **GuestLimitsProvider**: Tracks guest usage limits (pages read, words saved) before requiring sign-up
+- **AuthProvider**: Google Sign-In, email/password, Apple auth, auto-refresh token, guest sessions
+- **GuestLimitsProvider**: guest state (last-read book, word-count threshold that mints a guest session)
 - **NativeLanguageProvider**: User's native language for translations/definitions direction
-- **DownloadProvider**: Offline reading — IndexedDB cache, download progress, resume
 - **LanguageProvider**: Inside language routes only. Extracts `lang` from URL params, provides `switchLanguage()`, `getLocalizedPath()`
 
-Context files: `apps/web/src/context/{Site,Auth,GuestLimits,NativeLanguage,Download,Language}Context.tsx`
+Context files: `apps/web/src/context/{Auth,GuestLimits,NativeLanguage,Language}Context.tsx`
 
-**i18n**: JSON file in `apps/web/src/locales/en.json`. Hook: `useTranslation()`. Languages: `['en']`.
+**Pages**: landing, library, book detail, reader, vocabulary + review, highlights, and static pages (about, privacy, terms, dmca, delete-account, contact, mcp, changelog, oauth consent, device, connect-extension, reset-password). Root `/` → `/en`.
 
-**Routing**: Language-prefixed routes (`/:lang/books`, `/:lang/authors`, etc). Root `/` → `/en`.
+**i18n**: `apps/web/src/locales/en.json`. Hook: `useTranslation()`. Languages: `['en']`.
 
-**API client**: `useApi()` hook → `createApi(language)` → methods like `getBooks()`, `getBook(slug)`. Uses `fetchJsonWithRetry()`.
+**API client layer**: `apps/web/src/api/` — `client.ts` (runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `v2.ts` (sync), `auth.ts`, `explain.ts`, `oauth.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `userData.ts`, `vocabulary.ts`.
 
-**API client layer**: `apps/web/src/api/` — modules incl. `client.ts` (base; runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `auth.ts`, `explain.ts`, `oauth.ts`, `readingTracking.ts`, `reviewQuestions.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `userData.ts`, `vocabulary.ts`. `useApi()` hook wraps these.
+**Hooks** (`apps/web/src/hooks/`), e.g. reader: `useReadingSession`, `useReaderSettings`, `useV2ReaderVocabulary`, `useImmersiveMode`, `useTextTranslation`, `useTts`, `useDarkMode`; library: `useLibrarySource`, `useLibraryStatus`, `useLibrarySort`, `useLibrarySearch`, `useBookActions`; vocabulary: `useVocabulary`, `useVocabularyReview`; UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useOnline`.
 
-**Hooks** (`apps/web/src/hooks/`), e.g. Reader: `useReadingSession`, `useReadingProgress`, `useReaderKeyboard`, `useReaderSettings`, `useReaderVocabulary`, `useImmersiveMode`, `useInBookSearch`, `useTextSelection`, `useTextTranslation`, `useDarkMode`. Library/data: `useLibrary`, `useBookmarks`, `useHighlights`, `useBookStats`, `useVocabulary`, `useVocabularyReview`, `useVocabDailyStats`, `useReadingStats`, `useReadingGoals`, `useAchievements`. UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useSoundEffects`, `useCardAnswer`, `useQuickStats`. Network: `useNetworkRecovery`.
-
-**Admin panel**: Separate React app (`apps/admin/`), English-only, JWT auth. Pages: Dashboard, Upload, User Uploads, Jobs queue, Editions list/edit, Authors CRUD, Genres CRUD, Chapter editor, SSG rebuild + job detail, Auto Publish, SEO Backfill, Book Quality, AI Quality, Tools, Settings.
+**Admin panel**: `apps/admin/`, a shell (M6 D2): login and an empty home. Backend: `/admin/auth/*` + `AdminAuthMiddleware`; admins come from `create-admin`.
 
 ## Test Projects
 
@@ -197,27 +183,26 @@ tests/
 ├── TextStack.UnitTests/           # Pure logic, no DB
 ├── TextStack.IntegrationTests/    # API tests against running server (LiveApiFixture → localhost:8080, override via API_URL env)
 ├── TextStack.Extraction.Tests/    # Book parsing (EPUB/PDF)
-├── TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres built by database/run.sh (ADR-028)
+├── TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres built by database/migrate.sh (ADR-028)
 ├── TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
 ├── TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)
-apps/web/e2e/                      # Playwright E2E (chromium, mobile, admin projects)
-apps/mobile/e2e/                   # Mobile Playwright E2E
+apps/web/e2e/                      # Playwright E2E (auth, smoke, delete-account, v2-reader, v2-sync)
+apps/mobile/e2e/                   # Mobile Playwright E2E (not run by CI; needs a live backend)
 ```
 
-Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
+**E2E setup**: global setup logs in the test user (`helpers/api.ts` `testLogin`) and stores its state in `apps/web/e2e/.auth/`.
 
-**E2E setup**: Global setup authenticates test user + admin; auth state stored in `apps/web/e2e/.auth/`. CI runs the whole suite once, in V2 mode, as the PR gate.
-
-**Running the integration suite locally**: it trips its own rate limits at production values — a dozen classes seed a book by clipping one, and the GDPR-delete class calls account-delete four times. CI raises the knobs; do the same locally or you will read 429s as failures:
+**Running the integration suite locally**: it trips its own rate limits at production values. CI raises the knobs; do the same locally or you will read 429s as failures:
 
 ```bash
+make migrate                  # once: the database the suite reads
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
   USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 MCP_KEYS_PERMIT_LIMIT=100 \
   docker compose up -d --no-deps --force-recreate api
-V2_API_TESTS=1 dotnet test tests/TextStack.IntegrationTests   # without V2_API_TESTS the V2 classes skip
-# DB-backed tests skip unless Postgres is reachable: start the stack with
-# `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
-# TEST_V2_DB_CONNECTION="Host=localhost;Port=5432;Database=textstack_v2;Username=<user>;Password=<pw>"   (DeviceAuth, HealthReadyLibrary)
+V2_API_TESTS=1 dotnet test tests/TextStack.IntegrationTests   # without V2_API_TESTS the /me/v2 classes skip
+# DB-backed tests (DeviceAuth, HealthReadyLibrary, …) skip unless Postgres is reachable: start the
+# stack with `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
+# TEST_V2_DB_CONNECTION="Host=localhost;Port=5432;Database=textstack_v2;Username=<user>;Password=<pw>"
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```
 
@@ -225,25 +210,24 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 
 **Test env vars**:
 - `ENABLE_TEST_AUTH=true` — enables test auth endpoints (needed for integration + E2E)
-- `ADMIN_EMAIL` / `ADMIN_PASSWORD` — needed for admin E2E
-- Integration tests set `Host` header: `general.localhost` (public), `textstack.dev` (admin)
+- `ADMIN_EMAIL` / `ADMIN_PASSWORD` — the admin login tests
+- `V2_API_TESTS=1`, `TEST_V2_DB_CONNECTION` — see above
 
 ## Extraction Pipeline
 
-Supported formats: EPUB, PDF. Processing order: Spelling → Hyphenation → Typography → Semantic. Details in `backend/src/Extraction/TextStack.Extraction/RULES.md`. ARM64 caveat: uses compiled `Regex` not `[GeneratedRegex]` (SIGILL bug).
+Server-side, for the transitional `book_chapters` (MCP chapter tools, clips). Formats: EPUB, PDF. Processing order: Spelling → Hyphenation → Typography → Semantic. Details in `backend/src/Extraction/TextStack.Extraction/RULES.md`. ARM64 caveat: uses compiled `Regex` not `[GeneratedRegex]` (SIGILL bug).
 
 ## Package Management
 
 Central versioning via `Directory.Packages.props` — don't add `<Version>` in individual csproj files. Target: `net10.0` (set in `Directory.Build.props`).
 
-
 ## Rules that bite (always on)
 
-- **`chapter_number` is an ordering key, not a display ordinal** (some editions start at 0, some at 1 or 2). Show a chapter's **title**; use the number only to sort.
-- **Mobile reading path waits for neither a token nor a network** — chapter loaders read SQLite first, then refresh from the server (`chapterLoadOrder.test.ts`). Nothing on the reading path may need an account.
-- **`offlineDb.web.ts` mirrors every export of `offlineDb.ts`**, or the web bundle (which mobile e2e runs against) fails to resolve.
-- **Guest = a real session.** `isAuthenticated` is `user !== null`; account-only questions go through `capabilitiesFor(user)` (mobile `capabilities.ts`), never inline `user?.isGuest` (ADR-014).
-- **MCP tool count is asserted in four tests** and descriptions are mirrored verbatim in `Contracts/Mcp/McpManifest.cs` — change all together.
+- **`chapter_number` is an ordering key, not a display ordinal** (some books start at 0, some at 1 or 2). Show a chapter's **title**; use the number only to sort.
+- **Mobile reading needs neither a token nor a network** — the reader opens the book's file retained on the device (`apps/mobile/src/lib/v2reader/hostStorage.ts`) and its local library (`localLibrary.ts`); sync runs beside it. Nothing on the reading path may need an account.
+- **A `.web.ts` twin mirrors every export** of its native module (`apps/mobile/src/lib/offlineDb.web.ts`, `v2reader/deviceLibrary.web.ts`), or the web bundle (which mobile e2e runs against) fails to resolve.
+- **Guest = a real session.** `isAuthenticated` is `user !== null`; account-only questions go through `capabilitiesFor(user)` (`packages/shared/src/lib/capabilities.ts`, re-exported by mobile `capabilities.ts`), never inline `user?.isGuest` (ADR-014).
+- **MCP has 18 tools; the count is asserted in four tests** (`McpManifestDriftTests`, `McpStdioSmokeTests`, `McpOverTheWireTests`, `McpManifestEndpointTests`) and descriptions live once in `backend/src/Contracts/Mcp/McpManifest.cs` — change all together.
 - **Docs, comments, ADRs, commits, PRs: English only.** Cyrillic is allowed only as real input data (tests, fixtures, seed migrations, translation examples).
 - **Never deploy by SSH.** Deploy = merge to `main`; break-glass `gh workflow run deploy.yml`.
 
@@ -251,7 +235,7 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 
 | Topic | File |
 |---|---|
-| Features: entities, user books, translate/explain/TTS, vocabulary SRS, guests, auth, auto publish, SEO backfill, SSG | [`internal/claude/features.md`](internal/claude/features.md) |
+| Features: user books, translate/explain/TTS, vocabulary SRS, guests, auth | [`internal/claude/features.md`](internal/claude/features.md) |
 | Every API route group | [`internal/claude/api-endpoints.md`](internal/claude/api-endpoints.md) |
 | Where things live (key files table) | [`internal/claude/key-files.md`](internal/claude/key-files.md) |
 | Mobile: Expo, offline, reading path, Play/OTA release | [`internal/claude/mobile.md`](internal/claude/mobile.md) |
