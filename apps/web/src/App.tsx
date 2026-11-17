@@ -147,9 +147,10 @@ function LanguageRoutes() {
           <Route path="/library/my/:id/review/:chapterSlug" element={<ChapterReviewPage />} />
           {/* Chapterless Original-layout route — a PDF opens instantly here before
               extraction produces chapters (ADR-012). */}
-          <Route path="/library/my/:id/read" element={<ReaderPage mode="userbook" />} />
-          <Route path="/library/my/:id/read/:chapterSlug" element={<ReaderPage mode="userbook" />} />
-          {/* The V2 reader page (#1225): Features:V2Api only, else the legacy reader; noindex by library/my. */}
+          {/* M5 (#1031): the V2 reader page is the reader when Features:V2Api is on, else the legacy one (it
+              decides). The chapter slug is ignored on V2: the book opens at its synced place. /read-v2: an alias. */}
+          <Route path="/library/my/:id/read" element={<V2ReaderPage />} />
+          <Route path="/library/my/:id/read/:chapterSlug" element={<V2ReaderPage />} />
           <Route path="/library/my/:id/read-v2" element={<V2ReaderPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/sitemap" element={<SitemapPage />} />

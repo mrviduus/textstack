@@ -4,7 +4,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { testLogin } from '../helpers/api'
 
-// @v2 — the V2 reader page on its production route (#1225): /:lang/library/my/:id/read-v2, behind
+// @v2 — the V2 reader page on its production route (#1225; M5 #1031: the default /read too), behind
 // Features:V2Api. A V2 upload's file bytes come from /me/v2/books/{id}/files/{fileId}/content into the
 // frame (/reader-v2/frame.html: a no-store shell + the content-hashed page script). Skips when the probe
 // answers 404 (flag off) unless V2_E2E=1, as v2-sync.spec.ts. In CI it runs on the production build
@@ -184,10 +184,11 @@ test.describe('V2 reader page @v2', () => {
     const page = await context.newPage()
     const bookId = await uploadFixture(page)
 
-    // The entry point: the book page's secondary link, V2 only.
+    // M5 (#1031): the entry point is the book page's one Read button, the DEFAULT route /read, and it is V2.
     await page.goto(`/en/library/my/${bookId}`)
-    await page.getByRole('link', { name: 'Open in the V2 reader' }).click()
-    await expect(page).toHaveURL(new RegExp(`/en/library/my/${bookId}/read-v2/?$`))
+    await expect(page.getByRole('link', { name: 'Open in the V2 reader' })).toHaveCount(0)
+    await page.getByRole('link', { name: /^(Start|Continue) Reading$/ }).click()
+    await expect(page).toHaveURL(new RegExp(`/en/library/my/${bookId}/read(/[^/]+)?/?$`))
     await expect(page.locator('iframe[title="Book text"]')).toHaveAttribute('src', '/reader-v2/frame.html')
     await expectOpened(page)
 
@@ -204,6 +205,13 @@ test.describe('V2 reader page @v2', () => {
 
     await page.reload()
     await expectOpened(page)
+
+    // The default route as the old links name it (a chapter slug): V2 too, the slug ignored; /read-v2 an alias.
+    for (const route of [`/en/library/my/${bookId}/read`, `/en/library/my/${bookId}/read/any-chapter`, `/en/library/my/${bookId}/read-v2`]) {
+      await page.goto(route)
+      await expect(page.locator('iframe[title="Book text"]')).toHaveAttribute('src', '/reader-v2/frame.html')
+      await expectOpened(page)
+    }
     await context.close()
   })
 

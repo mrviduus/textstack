@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { lazy, useEffect, useState } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, isOfflineError, v2Api } from '@textstack/shared'
 import { fetchV2FileBytes, pullV2Books, v2Book, v2Status } from '../api/v2'
 import { SeoHead } from '../components/SeoHead'
@@ -9,8 +9,8 @@ import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 
 /**
- * `/:lang/library/my/:id/read-v2` (#1225): a V2 book in the V2 reader page, behind Features:V2Api. With V2 off
- * for this app start (the probe's answer, waited for) it is the legacy reader. Online only: the current file's
+ * `/:lang/library/my/:id/read[/:chapterSlug]` and `/read-v2` (#1225, M5 #1031): a V2 book in the V2 reader page,
+ * behind Features:V2Api. With V2 off for this app start (the probe's answer, waited for) it is the legacy reader. Online only: the current file's
  * bytes are fetched per open (with progress) and transferred into the frame. Position and highlights: on the
  * server, through V2ReaderHost's sync (#1226). The load's failures by cause, Retry where it can help (#1227).
  */
@@ -18,6 +18,9 @@ export const PROD_READY_DEADLINE_MS = READY_DEADLINE_NETWORK_MS
 export const STALL_GRACE_MS = 1000
 
 class NoFile extends Error {}
+
+// V2 off: the legacy reader, rendered here (not a redirect: /read itself is this page, M5 #1031). Deleted at M6.
+const LegacyReaderPage = lazy(() => import('./ReaderPage').then((m) => ({ default: m.ReaderPage })))
 
 type Load = { percent: number | null } | { error: string; retry: boolean } | null
 
@@ -108,7 +111,7 @@ export function V2ReaderPage() {
     }
   }, [enabled, id, t, attempt])
 
-  if (enabled === false) return <Navigate to={`/${language}/library/my/${id}/read`} replace />
+  if (enabled === false) return <LegacyReaderPage mode="userbook" />
   if (enabled === null) return null
   const failed = load && 'error' in load ? load : null
   const idleHeading = failed ? '' : load && 'percent' in load && load.percent !== null ? t('v2Reader.downloading', { percent: load.percent }) : t('v2Reader.loading')
