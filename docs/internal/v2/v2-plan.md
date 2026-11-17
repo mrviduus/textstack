@@ -275,7 +275,7 @@ flowchart LR
 Old mobile builds send edition-keyed and `user_books`-keyed calls. Catalog plan §7's write matrix applies, simplified: upload ids are unchanged (`books.id = user_books.id`), so most old upload routes map 1:1; edition-keyed writes → the V2 `books` row for that pair (or 410 if none); catalog reads → 410 "catalog retired". Shim logs `X-App-Version` + route + outcome. Window (Q4, **amended 2026-11-14 by the owner, #1330**): closed as soon as the owner's devices run the new build and the log shows no old-client call after that; no fixed number of days. Production has one user, the owner; iOS is not in production. The log, not the calendar, ends the shim.
 
 ### 5.5 Retire (M6)
-Pure deletions, one PR each, after the shim window: catalog/SEO/SSG backend + crews + `TextStack.Search` + SSG scripts + nginx/deploy steps (catalog plan §2.5 inventory), `AppDbContext` + EF packages + `SchemaDriftTests`, legacy `database/migrations/` (kept in git history; `database/v2/` becomes `database/`), web/admin/mobile catalog UI, `DROP DATABASE textstack` after the archive is verified restorable.
+Order, gates and owner decisions: [m6-deletion-plan.md](m6-deletion-plan.md). Pure deletions, one PR each, after the shim window: catalog/SEO/SSG backend + crews + `TextStack.Search` + SSG scripts + nginx/deploy steps (catalog plan §2.5 inventory), `AppDbContext` + EF packages + `SchemaDriftTests`, legacy `database/migrations/` (kept in git history; `database/v2/` becomes `database/`), web/admin/mobile catalog UI, `DROP DATABASE textstack` after the archive is verified restorable.
 
 ---
 
