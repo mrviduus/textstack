@@ -13,7 +13,7 @@
  */
 import { Platform } from 'react-native'
 import {
-  v2Api, ApiError, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, pageNameRefusal, positionWrite, V2UploadNotOnServer,
+  v2Api, ApiError, cleanBookTitle, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, pageNameRefusal, positionWrite, V2UploadNotOnServer,
   type OpenReader, type PageHighlight, type V2Annotation, type V2Book, type V2BookFile, type V2ClientFormat, type V2MergeMap, type V2ReadingState, type V2Word,
 } from '@textstack/shared'
 import { onV2, resetSince, startV2Probe, whileCurrent, V2UploadError } from '../v2'
@@ -313,7 +313,7 @@ async function pushBook(lib: LocalLibrary, host: SyncHost, reset: Reset, item: O
   if (found) return void (await checked(reset, () => lib.adoptServerBook(b.id, found)))
   try {
     await current(reset, v2Api.importBook(b.id, {
-      title: clip(b.title, 500),
+      title: clip(cleanBookTitle(b.title) || b.title, 500),
       author: b.author || null,
       file: { id: b.file_id, sha256: b.sha256, byteSize: b.size, originalName: clip(b.original_name, 500), format: b.format as V2ClientFormat },
     }), (server) => lib.adoptServerBook(b.id, server))

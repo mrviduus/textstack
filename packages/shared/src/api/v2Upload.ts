@@ -6,6 +6,7 @@
 import * as v2Api from './v2'
 import type { V2Book, V2FileWrite } from './v2'
 import { clip } from '../reader/textAnchor'
+import { titleFromFileName } from '../lib/bookTitle'
 
 /** Bytes as whole megabytes, for a quota message. */
 export const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
@@ -79,7 +80,7 @@ export interface V2UploadResult {
  * again once; changed: tell the reader); `incomplete_upload` re-sends every part once;
  * `quota_exceeded` carries `used/limit`. An error marked `aborted` (a cancel) removes the book this
  * upload imported: on V2 a book without bytes has no retry.
- * ponytail: no cover (`PUT /cover` needs an EPUB parse on the client), the title is the file name.
+ * ponytail: no cover (`PUT /cover` needs an EPUB parse on the client), the title is the cleaned file name.
  */
 export async function uploadV2File(file: { name: string; size: number; format?: V2ClientFormat }, maxPartBytes: number, io: V2UploadIo): Promise<V2UploadResult> {
   const format = file.format ?? formatOfName(file.name)
@@ -93,7 +94,7 @@ export async function uploadV2File(file: { name: string; size: number; format?: 
     if (!found) {
       bookId = io.newId()
       fileId = io.newId()
-      const title = clip(file.name.replace(/\.[a-z0-9]+$/i, '').trim() || file.name, 500)
+      const title = clip(titleFromFileName(file.name), 500)
       try {
         await v2Api.importBook(bookId, { title, file: { id: fileId, sha256, byteSize: file.size, originalName: clip(file.name, 500), format } })
         imported = bookId

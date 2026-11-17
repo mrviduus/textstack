@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
+import { bookTitle as titleOf, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -1098,7 +1098,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // #1316 review: the page's book is this open now (it may not be the one started last): no run of another holds on.
     forgetDiscussRuns()
     discussBook.current = {
-      title: (typeof t.opened.title === 'string' && t.opened.title) || t.open.name,
+      title: titleOf(typeof t.opened.title === 'string' ? t.opened.title : null, t.open.name),
       author: typeof t.opened.author === 'string' && t.opened.author ? t.opened.author : null,
       language: readLang(t.opened),
     }
@@ -1135,8 +1135,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // A reload or a new pick can replace this open during any await; then this answer stops there.
     const superseded = () => opening.current !== current
     // The page shows this book now: its title before any await, so a failed read below leaves no "Opening …".
-    setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
-    bookTitle.current = m.title || current.name
+    const title = titleOf(m.title, current.name)
+    setHeading([title, m.author].filter(Boolean).join(' — '))
+    bookTitle.current = title
     const stored = await s.readStore(m.book.sha256)
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
@@ -1147,7 +1148,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     setOpenSha(sha256Key(m.book.sha256))
     refreshNotes()
     const { retained, books } = await s.addOpened(
-      { ...m.book, title: m.title, author: m.author, originalName: current.name, format: m.format ?? null },
+      { ...m.book, title, author: m.author, originalName: current.name, format: m.format ?? null },
       isStaged(current.file) ? current.file : null,
     ).catch((e) => {
       // The staged path is gone once addOpened moved or dropped it: a reload must not reopen it.
