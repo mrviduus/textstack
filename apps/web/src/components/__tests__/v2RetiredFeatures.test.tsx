@@ -6,7 +6,9 @@ import { getGoals, getAchievements, getBookStats, getStats, getDailyStats, getRe
 import { getPendingWords, getLookups, getVocabSettings, getConcepts, getVocabStats, getVocabDailyStats, markAsKnown } from '../../api/vocabulary'
 import { getHighlightsForReview } from '../../api/userData'
 import { getDueReviewQuestions } from '../../api/reviewQuestions'
-import { fakeApi } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { getUserBooks } from '../../api/userBooks'
+import { buildLibraryEntries, countEntries, sortEntries, entryTitle } from '@textstack/shared'
+import { fakeApi, feed, book, file, state } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 let v2On = false
 vi.mock('../../context/AuthContext', () => ({
@@ -127,5 +129,25 @@ describe('the features V2 holds no data for', () => {
 
     render(<MemoryRouter><HighlightsPage /></MemoryRouter>)
     await waitFor(() => expect(reviewButton()).not.toBeNull())
+  })
+
+  it('the library lists only the reader\'s uploads, newest-read first', async () => {
+    await start(true)
+    const ready = (id: string) => ({ currentFile: file(id, { ingestion: 'succeeded' }) })
+    fakeApi({
+      'GET /me/v2/library/changes': feed(
+        book('old', 'f1', { title: 'Read last week', ...ready('f1') }),
+        // An ETL'd catalog save (origin `catalog`, no file), added after both uploads.
+        book('cat', '', { title: 'Catalog save', currentFile: null, createdAt: '2026-11-17T00:00:00Z' }),
+        book('new', 'f2', { title: 'Read today', ...ready('f2') }),
+      ),
+      'GET /me/v2/reading/changes': feed(
+        state('old', 1, { fileId: 'f1', bookFraction: 0.3, updatedAt: '2026-11-10T00:00:00Z' }),
+        state('new', 1, { fileId: 'f2', bookFraction: 0.5, updatedAt: '2026-11-16T00:00:00Z' }),
+      ),
+    })
+    const entries = buildLibraryEntries([], await getUserBooks())
+    expect(sortEntries(entries, 'recent', {}).map(entryTitle)).toEqual(['Read today', 'Read last week'])
+    expect(countEntries(entries, {})).toEqual({ all: 2, reading: 2, finished: 0, notStarted: 0, failed: 0 })
   })
 })
