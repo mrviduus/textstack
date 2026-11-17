@@ -85,7 +85,8 @@ and the restore gate. Ownership to avoid conflicts: `packages/shared` → W1 onl
 | | |
 |---|---|
 | Delete | `packages/reader-engine/` (+ its `CLAUDE.md`), `.claude/agents/reader-engine.md`, `apps/web/scripts/{build,check}-mobile-{engine,pdf}.mjs`, `mobile-bundles.mjs`, `apps/web/scripts/pdfViewer/` if only the legacy viewer uses it, web `components/reader/{PdfEngineView,ReaderHighlights,ReaderSection,pdfEngineLayout}`, hooks `useHighlightEdit`, `useInBookSearch` (legacy), `useReaderScrollSync`, `useTextSelection`, `lib/readerEngine.ts` + their tests; alias entries in `vite.config.ts`, `vitest.config.ts`, `tsconfig.json`, mobile bundler config; `ci.yml` steps "Reader engine unit tests/typecheck", "Drift-check mobile overlay bundle", "Drift-check mobile PDF bundle", "Reader engine geometry"; ADR-025 → Superseded by ADR-032 |
-| Check | `git grep -n "reader-engine\|readerEngine"` empty outside docs; V2 reader page build (`v2reader/build.mjs`) does not import it |
+| First | **The V2 page imports the package today**: `apps/mobile/src/lib/v2reader/page.mjs` (`rangeToLocator`, `textNodes` from `src/text`; `SELECTION_SETTLE_MS` from `src/timing`), `bookmarks.mjs` (`blockOf` from `src/engine`; `rangesIn`, `textNodes`), `wordMarks.mjs` (`matchWords`, `rangesIn`, `textNodes`), `selection.test.ts` (`SELECTION_MAX_CHARS`). Move those helpers + their tests (from `text.test.ts`) into `apps/mobile/src/lib/v2reader/`, regenerate `v2ReaderPage.generated.ts` (the drift check gates it), then delete |
+| Check | `git grep -n "reader-engine\|readerEngine"` empty outside docs |
 | Saves | `frontend` ~40 s, `e2e` ~25 s (geometry) |
 
 ### A1 — Admin app (shape per D2; recommended: delete)
@@ -135,10 +136,10 @@ and the restore gate. Ownership to avoid conflicts: `packages/shared` → W1 onl
 
 | Step | Detail |
 |---|---|
-| 1. Restore gate | restore `~/archive/textstack-legacy-2026-11-17.sql.gz` into a scratch container (`pgvector/pgvector:pg16`), check row counts against the cutover log (`internal/ops/v2-cutover-2026-11-17.md`) and `sha256` of the file; record in an `internal/ops/` note. A second off-box copy of the archive exists |
+| 1. Restore gate | restore `~/archive/textstack-legacy-2026-11-17.sql.gz` into a scratch container (`pgvector/pgvector:pg16`), exact `count(*)` per table on the restore equals the live `textstack_prod` (read-only since the cutover, so they must match; the cutover log holds no per-table counts) and `sha256` of the file matches `1e872b9e…0208`; `pg_stat_activity` shows no connection to the legacy DB; record in an `internal/ops/` note. A second off-box copy of the archive exists |
 | 2. Drop (owner, on the server) | `DROP DATABASE <legacy>` after step 1; `data/storage` catalog dirs (`{id[..2]}/{id}/`) archived then removed; user dirs stay |
 | 3. Ledger move (PR) | `database/migrations/`, `database/migrate.sh`, `database/tests/`, `database/scripts/` (legacy) deleted; `database/v2/*` → `database/`; `migrator-v2` → `migrator` (one service, `PGDATABASE=${V2_POSTGRES_DB}`), `make migrate-v2*` → `make migrate*`; `Migrator.Dockerfile`, `PostgresFixture`, `ci.yml` "V2 migrations round trip" path; V2 migration `0007_drop_migration_runs` (ETL ledger, ADR-031 "dropped at M6.5") |
-| 4. Config | compose `ConnectionStrings__Default` → the V2 db; `POSTGRES_DB` meaning documented; owner edits prod `.env` (removes `DATABASE_MODE`, `FEATURES_V2API`) |
+| 4. Config | compose `ConnectionStrings__Default` → the V2 db; `POSTGRES_DB` meaning documented; owner edits prod `.env` (removes `DATABASE_MODE`, `FEATURES_V2API`; `POSTGRES_DB` → the V2 db). After the drop every `psql -U textstack_prod` without `-d` fails (default db = user name): `deploy.yml` (SSG wait, pre-deploy dump), `backup.yml` legacy dump and the CLAUDE.md DB-shell line must be gone or name the database before step 2; the `db` healthcheck `pg_isready -d ${POSTGRES_DB}` reports server state, confirm on the scratch container |
 | 5. Docs | `CLAUDE.md`: "V2 program" + "Keep the V2 status true" sections go; Architecture/Commands/Storage/Search/Test Projects rewritten for one DB (no EF, no SSG, no catalog, no reader-engine, no admin if D2); `internal/claude/*.md` same; `docs/STATUS.md`; ADR-025/027/030 status → Done/Superseded; `v2-plan.md`, `m5-*`, `r8-parity-audit.md`, `epub-*`, `docs/architecture/v2.md` get a "Historical (M6 done YYYY-MM-DD)" banner; #1013 M6 ticked |
 | 6. `/changelog` road | close PR: every `MOVE_STEPS` step `done`, `MOVE_UPDATED`, `MOVE_OPEN` empty. Follow-up PR (a week later): delete the road block in `apps/web/src/lib/changelog.ts` + its UI |
 | Optional | #1056: dump V2, restore into a fresh `postgres:16` cluster (no pgvector, collation fixed); the db image pin changes; rename the database here if D7 says so |
@@ -171,9 +172,13 @@ and the restore gate. Ownership to avoid conflicts: `packages/shared` → W1 onl
 | D6 | MCP tools that only answer "retired" | **(a) delete** (25 → 18 tools), new NuGet. (b) keep answering errors |
 | D7 | Database name | **(a) keep `textstack_v2`**, map it to `ConnectionStrings:Default`; rename only during the optional #1056 dump/restore. (b) `ALTER DATABASE … RENAME` in F (short downtime) |
 | D8 | Transitional tables (ADR-031: "dropped at M6.4") | **(a) keep, out of M6** — MCP chapter tools and clips read them; amend ADR-031. (b) drop with R — MCP loses chapter text |
+| D9 | #1366 is open ("bring back on V2 after M5": goals, achievements, book stats, vocabulary settings/pending/lookups/concepts, highlight review), but W1/M1 delete the hidden UI those features would reuse | **(a) W1/M1 keep that hidden UI** (`OffV2`, `V2_FEATURES` false entries, stats pages) and delete only its legacy API calls; #1366 re-points or deletes it. (b) delete now; #1366 rebuilds from git history |
 
 ## 4. Risks
 
+- **LLM routing changes at B3.** In v2 mode today `RegistryModelRouteProvider` still reads the Primary rows of legacy `models` (read-only DB). Before B3: `SELECT feature_tag, provider_key FROM models WHERE status = 'Primary'` on the legacy DB must equal the `Ai:Routes` config, or move the difference into config in B3.
+- **`/site` resolution reads legacy until B1.** `Api/Sites/SiteResolver.cs` queries `site_domains`/`sites` for every request outside its skip list (`/me`, `/auth`, `/oauth`, `/admin`, `/health`…): explain, translate, tts and `/site/context` included; B1 deletes it, so B1 must also stop `LanguageMiddleware` asking for a site.
+- P0: `tests/TextStack.IntegrationTests/AccountDeletionEndpointTests.cs` seeds legacy data (`/books`, `/me/books`, `/me/highlights`, `/me/reading/sessions`, `/me/vocabulary/words`): re-point its seeding to `/me/v2` (the GDPR-delete story stays), do not delete it.
 - P0 may surface v2-mode bugs CI never ran (it is the point). Fix forward in P0, or file and skip with an issue.
 - B3 is the largest PR (EF out of Application). If review exceeds budget, split: B3a identity/AI writers/DatabaseMode collapse, B3b EF + entities + packages.
 - Old store builds get 404 instead of 410 after B2: acceptable after #1330.
