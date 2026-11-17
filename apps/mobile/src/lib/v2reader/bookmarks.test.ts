@@ -106,7 +106,7 @@ describe('v2 reader bookmarks', () => {
   })
 
   it('bookmarkRangeAndText_AStyleScriptOrNoscriptInsideTheFirstWords_NotInTheLabel_NorCounted', () => {
-    // reader-engine's text nodes: what is not the book's text is neither kept nor counted against the cap.
+    // text.ts's text nodes: what is not the book's text is neither kept nor counted against the cap.
     const html = `<p>One <style>p { color: red }</style>two <script>var x = 1</script>three<noscript>no script here</noscript> four ${'x'.repeat(200)}</p>`
     const r = bookmarkRange(screen(html))!
     const label = bookmarkText(r)

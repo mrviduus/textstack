@@ -1,9 +1,8 @@
 // What a tap in a book section hands the host: the tapped word's sentence and an external link. DOM
 // only, no foliate, so tap.test.ts runs it in jsdom.
-import { textNodes } from '../../../../../packages/reader-engine/src/text'
-import { blockOf, sentenceAround } from '../../../../../packages/reader-engine/src/engine'
+import { blockOf, sentenceAround, textNodes } from './text'
 
-/** The tapped word's sentence inside its block (the engine's `blockOf`), by the engine's sentence rule (TR-1). */
+/** The tapped word's sentence inside its block (text.ts `blockOf`), by its sentence rule (TR-1). */
 export function sentenceOf(node, start, end) {
   return sentenceOfRange(node, start, node, end)
 }
@@ -52,7 +51,7 @@ export function sentenceOfRange(startNode, start, endNode, end) {
 }
 
 /**
- * `range` without its edge whitespace, as reader-engine trims a selection: a drag from the blank after a
+ * `range` without its edge whitespace, as the retired reader engine trimmed a selection: a drag from the blank after a
  * heading starts in the next block's text, not at the heading's end. Null when it holds no text.
  */
 export function trimRange(range) {

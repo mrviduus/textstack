@@ -4,7 +4,7 @@
 import { clip } from '../../../../../packages/shared/src/reader/textAnchor'
 import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 
-/** reader-engine's SELECTION_MAX_CHARS, the server's translate and TTS cap (selection.test.ts pins them equal). */
+/** The server's translate and TTS cap: a longer selection is still sent, flagged. */
 export const SELECTION_MAX_CHARS = 500
 /** `sentenceAround` returns at most 206 characters; anything far past that did not come from it. */
 export const MAX_SELECTION_SENTENCE = 1000

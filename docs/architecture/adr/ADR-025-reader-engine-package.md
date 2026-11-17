@@ -1,6 +1,6 @@
 # ADR-025 — The reader is one engine package: `packages/reader-engine`
 
-**Status:** Accepted · **Date:** 2026-10-08 · **Supersedes:**
+**Status:** Superseded by [ADR-032](ADR-032-one-engine-foliate-fork.md) (package deleted at M6, 2026-11-17) · **Date:** 2026-10-08 · **Supersedes:**
 `reader-engine-evaluation.md` (investigation, since deleted; see git history) · **Amends:**
 [ADR-019](ADR-019-reader-position-rules.md) (where the rules live) · **Keeps:**
 [ADR-012](ADR-012-pdf-original-first-lazy-parse.md) (PDF original-first),

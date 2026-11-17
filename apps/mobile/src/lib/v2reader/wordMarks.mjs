@@ -1,8 +1,8 @@
 // Saved-word marks (#1271): the reader's saved words underlined by SRS stage, with their translation above them
 // behind the reader's setting. Pure, page and both hosts. The host sends the words once per open (`markWords`); the
-// page places them one section at a time as sections load, by the vocabulary key the apps use (reader-engine's
+// page places them one section at a time as sections load, by the vocabulary key the apps use (text.ts
 // `matchWords`: whole words, any case, phrases first). Words and glosses are the reader's data, drawn as text only.
-import { matchWords, rangesIn, textNodes } from '../../../../../packages/reader-engine/src/text'
+import { matchWords, rangesIn, textNodes } from './text'
 
 /** At most this many words in a `markWords` list; a word, a gloss at most this long (the server's caps: 200, 500). */
 export const MAX_WORDS = 20000
@@ -31,7 +31,7 @@ export function readMarkWords(raw) {
 
 /**
  * Where `words` stand in `root` (a section's body): one `{ range, word }` per occurrence, in document order. A block or
- * a footnote ends a word; a phrase is matched before its words (reader-engine `matchWords`).
+ * a footnote ends a word; a phrase is matched before its words (text.ts `matchWords`).
  */
 export function wordMarksIn(root, words) {
   if (!root || !words.length) return []

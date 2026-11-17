@@ -17,9 +17,7 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@textstack/shared": ["../../packages/shared/src/index.ts"],
-      "@textstack/shared/*": ["../../packages/shared/src/*"],
-      "@textstack/reader-engine": ["../../packages/reader-engine/src/index.ts"],
-      "@textstack/reader-engine/fixed": ["../../packages/reader-engine/src/fixed.ts"]
+      "@textstack/shared/*": ["../../packages/shared/src/*"]
     }
   },
   "include": ["src"],

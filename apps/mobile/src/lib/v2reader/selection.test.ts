@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { SELECTION_MAX_CHARS as ENGINE_MAX_CHARS } from '../../../../../packages/reader-engine/src/engine'
 import { MAX_SELECTED_TEXT } from '../../../../../packages/shared/src/reader/v2Locators'
 import { MAX_SELECTION_CFI, MAX_SELECTION_INDEX, MAX_SELECTION_PX, MAX_SELECTION_SENTENCE, SELECTION_MAX_CHARS, readSelection, selectionMessage } from './selection.mjs'
 
@@ -41,7 +40,6 @@ describe('v2 reader selection message', () => {
   })
 
   it('readSelection_TooLong_FromTextLengthNeverFromThePage', () => {
-    expect(SELECTION_MAX_CHARS).toBe(ENGINE_MAX_CHARS)
     expect(readSelection({ ...build(), tooLong: true })?.tooLong).toBe(false)
     expect(readSelection({ ...build(), text: 'a'.repeat(SELECTION_MAX_CHARS + 1), tooLong: false })?.tooLong).toBe(true)
     expect(readSelection({ ...build(), text: 'a'.repeat(SELECTION_MAX_CHARS) })?.tooLong).toBe(false)

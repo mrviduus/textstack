@@ -5,19 +5,18 @@
 // the top of the screen, the page's `bookmark-list` builder and the hosts' reader of it (the page renders untrusted
 // book content).
 import { isBookmark } from '../../../../../packages/shared/src/reader/v2PageStore'
-import { blockOf } from '../../../../../packages/reader-engine/src/engine'
-import { rangesIn, textNodes } from '../../../../../packages/reader-engine/src/text'
+import { blockOf, rangesIn, textNodes } from './text'
 import { listItems, readItems } from './highlights.mjs'
 
 export { isBookmark }
 /** At most this many UTF-16 units of text kept with a bookmark (its `selectedText`; its list label). */
 export const BOOKMARK_TEXT = 120
 
-/** The element reader-engine's `textNodes` walks for `range`: its common ancestor (a text node's parent). */
+/** The element text.ts `textNodes` walks for `range`: its common ancestor (a text node's parent). */
 const rootOf = (range) => (range.commonAncestorContainer.nodeType === 3 ? range.commonAncestorContainer.parentNode : range.commonAncestorContainer)
 
 /**
- * The book's text nodes in `range` (reader-engine's `textNodes`: never a script, style or noscript), each with the part
+ * The book's text nodes in `range` (text.ts `textNodes`: never a script, style or noscript), each with the part
  * of it inside the range: `[{ node, from, to }]`.
  * ponytail: walks the range's whole common ancestor (a section's body for a screen); the nodes on screen only, by a
  * walker started at the range's start, if a very long section makes a relocate slow.
@@ -31,7 +30,7 @@ function partsIn(range) {
 
 /**
  * The range a bookmark made on `visible` (the range on screen, a relocate's) keeps: from its first non-white-space
- * character, at most `max` UTF-16 units of the book's text (reader-engine's: no script, style or noscript), never past
+ * character, at most `max` UTF-16 units of the book's text (text.ts's: no script, style or noscript), never past
  * the screen's end, never cut inside a surrogate pair, ending at its last non-white-space character. Null when there
  * is no text on screen (an image page, a blank one).
  */
@@ -49,7 +48,7 @@ export function bookmarkRange(visible, max = BOOKMARK_TEXT) {
 
 /**
  * The text a bookmark keeps for `range`, as a label reads: the book's text in it (no script, style or noscript), with a
- * space where two pieces sit in different blocks (reader-engine's `blockOf`) or a `<br>` stands between them (a range's
+ * space where two pieces sit in different blocks (text.ts `blockOf`) or a `<br>` stands between them (a range's
  * own text glues a heading to the paragraph after it, and one line to the next). Compared with itself on restore:
  * `bookmarkText` of the range at the CFI, white space ignored.
  */

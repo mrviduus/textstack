@@ -419,31 +419,11 @@ jobs:
         working-directory: packages/shared
         run: pnpm typecheck
 
-      # ADR-025. Its tests include the boundary check (no app imports, no fetch).
-      - name: Reader engine unit tests
-        working-directory: packages/reader-engine
-        run: pnpm test
-
-      - name: Reader engine typecheck
-        working-directory: packages/reader-engine
-        run: pnpm typecheck
-
-      - name: Drift-check mobile overlay bundle
-        working-directory: apps/web
-        run: pnpm check:mobile-engine
-
       # ADR-029: the V2 reader page is pinned foliate-js + patches/ + page.mjs. Clones the pin, so a
       # patch that no longer applies fails here too.
       - name: Drift-check V2 reader page
         working-directory: apps/web
         run: pnpm check:v2-reader
-
-      # The PDF bundle had no such guard. engineEntry.ts (+ readerEnginePdfPage.ts) is the source
-      # of the page that owns the reader's position in a PDF, and an edit shipped without a
-      # rebuild changes nothing at runtime — silently, past a green CI.
-      - name: Drift-check mobile PDF bundle
-        working-directory: apps/web
-        run: pnpm check:mobile-pdf
 
       - name: Build admin
         run: pnpm --filter textstack-admin build
@@ -962,14 +942,6 @@ jobs:
           API_URL: http://localhost:8080
           BASE_URL: http://localhost:5173
           ADMIN_URL: http://localhost:81
-
-      # ADR-025 phase 2 slice 7, the Phase 3 gate: the engine's reading line and scroll cost on real
-      # chapters in Chromium (jsdom has no layout). Its own Vite page, no API; ~5s.
-      - name: Reader engine geometry — gates the PR
-        working-directory: packages/reader-engine
-        run: pnpm test:geometry
-        env:
-          CI: true
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
