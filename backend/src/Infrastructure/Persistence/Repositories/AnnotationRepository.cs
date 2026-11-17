@@ -32,6 +32,55 @@ public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationR
         return (await conn.QueryAsync<Annotation>(new CommandDefinition(SelectLiveOfBook, new { userId, bookId }, cancellationToken: ct))).AsList();
     }
 
+    // Two fixed statements (newest/oldest), every value a parameter. The chapter is the current file's row for the
+    // locator's chapterKey; a PDF anchor gets kind: pdf as the legacy anchor had it.
+    private const string ListAllFrom = """
+        FROM annotations a
+        JOIN books b ON b.user_id = a.user_id AND b.id = a.book_id AND b.removed_at IS NULL
+        """;
+
+    private const string ListAllWhere = """
+        WHERE a.user_id = @userId AND a.deleted_at IS NULL
+          AND (@color::text IS NULL OR a.color = @color)
+          AND (@search::text IS NULL OR strpos(lower(a.selected_text), lower(@search)) > 0
+               OR strpos(lower(coalesce(a.note_text, '')), lower(@search)) > 0)
+        """;
+
+    private const string ListAllSelect = $"""
+        SELECT count(*) OVER ()::int AS Total, a.id AS Id, a.selected_text AS SelectedText,
+            (CASE WHEN jsonb_typeof(a.locator->'value') IS DISTINCT FROM 'object' THEN jsonb_build_object()
+                  WHEN a.locator->>'scheme' = 'pdf-page' THEN (a.locator->'value') || jsonb_build_object('v', 1, 'kind', 'pdf')
+                  ELSE a.locator->'value' END)::text AS AnchorJson,
+            a.color AS Color, a.note_text AS NoteText, a.created_at AS CreatedAt, a.book_id AS BookId, b.title AS BookTitle,
+            c.id AS ChapterId, c.title AS ChapterTitle, c.chapter_key AS ChapterKey
+        {ListAllFrom}
+        LEFT JOIN LATERAL (
+            SELECT bc.id, bc.title, bc.chapter_key FROM book_files f
+            JOIN book_chapters bc ON bc.user_id = f.user_id AND bc.file_id = f.id AND bc.chapter_key = a.locator->'value'->>'chapterKey'
+            WHERE f.user_id = a.user_id AND f.book_id = a.book_id AND f.is_current
+            LIMIT 1
+        ) c ON true
+        {ListAllWhere}
+        """;
+
+    private const string ListAllNewest = ListAllSelect + " ORDER BY a.created_at DESC, a.id DESC LIMIT @limit OFFSET @offset";
+    private const string ListAllOldest = ListAllSelect + " ORDER BY a.created_at, a.id LIMIT @limit OFFSET @offset";
+
+    public async Task<AnnotationPage> ListAllAsync(Guid userId, string? search, string? color, bool oldestFirst, int limit, int offset, CancellationToken ct)
+    {
+        var args = new { userId, search = string.IsNullOrEmpty(search) ? null : search, color = string.IsNullOrEmpty(color) ? null : color, limit, offset };
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        var rows = (await conn.QueryAsync<ListRow>(new CommandDefinition(oldestFirst ? ListAllOldest : ListAllNewest, args, cancellationToken: ct))).AsList();
+        // A page past the end has no row to carry the total: count it alone.
+        var total = rows.Count > 0 ? rows[0].Total
+            : offset == 0 ? 0 : await conn.ExecuteScalarAsync<int>(new CommandDefinition($"SELECT count(*)::int {ListAllFrom} {ListAllWhere}", args, cancellationToken: ct));
+        return new(total, rows.Select(r => new AnnotationListItem(r.Id, r.SelectedText, r.AnchorJson, r.Color, r.NoteText, r.CreatedAt,
+            r.BookId, r.BookTitle, r.ChapterId, r.ChapterTitle, r.ChapterKey)).ToList());
+    }
+
+    private sealed record ListRow(int Total, Guid Id, string SelectedText, string AnchorJson, string Color, string? NoteText,
+        DateTimeOffset CreatedAt, Guid BookId, string BookTitle, Guid? ChapterId, string? ChapterTitle, string? ChapterKey);
+
     public async Task<Annotation?> GetAsync(Guid userId, Guid id, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);

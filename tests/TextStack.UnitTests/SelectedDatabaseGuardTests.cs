@@ -70,7 +70,8 @@ public class SelectedDatabaseGuardTests
     [InlineData("POST", "/admin/editions/{id:guid}/publish", "/admin/editions/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11/publish", 410)]
     [InlineData("GET", "/me/reading/stats", "/me/reading/stats", 410)]
     [InlineData("GET", "/me/library/shelves", "/me/library/shelves", 410)]
-    [InlineData("GET", "/me/highlights/all", "/me/highlights/all", 503)]
+    [InlineData("GET", "/me/highlights/all", "/me/highlights/all", 410)]
+    [InlineData("POST", "/explain/", "/explain", 503)]
     [InlineData("POST", "/translate", "/translate", 503)]
     public async Task UnadaptedNativeRoute_IsGoneOrPendingBeforeAnyUserLookup(string method, string pattern, string path, int expected)
     {

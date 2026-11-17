@@ -220,7 +220,9 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Assert.Equal(HttpStatusCode.Gone, (await client.DeleteAsync("/me/books/" + Guid.NewGuid(), Ct)).StatusCode);
             Assert.Equal(HttpStatusCode.Gone, (await client.PutAsJsonAsync("/me/progress/" + Guid.NewGuid(), new { }, Ct)).StatusCode);
             Assert.Equal(HttpStatusCode.Gone, (await client.GetAsync("/me/reading/stats", Ct)).StatusCode);
-            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/me/highlights/all", Ct)).StatusCode);
+            // Ported (V2CompatEndpoints): the legacy path answers from V2, the legacy shape.
+            var highlights = await BodyAsync(await client.GetAsync("/me/highlights/all?limit=5", Ct));
+            Assert.Equal(0, highlights.GetProperty("totalCount").GetInt32());
         }
         AssertLegacyUntouched();
     }

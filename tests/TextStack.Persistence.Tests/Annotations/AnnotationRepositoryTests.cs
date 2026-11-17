@@ -359,4 +359,71 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
 
         Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
     }
+
+    private const string AnchorC1 = """{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"c1","prefix":"before ","exact":"Quoted","suffix":" after","startOffset":7,"endOffset":13}}""";
+
+    /// <summary>A reader's book whose current file has chapter <c>c1</c>, "Chapter One".</summary>
+    private async Task<Book> BookWithChapterAsync()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await db.ExecAsync("""
+            INSERT INTO book_chapters (id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, created_at)
+            VALUES (gen_random_uuid(), @UserId, @Id, @fileId, 'c1', 1, 'Chapter One', '<p>x</p>', 'x', now())
+            """, new { book.UserId, book.Id, fileId = book.CurrentFile!.Id });
+        return book;
+    }
+
+    private async Task<Annotation> SaveAsync(Book book, string text, string color = "yellow", string? note = null, string locator = AnchorC1) =>
+        (await _repo.SaveAsync(book.UserId, new Annotation
+        {
+            Id = Guid.NewGuid(), UserId = book.UserId, BookId = book.Id, FileId = book.CurrentFile!.Id,
+            SelectedText = text, NoteText = note, Locator = locator, Color = color,
+        }, null, Ct)).Current!;
+
+    [Fact]
+    public async Task ListAllAsync_LiveAnnotations_NewestFirstWithBookChapterAndAnchor()
+    {
+        var book = await BookWithChapterAsync();
+        var first = await SaveAsync(book, "Quoted");
+        var second = await SaveAsync(book, "Second", locator: Cfi(2));
+        var gone = await SaveAsync(book, "Gone");
+        await _repo.DeleteAsync(book.UserId, gone.Id, Ct);
+        await SaveAsync(await BookWithChapterAsync(), "Someone else's");
+
+        var page = await _repo.ListAllAsync(book.UserId, null, null, false, 10, 0, Ct);
+
+        Assert.Equal(2, page.TotalCount);
+        Assert.Equal([second.Id, first.Id], page.Items.Select(i => i.Id));
+        var item = page.Items[1];
+        Assert.Equal((book.Id, book.Title, "Chapter One", "c1"), (item.BookId, item.BookTitle, item.ChapterTitle, item.ChapterKey));
+        AssertSameJson("""{"chapterKey":"c1","prefix":"before ","exact":"Quoted","suffix":" after","startOffset":7,"endOffset":13}""", item.AnchorJson);
+        // A CFI's value is a string, not an anchor: {} and no chapter.
+        Assert.Equal(("{}", (string?)null), (page.Items[0].AnchorJson, page.Items[0].ChapterKey));
+    }
+
+    [Fact]
+    public async Task ListAllAsync_SearchColorSortAndPaging_FilterBeforeTheTotal()
+    {
+        var book = await BookWithChapterAsync();
+        var alpha = await SaveAsync(book, "Alpha whale", "blue");
+        await SaveAsync(book, "Beta", "blue", note: "a WHALE note");
+        await SaveAsync(book, "Gamma whale", "yellow");
+
+        var blueWhales = await _repo.ListAllAsync(book.UserId, "whale", "blue", true, 1, 0, Ct);
+        var pastTheEnd = await _repo.ListAllAsync(book.UserId, "whale", "blue", true, 1, 5, Ct);
+
+        Assert.Equal(2, blueWhales.TotalCount);
+        Assert.Equal(alpha.Id, Assert.Single(blueWhales.Items).Id);
+        Assert.Equal((2, 0), (pastTheEnd.TotalCount, pastTheEnd.Items.Count));
+    }
+
+    [Fact]
+    public async Task ListAllAsync_RemovedBook_IsLeftOut()
+    {
+        var book = await BookWithChapterAsync();
+        await SaveAsync(book, "Quoted");
+        await db.ExecAsync("UPDATE books SET removed_at = now() WHERE id = @Id", new { book.Id });
+
+        Assert.Equal(0, (await _repo.ListAllAsync(book.UserId, null, null, false, 10, 0, Ct)).TotalCount);
+    }
 }

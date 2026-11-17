@@ -26,7 +26,6 @@ public sealed class SelectedDatabaseGuard(RequestDelegate next, DatabaseMode mod
     /// </summary>
     public static readonly IReadOnlySet<string> Pending = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "GET /me/highlights/all",
         "POST /explain/", "POST /translate", "POST /api/translate/",
         "POST /me/books/clip",
     };
