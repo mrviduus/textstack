@@ -284,7 +284,7 @@ jobs:
 
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
 
       - name: Restore
         run: dotnet restore
@@ -726,7 +726,7 @@ jobs:
 
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
 
       # The admin tests log in as this account (AuthenticatedApiFixture); without it they fail in
       # CI rather than skip, since a skip is a green run with the admin endpoints untested (#990).

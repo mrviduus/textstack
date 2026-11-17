@@ -34,9 +34,9 @@ It exposes **18 tools**:
 dotnet tool install -g TextStack.Mcp
 ```
 
-This installs the `textstack-mcp` command (.NET 10+; rolls forward to future majors).
+This installs the `textstack-mcp` command (.NET 11+; rolls forward to future majors).
 
-On .NET 10 you can also run it without installing:
+On .NET 10+ you can also run it without installing:
 
 ```bash
 dnx textstack-mcp

@@ -13,7 +13,7 @@ public class ModelPricingEmbeddingTests
     [InlineData(500_000, 0.01)]
     [InlineData(0, 0.0)]
     public void CostUsd_EmbeddingInputOnly_ComputesInputPrice(int inputTokens, double expected)
-        => Assert.Equal((decimal)expected, ModelPricing.CostUsd("text-embedding-3-small", inputTokens, outputTokens: 0));
+        => Assert.Equal(expected, (double)ModelPricing.CostUsd("text-embedding-3-small", inputTokens, outputTokens: 0));
 
     [Fact]
     public void CostUsd_EmbeddingIgnoresOutputTokens()

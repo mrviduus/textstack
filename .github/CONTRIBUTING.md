@@ -31,7 +31,7 @@ Follow [Ship a first pull request](../docs/start/first-pr.md): issue, branch, ch
 
 ## Code style
 
-- **Backend** — idiomatic C# / .NET 10. Minimal APIs, EF Core. Snake-case
+- **Backend** — idiomatic C# / .NET 11. Minimal APIs, EF Core. Snake-case
   in DB (handled by EF naming convention). Nullable-aware. Test naming:
   `{Method}_{Scenario}_{Expected}`.
 - **Frontend** — React 19 functional components, hooks. CSS variables for

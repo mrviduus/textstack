@@ -8,7 +8,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <!-- MEAI eval framework: IEvaluator/EvaluationMetric for RubricEvaluator. -->
     <PackageReference Include="Microsoft.Extensions.AI.Evaluation" />
   </ItemGroup>

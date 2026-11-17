@@ -8,7 +8,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <!-- Real JSON Schema (draft 2020-12) evaluation of tool args before dispatch (AI-030). -->
     <PackageReference Include="JsonSchema.Net" />
   </ItemGroup>

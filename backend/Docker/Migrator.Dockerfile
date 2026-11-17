@@ -2,7 +2,7 @@
 # database/migrate.sh applies; database/run.sh creates the database first when it is missing.
 # Base image pinned by digest (tag kept for humans); Dependabot moves it.
 # postgresql16-client matches the server's major version (pgvector/pgvector:pg16).
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 RUN apk add --no-cache postgresql16-client
 COPY database/migrate.sh database/run.sh /database/
 COPY database/migrations/ /database/migrations/
