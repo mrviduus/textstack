@@ -33,6 +33,7 @@ The V2 program ([#1013](https://github.com/mrviduus/textstack/issues/1013)) fini
 
 **Focus (owner): no new side work.** Anything new goes into Known-broken below and is not started, unless it is a production outage or a security problem.
 
+- **One parser = the client ([ADR-033](architecture/adr/ADR-033-client-is-the-only-parser.md), [plan](internal/v2/one-parser-plan.md)):** book details on upload ([#1426](https://github.com/mrviduus/textstack/issues/1426)), then TOC sync, then server extraction deleted.
 - **M6 leftovers:** dead web CSS and params, the mobile offline download format, unused shared exports, two MCP gaps — [#1406](https://github.com/mrviduus/textstack/issues/1406).
 - **Bring back on V2:** goals, achievements, per-book stats, vocabulary settings/pending/lookups/concepts, highlight review — [#1366](https://github.com/mrviduus/textstack/issues/1366).
 - **Book page:** show saved conversations (MCP checkpoints) — [#1405](https://github.com/mrviduus/textstack/issues/1405).

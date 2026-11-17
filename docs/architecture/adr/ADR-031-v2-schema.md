@@ -1,6 +1,6 @@
 # ADR-031 — V2 schema: textstack_v2
 
-**Status:** Proposed · **Date:** 2026-10-30 (decisions appended 2026-10-30) · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §4 · **Builds on:** [ADR-030](ADR-030-two-databases-one-cutover.md), ADR-026, ADR-028 · **Keeps:** ADR-014 (guest sessions), ADR-016 (chapter review in book_insight) · **Adopts:** [v2-library-draft.sql](../../internal/v2/v2-library-draft.sql) with the deltas below · **Amended by:** [ADR-032](ADR-032-one-engine-foliate-fork.md) (`book_files.format`); M6 D8 (transitional tables kept, below)
+**Status:** Proposed · **Date:** 2026-10-30 (decisions appended 2026-10-30) · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §4 · **Builds on:** [ADR-030](ADR-030-two-databases-one-cutover.md), ADR-026, ADR-028 · **Keeps:** ADR-014 (guest sessions), ADR-016 (chapter review in book_insight) · **Adopts:** [v2-library-draft.sql](../../internal/v2/v2-library-draft.sql) with the deltas below · **Amended by:** [ADR-032](ADR-032-one-engine-foliate-fork.md) (`book_files.format`); M6 D8 (transitional tables kept, below); [ADR-033](ADR-033-client-is-the-only-parser.md) (`book_chapters` and `ingestion_jobs` dropped; `book_files.toc` written by the client)
 
 ## Context
 
