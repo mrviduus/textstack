@@ -51,7 +51,7 @@ builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 // Image optimization
 builder.Services.AddSingleton<IImageOptimizer, ImageOptimizer>();
 
-// Application services (for ISsgRouteProvider, etc.)
+// Application services
 builder.Services.AddApplication();
 builder.Services.AddSelectedIdentityPorts(databaseMode);
 
@@ -68,7 +68,6 @@ builder.Services.AddScoped<Application.Agents.EnrichmentAgent>();
 builder.Services.AddSingleton<BookMetadataGenerator>();
 builder.Services.AddSingleton<IBookMetadataGenerator, EnrichmentAgentMetadataGenerator>();
 builder.Services.AddSingleton<ITagSuggestionGenerator, TagSuggestionGenerator>();
-builder.Services.AddSingleton<IngestionWorkerService>();
 // Enrichment-reliability: executor (atomic claim + terminal status) used only by the sweep worker
 // below (ADR-022: one consumer per queue). Singleton — depends only on the DbContext factory + the
 // singleton IBookMetadataGenerator.

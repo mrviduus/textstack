@@ -1,12 +1,9 @@
 using Api.Endpoints;
 using Api.Extensions;
-using Api.Language;
 using Api.Middleware;
-using Api.Sites;
 using Application;
 using Application.AdminAuth;
 using Application.Common.Interfaces;
-using Application.TextStack;
 using Application.UserBooks;
 using Domain.Enums;
 using Infrastructure.Persistence;
@@ -55,7 +52,7 @@ builder.AddTextStackSentry();
 builder.Services.AddTextStackCors(builder.Configuration);
 builder.Services.AddOpenApi();
 
-// Application layer + AI platform (eval runners, agents, tools, crews).
+// Application layer + AI platform (eval runners, agents, tools).
 builder.Services
     .AddApplication()
     .AddTextStackAiEvals()
@@ -68,10 +65,9 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 // storagePath is consumed again by the static-file middleware below.
 var storagePath = Infrastructure.Services.FileStoreRegistration.StorageRoot(builder.Configuration);
 
-// Persistence, search, RAG, product services, workers, and rate-limiting.
+// Persistence, product services, workers, and rate-limiting.
 builder.Services
     .AddTextStackPersistence(connectionString, builder.Configuration)
-    .AddTextStackSearchStack()
     .AddTextStackContentServices(builder.Configuration)
     .AddTextStackHostedServices(writeFreeze || databaseMode.IsV2)
     .AddTextStackRateLimiting(builder.Configuration)
@@ -260,7 +256,7 @@ app.MapGet("/health", async (Api.V2.SelectedDatabaseProbe selected, Cancellation
 
 // Granular readiness probe — per-component status for ops dashboards.
 // db + storage are critical (503 on failure); ollama is soft (degraded, still 200).
-app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, Api.V2.SelectedDatabaseProbe selected, CancellationToken ct) =>
+app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, Api.V2.SelectedDatabaseProbe selected, CancellationToken ct) =>
 {
     var started = DateTimeOffset.UtcNow;
     var components = new Dictionary<string, object>();
@@ -387,56 +383,6 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
         components["ollama"] = new { status = "degraded" };
     }
 
-    // SSG: the one thing about this site that breaks invisibly.
-    //
-    // Three incidents in three weeks — a five-week outage, a rebuild promoted
-    // after losing its files, and rebuilds failing on a path that had moved —
-    // and in every one of them the site answered 200, the containers were
-    // healthy, and readers saw nothing, because humans get the SPA and it
-    // renders fine. Each was found by a person eventually noticing.
-    //
-    // Reported, never fatal: stale pages are an SEO problem, not a reason to
-    // fail a probe that gates traffic. health-check.yml reads this and alarms
-    // on a failed last run only: the tree is frozen (#992), so its age is
-    // reported, not alarmed.
-    try
-    {
-        if (databaseMode.IsV2)
-            components["ssg"] = new { status = "legacy" };
-        else
-        {
-            var newest = await db.SsgRebuildJobs
-                .Where(j => j.Status == SsgRebuildJobStatus.Completed && j.FinishedAt != null)
-                .OrderByDescending(j => j.FinishedAt)
-                .Select(j => j.FinishedAt)
-                .FirstOrDefaultAsync(ct);
-
-            // A run that is currently failing matters sooner than one that is
-            // merely old: rebuilds here are deploy-driven, so a quiet day can
-            // legitimately leave the newest one 19 hours behind — measured, not
-            // guessed — while a failure means the next one will not help either.
-            var lastFailed = await db.SsgRebuildJobs
-                .Where(j => j.FinishedAt != null)
-                .OrderByDescending(j => j.FinishedAt)
-                .Select(j => j.Status)
-                .FirstOrDefaultAsync(ct) == SsgRebuildJobStatus.Failed;
-
-            components["ssg"] = newest is null
-                ? new { status = "unknown", lastSuccessAt = (DateTimeOffset?)null, ageHours = (double?)null, lastRunFailed = lastFailed }
-                : new
-                {
-                    status = lastFailed ? "degraded" : "ok",
-                    lastSuccessAt = newest,
-                    ageHours = Math.Round((DateTimeOffset.UtcNow - newest.Value).TotalHours, 1),
-                    lastRunFailed = lastFailed,
-                };
-        }
-    }
-    catch (Exception ex)
-    {
-        components["ssg"] = new { status = "unknown", error = ex.GetType().Name };
-    }
-
     var elapsed = DateTimeOffset.UtcNow - started;
     var payload = new
     {
@@ -448,15 +394,6 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     return criticalOk ? Results.Ok(payload) : Results.Json(payload, statusCode: 503);
 });
 
-// Site resolution middleware
-// V2 private routes are not site-scoped and must work without a legacy sites lookup.
-app.UseWhen(ctx => !databaseMode.IsV2 || !ctx.Request.Path.StartsWithSegments("/me"),
-    branch => branch.UseSiteContext());
-
-// Language resolution middleware (after site context)
-app.UseLanguageContext();
-
-// Explicit routing after middleware so path rewriting works
 app.UseRouting();
 
 // Before authentication's use stamps, guest activity and handlers. A rejected write performs no DB work here.
@@ -474,10 +411,6 @@ app.UseMiddleware<WriteFreezeMiddleware>();
 //     real client here exactly as it was before — every per-IP partition key is unaffected.
 //   * ExceptionMiddleware now WRAPS the limiter instead of sitting under it; a throw from a policy
 //     factory becomes a handled 500 rather than an unhandled one.
-//   * SiteContext/Language must stay above UseRouting (they rewrite the path that routing matches),
-//     so a rejected request does pay for those two. Both are in-memory for this path — SiteContext
-//     skips /auth/ outright and the language middleware is string parsing — so a 429 still costs no
-//     database work.
 //   * GuestActivity is deliberately BELOW this line: it writes users.LastActiveAt, and a request
 //     the limiter rejected must not reach the database at all.
 // MCP connect keys resolve BEFORE the limiter on purpose: `highlight-write` is partitioned by
@@ -503,21 +436,9 @@ app.UsePathGates();
 
 app.MapAdminAuthEndpoints();
 app.MapAdminEndpoints();
-app.MapAdminAuthorsEndpoints();
-app.MapAdminGenresEndpoints();
-app.MapAdminSsgRebuildEndpoints();
-app.MapAdminAutoPublishEndpoints();
-app.MapAdminSeoBackfillEndpoints();
 app.MapAdminSettingsEndpoints();
 app.MapAdminDiagnosticsEndpoints();
-app.MapBooksEndpoints();
-app.MapSearchEndpoints();
-app.MapAuthorsEndpoints();
-app.MapGenresEndpoints();
-app.MapSiteEndpoints();
 app.MapAppConfigEndpoints();
-app.MapSeoEndpoints();
-app.MapSsgEndpoints();
 app.MapAuthEndpoints();
 app.MapDeviceAuthEndpoints();
 app.MapMcpManifestEndpoints();
@@ -535,56 +456,13 @@ app.MapUserBooksEndpoints();
 app.MapLibraryShelvesEndpoints();
 app.MapCollectionsEndpoints();
 app.MapReadingTrackingEndpoints();
-app.MapAdminBookQualityEndpoints();
 app.MapAdminAiQualityEndpoints();
 app.MapTutorEndpoints();
 app.MapVocabularyEndpoints();
 app.MapTtsEndpoints();
 app.MapInternalEndpoints();
-app.MapInternalSeoEndpoints();
 app.MapV2Endpoints();
 app.MapV2CompatEndpoints();
-
-// CLI: import-textstack command
-if (args.Length > 0 && args[0] == "import-textstack")
-{
-    if (args.Length < 2)
-    {
-        Console.WriteLine("Usage: dotnet run import-textstack <book-path>");
-        return;
-    }
-
-    var bookPath = args[1];
-    if (!Directory.Exists(bookPath))
-    {
-        Console.WriteLine($"Directory not found: {bookPath}");
-        return;
-    }
-
-    using var cliScope = app.Services.CreateScope();
-    var db = cliScope.ServiceProvider.GetRequiredService<IAppDbContext>();
-    var importService = cliScope.ServiceProvider.GetRequiredService<TextStackImportService>();
-
-    // Get "general" site
-    var site = await db.Sites.FirstOrDefaultAsync(s => s.Code == "general");
-    if (site == null)
-    {
-        Console.WriteLine("Site 'general' not found");
-        return;
-    }
-
-    Console.WriteLine($"Importing from: {bookPath}");
-    var result = await importService.ImportBookAsync(site.Id, bookPath, CancellationToken.None);
-
-    if (result.WasSkipped)
-        Console.WriteLine("Book already imported, skipped.");
-    else if (result.Error != null)
-        Console.WriteLine($"Error: {result.Error}");
-    else
-        Console.WriteLine($"Success! Edition: {result.EditionId}, Chapters: {result.ChapterCount}");
-
-    return;
-}
 
 // CLI: backfill-pdf-page-counts [--dry-run] — PDF-2: fill UserBook.PageCount for PDF uploads
 // ingested before it was stored, from the stored file's page tree. Per-book update; a failure
@@ -618,130 +496,6 @@ if (args.Length > 0 && args[0] == "backfill-pdf-page-counts")
             .ExecuteUpdateAsync(s => s.SetProperty(b => b.PageCount, pages)),
         Console.WriteLine);
     Console.WriteLine($"{(dryRun ? "DRY RUN — " : "")}{updated} updated, {failed} failed, of {books.Count}");
-    return;
-}
-
-// CLI: optimize-images command
-if (args.Length > 0 && args[0] == "optimize-images")
-{
-    var dryRun = args.Contains("--dry-run");
-    if (dryRun) Console.WriteLine("DRY RUN — no changes will be made\n");
-
-    using var cliScope = app.Services.CreateScope();
-    var db = cliScope.ServiceProvider.GetRequiredService<IAppDbContext>();
-    var storage = cliScope.ServiceProvider.GetRequiredService<IFileStorageService>();
-    var optimizer = cliScope.ServiceProvider.GetRequiredService<IImageOptimizer>();
-
-    int processed = 0, optimized = 0, skipped = 0, failed = 0;
-    long savedBytes = 0;
-
-    async Task OptimizeFile(string label, string filePath, string mimeType,
-        Func<string, string, Task> updateDb)
-    {
-        processed++;
-        try
-        {
-            var fullPath = storage.GetFullPath(filePath);
-            if (!File.Exists(fullPath))
-            {
-                Console.WriteLine($"[MISSING] {filePath}");
-                failed++;
-                return;
-            }
-
-            var data = await File.ReadAllBytesAsync(fullPath);
-            if (data.Length <= 200 * 1024)
-            {
-                Console.WriteLine($"[SKIP]      {filePath} ({data.Length / 1024}KB)");
-                skipped++;
-                return;
-            }
-
-            var result = await optimizer.OptimizeAsync(data, mimeType);
-
-            if (!dryRun)
-            {
-                // Save new file
-                var dir = Path.GetDirectoryName(filePath)!;
-                var newFileName = Path.GetFileNameWithoutExtension(filePath) + result.Extension;
-                var newRelPath = Path.Combine(dir, newFileName).Replace('\\', '/');
-
-                var newFullPath = storage.GetFullPath(newRelPath);
-                var newDir = Path.GetDirectoryName(newFullPath);
-                if (newDir != null && !Directory.Exists(newDir))
-                    Directory.CreateDirectory(newDir);
-
-                await File.WriteAllBytesAsync(newFullPath, result.Data);
-                await updateDb(newRelPath, result.MimeType);
-
-                // Delete old file if path changed
-                if (newRelPath != filePath && File.Exists(fullPath))
-                    File.Delete(fullPath);
-            }
-
-            savedBytes += data.Length - result.Data.Length;
-            Console.WriteLine($"[OPTIMIZED] {filePath} {data.Length / 1024}KB → {Path.GetFileNameWithoutExtension(filePath)}{result.Extension} {result.Data.Length / 1024}KB");
-            optimized++;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[FAILED]    {filePath} — {ex.Message}");
-            failed++;
-        }
-    }
-
-    // 1. Edition covers
-    Console.WriteLine("=== Edition Covers ===");
-    var editions = await db.Editions
-        .Where(e => e.CoverPath != null)
-        .ToListAsync();
-
-    foreach (var edition in editions)
-    {
-        var mime = edition.CoverPath!.EndsWith(".png") ? "image/png" : "image/jpeg";
-        await OptimizeFile("cover", edition.CoverPath!, mime, async (newPath, newMime) =>
-        {
-            edition.CoverPath = newPath;
-            edition.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(CancellationToken.None);
-        });
-    }
-
-    // 2. Inline images (BookAssets)
-    Console.WriteLine("\n=== Inline Images ===");
-    var assets = await db.BookAssets
-        .Where(a => a.Kind == AssetKind.InlineImage)
-        .ToListAsync();
-
-    foreach (var asset in assets)
-    {
-        await OptimizeFile("asset", asset.StoragePath, asset.ContentType, async (newPath, newMime) =>
-        {
-            asset.StoragePath = newPath;
-            asset.ContentType = newMime;
-            asset.ByteSize = new FileInfo(storage.GetFullPath(newPath)).Length;
-            await db.SaveChangesAsync(CancellationToken.None);
-        });
-    }
-
-    // 3. Author photos
-    Console.WriteLine("\n=== Author Photos ===");
-    var authors = await db.Authors
-        .Where(a => a.PhotoPath != null)
-        .ToListAsync();
-
-    foreach (var author in authors)
-    {
-        var mime = author.PhotoPath!.EndsWith(".png") ? "image/png" : "image/jpeg";
-        await OptimizeFile("photo", author.PhotoPath!, mime, async (newPath, newMime) =>
-        {
-            author.PhotoPath = newPath;
-            author.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(CancellationToken.None);
-        });
-    }
-
-    Console.WriteLine($"\nSummary: processed={processed}, optimized={optimized}, skipped={skipped}, failed={failed}, saved={savedBytes / 1024}KB");
     return;
 }
 

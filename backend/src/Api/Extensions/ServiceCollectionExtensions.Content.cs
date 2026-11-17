@@ -1,7 +1,5 @@
-using Api.Sites;
 using Application.Auth;
 using Application.Common.Interfaces;
-using Application.TextStack;
 using Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,8 +11,7 @@ namespace Api.Extensions;
 public static partial class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Content + product services: vocabulary SRS, image optimization, site
-    /// resolution, TextStack/Standard Ebooks import, user-book services, email,
+    /// Content + product services: vocabulary SRS, image optimization, user-book services, email,
     /// the shared HttpClient, and TTS (incl. its startup-cleanup hosted service).
     /// </summary>
     public static IServiceCollection AddTextStackContentServices(
@@ -35,18 +32,10 @@ public static partial class ServiceCollectionExtensions
         services.AddScoped<Application.Vocabulary.RetirementSweeper>();
         services.AddScoped<Application.Vocabulary.ClusterCandidateService>();
         services.AddScoped<Application.Vocabulary.ConceptClusteringService>();
-        services.AddScoped<Application.Seo.SeoJobProcessor>();
         services.AddScoped<Application.Admin.AdminService>();
 
         // Image optimization
         services.AddSingleton<IImageOptimizer, ImageOptimizer>();
-
-        // Site resolution
-        services.AddMemoryCache();
-        services.AddSingleton<ISiteResolver, SiteResolver>();
-
-        // TextStack import
-        services.AddScoped<TextStackImportService>();
 
         // User books
         services.AddScoped<Application.UserBooks.UserBookService>();
@@ -63,10 +52,6 @@ public static partial class ServiceCollectionExtensions
         // Chapter review (docs/internal/features/chapter-review.md)
         services.AddScoped<Application.ChapterReview.ChapterReviewService>();
         services.AddScoped<Application.ChapterReview.ReviewQuestionService>();
-
-        // Standard Ebooks sync
-        services.AddHttpClient<StandardEbooksSyncService>();
-        services.AddScoped<StandardEbooksSyncService>();
 
         // Email (Resend)
         services.Configure<EmailSettings>(options =>

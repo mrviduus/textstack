@@ -48,3 +48,10 @@ public record TocEntryDto(
     int Level,
     IReadOnlyList<TocEntryDto>? Children
 );
+
+public record BookAuthorDto(
+    Guid Id,
+    string Slug,
+    string Name,
+    string Role
+);

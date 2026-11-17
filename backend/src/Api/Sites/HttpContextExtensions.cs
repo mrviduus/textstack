@@ -1,15 +1,13 @@
+using Application.Common.Interfaces;
+
 namespace Api.Sites;
 
+/// <summary>
+/// The legacy /me handlers' site id: the single site (ADR-007), the same id the EF query filters key on.
+/// Goes with those handlers (M6 B2); the host lookup it replaced went in B1.
+/// </summary>
 public static class HttpContextExtensions
 {
-    public static SiteContext GetSiteContext(this HttpContext context)
-    {
-        return context.Items["SiteContext"] as SiteContext
-            ?? throw new InvalidOperationException("SiteContext not available. Ensure SiteContextMiddleware is registered.");
-    }
-
-    public static Guid GetSiteId(this HttpContext context)
-    {
-        return context.GetSiteContext().SiteId;
-    }
+    public static Guid GetSiteId(this HttpContext context) =>
+        context.RequestServices.GetRequiredService<ICurrentSite>().Id;
 }

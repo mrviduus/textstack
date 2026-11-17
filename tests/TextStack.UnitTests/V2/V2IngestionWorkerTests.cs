@@ -166,7 +166,7 @@ public sealed class V2IngestionWorkerTests : IDisposable
 
         Assert.False(await Service().ProcessNextAsync(Ct));
 
-        _jobs.Verify(j => j.FailExhaustedAsync(3, TimeSpan.FromMinutes(2), Application.Ingestion.IngestionService.ExceededAttemptsError, It.IsAny<CancellationToken>()));
+        _jobs.Verify(j => j.FailExhaustedAsync(3, TimeSpan.FromMinutes(2), Application.Ingestion.IngestionRetry.ExceededAttemptsError, It.IsAny<CancellationToken>()));
     }
 
     [Fact]
