@@ -1,5 +1,6 @@
 import { highlightsApi, type UpdateHighlightData } from '@textstack/shared'
 import { authFetch } from './client'
+import { refuseOnV2 } from './v2'
 
 // Bookmark types
 export interface PublicBookmark {
@@ -124,6 +125,7 @@ export async function getAllHighlights(params?: {
 }
 
 export async function getHighlightsForReview(limit = 10): Promise<HighlightReviewItem[]> {
+  await refuseOnV2('highlightReview')
   return authFetch<HighlightReviewItem[]>(`/me/highlights/review?limit=${limit}`)
 }
 

@@ -1,8 +1,10 @@
 import { authFetch } from './client'
+import { refuseOnV2 } from './v2'
 import type { AnswerReviewQuestionResponse, DueReviewQuestions, ReviewSelfAssessment } from '@textstack/shared'
 
 /** Chapter-review self-check questions — their own SRS queue (chapter-review.md §11). */
-export function getDueReviewQuestions(limit = 20): Promise<DueReviewQuestions> {
+export async function getDueReviewQuestions(limit = 20): Promise<DueReviewQuestions> {
+  await refuseOnV2('chapterReview')
   return authFetch<DueReviewQuestions>(`/me/review-questions/due?limit=${limit}`)
 }
 

@@ -9,9 +9,9 @@
 import { uuid } from 'expo-modules-core'
 import NetInfo from '@react-native-community/netinfo'
 import {
-  v2Api, ApiError, isOfflineError, V2_OFF, placeToV2Locator, createSha256, parsePdfPageLocator,
+  v2Api, ApiError, isOfflineError, V2_OFF, v2Offers, placeToV2Locator, createSha256, parsePdfPageLocator,
   ingestionStatus, shelfFileSummary, resumeChapterOf, createV2Books, uploadV2File, V2UploadError,
-  type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
+  type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch, type V2Feature,
   type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse, type V2ClientFormat,
 } from '@textstack/shared'
 
@@ -92,6 +92,24 @@ export const v2Enabled = () => known.enabled
 
 /** Every call site checks one thing: `if (await onV2()) …`. */
 export const onV2 = async () => (await startV2Probe()).enabled
+
+/**
+ * M5 (#1031): a feature V2 holds no data for (`V2_FEATURES`) never reaches its legacy route on V2
+ * (it answers 410 there): the call fails as that 410 would, before any request. The UI hides the entry too.
+ */
+export async function refuseOnV2(feature: V2Feature): Promise<void> {
+  if (!v2Offers(await startV2Probe(), feature)) throw new ApiError(410, `${feature}: not on V2`)
+}
+
+/** `call` behind `refuseOnV2(feature)`. */
+export const refusedOnV2 = <A extends unknown[], R>(feature: V2Feature, call: (...args: A) => Promise<R>) =>
+  async (...args: A): Promise<R> => { await refuseOnV2(feature); return call(...args) }
+
+/** `.catch(nullIfRefused)`: a refused read (`refuseOnV2`) is null; any other failure stays one. */
+export function nullIfRefused(e: unknown): null {
+  if (e instanceof ApiError && e.status === 410) return null
+  throw e
+}
 
 /** A call that is `legacy` with V2 off and `v2` with it on, decided per call (after the probe answers); it takes legacy's arguments. */
 export const switched = <A extends unknown[], V, L>(v2: (...args: NoInfer<A>) => Promise<V> | V, legacy: (...args: A) => Promise<L> | L) =>

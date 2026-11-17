@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native'
-import { Stack, router, useLocalSearchParams } from 'expo-router'
+import { Stack, router, useLocalSearchParams, type Href } from 'expo-router'
 import {
   createBooksApi, highlightsApi, insightDateLabel, nextChapterAfter, resolveReviewHighlights,
   type ChapterReviewBlock, type PublicHighlight,
@@ -9,6 +9,7 @@ import { userBooksApi } from '../src/lib/userBooksApi'
 import { useTheme } from '../src/context/ThemeContext'
 import { useLanguage } from '../src/context/LanguageContext'
 import { useAuth } from '../src/context/AuthContext'
+import { OffV2 } from '../src/components/OffV2'
 import { useBookReviews } from '../src/hooks/useBookReviews'
 import { ReviewChapterButton } from '../src/components/library/ReviewChapterButton'
 import { chapterReviewRoute, type ReviewBookRef } from '../src/lib/chapterReviewLaunch'
@@ -27,7 +28,14 @@ interface ReviewBook {
   chapters: { slug: string | null; title: string }[]
 }
 
-export default function ChapterReviewScreen() {
+/** M5 (#1031): no chapter review on V2 (#1345): back to the book. */
+export default function ChapterReviewRoute() {
+  const { userBookId, slug } = useLocalSearchParams<{ userBookId?: string; slug?: string }>()
+  const parent = userBookId ? `/my-books/${userBookId}` : slug ? `/book/${slug}` : '/(tabs)/library'
+  return <OffV2 feature="chapterReview" href={parent as Href}><ChapterReviewScreen /></OffV2>
+}
+
+function ChapterReviewScreen() {
   const { userBookId, editionId, slug, chapterSlug = '' } =
     useLocalSearchParams<{ userBookId?: string; editionId?: string; slug?: string; chapterSlug: string }>()
   const { colors } = useTheme()

@@ -81,6 +81,7 @@ function getLast7Days(dailyStats: VocabDailyStatDto[]) {
 export function VocabularyPage() {
   const { isAuthenticated } = useAuth()
   // V2 (#1025): no mode switch, cluster rounds or tutor (V2_FEATURES); the review hook forces the mode.
+  // M5 (#1031): no settings, pending, lookups or chapter questions either (no V2 storage).
   const v2 = useV2()
   const { getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
@@ -112,6 +113,10 @@ export function VocabularyPage() {
     return (REVIEW_BATCH_SIZES as readonly number[]).includes(saved) ? saved : DEFAULT_BATCH_SIZE
   })
 
+  // M5 (#1031): V2 turned on while a now-hidden tab was open: back to All (those tabs filter no stage).
+  const hiddenTab = (activeTab === 'pending' && !v2Offers(v2, 'pendingWords')) || (activeTab === 'lookups' && !v2Offers(v2, 'wordLookups'))
+  useEffect(() => { if (hiddenTab) setActiveTab('all') }, [hiddenTab])
+
   useEffect(() => {
     if (!isAuthenticated) return
     const tz = new Date().getTimezoneOffset()
@@ -139,7 +144,7 @@ export function VocabularyPage() {
         <div className="vocab-page">
           <h1>{t('vocabulary.title')}</h1>
           {/* No words yet can still mean chapter questions due. */}
-          {isAuthenticated && <ChapterQuestionsCard />}
+          {isAuthenticated && v2Offers(v2, 'chapterReview') && <ChapterQuestionsCard />}
           <EmptyState
             icon="📚"
             title={t('vocabulary.emptyPage.title')}
@@ -221,7 +226,11 @@ export function VocabularyPage() {
   }
 
   const dueCount = stats?.dueNow ?? 0
-  const totalWords = stats?.totalWords ?? 0
+  // M5 (#1031): no vocabulary stats on V2 (a stale legacy figure is never read): the current list counts, and
+  // practice / delete-all stay while a filter or search may be hiding words; hidden only on the unfiltered empty list.
+  const statsOffered = v2Offers(v2, 'vocabStats')
+  const totalWords = statsOffered ? (stats?.totalWords ?? 0) : total
+  const hasWords = statsOffered ? !!stats && totalWords > 0 : total > 0 || !!(filters.search || filters.stage)
 
   const bannerContent = () => {
     if (!stats) return null
@@ -262,7 +271,7 @@ export function VocabularyPage() {
       <div className="vocab-page">
         <div className="vocab-page__header">
           <h1>{t('vocabulary.title')}</h1>
-          {isAuthenticated && (
+          {isAuthenticated && v2Offers(v2, 'vocabSettings') && (
             <button
               type="button"
               className="vocab-settings-btn"
@@ -310,7 +319,7 @@ export function VocabularyPage() {
         )}
 
         {/* Start practice card (from Practice) */}
-        {isAuthenticated && stats && totalWords > 0 && (
+        {isAuthenticated && hasWords && (
           <div className="practice-page__card">
             <div className="practice-page__settings">
               {!v2.enabled && <div className="practice-page__setting">
@@ -363,7 +372,7 @@ export function VocabularyPage() {
         )}
 
         {/* Chapter-review questions — a separate queue from the words (chapter-review.md §11) */}
-        {isAuthenticated && <ChapterQuestionsCard />}
+        {isAuthenticated && v2Offers(v2, 'chapterReview') && <ChapterQuestionsCard />}
 
         {/* Weekly activity — area chart (from Practice) */}
         {isAuthenticated && stats && totalWords > 0 && dailyStats.length > 0 && (
@@ -416,7 +425,7 @@ export function VocabularyPage() {
         )}
 
         {/* Delete all */}
-        {stats && stats.totalWords > 0 && (
+        {hasWords && (
           <div className="vocab-delete-all-row">
             <button
               className={`vocab-delete-all ${confirmDeleteAll ? 'vocab-delete-all--confirming' : ''}`}
@@ -430,7 +439,10 @@ export function VocabularyPage() {
         {/* Filters */}
         <div className="vocab-filters">
           <div className="vocab-tabs" role="tablist">
-            {['all', 'new', 'learning', 'mastered', 'pending', 'lookups'].map(tab => (
+            {['all', 'new', 'learning', 'mastered',
+              ...(v2Offers(v2, 'pendingWords') ? ['pending'] : []),
+              ...(v2Offers(v2, 'wordLookups') ? ['lookups'] : []),
+            ].map(tab => (
               <button
                 key={tab}
                 role="tab"

@@ -17,6 +17,14 @@ import { isPdfPage } from './pdfPagePosition'
 
 export const STORE_VERSION = 1
 
+/**
+ * #1314: the `color` that makes an entry highlight, and the V2 annotation it is synced as, a bookmark (ADR-031
+ * "Amended 2026-11-15"): the first words at a place, never drawn. Not a highlight colour.
+ */
+export const BOOKMARK_COLOR = 'bookmark'
+/** An entry highlight or a V2 annotation that is a bookmark: every list of highlights leaves it out. */
+export const isBookmark = (h: { color?: string | null } | null | undefined): boolean => h?.color === BOOKMARK_COLOR
+
 export interface PageEntryBook { sha256: string; size: number; name?: string }
 
 export interface PageEntry {

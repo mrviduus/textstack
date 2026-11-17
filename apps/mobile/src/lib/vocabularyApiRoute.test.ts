@@ -7,6 +7,7 @@ let v2On = true
 vi.mock('./v2', () => ({
   switched: (v2: (...a: unknown[]) => unknown, legacy: (...a: unknown[]) => unknown) => async (...a: unknown[]) => (v2On ? v2(...a) : legacy(...a)),
   v2Book: async () => ({ currentFile: null }), v2Store: { cards: new Map() }, v2Epoch: () => 0,
+  refusedOnV2: (_feature: string, call: unknown) => call,
 }))
 const card = (id: string) => ({ id, word: 'pond', language: 'en', stage: 0, translation: null })
 vi.mock('@textstack/shared', () => ({

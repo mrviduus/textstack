@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
-import { insightsApi, insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
+import { insightsApi, insightChapterLabel, insightDateLabel, v2Offers, type BookInsight } from '@textstack/shared'
+import { useV2 } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { Ionicons } from '@expo/vector-icons'
@@ -41,6 +42,8 @@ interface Props {
 
 export function BookInsightsSection({ insights, onRemoved, userBookId, editionId, bookSlug }: Props) {
   const { colors } = useTheme()
+  // M5 (#1031): no chapter review on V2: no link to one.
+  const reviewOffered = v2Offers(useV2(), 'chapterReview')
   const { t } = useLanguage()
   // The id being removed, so the row cannot be double-tapped into two requests.
   const [removing, setRemoving] = useState<string | null>(null)
@@ -101,7 +104,7 @@ export function BookInsightsSection({ insights, onRemoved, userBookId, editionId
           ) : null}
 
           {/* A structured review has its own screen; the Markdown below is its fallback. */}
-          {insight.review && insight.chapterSlug && (userBookId || (editionId && bookSlug)) ? (
+          {reviewOffered && insight.review && insight.chapterSlug && (userBookId || (editionId && bookSlug)) ? (
             <TouchableOpacity
               accessibilityRole="link"
               onPress={() => router.push(chapterReviewRoute(

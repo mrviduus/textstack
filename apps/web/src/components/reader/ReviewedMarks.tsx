@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
-import type { ReviewedMark } from '@textstack/shared'
+import { v2Offers, type ReviewedMark } from '@textstack/shared'
+import { useV2 } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { LocalizedLink } from '../LocalizedLink'
 
@@ -29,15 +30,17 @@ export function isReviewed(marks: ReviewedMarks | null, highlightId: string): bo
 export function ReviewedRow({ highlightId }: { highlightId: string }) {
   const ctx = useReviewedMarks()
   const { t } = useTranslation()
+  // M5 (#1031): no chapter review on V2: no link to one.
+  const reviewOffered = v2Offers(useV2(), 'chapterReview')
   const mark = ctx?.marks.get(highlightId.toLowerCase())
   if (!ctx || !mark) return null
   return (
     <div className="reviewed-row" data-testid="reviewed-row">
       <div className="reviewed-row__title">✓ {t('chapterReview.reviewed')} · {mark.blockTitle}</div>
       <div className="reviewed-row__rule">★ {mark.rule}</div>
-      <LocalizedLink to={ctx.reviewPath(mark.chapterSlug)} className="reviewed-row__link">
+      {reviewOffered && <LocalizedLink to={ctx.reviewPath(mark.chapterSlug)} className="reviewed-row__link">
         {t('chapterReview.openReview')}
-      </LocalizedLink>
+      </LocalizedLink>}
     </div>
   )
 }

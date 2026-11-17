@@ -662,6 +662,12 @@
       "prevSection": "Previous section: {title}",
       "nextSection": "Next section: {title}",
       "bookmarks": "Bookmarks",
+      "bookmark": "Bookmark",
+      "removeBookmark": "Remove bookmark",
+      "bookmarksEmpty": "No bookmarks yet. Add one to come back to a place.",
+      "bookmarksNotHere": "No bookmarks yet. This page cannot be bookmarked.",
+      "bookmarksLoading": "Bookmarks are loading…",
+      "closeBookmarks": "Close bookmarks",
       "settings": "Reading settings",
       "closeSettings": "Close reading settings",
       "search": "Search in this book"

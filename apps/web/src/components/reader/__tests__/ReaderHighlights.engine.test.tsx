@@ -11,7 +11,7 @@ vi.mock('../../../hooks/useTranslation', () => ({ useTranslation: () => ({ t: (k
 vi.mock('../../../context/NativeLanguageContext', () => ({
   useNativeLanguage: () => ({ nativeLanguage: 'uk', setNativeLanguage: vi.fn(), hasConfirmedLanguage: true }),
 }))
-vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ openAuthModal: vi.fn() }) }))
+vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ openAuthModal: vi.fn() }), useV2: () => ({ enabled: false, maxPartBytes: 0 }) }))
 const addWord = vi.fn((..._a: unknown[]) => Promise.resolve({ outcome: 'saved' }))
 let vocabMap = new Map<string, { stage: number; translation?: string }>()
 vi.mock('../../../hooks/useReaderVocabulary', () => ({

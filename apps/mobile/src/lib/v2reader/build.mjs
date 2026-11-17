@@ -123,8 +123,13 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // `endsWithFile`; where the contents lead, found out after `opened`: `startChapters`, `refineChapterEnd`) and
 // `chapterText(request, tocIndex, section)` → `chapter-text` (an entry's text from the book's own section documents, the
 // same rule: `textBetween`, `fitText`, the 200 KB share cap; reader-engine `textNodes`).
+// +6,054 (#1314): bookmarks (bookmarks.mjs): `addBookmark()`, `removeBookmark(id)`, the `bookmark-list` message (the list, the
+// one on screen, whether one can be made here); kept in the entry as highlights of colour `bookmark`, never drawn.
+// +2,756 (#1314 review): `here` by the live layout (bookmarks.mjs `atTop`, `lineCount`), kept while the reader has not moved;
+// `can` only once bookmarks are placed (`restore(json, more)`); the list cached; `opened.bookmarkable`; reader-engine text helpers.
+// +459 (#1314 review 2): the bookmark label made for bookmarks only, never failing a restore; `bookmark-list.placing`.
 // +119 (#1069): stamp opens before the XHR and ignore superseded read success/failure callbacks.
-const BUDGET = 321745
+const BUDGET = 331014
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
