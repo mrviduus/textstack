@@ -8,7 +8,7 @@ namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>
 /// Dapper implementation of <see cref="IVocabularyRepository"/> on <c>textstack_v2</c>. The rules it
-/// leans on live in the schema (database/v2/migrations/0000_baseline.up.sql, "Vocabulary"): one card
+/// leans on live in the schema (database/migrations/0000_baseline.up.sql, "Vocabulary"): one card
 /// per <c>(user_id, language, word_key)</c>, tombstones included, so a retried save cannot make a
 /// second card; one example or review per <c>(user_id, operation_id)</c>; and composite FKs that keep
 /// every row on its own user's card, book and file. Split by concern: this file writes (cards,

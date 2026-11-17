@@ -1,20 +1,15 @@
 #!/bin/sh
 # roundtrip.sh — checks migrate.sh and every migration on throwaway databases (CI).
-# database/v2/tests/roundtrip.sh is a symlink to this file; a step whose files the folder does not
-# have skips itself, so each database is checked by everything that applies to it.
 #
-#   1. fresh database: up, up again (no-op), verify, and tests/invariants.sql where there is one
+#   1. fresh database: up, up again (no-op), verify, and tests/invariants.sql
 #   2. for each applied version, newest first: down to the version below it — the schema dumps the
 #      same as a fresh database built only up to that version — then up again, back to step 1's
 #      schema. One version deeper per pass, so a broken down file is not hidden by an older one
 #      that drops more. Nothing to do where the baseline is the only version
-#   3. a database EF Core built (its ledger from 0001's down file): refused while its history does
-#      not end at the baseline's last EF migration; then up records the baseline without running it
-#      and applies the rest
-#   4. an edited applied file fails verify and up; down refuses versions this copy does not contain
+#   3. an edited applied file fails verify and up; down refuses versions this copy does not contain
 #      (each refusal checked by its message, not only by a non-zero exit)
-#   5. run.sh (migrator-v2's entrypoint), where there is one: it creates its database and migrates
-#      it, a second up is a no-op, and status creates nothing
+#   4. run.sh (the migrator's entrypoint): it creates its database and migrates it, a second up is
+#      a no-op, and status creates nothing
 #
 # Connection: the libpq variables (PGHOST, PGUSER, PGPASSWORD, ...). PGDATABASE is only the
 # database the scratch ones are created from; it is not touched. Needs psql, pg_dump, createdb.
@@ -22,25 +17,20 @@
 # Stop on the first failed command and on any unset variable.
 set -eu
 
-# The folder this script checks (database/ or database/v2/), wherever it is run from.
+# The folder this script checks (database/), wherever it is run from.
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-# The database scratch ones are created from, and their names. The folder is part of the name: $$
-# is 1 inside a container, so the two folders' runs would otherwise share one set of databases.
+# The database scratch ones are created from, and their names.
 ADMIN=${PGDATABASE:-postgres}
-P=roundtrip_$(basename "$ROOT")_$$
+P=roundtrip_$$
 DB=$P
-EF=${P}_ef
 REF=${P}_ref
 RUN=${P}_run
-# Writable copies of database/: a partial one per pass of step 2, an edited one for step 4.
+# Writable copies of database/: a partial one per pass of step 2, an edited one for step 3.
 COPY=$(mktemp -d)
-# Only the legacy database was built by EF Core; 0001's down file is what holds its ledger.
-EF_LEDGER=$ROOT/migrations/0001_drop_ef_migrations_history.down.sql
 
 # Drop the scratch databases and the copy however the script ends.
 cleanup() {
     PGDATABASE=$ADMIN dropdb --if-exists "$DB"
-    PGDATABASE=$ADMIN dropdb --if-exists "$EF"
     PGDATABASE=$ADMIN dropdb --if-exists "$REF"
     PGDATABASE=$ADMIN dropdb --if-exists "$RUN"
     rm -rf "$COPY"
@@ -52,7 +42,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # The runner (or the copy's runner) against database $1.
 migrate() { db=$1; shift; PGDATABASE=$db sh "$ROOT/migrate.sh" "$@"; }
 # The schema of database $1 without the ledgers, for comparing two databases.
-dump() { pg_dump -d "$1" --schema-only --no-owner --no-privileges -T schema_migrations -T '"__EFMigrationsHistory"' | grep -v '^\\\(un\)\?restrict'; }
+dump() { pg_dump -d "$1" --schema-only --no-owner --no-privileges -T schema_migrations | grep -v '^\\\(un\)\?restrict'; }
 # The same, column order ignored (each CREATE TABLE's columns sorted, trailing commas cut). Only for
 # down vs a fresh build: a down file that re-adds a dropped column puts it last. Every other check
 # stays strict.
@@ -91,13 +81,9 @@ PGDATABASE=$ADMIN createdb "$DB"
 migrate "$DB" up
 expect "$DB" "Up to date." "a second up applied something"
 migrate "$DB" verify
-# ADR-031's schema rules, where the folder states them (database/v2/).
-if [ -f "$ROOT/tests/invariants.sql" ]; then
-    psql -X -v ON_ERROR_STOP=1 -d "$DB" -f "$ROOT/tests/invariants.sql"
-fi
+# ADR-031's schema rules.
+psql -X -v ON_ERROR_STOP=1 -d "$DB" -f "$ROOT/tests/invariants.sql"
 FIRST=$(dump "$DB")
-# 0001 drops EF Core's ledger; dump() leaves that table out, so check it here.
-[ "$(value "$DB" "SELECT to_regclass('public.\"__EFMigrationsHistory\"') IS NULL")" = t ] || fail "__EFMigrationsHistory survived up"
 
 echo "== 2. down one version deeper per pass, then up"
 ABOVE_BASELINE=$(value "$DB" 'SELECT version FROM schema_migrations WHERE version > 0 ORDER BY 1 DESC')
@@ -108,34 +94,12 @@ for v in $ABOVE_BASELINE; do
     migrate "$DB" down "$prev"
     [ "$(value "$DB" 'SELECT max(version) FROM schema_migrations')" = "$prev" ] || fail "down $prev left newer versions"
     [ "$(dump_cols "$DB")" = "$(dump_upto "$prev")" ] || fail "down $prev left a schema other than version $prev's"
-    # Below 0001 of the legacy database, its down file must have put EF Core's ledger back, all of it.
-    if [ "$prev" -lt 1 ] && [ -f "$EF_LEDGER" ]; then
-        [ "$(value "$DB" 'SELECT count(*) || max(migration_id) FROM "__EFMigrationsHistory"')" = "147$(sed -n 's/^EF_HEAD=//p' "$ROOT/migrate.sh")" ] \
-            || fail "0001 down did not restore the 147 EF history rows"
-    fi
     migrate "$DB" up
     [ "$(dump "$DB")" = "$FIRST" ] || fail "up after down $prev built a different schema"
 done
 
-if [ -f "$EF_LEDGER" ]; then
-echo "== 3. a database EF Core built"
-PGDATABASE=$ADMIN createdb "$EF"
-# The baseline's schema without the runner, as the 147 EF Core migrations left production.
-psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -f "$ROOT/migrations/0000_baseline.up.sql"
-# EF Core's ledger as production had it: 0001's down file holds its exact shape and rows.
-psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -f "$EF_LEDGER"
-# A history past the baseline's last EF migration is another schema: refused.
-psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c "INSERT INTO \"__EFMigrationsHistory\" VALUES ('20991231000000_Newer', '10.0.8')"
-refuses "$ROOT" "$EF" "EF Core history ends at" up
-psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c "DELETE FROM \"__EFMigrationsHistory\" WHERE migration_id = '20991231000000_Newer'"
-expect "$EF" "Bootstrap:" "up did not bootstrap from the EF history"
-[ "$(value "$EF" 'SELECT execution_ms FROM schema_migrations WHERE version = 0')" = 0 ] || fail "the baseline ran on an EF database"
-[ "$(dump "$EF")" = "$FIRST" ] || fail "the EF database did not end at the same schema"
-fi
-
-echo "== 4. edited files, unknown versions"
-# -L: database/v2/ reaches its runner by symlink, which would dangle in the copy.
-cp -RL "$ROOT/." "$COPY/edited"
+echo "== 3. edited files, unknown versions"
+cp -R "$ROOT/." "$COPY/edited"
 echo "-- edited" >> "$COPY/edited/migrations/0000_baseline.up.sql"
 refuses "$COPY/edited" "$DB" "CHANGED after it was applied: 0000_baseline.up.sql" verify
 refuses "$COPY/edited" "$DB" "checksum mismatch; nothing applied" up
@@ -143,18 +107,16 @@ refuses "$COPY/edited" "$DB" "checksum mismatch; nothing applied" up
 psql -X -q -d "$DB" -c "INSERT INTO schema_migrations (version, name, checksum, execution_ms) VALUES (9999, 'newer', 'x', 0)"
 refuses "$ROOT" "$DB" "versions this copy does not contain (9999" down 0
 
-# What the migrator-v2 container runs. migrate.sh never creates a database; run.sh does, and only
+# What the migrator container runs. migrate.sh never creates a database; run.sh does, and only
 # for the commands that write the schema.
-if [ -f "$ROOT/run.sh" ]; then
-    echo "== 5. run.sh creates its database and migrates it"
-    PGDATABASE=$RUN sh "$ROOT/run.sh" up
-    [ "$(dump "$RUN")" = "$FIRST" ] || fail "run.sh built a different schema"
-    out=$(PGDATABASE=$RUN sh "$ROOT/run.sh" up); echo "$out"
-    case $out in *"Up to date."*) ;; *) fail "a second run.sh up applied something" ;; esac
-    # status reports on a database; it must never be what makes one.
-    PGDATABASE=${RUN}_absent sh "$ROOT/run.sh" status > /dev/null 2>&1 || true
-    [ "$(value "$ADMIN" "SELECT count(*) FROM pg_database WHERE datname = '${RUN}_absent'")" = 0 ] \
-        || fail "run.sh status created a database"
-fi
+echo "== 4. run.sh creates its database and migrates it"
+PGDATABASE=$RUN sh "$ROOT/run.sh" up
+[ "$(dump "$RUN")" = "$FIRST" ] || fail "run.sh built a different schema"
+out=$(PGDATABASE=$RUN sh "$ROOT/run.sh" up); echo "$out"
+case $out in *"Up to date."*) ;; *) fail "a second run.sh up applied something" ;; esac
+# status reports on a database; it must never be what makes one.
+PGDATABASE=${RUN}_absent sh "$ROOT/run.sh" status > /dev/null 2>&1 || true
+[ "$(value "$ADMIN" "SELECT count(*) FROM pg_database WHERE datname = '${RUN}_absent'")" = 0 ] \
+    || fail "run.sh status created a database"
 
 echo "All round-trip checks passed."

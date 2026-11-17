@@ -6,7 +6,7 @@ End-to-end tests verify real user flows in a browser. We use [Playwright](https:
 
 ## Prerequisites
 
-1. **Docker services running** — `make migrate-v2`, then `make up` (API, DB, Worker; V2 mode)
+1. **Docker services running** — `make up` (API, DB, Worker; the migrator builds the database first)
 2. **Node deps installed** — `pnpm install` in repo root
 
 > Web dev server starts automatically via Playwright config (`reuseExistingServer: true` locally).

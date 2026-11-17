@@ -25,6 +25,8 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Only the database initdb creates on an empty volume (and the healthcheck's -d, which
+      # pg_isready does not need to exist). Nothing connects to it; the app's is V2_POSTGRES_DB.
       POSTGRES_DB: ${POSTGRES_DB}
     command:
       - "postgres"
@@ -62,37 +64,11 @@ services:
       context: .
       dockerfile: backend/Docker/Migrator.Dockerfile
     container_name: textstack_migrator_prod
-    # database/migrate.sh (ADR-026): psql reads the libpq variables. Rollback is a one-off with the
-    # target as an argument: `docker compose run --rm migrator down <version>` (make migrate-down).
-    environment:
-      PGHOST: db
-      PGPORT: "5432"
-      PGDATABASE: ${POSTGRES_DB}
-      PGUSER: ${POSTGRES_USER}
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: "no"
-
-  # textstack_v2 (ADR-030): the same image, its database/v2/ runner. run.sh creates the database
-  # if it is missing, then migrates it. `docker compose run --rm migrator-v2 down <version>`
-  # (make migrate-v2-down) rolls it back.
-  #
-  # Behind a profile, and nothing depends on it, ever. A migrator that cannot reach or create
-  # textstack_v2 is a V2 problem, not a reason for the site to be down — and on 2026-10-30 it was
-  # exactly that: `up -d` waited for this service, it exited 1, and api and worker never started
-  # (docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md). `compose run` and
-  # `compose up migrator-v2` enable the profile themselves, so `make migrate-v2*` is unaffected.
-  # The gate is the api's V2Readiness: a V2 schema that is behind answers 503 on /me/v2/* only (#1053).
-  migrator-v2:
-    profiles: ["v2"]
-    logging: *default-logging
-    # No build: it is the migrator's image, built by that service (one build, one cache scope).
-    image: ${IMAGE_REGISTRY:-textstack}-migrator:${IMAGE_TAG:-latest}
-    container_name: textstack_migrator_v2_prod
-    entrypoint: ["sh", "/database/v2/run.sh"]
-    command: ["up"]
+    # database/run.sh (ADR-026, ADR-030): creates textstack_v2 if it is missing (ICU, template0), then
+    # migrates it; psql reads the libpq variables. Rollback is a one-off with the target as an
+    # argument: `docker compose run --rm migrator down <version>` (make migrate-down).
+    # api and worker wait for it: the legacy database (POSTGRES_DB on an old server) is never touched,
+    # so dropping it cannot stop a deploy.
     environment:
       PGHOST: db
       PGPORT: "5432"
@@ -141,8 +117,7 @@ services:
       # keeps 50 (appsettings). CI lowers it so the cap is reachable in a test: proving that
       # promoting a parked lookup respects it takes `cap` real saves, and 50 is not testable.
       Entitlements__Tiers__Guest__DailyEnrichmentCap: ${GUEST_DAILY_ENRICHMENT_CAP:-50}
-      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      # textstack_v2 (ADR-030), the database migrator-v2 creates: the one the Api reads.
+      # textstack_v2 (ADR-030), the database the migrator creates: the one the Api reads.
       ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       # HTTP cutover barrier only. Stop/drain other writers before the final snapshot (M5).
       Maintenance__WriteFreeze: ${MAINTENANCE_WRITE_FREEZE:-false}
@@ -218,7 +193,6 @@ services:
     # worker. Do not scale or add a second worker container (see ADR-022).
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       # The V2 extraction loop, the V2 file sweeps and retention; a V2 database that is missing or
       # behind pauses the loop and nothing else (the 2026-10-30 rule).
       ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"

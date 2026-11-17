@@ -8,7 +8,7 @@ namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>
 /// Dapper implementation of <see cref="ILibraryRepository"/> on <c>textstack_v2</c>. The rules it
-/// leans on live in the schema (database/v2/migrations/0000_baseline.up.sql, "Library"): one current
+/// leans on live in the schema (database/migrations/0000_baseline.up.sql, "Library"): one current
 /// file per book (partial unique <c>ix_book_files_user_id_book_id</c>), and a file can only point at
 /// a book of its own user (<c>fk_book_files_books_user_id_book_id</c>). Split by concern: the reads
 /// here, the metadata and version writes in <c>.Writes.cs</c>, the stored bytes in <c>.Content.cs</c>.

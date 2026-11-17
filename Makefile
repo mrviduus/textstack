@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-v2 migrate-v2-down migrate-v2-status migrate-v2-drop migrator-guard backup restore backup-list backup-verify nginx-setup build rebuild fix-permissions test lint
+.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-drop migrator-guard backup restore backup-list backup-verify nginx-setup build rebuild fix-permissions test lint
 
 # ============================================================
 # Docker Services
@@ -31,7 +31,7 @@ status:
 	@curl -sf http://localhost:8080/health > /dev/null && echo "API: healthy" || echo "API: unhealthy"
 
 # ============================================================
-# Database schema (database/README.md, ADR-026)
+# Database schema: textstack_v2 (database/README.md, ADR-026, ADR-030)
 # ============================================================
 
 # This checkout's database/ is mounted over the image's copy, so a migration just written runs
@@ -46,7 +46,7 @@ migrator-guard:
 	head=$$(git rev-parse --short=12 HEAD); \
 	[ -z "$$rel" ] || [ "$$rel" = "$$head" ] || { \
 		echo "This checkout ($$head) is not the running release ($$rel)."; \
-		echo "Use the deployed image's files: docker compose run --rm migrator (or migrator-v2) <up|down N|status>"; exit 1; }
+		echo "Use the deployed image's files: docker compose run --rm migrator <up|down N|status>"; exit 1; }
 
 migrate: migrator-guard
 	$(MIGRATOR) up
@@ -59,24 +59,11 @@ migrate-down: migrator-guard
 migrate-status: migrator-guard
 	$(MIGRATOR) status
 
-# The same for textstack_v2 (database/v2/, ADR-030).
-MIGRATOR_V2 = docker compose run --rm -v "$(CURDIR)/database:/database:ro" migrator-v2
-
-migrate-v2: migrator-guard
-	$(MIGRATOR_V2) up
-
-migrate-v2-down: migrator-guard
-	@test -n "$(V)" || { echo 'usage: make migrate-v2-down V=<version>'; exit 1; }
-	$(MIGRATOR_V2) down $(V)
-
-migrate-v2-status: migrator-guard
-	$(MIGRATOR_V2) status
-
-# The baseline's rollback: 0000 has no down file, so `migrate-v2-down V=0` undoes nothing. Drops the
-# whole V2 database and its data; `make migrate-v2` builds it again. CONFIRM must name the database.
-migrate-v2-drop: migrator-guard
-	@test -n "$(CONFIRM)" || { echo 'usage: make migrate-v2-drop CONFIRM=<V2_POSTGRES_DB, default textstack_v2> (all its data is lost)'; exit 1; }
-	$(MIGRATOR_V2) drop $(CONFIRM)
+# The baseline's rollback: 0000 has no down file, so `migrate-down V=0` undoes nothing. Drops the
+# whole V2 database and its data; `make migrate` builds it again. CONFIRM must name the database.
+migrate-drop: migrator-guard
+	@test -n "$(CONFIRM)" || { echo 'usage: make migrate-drop CONFIRM=<V2_POSTGRES_DB, default textstack_v2> (all its data is lost)'; exit 1; }
+	$(MIGRATOR) drop $(CONFIRM)
 
 # ============================================================
 # Deployment
@@ -147,7 +134,7 @@ backup:
 
 # A V2 dump (textstack_v2-db_*.sql.gz, textstack_v2-db-*, textstack_v2-pre-deploy-*) into a V2
 # database that does not exist: a dump loaded over tables already there would half-apply. Drop it
-# first (migrate-v2-drop). Created by run.sh, as migrator-v2 creates it: ICU, from template0.
+# first (migrate-drop). Created by run.sh, as the migrator creates it: ICU, from template0.
 # bash: the load needs pipefail, which /bin/sh (dash) may not have.
 restore: SHELL := /bin/bash
 restore:
@@ -155,8 +142,8 @@ restore:
 	@# Before anything is created: a typo must not leave an empty V2 that then blocks the retry.
 	@test -f "$(FILE)" || { echo "No such file: $(FILE)"; exit 1; }
 	@. ./.env && v2=$$($(V2_EXISTS)) || exit 1; \
-	[ -z "$$v2" ] || { echo "$$v2 exists. Restore only into an absent one: make migrate-v2-drop CONFIRM=$$v2 first."; exit 1; }
-	$(MIGRATOR_V2) create
+	[ -z "$$v2" ] || { echo "$$v2 exists. Restore only into an absent one: make migrate-drop CONFIRM=$$v2 first."; exit 1; }
+	$(MIGRATOR) create
 	@set -o pipefail; . ./.env && gunzip -c $(FILE) | docker exec -i $(DB_CONTAINER) psql -X -q -v ON_ERROR_STOP=1 -U $$POSTGRES_USER -d $${V2_POSTGRES_DB:-textstack_v2}
 	@echo "Done."
 

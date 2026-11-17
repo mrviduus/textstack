@@ -8,7 +8,7 @@ namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>
 /// Dapper implementation of <see cref="IUserRepository"/> on <c>textstack_v2</c>. Uniqueness lives in
-/// the schema (database/v2/migrations/0000_baseline.up.sql, "Identity"): one account per
+/// the schema (database/migrations/0000_baseline.up.sql, "Identity"): one account per
 /// <c>lower(email)</c>, per Google subject and per Apple subject.
 /// </summary>
 public sealed class UserRepository(V2DataSource dataSource) : IUserRepository

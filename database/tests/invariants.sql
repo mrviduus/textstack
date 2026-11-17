@@ -1,11 +1,11 @@
 -- invariants.sql — ADR-031's schema rules, checked against a migrated textstack_v2. Read-only.
 --
---   psql -X -v ON_ERROR_STOP=1 -d <db> -f database/v2/tests/invariants.sql
+--   psql -X -v ON_ERROR_STOP=1 -d <db> -f database/tests/invariants.sql
 --
 -- Each block raises (non-zero exit) with the offending names. Adding or dropping a table means
 -- editing the expected set below, on purpose: it is ADR-031's table list.
 
--- The table set is exactly ADR-031's 24 + 2 transitional, plus the ETL's ledger (0003, dropped at M6.5).
+-- The table set is exactly ADR-031's 24 + 2 transitional (the ETL's ledger, 0003, dropped by 0007).
 DO $$
 DECLARE missing text; extra text;
 BEGIN
@@ -18,8 +18,7 @@ BEGIN
         ('vocabulary_words'), ('vocabulary_examples'), ('vocabulary_reviews'),
         ('shared_chapters'), ('discussion_checkpoints'), ('book_insight'), ('review_question'),
         ('llm_traces'), ('agent_run'), ('eval_runs'), ('admin_settings'),
-        ('book_chapters'), ('ingestion_jobs'),
-        ('migration_runs')),
+        ('book_chapters'), ('ingestion_jobs')),
     db(t) AS (SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations')
     SELECT (SELECT string_agg(t, ', ') FROM (SELECT t FROM adr EXCEPT SELECT t FROM db) m),
            (SELECT string_agg(t, ', ') FROM (SELECT t FROM db EXCEPT SELECT t FROM adr) e)
@@ -188,55 +187,5 @@ BEGIN
     IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'ck_user_refresh_tokens_kind'))
        IS DISTINCT FROM 'CHECK ((kind = ANY (ARRAY[''reader''::text, ''admin''::text])))' THEN
         RAISE EXCEPTION 'ck_user_refresh_tokens_kind is not kind IN (reader, admin)';
-    END IF;
-END $$;
-
--- Migration 0004: the etl-v2 ledger's rules, each CHECK by its exact definition. Transitional
--- (dropped at M6.5); a finished run has an outcome, 'interrupted' among them; a succeeded run
--- validated with 0 failures (a typed column, not jsonb); counts/validation are objects;
--- source_dump_sha is a SHA-256 hex digest; finished_at never precedes started_at.
-DO $$
-DECLARE bad text;
-BEGIN
-    IF obj_description('public.migration_runs'::regclass, 'pg_class') IS DISTINCT FROM
-       'Transitional. Dropped at M6.5 by a V2 migration, with the legacy database; see ADR-031. Ops module: one etl-v2 run (dry runs write none).' THEN
-        RAISE EXCEPTION 'migration_runs COMMENT is not 0004''s';
-    END IF;
-
-    SELECT string_agg(x.c, ', ') INTO bad FROM (VALUES
-        ('ck_migration_runs_outcome', 'CHECK ((outcome = ANY (ARRAY[''succeeded''::text, ''failed''::text, ''interrupted''::text])))'),
-        ('ck_migration_runs_finished', 'CHECK (((finished_at IS NULL) = (outcome IS NULL)))'),
-        ('ck_migration_runs_order', 'CHECK (((finished_at IS NULL) OR (finished_at >= started_at)))'),
-        ('ck_migration_runs_validation_failures', 'CHECK ((validation_failures >= 0))'),
-        ('ck_migration_runs_succeeded_validated', 'CHECK (((outcome IS DISTINCT FROM ''succeeded''::text) OR ((validation_failures = 0) IS TRUE)))'),
-        ('ck_migration_runs_validated_together', 'CHECK (((validation_failures IS NULL) = (validation IS NULL)))'),
-        ('ck_migration_runs_validated_finished', 'CHECK (((finished_at IS NOT NULL) OR (validation_failures IS NULL)))'),
-        ('ck_migration_runs_counts', 'CHECK ((jsonb_typeof(counts) = ''object''::text))'),
-        ('ck_migration_runs_validation', 'CHECK ((jsonb_typeof(validation) = ''object''::text))'),
-        ('ck_migration_runs_source_dump_sha', 'CHECK ((source_dump_sha ~ ''^[0-9a-f]{64}$''::text))')) x(c, def)
-    WHERE pg_get_constraintdef((SELECT oid FROM pg_constraint
-                                WHERE conname = x.c AND conrelid = 'public.migration_runs'::regclass)) IS DISTINCT FROM x.def;
-    IF bad IS NOT NULL THEN RAISE EXCEPTION 'migration_runs CHECKs missing or not as defined: %', bad; END IF;
-
-    -- Columns: type, nullability, the server-side start stamp, and the two column COMMENTs.
-    SELECT string_agg(x.c, ', ') INTO bad FROM (VALUES
-        ('id', 'uuid', 'NO'), ('started_at', 'timestamp with time zone', 'NO'),
-        ('finished_at', 'timestamp with time zone', 'YES'), ('outcome', 'text', 'YES'),
-        ('source_dump_sha', 'text', 'YES'), ('counts', 'jsonb', 'NO'), ('validation', 'jsonb', 'YES'),
-        ('validation_failures', 'integer', 'YES')) x(c, t, n)
-    WHERE NOT EXISTS (SELECT FROM information_schema.columns
-                      WHERE table_schema = 'public' AND table_name = 'migration_runs'
-                        AND column_name = x.c AND data_type = x.t AND is_nullable = x.n);
-    IF bad IS NOT NULL THEN RAISE EXCEPTION 'migration_runs columns missing or of the wrong type/nullability: %', bad; END IF;
-
-    IF (SELECT column_default FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'migration_runs' AND column_name = 'started_at') IS DISTINCT FROM 'clock_timestamp()' THEN
-        RAISE EXCEPTION 'migration_runs.started_at does not default to the server''s clock_timestamp()';
-    END IF;
-
-    IF (SELECT col_description(attrelid, attnum) FROM pg_attribute WHERE attrelid = 'public.migration_runs'::regclass AND attname = 'source_dump_sha') IS NULL
-       OR (SELECT col_description(attrelid, attnum) FROM pg_attribute
-           WHERE attrelid = 'public.migration_runs'::regclass AND attname = 'validation_failures') IS NULL THEN
-        RAISE EXCEPTION 'migration_runs column COMMENTs missing (source_dump_sha, validation_failures)';
     END IF;
 END $$;

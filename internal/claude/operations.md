@@ -10,7 +10,7 @@ Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context s
 - **Pins**: every action by commit SHA (`# vX.Y`), every pulled image `tag@sha256:…`; Dependabot moves them. Every workflow has a read-only/none top-level `permissions:`; widen per job only
 - **backup.yml** — daily at 3 AM UTC. `textstack_v2` dump (fatal if absent or incomplete; legacy is archived, no longer dumped) + storage tar.gz, keeps 2 newest of each; R2 off-site (`/db_v2.sql`, `/backup` = `data/storage` + `data/library` + `.env`). The deploy's pre-deploy dump is V2 too, and fatal. `make backup` dumps V2; `make restore FILE=` = V2 into an absent database. `restore-drill.yml` (monthly) restores V2 from R2, row-counts its migrated tables (`users`, `books`, `book_files`, `annotations` non-empty) and checks book files exist in the restored library. Details: `internal/ops/backup.md`, `database/v2/README.md`
 - **health-check.yml** — every 5 min. Checks API + both frontends; `/health/ready`'s `v2` component must be `ok` unless it says `off` (flag off)
-- **V2 rollback**: `make migrate-v2-drop CONFIRM=textstack_v2` drops the database (the baseline has no down file)
+- **V2 rollback**: `make migrate-drop CONFIRM=textstack_v2` drops the database (the baseline has no down file)
 
 ## Deployment
 

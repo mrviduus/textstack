@@ -14,13 +14,13 @@ In this lesson you start the backend, create its database and start the web app.
 
    You should see: `Container textstack_api_prod  Healthy` near the end.
 
-2. **Create the V2 database.** `make up` does not do this.
+2. **Check the V2 database.** `make up` already created and migrated it; this runs the migrator again.
 
    ```bash
-   make migrate-v2
+   make migrate
    ```
 
-   You should see: a list of `up: …` lines, then `Done.`
+   You should see: `Up to date.`
 
 3. **Check the backend.** Wait 30 seconds, then:
 
@@ -44,7 +44,7 @@ In this lesson you start the backend, create its database and start the web app.
 - **`make up` fails with `port is already allocated`.** Another program uses port 8080 or 81.
   Stop that program, then run `make up` again.
 - **Step 3 shows `"v2":{"status":"unreachable"}`.** The V2 database does not exist yet, or the
-  backend has not looked again. It looks every 30 seconds. Run `make migrate-v2`, wait 30 seconds,
+  backend has not looked again. It looks every 30 seconds. Run `make migrate`, wait 30 seconds,
   check again.
 
 ## Check yourself

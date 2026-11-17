@@ -1,7 +1,5 @@
 #!/bin/sh
 # migrate.sh — applies the SQL files in migrations/ next to it with psql. See database/README.md.
-# database/v2/migrate.sh is a symlink to this file: one runner, two databases (ADR-030). The EF
-# bootstrap below only ever fires on the legacy database, which is the only one EF Core built.
 #
 #   migrate.sh up              apply every pending NNNN_<name>.up.sql, oldest first
 #   migrate.sh down <version>  revert applied versions above <version>, newest first (.down.sql)
@@ -34,9 +32,6 @@ words() { printf '%s' "$1" | tr '\n' ' '; }
 # The .up.sql (or, with "down", .down.sql) file of a version, or nothing when it has none.
 file_of() { set -- "$DIR/$(printf '%04d' "$1")"_*."${2:-up}".sql; [ -e "$1" ] && echo "$1" || true; }
 
-# The last EF Core migration production applied; the baseline is the schema it left (bootstrap).
-EF_HEAD=20261024202404_TranslateRegistryOnGpt41Mini
-
 # Every file must be NNNN_<snake_case>.up.sql or .down.sql: versions are read from the prefix (here
 # and in the Api's /health/ready), so anything else would be misread.
 for f in "$DIR"/*; do
@@ -64,22 +59,13 @@ ledger() {
 versions() { printf '%s\n' "$1" | cut -d'|' -f1 | grep . || true; }
 # Lines of list $1 that are not lines of list $2.
 minus() { for x in $1; do printf '%s\n' "$2" | grep -qx "$x" || echo "$x"; done; }
-# "t" when the database was built by EF Core and has no ledger yet: up will bootstrap.
-ef_only() { q -At -c "SELECT to_regclass('public.schema_migrations') IS NULL AND to_regclass('public.\"__EFMigrationsHistory\"') IS NOT NULL"; }
 
-# Create the ledger on first use; on a database EF Core migrated, record the baseline as applied.
+# Create the ledger on first use.
 init() {
-    # The baseline stands for exactly the EF history production has. A database stopped short of
-    # it (or past it) has another schema, and recording the baseline would hide that.
-    if [ "$(ef_only)" = t ]; then
-        head=$(q -At -c 'SELECT max(migration_id) FROM public."__EFMigrationsHistory"')
-        [ "$head" = "$EF_HEAD" ] || die "EF Core history ends at '$head', the baseline at '$EF_HEAD'; a copy of this schema cannot be bootstrapped: restore a production backup, or start from an empty database"
-    fi
     # One transaction; the lock makes a second runner wait here instead of racing the CREATE.
-    q --single-transaction -v sum="$(checksum "$DIR/0000_baseline.up.sql")" -f - <<'SQL'
+    q --single-transaction -f - <<'SQL'
 SELECT pg_advisory_xact_lock(hashtext('schema_migrations')) AS locked \gset
-SELECT to_regclass('public.schema_migrations') IS NULL AS no_ledger,
-       to_regclass('public."__EFMigrationsHistory"') IS NOT NULL AS from_ef \gset
+SELECT to_regclass('public.schema_migrations') IS NULL AS no_ledger \gset
 \if :no_ledger
 CREATE TABLE public.schema_migrations (
     version      integer     PRIMARY KEY,           -- the NNNN of the file name
@@ -88,12 +74,6 @@ CREATE TABLE public.schema_migrations (
     applied_at   timestamptz NOT NULL DEFAULT now(),
     execution_ms integer     NOT NULL               -- how long the up file took
 );
-\if :from_ef
--- Production before this runner: 147 EF Core migrations built exactly what the baseline builds.
-INSERT INTO public.schema_migrations (version, name, checksum, execution_ms)
-VALUES (0, 'baseline', :'sum', 0);
-\echo 'Bootstrap: EF Core history found; recorded 0000_baseline as applied without running it.'
-\endif
 \endif
 SQL
 }
@@ -180,8 +160,6 @@ status)
     L=$(ledger) || exit 1; APPLIED=$(versions "$L")
     if [ -n "$APPLIED" ]; then
         q -c "SELECT version, name, applied_at, execution_ms FROM public.schema_migrations ORDER BY 1"
-    elif [ "$(ef_only)" = t ]; then
-        echo "No ledger; EF Core history found: up will record 0000_baseline as applied without running it."
     else
         echo "No ledger yet (or it is empty): migrate.sh up creates it."
     fi

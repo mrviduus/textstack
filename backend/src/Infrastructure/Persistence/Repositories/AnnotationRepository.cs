@@ -8,7 +8,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// <summary>
 /// Dapper implementation of <see cref="IAnnotationRepository"/> on <c>textstack_v2</c>, with the same
 /// optimistic concurrency as <see cref="ReadingStateRepository"/>: a write names the revision it read,
-/// and the statement itself checks it. The schema holds the rest (database/v2/migrations/0000_baseline.up.sql,
+/// and the statement itself checks it. The schema holds the rest (database/migrations/0000_baseline.up.sql,
 /// "Annotations"): a locator needs a file (<c>ck_annotations_locator_file</c>), and the book and file
 /// must be the user's (<c>fk_annotations_books_user_id_book_id</c>, and the deferred
 /// <c>fk_annotations_book_files_user_id_book_id_file_id</c>).

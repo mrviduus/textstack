@@ -18,7 +18,7 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF → parse → SEO pages
 
 The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](docs/architecture/adr/ADR-030-two-databases-one-cutover.md), plan [`docs/internal/v2/v2-plan.md`](docs/internal/v2/v2-plan.md), umbrella #1013). The public SEO catalog retires at the end (#992 decision; M6).
 
-- **`textstack_v2`** is the database Api and Worker read (`ConnectionStrings:V2`): own SQL ledger (`make migrate-v2`), Dapper repositories, `/me/v2/*` endpoints. The legacy database is read-only and archived until M6's drop; no code reads it (EF Core went at M6 B3).
+- **`textstack_v2`** is the database Api and Worker read (`ConnectionStrings:V2`): own SQL ledger (`database/`, `make migrate`), Dapper repositories, `/me/v2/*` endpoints. The legacy database is read-only and archived until M6's drop; no code reads it (EF Core went at M6 B3).
 - **V2 reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android dev route (`__DEV__`) and web `/dev/reader-v2` (dev server only) and `/:lang/library/my/:id/read-v2` (always on). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script, asserted on build; nginx locations in `textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. The only reader (the old engine package was deleted at M6, ADR-025 superseded).
 - **Work runs in waves**: kickoff files `.claude/wave-<N>-prompt.md` (pipeline, quality bar, standing rules); current state in [`docs/STATUS.md`](docs/STATUS.md) and #1013 checkboxes. Locator schemes and roles: ADR-031.
 - **Keep the V2 status true, until M6 is done** (owner, 2026-11-14). Three places, one picture:
@@ -49,7 +49,6 @@ cp .env.example .env          # Edit with real values
 make nginx-setup              # Install nginx config (Linux)
 make nginx-setup-mac          # Mac
 make fix-permissions          # Create data/library etc. owned by uid 1000 (else V2 uploads fail)
-make migrate-v2               # Create + migrate textstack_v2 (V2 mode is the default; the api reads it)
 make up                       # Start services
 
 # Docker
@@ -69,7 +68,7 @@ make fix-permissions          # Fix volume permissions
 make backup                   # Backup to ~/backups/textstack/
 make backup-list              # List all backups
 make restore FILE=path.gz     # Restore from backup
-docker compose exec db sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"'   # DB shell (user/db come from .env; prod's user is not `app`)
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" textstack_v2'   # DB shell (user from .env; prod's user is not `app`)
 docker compose down -v                      # Reset all (loses data)
 
 # Tests
@@ -102,10 +101,11 @@ pnpm -C apps/admin dev        # http://localhost:81
 pnpm -C apps/web build
 pnpm -C apps/admin build
 
-# Migrations: plain SQL in database/ (database/README.md, ADR-026). New change = NNNN_<name>.up.sql + .down.sql
-make migrate                  # migrator up, with this checkout's database/ mounted (no rebuild needed)
+# Migrations: plain SQL in database/ for textstack_v2 (database/README.md, ADR-026). New change = NNNN_<name>.up.sql + .down.sql
+make migrate                  # migrator up (creates textstack_v2 if missing), this checkout's database/ mounted; `make up` runs it too
 make migrate-status           # applied / pending / unknown versions
 make migrate-down V=<n>       # revert versions above n — schema first, then the code
+make migrate-drop CONFIRM=textstack_v2   # the baseline's rollback: drops the database
 # Only the migrator migrates (ADR-021); the Api never does. Behind schema → /health/ready 503
 
 # Mobile app (apps/mobile)
@@ -197,7 +197,7 @@ tests/
 ├── TextStack.UnitTests/           # Pure logic, no DB
 ├── TextStack.IntegrationTests/    # API tests against running server (LiveApiFixture → localhost:8080, override via API_URL env)
 ├── TextStack.Extraction.Tests/    # Book parsing (EPUB/PDF)
-├── TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres built by database/migrate.sh (ADR-028)
+├── TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres built by database/run.sh (ADR-028)
 ├── TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
 ├── TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)
 apps/web/e2e/                      # Playwright E2E (chromium, mobile, admin projects)
@@ -211,7 +211,6 @@ Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 **Running the integration suite locally**: it trips its own rate limits at production values — a dozen classes seed a book by clipping one, and the GDPR-delete class calls account-delete four times. CI raises the knobs; do the same locally or you will read 429s as failures:
 
 ```bash
-make migrate-v2               # once: the textstack_v2 database the V2 classes (tests/…/V2) need
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
   USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 MCP_KEYS_PERMIT_LIMIT=100 \
   docker compose up -d --no-deps --force-recreate api

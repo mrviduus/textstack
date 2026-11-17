@@ -20,7 +20,7 @@ namespace TextStack.Persistence.Tests;
 
 /// <summary>
 /// One throwaway Postgres holding <c>textstack_v2</c> for the whole assembly (each test makes its own
-/// users), built the way production's is: <c>database/v2/run.sh up</c> creates the database from the
+/// users), built the way production's is: <c>database/run.sh up</c> creates the database from the
 /// maintenance database, then migrates it (ADR-030). Same image as production and CI (pgvector on pg16).
 /// Needs Docker.
 /// </summary>
@@ -56,9 +56,9 @@ public sealed class V2PostgresFixture : IAsyncLifetime, Identity.IIdentityFixtur
     internal static string RepoRoot()
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, "database", "v2", "run.sh")))
+            if (File.Exists(Path.Combine(dir.FullName, "database", "run.sh")))
                 return dir.FullName;
-        throw new InvalidOperationException("database/v2/run.sh not found above " + AppContext.BaseDirectory);
+        throw new InvalidOperationException("database/run.sh not found above " + AppContext.BaseDirectory);
     }
 
     /// <summary>A fresh V2 user (a guest when <paramref name="isGuest"/>); its email is unique, as <c>ix_users_email</c> requires.</summary>

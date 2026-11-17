@@ -134,7 +134,7 @@ jobs:
             exit 0
           fi
           status=$(printf '%s' "$v2" | jq -r '.status')
-          [ "$status" = ok ] || { echo "::error::textstack_v2 is $status ($v2): /me/v2 answers 503. On the server: make migrate-v2-status (ADR-030, #1053)."; exit 1; }
+          [ "$status" = ok ] || { echo "::error::textstack_v2 is $status ($v2): /me/v2 answers 503. On the server: make migrate-status (ADR-030, #1053)."; exit 1; }
           echo "v2 ok"
           # The library volume (#1110): an unwritable one fails every upload. No component = not redeployed.
           library=$(jq -c '.components.library // empty' "$RUNNER_TEMP/ready.json")
