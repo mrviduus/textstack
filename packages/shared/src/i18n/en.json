@@ -3,8 +3,7 @@
     "title": "Smart session",
     "planning": "Your tutor is planning your session…",
     "entry": {
-      "cta": "Smart session",
-      "hint": "Let your AI tutor plan what to study and explain why"
+      "cta": "Smart session"
     },
     "plan": {
       "rationaleLabel": "Here's your plan, and why",
@@ -70,7 +69,6 @@
     "retry": "Try again"
   },
   "nav": {
-    "catalog": "Catalog",
     "library": "Library",
     "vocabulary": "Vocabulary",
     "about": "About",
@@ -169,11 +167,9 @@
     "title": "My Library",
     "signInPrompt": "Sign in to save books to your library and track your reading progress.",
     "loading": "Loading...",
-    "emptyLibrary": "Your library is empty.",
     "browseBooks": "Browse Books",
     "readingProgress": "Reading Progress",
     "lastRead": "Last read",
-    "read": "read",
     "insights": {
       "title": "What you've worked out",
       "lead": "Conclusions your assistant wrote back into this book. Read these instead of re-reading the book.",
@@ -200,31 +196,8 @@
       "tags": "Tags",
       "collections": "Collections",
       "allTags": "All tags →",
-      "newCollection": "+ New collection",
       "open": "Open filters",
       "close": "Close filters"
-    },
-    "shelves": {
-      "continueReading": {
-        "title": "Continue reading",
-        "subtitle": "Pick up where you left off"
-      },
-      "recentlyAdded": {
-        "title": "Recently added",
-        "subtitle": "New in your library"
-      },
-      "quickReads": {
-        "title": "Quick reads",
-        "subtitle": "Under an hour to finish"
-      },
-      "finishedThisMonth": {
-        "title": "Finished this month",
-        "subtitle": "Recent wins"
-      },
-      "empty": {
-        "title": "Your library is empty",
-        "browseCatalog": "Browse catalog"
-      }
     },
     "badge": {
       "processing": "Processing…",
@@ -263,11 +236,8 @@
       "viewDetails": "View details",
       "markFinished": "Mark as finished",
       "markUnfinished": "Mark as unfinished",
-      "editMetadata": "Edit metadata",
       "retry": "Re-process",
-      "retrying": "Retrying…",
       "cancel": "Cancel",
-      "cancelling": "Cancelling…",
       "removeFromLibrary": "Remove from library",
       "removeFromLibraryConfirmTitle": "Remove from library?",
       "removeFromLibraryConfirmBodyOne": "It will also leave the collection it is in.",
@@ -285,8 +255,6 @@
       "confirmDeleteCancel": "Keep"
     },
     "collections": {
-      "aria": "Collections",
-      "all": "All books",
       "new": "+ New collection",
       "newPlaceholder": "Collection name…",
       "add": "Add"
@@ -351,94 +319,12 @@
     "uploadFile": "Upload file",
     "browseAll": "Browse all books"
   },
-  "books": {
-    "title": "Books",
-    "noBooksYet": "No books available yet.",
-    "unknown": "Unknown",
-    "chapters": "chapters",
-    "readOnline": "Read {title} online",
-    "readOnlineFree": "{title} - Read online free",
-    "previous": "← Previous",
-    "next": "Next →",
-    "page": "Page {page} of {total}",
-    "searchPlaceholder": "Search books or authors...",
-    "sortRecent": "Recent",
-    "sortTitle": "Title",
-    "sortOldest": "Oldest",
-    "allCategories": "All",
-    "noResults": "No books found.",
-    "clearFilters": "Clear filters"
-  },
-  "authors": {
-    "title": "Authors",
-    "searchPlaceholder": "Search authors...",
-    "sortName": "Name",
-    "sortRecent": "Recent",
-    "noResults": "No authors found.",
-    "noAuthorsYet": "No authors available yet.",
-    "books": "books",
-    "viewBio": "{name} - View biography",
-    "bioAndBooks": "{name} - Biography and books"
-  },
-  "bookDetail": {
-    "notFound": "Book Not Found",
-    "notFoundDesc": "This book doesn't exist or is not available.",
-    "notFoundHeading": "Book not found",
-    "notFoundError": "Not found",
-    "backToHome": "Back to Home",
-    "readOnlineFree": "{title} - Read online free",
-    "viewBiography": "{name} - View biography",
-    "whatIsAbout": "What is {title} about?",
-    "startReading": "Start Reading",
-    "continueReading": "Continue Reading",
-    "startReadingTitle": "Start reading {title}",
-    "downloading": "Downloading {progress}%...",
-    "availableOffline": "Available offline",
-    "downloadForOffline": "Download for offline",
-    "readChapter": "Read {title}",
-    "words": "words",
-    "viewAllChapters": "View all {count} chapters",
-    "mainThemes": "Main themes in {title}",
-    "whyRelevant": "Why {title} is still relevant today",
-    "aboutAuthor": "About the author",
-    "faq": "Frequently Asked Questions",
-    "otherEditions": "Other Editions",
-    "readInLang": "Read {title} in {lang}",
-    "browseAll": "Browse all books",
-    "backToBooks": "Back to Books",
-    "faqWhoWrote": "Who wrote {title}?",
-    "faqWhoWroteAnswer": "{title} was written by {author}.",
-    "faqChapters": "How many chapters are in {title}?",
-    "faqChaptersAnswer": "{title} contains {count} chapters.",
-    "faqReadingTime": "How long does it take to read {title}?",
-    "faqReadingTimeAnswer": "The estimated reading time for {title} is {time}.",
-    "faqPublished": "When was {title} published?",
-    "faqPublishedAnswer": "{title} was first published in {year}.",
-    "faqFree": "Can I read {title} for free?",
-    "faqLanguages": "Is {title} available in other languages?",
-    "relevanceText": "{title} by {author} remains relevant today because it explores {themes} that transcend time and culture. Its insights into human nature continue to resonate with modern readers.",
-    "aboutFallback": "{title} is a renowned work by {author}. This literary classic continues to captivate readers with its compelling narrative and timeless themes.",
-    "readingTimeMinutes": "{minutes} minutes",
-    "readingTimeHour": "1 hour",
-    "readingTimeHours": "{hours} hours",
-    "readingTimeUnknown": "Unknown"
-  },
   "search": {
-    "title": "Search",
-    "enterQuery": "Enter a search query",
     "noResults": "No results found",
-    "chapter": "Chapter",
-    "readOnline": "Read {title} online",
-    "readOnlineFree": "{title} - Read online free",
-    "previous": "← Previous",
-    "next": "Next →",
-    "page": "Page {page} of {total}",
-    "moreChapters": "+{count} more chapters",
     "hideChapters": "Hide chapters",
     "recentSearches": "Recent searches",
     "clearAll": "Clear all",
     "searchPlaceholder": "Search books...",
-    "foundEditions": "Found {total} books",
     "offline": {
       "catalog": "You're offline — the catalog needs a connection. Your downloaded books are in Library.",
       "title": "You're offline",
@@ -512,38 +398,6 @@
   "stats": {
     "title": "Reading Stats",
     "signInPrompt": "Sign in to track your reading and unlock achievements.",
-    "totalTime": "Total Time",
-    "booksFinished": "Books Finished",
-    "currentStreak": "Current Streak",
-    "dailyGoal": "Daily Goal",
-    "goalMet": "Goal met!",
-    "weeklyChart": "This Week",
-    "achievements": "Achievements",
-    "dailyMinutesTarget": "Daily minutes target",
-    "streakThreshold": "Min minutes for streak",
-    "saveGoal": "Save",
-    "details": "Details",
-    "longestStreak": "Longest Streak",
-    "avgWpm": "Avg Words/Min",
-    "thisWeek": "This Week",
-    "thisMonth": "This Month",
-    "days": "days",
-    "allTime": "All Time",
-    "streaks": "Streaks",
-    "genres": "Genres",
-    "authors": "Most Read Authors",
-    "pace": "Pace",
-    "languages": "Languages",
-    "booksOverTime": "Books Over Time",
-    "bookLength": "Book Length",
-    "books": "Books",
-    "pages": "Pages",
-    "hours": "Hours",
-    "totalPages": "Total Pages",
-    "avgTimeToFinish": "Avg Days to Finish",
-    "readingTimeByGenre": "Reading Time by Genre",
-    "readingTimeByAuthor": "Reading Time by Author",
-    "noData": "No data yet",
     "emptyTitle": "No reading stats yet",
     "emptySubtitle": "Start reading a book to track your progress",
     "noBookStats": "No book stats yet"
@@ -837,8 +691,6 @@
     "title": "Vocabulary",
     "signInPrompt": "Sign in to build your personal vocabulary list.",
     "empty": "No words saved yet. Select words while reading to add them.",
-    "totalWords": "Total words",
-    "mastered": "Mastered",
     "dueDate": "Due",
     "editTranslation": "Edit translation",
     "filters": {
@@ -853,15 +705,10 @@
     "review": {
       "correct": "Correct!",
       "wrong": "Not quite",
-      "correctAnswer": "Correct answer",
       "next": "Next",
       "reviewed": "Reviewed",
       "correctRate": "Correct rate",
-      "fromBook": "from \"{title}\"",
       "backToVocab": "Back to Vocabulary"
-    },
-    "stats": {
-      "streak": "Review streak"
     },
     "weeklyBudget": {
       "label": "This week",
@@ -993,22 +840,6 @@
       "signIn": "Sign in to see your chapter reviews."
     },
     "openReview": "Open review →",
-    "questions": {
-      "title": "Chapter questions",
-      "due": "{{count}} due",
-      "start": "Start",
-      "showAnswer": "Show answer",
-      "forgot": "Forgot",
-      "almost": "Almost",
-      "knew": "Knew",
-      "doneTitle": "Done for now",
-      "doneLead": "You answered {{count}}. Each comes back when it's due.",
-      "empty": "No chapter questions due right now.",
-      "back": "Back to Practice",
-      "loadFailed": "Couldn't load your questions.",
-      "answerFailed": "Couldn't save that answer. Try again.",
-      "signIn": "Sign in to practice your chapter questions."
-    },
     "discussChapter": "Discuss this chapter"
   },
   "updates": {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isReviewableChapter, reviewedHighlightMarks } from './chapterReviewUi'
+import { isReviewableChapter } from './chapterReviewUi'
 
 describe('isReviewableChapter', () => {
   it.each([
@@ -22,24 +22,5 @@ describe('isReviewableChapter', () => {
     expect(isReviewableChapter({ title: 'Preface' })).toBe(true)
     // PDF chapters often have no word count: hidden by title only.
     expect(isReviewableChapter({ title: 'Index', wordCount: null })).toBe(false)
-  })
-})
-
-describe('reviewedHighlightMarks', () => {
-  const block = (title: string, ids: string[]) => ({
-    title, problem: 'p', rootCause: 'r', rule: `rule ${title}`, highlightIds: ids, question: { prompt: 'q', answer: 'a' },
-  })
-  const review = (blocks: ReturnType<typeof block>[]) =>
-    ({ methodVersion: 2, recall: null, blocks, applications: [], openThreads: [], closedThreadIds: [] })
-
-  it('maps every cited id (lower-cased) to its block; skips rows without a review', () => {
-    const m = reviewedHighlightMarks([
-      { chapterSlug: 'ch1', review: review([block('A', ['H1']), block('B', ['h2', 'h1'])]) },
-      { chapterSlug: 'ch2', review: null },
-      { chapterSlug: null, review: review([block('C', ['h3'])]) },
-    ])
-    expect([...m.keys()].sort()).toEqual(['h1', 'h2'])
-    expect(m.get('h1')).toEqual({ chapterSlug: 'ch1', blockTitle: 'A', rule: 'rule A' })
-    expect(m.get('h2')?.blockTitle).toBe('B')
   })
 })

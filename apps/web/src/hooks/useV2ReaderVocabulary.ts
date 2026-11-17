@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useGuestLimits } from '../context/GuestLimitsContext'
-import { getReaderVocab, markAsKnown as markAsKnownApi, saveWord, deleteWord as deleteWordApi, updateWord, type SaveWordRequest, type SaveWordResponse, type VocabWordDto } from '../api/vocabulary'
+import { getReaderVocab, saveWord, deleteWord as deleteWordApi, updateWord, type SaveWordRequest, type SaveWordResponse, type VocabWordDto } from '../api/vocabulary'
 import { v2Api } from '@textstack/shared'
 import { emitDataChange } from '../lib/dataEvents'
 import { translate as translateWord } from '../api/translation'
@@ -360,14 +360,6 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
     return null
   }, [waitForSession, ensureSession, updateMap, commitmentThreshold, flushPendingIfAny, takes])
 
-  const markAsKnown = useCallback(async (id: string, word: string) => {
-    if (!isAuthenticated) return null
-    const updated = await markAsKnownApi(id)
-    updateMap(m => m.set(normalizeVocabKey(word), { stage: 4, id: updated.id }))
-    emitDataChange('vocabulary')
-    return updated
-  }, [isAuthenticated, updateMap])
-
   const removeWord = useCallback(async (id: string, word: string) => {
     // A pending word lives only in IndexedDB under a local id: delete it there,
     // or the guest mint's flush would still save it to the account.
@@ -438,5 +430,5 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
 
   /** The identity a request is made under, for `recordSavedWord`'s `asked`. */
   const identity = useCallback(() => idNow.current, [])
-  return { vocabMap, isKnown, identity, loading, loaded, loadFailed, retryLoad, addWord, markAsKnown, removeWord, updateTranslation, replaceTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
+  return { vocabMap, isKnown, identity, loading, loaded, loadFailed, retryLoad, addWord, removeWord, updateTranslation, replaceTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
 }

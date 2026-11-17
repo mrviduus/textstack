@@ -20,16 +20,13 @@ const api = {
   getReaderVocab: vi.fn(),
   updateWord: vi.fn(),
   restoreWord: vi.fn(),
-  promoteLookup: vi.fn(),
 }
 vi.mock('../../api/vocabulary', () => ({
   saveWord: (...a: unknown[]) => api.saveWord(...a),
   getReaderVocab: (...a: unknown[]) => api.getReaderVocab(...a),
   updateWord: (...a: unknown[]) => api.updateWord(...a),
   restoreWord: (...a: unknown[]) => api.restoreWord(...a),
-  promoteLookup: (...a: unknown[]) => api.promoteLookup(...a),
   deleteWord: vi.fn(),
-  markAsKnown: vi.fn(),
 }))
 let translation: (v: unknown) => void
 /** #1271: what the hook's backfill (word, from, to) is answered; unset, it never answers. */
@@ -215,23 +212,6 @@ describe('V2ReaderPopups vocabulary save', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
     await settle()
     expect(api.restoreWord).toHaveBeenCalledWith('id-pond')
-  })
-
-  it('pending_QueuedForTomorrow', async () => {
-    api.saveWord.mockResolvedValue({ ...saved('pond'), outcome: 'pending', word: null })
-    show('pond')
-    await settle()
-    expect(screen.getByText('Daily cap reached — queued for tomorrow')).toBeInTheDocument()
-  })
-
-  it('lookup_TheRareWordNotice_AddAnywayPromotesIt', async () => {
-    api.saveWord.mockResolvedValue({ ...saved('pond'), outcome: 'lookup', word: null, lookupId: 'l1', tapsRemaining: 2 })
-    api.promoteLookup.mockResolvedValue(card('pond'))
-    show('pond')
-    await settle()
-    fireEvent.click(screen.getByText('Add to SRS anyway'))
-    await settle()
-    expect(api.promoteLookup).toHaveBeenCalledWith('l1')
   })
 
   it('aGuestsThirdWord_TheNudge', async () => {

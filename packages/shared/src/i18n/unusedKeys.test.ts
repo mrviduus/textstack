@@ -44,7 +44,6 @@ const DYNAMIC = [
   /^home\.comparison\.(competitors|features)\.\w+$/,
   /^home\.faq\.\w+\.[aq]$/,
   /^home\.features\.\w+\.(title|description)$/,
-  /^library\.shelves\.\w+\.(title|subtitle)$/,
   // web's DeviceVerifyPage builds `${ns}.${suffix}` with ns chosen at runtime
   /^(deviceVerify|connectExtension)\./,
 ]

@@ -15,10 +15,7 @@ const DYNAMIC = [
   /^home\.faq\.\w+\.[aq]$/,
   /^home\.features\.\w+\.(title|description)$/,
   /^library\.(sort|status|badge)\.\w+$/,
-  /^library\.shelves\.\w+\.(title|subtitle)$/,
   /^vocabulary\.(review|stages|filters)\.\w+$/,
-  /^tutor\.exercise\.\w+$/,
-  /^stats\.(short|medium|long|slow|fast)$/,
   /^changelog\.(area|kind|move\.state)\.\w+$/,
   // DeviceVerifyPage builds `${ns}.${suffix}` with ns chosen at runtime
   /^(deviceVerify|connectExtension)\./,

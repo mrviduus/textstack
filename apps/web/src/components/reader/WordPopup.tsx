@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } fr
 import { SpeakButton } from '../vocabulary/SpeakButton'
 import { LANGUAGES, POPULAR_LANGUAGES, OTHER_LANGUAGES, getLanguage, type LanguageEntry } from '@textstack/shared'
 import { getFlagUrl } from '../../data/flags'
-import { RareWordNotice } from './RareWordNotice'
 
 function LangOption({ lang, onSelect }: { lang: LanguageEntry; onSelect: (code: string) => void }) {
   return (
@@ -24,10 +23,6 @@ const AUTO_DISMISS_MS_MIN = 3000
 const AUTO_DISMISS_MS_MAX = 8000
 const AUTO_DISMISS_MS_PER_WORD = 350  // L2-reader pace, ~170 wpm
 const EXIT_DURATION_MS = 150
-// Rare-word notice needs decision time + user may walk away. Long fallback so
-// popup can't linger forever (obscuring text underneath), but long enough that
-// a slow reader can finish the body + decide.
-const LOOKUP_AUTO_DISMISS_MS = 20000
 
 // CJK (Hiragana, Katakana, CJK Unified, Hangul) — spaceless scripts where each
 // glyph carries ~word-level info. Counted as individual reading units so
@@ -73,15 +68,9 @@ interface WordPopupProps {
   hasConfirmedLanguage: boolean
   bookLanguage: string
   t: (key: string, params?: Record<string, string | number>) => string
-  // F1 rare-word flow: when SaveWord returns `lookup` / `lookup_pending`, the
-  // parent passes lookupInfo so we render the RareWordNotice inline. Null =
-  // normal save flow.
-  lookupInfo?: { kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null } | null
-  onAddAnyway?: () => void
-  addAnywayBusy?: boolean
   // True while auto-save POST is still in flight. Auto-dismiss stays parked
   // until this clears so a slow save can't race the 3-8s timer and close the
-  // popup before a lookup outcome arrives.
+  // popup before the save's outcome arrives.
   saveInFlight?: boolean
   /** TR-3: the saved translation when it differs from `translation` — shows "Saved as" + a button. */
   savedTranslation?: string | null
@@ -106,9 +95,6 @@ export function WordPopup({
   hasConfirmedLanguage,
   bookLanguage,
   t,
-  lookupInfo,
-  onAddAnyway,
-  addAnywayBusy,
   saveInFlight,
   savedTranslation,
   onUseTranslation,
@@ -173,28 +159,19 @@ export function WordPopup({
 
   const scheduleAutoDismiss = useCallback(() => {
     clearTimeout(dismissTimerRef.current)
-    // Hold the timer while save is in flight — otherwise a slow server response
-    // can close the popup before a lookup outcome arrives, and the user never
-    // sees RareWordNotice. Timer is re-armed when `saveInFlight` flips false.
+    // Hold the timer while save is in flight. Timer is re-armed when `saveInFlight` flips false.
     if (saveInFlight) return
-    // Rare-word notice: give the user plenty of time to read + decide on
-    // "Add anyway", but still bound it — a forgotten popup mustn't obscure
-    // text under it indefinitely. Hover/click-in cancels the timer as usual.
-    const ms = lookupInfo
-      ? LOOKUP_AUTO_DISMISS_MS
-      : computeDismissMs(translation, definition)
-    dismissTimerRef.current = setTimeout(animatedClose, ms)
-  }, [animatedClose, translation, definition, lookupInfo, saveInFlight])
+    dismissTimerRef.current = setTimeout(animatedClose, computeDismissMs(translation, definition))
+  }, [animatedClose, translation, definition, saveInFlight])
 
   // Start auto-dismiss timer on open / word change / same-word re-tap at new rect.
   // Keying on rect ensures re-tapping the same word restarts the timer — otherwise
   // the old timer (maybe about to fire) closes the popup right after the user re-engages.
-  // Also re-fires when lookupInfo or saveInFlight flip so the timer strategy
-  // adapts as async results land (short → 20s for lookup; parked → armed when save done).
+  // Also re-fires when saveInFlight flips (parked → armed when save done).
   useEffect(() => {
     scheduleAutoDismiss()
     return () => clearTimeout(dismissTimerRef.current)
-  }, [word, rect, !!lookupInfo, saveInFlight]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [word, rect, saveInFlight]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cancel auto-dismiss when lang picker is open + autofocus search.
   // On close: clear query AND resume auto-dismiss — otherwise toggling the
@@ -457,16 +434,6 @@ export function WordPopup({
           </button>
         )}
       </div>
-
-      {lookupInfo && onAddAnyway && (
-        <RareWordNotice
-          kind={lookupInfo.kind}
-          tapsRemaining={lookupInfo.tapsRemaining}
-          busy={addAnywayBusy ?? false}
-          onAddAnyway={onAddAnyway}
-          t={t}
-        />
-      )}
 
       {/* Language footer */}
       <div className="word-popup__lang-footer">

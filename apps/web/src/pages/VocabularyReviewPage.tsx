@@ -1,32 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useAuth, useV2 } from '../context/AuthContext'
-import { v2Offers } from '@textstack/shared'
+import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
-import { completeCluster, type SelfAssessment } from '../api/vocabulary'
-import { useVocabularyReview, type ReviewMode } from '../hooks/useVocabularyReview'
+import type { SelfAssessment } from '../api/vocabulary'
+import { useVocabularyReview } from '../hooks/useVocabularyReview'
 import { useTts } from '../hooks/useTts'
 import { useSoundEffects } from '../hooks/useSoundEffects'
 import { REVIEW_BATCH_SIZES, DEFAULT_BATCH_SIZE } from '@textstack/shared'
-import { MultipleChoiceCard } from '../components/vocabulary/MultipleChoiceCard'
 import { FlashCard } from '../components/vocabulary/FlashCard'
 import { NewWordCard } from '../components/vocabulary/NewWordCard'
-import { ReviewFeedback } from '../components/vocabulary/ReviewFeedback'
 import { SessionSummary } from '../components/vocabulary/SessionSummary'
-import { WeeklyBudgetBar } from '../components/vocabulary/WeeklyBudgetBar'
 import { EmptyState } from '../components/EmptyState'
 
 export function VocabularyReviewPage() {
   const { user } = useAuth()
-  // V2: no cluster rounds (V2_FEATURES); the hook forces the review mode.
-  const v2 = useV2()
   const { language } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const initialReviewMode = (searchParams.get('reviewMode') as ReviewMode) || 'classic'
-  const clusterIdParam = searchParams.get('cluster')
   const practiceMode = searchParams.get('practice') === '1' || searchParams.get('practice') === 'true'
   const initialBatchSize = useMemo(() => {
     const v = parseInt(searchParams.get('limit') || String(DEFAULT_BATCH_SIZE), 10)
@@ -45,13 +37,9 @@ export function VocabularyReviewPage() {
   useEffect(() => {
     if (user) {
       sessionStartRef.current = Date.now()
-      if (clusterIdParam && v2Offers(v2, 'clusters')) {
-        review.startClusterSession(clusterIdParam, initialReviewMode)
-      } else {
-        review.startSession(initialBatchSize, initialReviewMode, undefined, practiceMode)
-      }
+      review.startSession(initialBatchSize, practiceMode)
     }
-  }, [user, initialReviewMode, clusterIdParam, practiceMode, v2]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, practiceMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAnswer = (isCorrect: boolean, responseTimeMs: number, selfAssessment?: SelfAssessment) => {
     playSound(isCorrect ? 'correct' : 'wrong')
@@ -61,23 +49,15 @@ export function VocabularyReviewPage() {
   const handleToggleSound = () => setSoundOn(toggleSound())
 
   useEffect(() => {
-    if (review.isSessionComplete) {
-      playSound('complete')
-      if (review.activeClusterId) {
-        completeCluster(review.activeClusterId).catch(() => {})
-      }
-    }
+    if (review.isSessionComplete) playSound('complete')
   }, [review.isSessionComplete]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const budgetReached = !practiceMode && (review.weeklyProgress?.remaining ?? 1) <= 0
-
-  // Redirect to vocabulary if no cards available AND user hasn't hit weekly cap.
-  // When cap is reached, we show a dedicated "weekly goal" empty state instead.
+  // Redirect to vocabulary if no cards available.
   useEffect(() => {
-    if (!review.loading && !review.hasCards && !review.error && user && !budgetReached) {
+    if (!review.loading && !review.hasCards && !review.error && user) {
       navigate(`/${language}/vocabulary`, { replace: true })
     }
-  }, [review.loading, review.hasCards, review.error, user, language, navigate, budgetReached])
+  }, [review.loading, review.hasCards, review.error, user, language, navigate])
 
   if (!user) {
     return (
@@ -87,7 +67,7 @@ export function VocabularyReviewPage() {
           title={t('practice.empty.title')}
           subtitle={t('practice.empty.subtitle')}
           buttonLabel={t('practice.empty.cta')}
-          buttonTo="/books"
+          buttonTo="/library"
         />
       </div>
     )
@@ -109,23 +89,7 @@ export function VocabularyReviewPage() {
     )
   }
 
-  if (!review.hasCards) {
-    if (budgetReached) {
-      return (
-        <div className="vocab-page">
-          {review.weeklyProgress && <WeeklyBudgetBar progress={review.weeklyProgress} />}
-          <EmptyState
-            icon="🎯"
-            title={t('vocabulary.banner.budgetReached')}
-            subtitle={t('vocabulary.weeklyBudget.emptyStateSubtitle')}
-            buttonLabel={t('vocabulary.practice.cta')}
-            buttonTo={`/${language}/vocabulary/review?practice=1`}
-          />
-        </div>
-      )
-    }
-    return null // redirect effect handles this
-  }
+  if (!review.hasCards) return null // redirect effect handles this
 
   if (review.isSessionComplete) {
     return (
@@ -134,27 +98,25 @@ export function VocabularyReviewPage() {
           reviewed={review.sessionStats.reviewed}
           correct={review.sessionStats.correct}
           elapsedMs={Date.now() - sessionStartRef.current}
-          reviewMode={review.reviewMode}
           batchSize={batchSize}
           wrongCount={review.wrongCards.length}
           t={t}
           onBack={goBack}
           onAgain={() => {
             sessionStartRef.current = Date.now()
-            review.startSession(batchSize, review.reviewMode)
+            review.startSession(batchSize)
           }}
           onRetryWrong={() => {
             sessionStartRef.current = Date.now()
             review.retryWrong()
           }}
           onBatchChange={setBatchSize}
-          onModeChange={v2.enabled ? undefined : (m: ReviewMode) => review.setReviewMode(m)}
         />
       </div>
     )
   }
 
-  const { currentCard, currentIndex, cards, reviewMode, showingNewWord, answerRevealed, lastResult, lastAnswerCorrect, submitting } = review
+  const { currentCard, currentIndex, cards, showingNewWord, answerRevealed, lastResult, lastAnswerCorrect, submitting } = review
 
   return (
     <div className="vocab-page">
@@ -163,8 +125,6 @@ export function VocabularyReviewPage() {
           <SoundIcon on={soundOn} />
         </button>
       </div>
-
-      {!practiceMode && review.weeklyProgress && <WeeklyBudgetBar progress={review.weeklyProgress} />}
 
       <div className="review-progress">
         <div className="review-progress__bar">
@@ -183,29 +143,18 @@ export function VocabularyReviewPage() {
       )}
 
       {currentCard && !showingNewWord && !answerRevealed && (
-        reviewMode === 'classic' ? (
-          <FlashCard
-            card={currentCard}
-            onAnswer={handleAnswer}
-            onSpeak={handleSpeak}
-            onFlip={() => playSound('flip')}
-            t={t}
-            disabled={submitting}
-          />
-        ) : (
-          <MultipleChoiceCard
-            card={currentCard}
-            onAnswer={handleAnswer}
-            onSpeak={handleSpeak}
-            t={t}
-            disabled={submitting}
-          />
-        )
+        <FlashCard
+          card={currentCard}
+          onAnswer={handleAnswer}
+          onSpeak={handleSpeak}
+          onFlip={() => playSound('flip')}
+          t={t}
+          disabled={submitting}
+        />
       )}
 
       {currentCard && answerRevealed && lastResult && (
-        reviewMode === 'classic' ? (
-          <div className="review-feedback-mini">
+        <div className="review-feedback-mini">
             <div className={`review-feedback-mini__badge review-feedback-mini__badge--${lastAnswerCorrect ? 'correct' : 'wrong'}`}>
               {lastAnswerCorrect ? t('vocabulary.review.correct') : t('vocabulary.review.wrong')}
             </div>
@@ -218,16 +167,6 @@ export function VocabularyReviewPage() {
               {t('vocabulary.review.next')}
             </button>
           </div>
-        ) : (
-          <ReviewFeedback
-            card={currentCard}
-            result={lastResult}
-            isCorrect={lastAnswerCorrect}
-            onSpeak={handleSpeak}
-            t={t}
-            onNext={review.nextCard}
-          />
-        )
       )}
     </div>
   )

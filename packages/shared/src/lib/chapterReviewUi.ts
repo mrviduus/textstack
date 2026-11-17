@@ -1,32 +1,6 @@
 /**
- * Chapter review — the pure halves of the reader badges and the chapter-row gate (PR 3,
- * chapter-review.md §12). Kept out of `chapterReview.ts` (the brief builders) on purpose.
+ * Chapter review — the chapter-row gate (PR 3, chapter-review.md §12). Kept out of `chapterReview.ts` (the brief builders) on purpose.
  */
-import type { ChapterReviewDto } from '../types/api'
-
-/** What the reader shows on a highlight a review used. */
-export interface ReviewedMark { chapterSlug: string; blockTitle: string; rule: string }
-
-/**
- * Highlight id (lower-cased) → the review block that cited it, from the book's insights
- * (`GET /me/insights`). First block wins if two cite the same highlight.
- */
-export function reviewedHighlightMarks(
-  insights: readonly { chapterSlug: string | null; review?: ChapterReviewDto | null }[],
-): Map<string, ReviewedMark> {
-  const map = new Map<string, ReviewedMark>()
-  for (const i of insights) {
-    if (!i.chapterSlug || !i.review) continue
-    for (const b of i.review.blocks) {
-      for (const id of b.highlightIds) {
-        const key = id.toLowerCase()
-        if (!map.has(key)) map.set(key, { chapterSlug: i.chapterSlug, blockTitle: b.title, rule: b.rule })
-      }
-    }
-  }
-  return map
-}
-
 // Front/back matter. Anchored on the whole title after optional numbering ("1.", "IV -", "Chapter 3:").
 // ponytail: English titles only; add other languages when a non-English book asks for it.
 const SERVICE_TITLE = new RegExp(

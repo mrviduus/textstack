@@ -5,9 +5,7 @@ import {
   deleteWord as deleteWordApi,
   deleteAllWords as deleteAllWordsApi,
   updateWord as updateWordApi,
-  getVocabStats,
   type VocabWordDto,
-  type VocabStatsDto,
 } from '../api/vocabulary'
 import { emitDataChange, useDataChange } from '../lib/dataEvents'
 
@@ -25,7 +23,6 @@ export function useVocabulary() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [stats, setStats] = useState<VocabStatsDto | null>(null)
   const [filters, setFilters] = useState<VocabFilters>({ sort: 'recent', limit: 50 })
 
   const fetchWords = useCallback(async (f?: VocabFilters) => {
@@ -44,31 +41,17 @@ export function useVocabulary() {
     }
   }, [isAuthenticated, filters])
 
-  const fetchStats = useCallback(async () => {
-    if (!isAuthenticated) return
-    try {
-      const s = await getVocabStats()
-      setStats(s)
-    } catch {
-      // ignore stats errors
-    }
-  }, [isAuthenticated])
-
   useEffect(() => {
     if (!isAuthenticated) {
       setLoading(false)
       return
     }
     fetchWords()
-    fetchStats()
   }, [isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Word saved/deleted/edited from anywhere else (reader bubble, review
-  // session, etc) → refetch list + stats so this page stays current.
-  useDataChange('vocabulary', () => {
-    fetchWords()
-    fetchStats()
-  })
+  // session, etc) → refetch the list so this page stays current.
+  useDataChange('vocabulary', () => { fetchWords() })
 
   const removeWord = useCallback(async (id: string) => {
     try {
@@ -86,12 +69,11 @@ export function useVocabulary() {
       await deleteAllWordsApi()
       setWords([])
       setTotal(0)
-      fetchStats()
       emitDataChange('vocabulary')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete all')
     }
-  }, [fetchStats])
+  }, [])
 
   const editWord = useCallback(async (id: string, data: { translation?: string; definition?: string }) => {
     try {
@@ -116,9 +98,9 @@ export function useVocabulary() {
   }, [filters, fetchWords])
 
   return {
-    words, total, loading, error, stats,
+    words, total, loading, error,
     filters, applyFilters, loadMore,
     removeWord, removeAll, editWord,
-    refresh: () => { fetchWords(); fetchStats() },
+    refresh: () => { fetchWords() },
   }
 }

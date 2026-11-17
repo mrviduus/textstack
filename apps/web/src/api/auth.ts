@@ -1,9 +1,7 @@
 import type { V2MergeMap } from '../lib/v2Merge'
-import { PERCENT_UNIT_BOOK, PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '@textstack/shared'
-import type { ReadingProgressDto, GuestMergeSkipReason } from '@textstack/shared'
+import type { GuestMergeSkipReason } from '@textstack/shared'
 
-import { authFetch as meFetch, API_BASE, ApiError } from './client'
-import { refuseOnV2 } from './v2'
+import { authFetch as meFetch, API_BASE } from './client'
 
 /** /me/* data calls: the shared cookie-mode client (401 → refresh → retry). The session
  *  flow below (login/refresh/logout/guest/device) stays on the local `authFetch`, which
@@ -178,112 +176,4 @@ export async function deleteAvatar(): Promise<void> {
 // Permanently deletes the authenticated user and ALL their data. Backend → 204.
 export async function deleteAccount(): Promise<void> {
   await meFetch<void>('/me/account', { method: 'DELETE' })
-}
-
-// Reading Progress API
-// One definition, in the shared package. This file used to carry a second copy with nothing linking
-// the two, so a field added to the server DTO could reach mobile and quietly miss web — and did.
-// Re-exported rather than replaced so the twenty-odd `from '../api/auth'` imports keep working.
-export type { ReadingProgressDto }
-
-export interface UpsertProgressRequest {
-  chapterId: string
-  locator: string
-  /** Serialised TextPosition — where the reader is in the TEXT (ADR-015).
-   *  Travels beside the locator, never instead of it, so a build that predates
-   *  this keeps resuming from the pixel offset. Absent means absent: the server
-   *  clears the stored position rather than leaving it beside a fresher pixel. */
-  positionJson?: string
-  percent: number | null
-  updatedAt?: string
-}
-
-export async function getProgress(editionId: string): Promise<ReadingProgressDto | null> {
-  return (await readProgress(editionId)) ?? null
-}
-
-/**
- * The reader's read. `null`: the server ANSWERED and holds no row (404). `undefined`: there was
- * no answer — aborted (the reader's timeout), offline, 5xx, 401. The two used to be one `null`,
- * so a failed read looked like "nothing newer elsewhere" and a stale local place was trusted.
- */
-export async function readProgress(editionId: string, signal?: AbortSignal): Promise<ReadingProgressDto | null | undefined> {
-  try {
-    await refuseOnV2('catalog')
-    return await meFetch<ReadingProgressDto>(`/me/progress/${editionId}`, { signal })
-  } catch (e) {
-    return e instanceof ApiError && e.status === 404 ? null : undefined
-  }
-}
-
-export interface AllProgressResponse {
-  total: number
-  items: ReadingProgressDto[]
-}
-
-// M5 (#1031): `/me/progress` and `/me/library` are the retiring catalog's; refused on V2 (410), before any request.
-export async function getAllProgress(): Promise<AllProgressResponse> {
-  await refuseOnV2('catalog')
-  return meFetch<AllProgressResponse>('/me/progress')
-}
-
-export async function upsertProgress(editionId: string, data: UpsertProgressRequest): Promise<ReadingProgressDto> {
-  // Every web writer funnels through here, so the unit is declared once. The
-  // server stores a percentage only when it knows what it is a fraction of —
-  // see Application.ReadingTracking.ProgressUnit.
-  await refuseOnV2('catalog')
-  return meFetch<ReadingProgressDto>(`/me/progress/${editionId}`, json('PUT', { ...data, percentUnit: PERCENT_UNIT_BOOK }))
-}
-
-// Mark book as fully read (100%)
-export async function markAsRead(editionId: string, chapterId: string): Promise<ReadingProgressDto> {
-  return upsertProgress(editionId, {
-    chapterId,
-    locator: PROGRESS_LOCATOR_END,
-    percent: 1,
-  })
-}
-
-// Mark book as unread (0%)
-export async function markAsUnread(editionId: string, chapterId: string): Promise<ReadingProgressDto> {
-  return upsertProgress(editionId, {
-    chapterId,
-    locator: PROGRESS_LOCATOR_START,
-    percent: 0,
-  })
-}
-
-// Library API
-export interface LibraryItem {
-  editionId: string
-  slug: string
-  title: string
-  language: string
-  coverPath: string | null
-  createdAt: string
-  author: string | null
-}
-
-export interface LibraryResponse {
-  total: number
-  items: LibraryItem[]
-}
-
-export async function getLibrary(): Promise<LibraryResponse> {
-  await refuseOnV2('catalog')
-  return meFetch<LibraryResponse>('/me/library')
-}
-
-export async function addToLibrary(editionId: string): Promise<LibraryItem> {
-  await refuseOnV2('catalog')
-  return meFetch<LibraryItem>(`/me/library/${editionId}`, {
-    method: 'POST',
-  })
-}
-
-export async function removeFromLibrary(editionId: string): Promise<void> {
-  await refuseOnV2('catalog')
-  await meFetch<void>(`/me/library/${editionId}`, {
-    method: 'DELETE',
-  })
 }

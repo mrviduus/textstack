@@ -1,23 +1,15 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { useState } from 'react'
-import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import type { BookInsight } from '@textstack/shared'
 
 vi.mock('../../../hooks/useTranslation', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }))
 
-// The section is presentational: the page's useBookReviews owns the list and the delete.
-const onRemove = vi.fn()
-
 import { BookInsightsSection } from '../BookInsightsSection'
 
-/** Mirrors the page: owns the list, drops the row only when onRemove resolves (as useBookReviews does). */
-function Host({ initial }: { initial: unknown[] }) {
-  const [list, setList] = useState(initial as BookInsight[])
-  const remove = async (id: string) => { await onRemove(id); setList(l => l.filter(i => i.id !== id)) }
-  return <BookInsightsSection insights={list} onRemove={remove} userBookId="b1" />
-}
+// The section is presentational: the page's useBookReviews owns the list.
+const Host = ({ initial }: { initial: unknown[] }) => <BookInsightsSection insights={initial as BookInsight[]} />
 
 const insight = (over: Partial<Record<string, unknown>> = {}) => ({
   id: 'i1', editionId: null, userBookId: 'b1',
@@ -27,7 +19,6 @@ const insight = (over: Partial<Record<string, unknown>> = {}) => ({
   ...over,
 })
 
-beforeEach(() => { onRemove.mockReset() })
 afterEach(() => cleanup())
 
 describe('BookInsightsSection', () => {
@@ -84,35 +75,5 @@ describe('BookInsightsSection', () => {
     const { container } = render(<Host initial={[insight({ text: '<img src=x onerror="alert(1)">' })]} />)
     await waitFor(() => expect(container.querySelector('.book-insights')).toBeTruthy())
     expect(container.querySelector('img')).toBeNull()
-  })
-
-  it('removing a note takes the row away, and the section with it when it was the last one', async () => {
-    // The failure this exists for: a conclusion filed against the WRONG chapter. The assistant only
-    // ever replaces its own row for the chapter it meant, so nothing revisits the mistake — the
-    // reader has to be able to remove it, and see that it went.
-    onRemove.mockResolvedValue(undefined)
-
-    const { container } = render(<Host initial={[insight({ chapterTitle: 'Replication', chapterSlug: 'r' })]} />)
-    await waitFor(() => expect(screen.getByText('Replication')).toBeTruthy())
-
-    fireEvent.click(screen.getByLabelText('library.insights.remove'))
-
-    await waitFor(() => expect(container.querySelector('.book-insights')).toBeNull())
-    expect(onRemove).toHaveBeenCalledWith('i1')
-  })
-
-  it('keeps the row when the server refuses — it is still there', async () => {
-    // Silence on failure is right for this panel, but silence must not mean "pretend it is gone".
-    // Dropping it from the list on a failed delete would show the reader a book with a note they
-    // would find again on the next load.
-    onRemove.mockRejectedValue(new Error('nope'))
-
-    render(<Host initial={[insight({ chapterTitle: 'Replication', chapterSlug: 'r' })]} />)
-    await waitFor(() => expect(screen.getByText('Replication')).toBeTruthy())
-
-    fireEvent.click(screen.getByLabelText('library.insights.remove'))
-
-    await waitFor(() => expect(onRemove).toHaveBeenCalled())
-    expect(screen.getByText('Replication')).toBeTruthy()
   })
 })

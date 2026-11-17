@@ -1,16 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { buildChapterDiscussBrief, buildHandoffBrief, v2Offers, type Assistant, type HandoffBook } from '@textstack/shared'
-import { useV2 } from '../../context/AuthContext'
+import { buildChapterDiscussBrief, buildHandoffBrief, type Assistant, type HandoffBook } from '@textstack/shared'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
 import { useTranslation } from '../../hooks/useTranslation'
-import { chapterReviewPath } from '../../hooks/useBookReviews'
-import { LocalizedLink } from '../LocalizedLink'
 import { ConnectAssistantDialog } from './ReviewChapterButton'
 
 /**
  * "✦ Assistant ▾" next to Continue Reading — the one way from a book page into the reader's own
- * Claude or ChatGPT. ONE discuss item: the chapter the reader is on when there is one (plus "Open
- * review" when it is reviewed — re-discussing overwrites it), else the whole book. Never both.
+ * Claude or ChatGPT. ONE discuss item: the chapter the reader is on when there is one, else the
+ * whole book. Never both.
  * Both go through `useAssistantLauncher`, the same path as the chapter-row Discuss.
  */
 interface Props {
@@ -22,8 +19,6 @@ interface Props {
 
 export function AssistantMenu({ book, current }: Props) {
   const { t } = useTranslation()
-  // M5 (#1031): no chapter review on V2: no link to one.
-  const reviewOffered = v2Offers(useV2(), 'chapterReview')
   const launcher = useAssistantLauncher({ eager: false })
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLSpanElement>(null)
@@ -58,9 +53,6 @@ export function AssistantMenu({ book, current }: Props) {
     title: book.title, author: book.author, bookId: book.bookId, editionId: book.editionId, slug: book.slug,
     chapterSlug: slug, chapterTitle: title,
   })
-  const reviewPath = (slug: string) => book.bookId
-    ? chapterReviewPath({ userBookId: book.bookId }, slug)
-    : chapterReviewPath({ bookSlug: book.slug ?? '' }, slug)
 
   const chat = (a: Assistant) => t(a === 'claude' ? 'library.assistant.claude' : 'library.assistant.chatgpt')
 
@@ -90,19 +82,11 @@ export function AssistantMenu({ book, current }: Props) {
           ) : (
             <>
               {current ? (
-                <>
-                  {current.reviewed && reviewOffered && (
-                    <LocalizedLink to={reviewPath(current.slug)} role="menuitem" className="assistant-menu__item" onClick={() => setOpen(false)}>
-                      {t('library.assistant.openCurrentReview')}
-                      <span className="assistant-menu__sub">{current.title}</span>
-                    </LocalizedLink>
-                  )}
-                  <button type="button" role="menuitem" className="assistant-menu__item"
-                    onClick={() => void run(discussChapter(current.slug, current.title))}>
-                    {t('library.assistant.reviewCurrent')}
-                    <span className="assistant-menu__sub">{current.title}</span>
-                  </button>
-                </>
+                <button type="button" role="menuitem" className="assistant-menu__item"
+                  onClick={() => void run(discussChapter(current.slug, current.title))}>
+                  {t('library.assistant.reviewCurrent')}
+                  <span className="assistant-menu__sub">{current.title}</span>
+                </button>
               ) : (
                 <button type="button" role="menuitem" className="assistant-menu__item" onClick={() => void run(discuss)}>
                   {t('library.assistant.discuss')}

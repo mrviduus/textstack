@@ -8,23 +8,18 @@ const getUserBook = vi.fn()
 vi.mock('../../api/userBooks', () => ({
   getUserBookProgress: () => Promise.resolve(null),
   getUserBook: (...a: unknown[]) => getUserBook(...a),
-  enrichUserBook: vi.fn(),
   deleteUserBook: vi.fn(),
-  retryUserBook: vi.fn(),
   markUserBookComplete: vi.fn(),
   unmarkUserBookComplete: vi.fn(),
   getUserBookCoverUrl: (p: string) => p,
   getUserBookFileUrl: (id: string) => `/api/me/books/${id}/file`,
 }))
 
-let v2On = false
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true }),
-  useV2: () => ({ enabled: v2On, maxPartBytes: 0 }),
 }))
-vi.mock('../../components/library/BookStatsSection', () => ({ BookStatsSection: () => <div data-testid="stats" /> }))
 vi.mock('../../components/library/BookInsightsSection', () => ({ BookInsightsSection: () => <div data-testid="insights" /> }))
-const useBookReviews = vi.fn((_target: unknown) => ({ reviews: [], insights: [], remove: vi.fn() }))
+const useBookReviews = vi.fn((_target: unknown) => ({ reviews: [], insights: [] }))
 vi.mock('../../hooks/useBookReviews', () => ({ useBookReviews: (t: unknown) => useBookReviews(t), currentReviewChapter: () => null }))
 vi.mock('../../context/LanguageContext', () => ({
   useLanguage: () => ({ language: 'en' }),
@@ -50,7 +45,6 @@ const baseBook = {
   coverPath: null,
   completedAt: null,
   chapters: [],
-  metadataEnrichmentStatus: 'Failed' as const,
 }
 
 function renderPage() {
@@ -76,61 +70,38 @@ describe('UserBookDetailPage page count', () => {
   })
 })
 
-describe('UserBookDetailPage on V2', () => {
-  it.each([[false, 1], [true, 0]])('V2 %s: stats and re-extract shown %i times, insights always (V2_FEATURES)', async (on, shown) => {
-    v2On = on
-    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined })
+describe('UserBookDetailPage', () => {
+  it('a Ready book shows its insights', async () => {
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready' })
     renderPage()
     await screen.findByText('Test Book')
-    expect(screen.queryAllByTestId('stats')).toHaveLength(shown)
-    expect(screen.queryAllByTestId('insights')).toHaveLength(1)
-    expect(screen.queryAllByLabelText(/Re-extract this book/)).toHaveLength(shown)
+    expect(screen.getByTestId('insights')).toBeInTheDocument()
     expect(useBookReviews).toHaveBeenLastCalledWith({ userBookId: 'bk-1' })
-    v2On = false
   })
 
-  it.each([[false, 1], [true, 0]])('V2 %s: a Ready book with no chapter offers "Mark as read" %i times (nothing to write completion on)', async (on, shown) => {
-    v2On = on
-    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [] })
+  it('a Ready book with no chapter offers no "Mark as read" (nothing to write completion on)', async () => {
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', chapters: [] })
     renderPage()
     await screen.findByText('Test Book')
-    expect(screen.queryAllByText('Mark as read')).toHaveLength(shown)
-    v2On = false
+    expect(screen.queryByText('Mark as read')).toBeNull()
   })
 
-  // M5 (#1031): one Read button, /read is the V2 reader when V2 is on; it opens the file, chapters or not.
-  it.each([[false, 0], [true, 1]])('V2 %s: a book with no chapter yet offers Start Reading %i times, no separate V2 link', async (on, shown) => {
-    v2On = on
-    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [], hasFile: on })
+  // Review #1361: the reader reads the raw file, so the extraction's state does not gate it; the file's bytes do.
+  it.each([['Processing', true, 1], ['Failed', true, 1], ['Ready', false, 0], ['Failed', false, 0]] as const)('a %s book, file in %s, offers Start Reading %i times', async (status, hasFile, shown) => {
+    getUserBook.mockResolvedValue({ ...baseBook, status, chapters: [], hasFile })
     renderPage()
     await screen.findByText('Test Book')
     const links = screen.queryAllByRole('link', { name: 'Start Reading' })
     expect(links).toHaveLength(shown)
-    if (on) expect(links[0]).toHaveAttribute('href', '/en/library/my/bk-1/read')
-    expect(screen.queryByRole('link', { name: 'Open in the V2 reader' })).toBeNull()
-    v2On = false
+    if (shown) expect(links[0]).toHaveAttribute('href', '/en/library/my/bk-1/read')
   })
 
-  // Review #1361: V2 reads the raw file, so the extraction's state does not gate it; the file's bytes do.
-  it.each([['Processing', true, 1], ['Failed', true, 1], ['Ready', false, 0], ['Failed', false, 0]] as const)('V2 on: a %s book, file in %s, offers Start Reading %i times', async (status, hasFile, shown) => {
-    v2On = true
-    getUserBook.mockResolvedValue({ ...baseBook, status, metadataEnrichmentStatus: undefined, chapters: [], hasFile })
-    renderPage()
-    await screen.findByText('Test Book')
-    expect(screen.queryAllByRole('link', { name: 'Start Reading' })).toHaveLength(shown)
-    v2On = false
-  })
-
-  // V2: the server's chapter split is not the book's contents; one Contents link opens the reader's own.
-  it.each([false, true])('V2 %s: the server chapters, or one Contents link into the reader', async (on) => {
-    v2On = on
-    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, hasFile: on, chapters: [{ id: 'c1', chapterNumber: 1, slug: '', title: 'The Pond', wordCount: null }] })
+  // The server's chapter split is not the book's contents; one Contents link opens the reader's own.
+  it('one Contents link into the reader, no server chapter list', async () => {
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', hasFile: true, chapters: [{ id: 'c1', chapterNumber: 1, slug: '', title: 'The Pond', wordCount: null }] })
     renderPage()
     await screen.findAllByRole('link', { name: /Reading/ })
-    expect(screen.queryAllByRole('link', { name: /The Pond/ })).toHaveLength(on ? 0 : 1)
-    const contents = screen.queryByRole('link', { name: 'Contents' })
-    if (on) expect(contents?.getAttribute('href')).toMatch(/\/read\?contents=1$/)
-    else expect(contents).toBeNull()
-    v2On = false
+    expect(screen.queryByRole('link', { name: /The Pond/ })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Contents' }).getAttribute('href')).toMatch(/\/read\?contents=1$/)
   })
 })

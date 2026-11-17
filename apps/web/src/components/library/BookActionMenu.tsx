@@ -2,33 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useLanguage } from '../../context/LanguageContext'
-import { useV2 } from '../../context/AuthContext'
-import { v2Offers } from '@textstack/shared'
 import { useBookActions } from '../../hooks/useBookActions'
 import { ConfirmDeleteModal } from './ConfirmDeleteModal'
-import { UserBookEditModal } from './UserBookEditModal'
-import { AddToCollectionButton, type Toast as AddToast } from './AddToCollectionButton'
-import type { LibraryItem } from '../../api/auth'
 import type { UserBook } from '../../api/userBooks'
 
-type SavedProps = {
-  type: 'saved'
-  book: LibraryItem
-  isFinished: boolean
-  onMarkFinished: () => void
-  onMarkUnfinished: () => void
-  onRemove: () => void
-}
-
 type UserBookProps = {
-  type: 'userbook'
   book: UserBook
   onChange: () => void
 }
 
-type Props = SavedProps | UserBookProps
-
-export function BookActionMenu(props: Props) {
+export function BookActionMenu(props: UserBookProps) {
   const { t } = useTranslation()
   const { language } = useLanguage()
   const navigate = useNavigate()
@@ -74,22 +57,6 @@ export function BookActionMenu(props: Props) {
     const first = wrapRef.current.querySelector<HTMLElement>('[role="menuitem"]:not([disabled]):not([aria-disabled="true"])')
     first?.focus()
   }, [open])
-
-  if (props.type === 'saved') {
-    return (
-      <SavedMenu
-        {...props}
-        wrapRef={wrapRef}
-        open={open}
-        setOpen={setOpen}
-        confirmDelete={confirmDelete}
-        setConfirmDelete={setConfirmDelete}
-        t={t}
-        navigate={navigate}
-        language={language}
-      />
-    )
-  }
 
   return (
     <UserBookMenu
@@ -137,66 +104,7 @@ function Trigger({ open, setOpen, t }: { open: boolean; setOpen: (v: boolean) =>
   )
 }
 
-type Toast = AddToast
-
-function SavedMenu({
-  book, isFinished, onMarkFinished, onMarkUnfinished, onRemove,
-  wrapRef, open, setOpen, confirmDelete, setConfirmDelete, t, navigate, language,
-}: SavedProps & SharedRender) {
-  const [toast, setToast] = useState<Toast | null>(null)
-  useEffect(() => {
-    if (!toast) return
-    const ms = toast.tone === 'error' ? 4000 : 2500
-    const id = window.setTimeout(() => setToast(null), ms)
-    return () => window.clearTimeout(id)
-  }, [toast])
-  return (
-    <div className="book-card-menu" ref={wrapRef}>
-      {toast && (
-        <div className={`book-card-menu__toast book-card-menu__toast--${toast.tone}`} role="status" aria-live="polite">
-          {toast.msg}
-        </div>
-      )}
-      <Trigger open={open} setOpen={setOpen} t={t} />
-      {open && (
-        <div className="book-card-menu__dropdown" role="menu">
-          <button className="book-card-menu__item" role="menuitem" onClick={() => { setOpen(false); navigate(`/${language}/books/${book.slug}`) }}>
-            {t('library.actions.viewDetails')}
-          </button>
-          <button
-            className="book-card-menu__item"
-            role="menuitem"
-            onClick={() => { setOpen(false); isFinished ? onMarkUnfinished() : onMarkFinished() }}
-          >
-            {isFinished ? t('library.actions.markUnfinished') : t('library.actions.markFinished')}
-          </button>
-          <AddToCollectionButton
-            variant="menu"
-            bookId={book.editionId}
-            bookType="savedbook"
-            close={() => setOpen(false)}
-            onToast={setToast}
-          />
-          <div className="book-card-menu__divider" />
-          <button
-            className="book-card-menu__item book-card-menu__item--danger"
-            role="menuitem"
-            onClick={() => { setOpen(false); setConfirmDelete(true) }}
-          >
-            {t('library.actions.removeFromLibrary')}
-          </button>
-        </div>
-      )}
-      <ConfirmDeleteModal
-        open={confirmDelete}
-        title={t('library.actions.confirmDeleteTitle')}
-        bodyTitle={book.title}
-        onCancel={() => setConfirmDelete(false)}
-        onConfirm={() => { setConfirmDelete(false); onRemove() }}
-      />
-    </div>
-  )
-}
+type Toast = { msg: string; tone: 'success' | 'error' }
 
 function UserBookMenu({
   book, onChange,
@@ -204,13 +112,8 @@ function UserBookMenu({
 }: UserBookProps & SharedRender) {
   const actions = useBookActions(book, { onChange })
   const isReady = book.status === 'Ready'
-  const isFailed = book.status === 'Failed'
-  const isProcessing = book.status === 'Processing'
   const isFinished = !!book.completedAt
-  // V2 (#1025): open, finish, delete; metadata, collections, retry and cancel have no V2 counterpart (V2_FEATURES).
-  const v2 = useV2()
   const [toast, setToast] = useState<Toast | null>(null)
-  const [editOpen, setEditOpen] = useState(false)
 
   useEffect(() => {
     if (!actions.error) return
@@ -241,7 +144,7 @@ function UserBookMenu({
               {t('library.actions.viewDetails')}
             </button>
           )}
-          {isReady && (!v2.enabled || book.chapterCount > 0) && (
+          {isReady && book.chapterCount > 0 && (
             <button
               className="book-card-menu__item"
               role="menuitem"
@@ -249,44 +152,6 @@ function UserBookMenu({
               onClick={async () => { close(); await (isFinished ? actions.markUnfinished() : actions.markFinished()) }}
             >
               {isFinished ? t('library.actions.markUnfinished') : t('library.actions.markFinished')}
-            </button>
-          )}
-          {isReady && v2Offers(v2, 'metadataEdit') && (
-            <button
-              className="book-card-menu__item"
-              role="menuitem"
-              onClick={() => { close(); setEditOpen(true) }}
-            >
-              {t('library.actions.editMetadata')}
-            </button>
-          )}
-          {isReady && v2Offers(v2, 'collections') && (
-            <AddToCollectionButton
-              variant="menu"
-              bookId={book.id}
-              bookType="userbook"
-              close={close}
-              onToast={setToast}
-            />
-          )}
-          {isFailed && v2Offers(v2, 'retry') && (
-            <button
-              className="book-card-menu__item"
-              role="menuitem"
-              disabled={actions.pending === 'retry'}
-              onClick={async () => { close(); await actions.retry() }}
-            >
-              {actions.pending === 'retry' ? t('library.actions.retrying') : t('library.actions.retry')}
-            </button>
-          )}
-          {isProcessing && v2Offers(v2, 'retry') && (
-            <button
-              className="book-card-menu__item book-card-menu__item--danger"
-              role="menuitem"
-              disabled={actions.pending === 'cancel'}
-              onClick={async () => { close(); await actions.cancel() }}
-            >
-              {actions.pending === 'cancel' ? t('library.actions.cancelling') : t('library.actions.cancel')}
             </button>
           )}
           <div className="book-card-menu__divider" />
@@ -306,12 +171,6 @@ function UserBookMenu({
         busy={actions.pending === 'delete'}
         onCancel={() => setConfirmDelete(false)}
         onConfirm={async () => { await actions.remove(); setConfirmDelete(false) }}
-      />
-      <UserBookEditModal
-        open={editOpen}
-        book={book}
-        onClose={() => setEditOpen(false)}
-        onSaved={onChange}
       />
     </div>
   )

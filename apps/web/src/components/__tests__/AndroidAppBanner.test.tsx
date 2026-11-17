@@ -62,11 +62,7 @@ describe('AndroidAppBanner', () => {
     expect(shown()).toBe(false)
   })
 
-  // Production 301s chapter URLs to a trailing slash. A pattern anchored on the bare
-  // segment matches under `vite preview` and never matches on the live site.
   it.each([
-    '/en/books/twelfth-night/2-act-i',
-    '/en/books/twelfth-night/2-act-i/',
     '/en/library/my/abc/read',
     '/en/library/my/abc/read/ch-1/',
   ])('never interrupts the reader at %s', (path) => {
@@ -74,7 +70,7 @@ describe('AndroidAppBanner', () => {
     expect(shown()).toBe(false)
   })
 
-  it.each(['/en/books/twelfth-night', '/en/books/twelfth-night/'])(
+  it.each(['/en/library/my/abc', '/en/library/my/abc/'])(
     'still shows on the book page %s, which is not the reader',
     (path) => {
       renderAt(path)
@@ -84,7 +80,7 @@ describe('AndroidAppBanner', () => {
 
   it('records the read flag when the reader is visited', () => {
     localStorage.removeItem('androidTesterBanner.hasRead')
-    renderAt('/en/books/twelfth-night/2-act-i/')
+    renderAt('/en/library/my/abc/read')
     expect(localStorage.getItem('androidTesterBanner.hasRead')).toBe('1')
   })
 })

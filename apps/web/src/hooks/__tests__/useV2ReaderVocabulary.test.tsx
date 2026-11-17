@@ -16,7 +16,6 @@ vi.mock('../../api/vocabulary', () => ({
   saveWord: (...a: unknown[]) => api.saveWord(...a),
   updateWord: (...a: unknown[]) => api.updateWord(...a),
   deleteWord: vi.fn(),
-  markAsKnown: vi.fn(),
 }))
 const translate = vi.fn()
 vi.mock('../../api/translation', () => ({ translate: (...a: unknown[]) => translate(...a) }))

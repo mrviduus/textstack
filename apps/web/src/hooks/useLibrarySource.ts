@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-export type LibrarySource = 'all' | 'uploads' | 'catalog'
+export type LibrarySource = 'all' | 'uploads'
 
 export interface LibrarySourceState {
   source: LibrarySource
@@ -13,7 +13,7 @@ export interface LibrarySourceState {
 }
 
 function readSource(value: string | null): LibrarySource {
-  if (value === 'uploads' || value === 'catalog') return value
+  if (value === 'uploads') return value
   return 'all'
 }
 

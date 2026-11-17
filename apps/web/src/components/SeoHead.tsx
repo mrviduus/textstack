@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
-import { useSite } from '../context/SiteContext'
 import { buildCanonicalUrl, normalizeOrigin } from '../lib/canonicalUrl'
 
 interface SeoHeadProps {
@@ -31,26 +30,21 @@ function truncateSeo(text: string, maxLen: number): string {
   return (lastSpace > maxLen * 0.6 ? trimmed.slice(0, lastSpace) : trimmed) + '…'
 }
 
-// Get canonical origin - use primaryDomain from site config, env var, or fallback to window.location
-function getCanonicalOrigin(primaryDomain: string | undefined): string {
-  // 1. Use primaryDomain from site context if available
-  if (primaryDomain) {
-    return normalizeOrigin(primaryDomain)
-  }
-
-  // 2. Use VITE_CANONICAL_URL env var (for prerender where site context may not load in time)
+// Get canonical origin - env var, the production host, or window.location
+function getCanonicalOrigin(): string {
+  // 1. VITE_CANONICAL_URL env var
   const envCanonical = import.meta.env.VITE_CANONICAL_URL
   if (envCanonical) {
     return normalizeOrigin(envCanonical)
   }
 
-  // 3. Detect production domain from hostname
+  // 2. Detect production domain from hostname
   const host = window.location.hostname
   if (host === 'textstack.app' || host === 'www.textstack.app') {
     return 'https://textstack.app'
   }
 
-  // 4. Fallback to current origin (for local dev)
+  // 3. Fallback to current origin (for local dev)
   return normalizeOrigin(window.location.origin)
 }
 
@@ -77,12 +71,9 @@ export function SeoHead({
 }: SeoHeadProps) {
   const location = useLocation()
   const { language } = useLanguage()
-  const { site } = useSite()
 
   useEffect(() => {
-    // Wait for site context to load before setting SEO tags
-    // This ensures canonical URLs use the correct domain
-    const origin = getCanonicalOrigin(site?.primaryDomain)
+    const origin = getCanonicalOrigin()
     const canonicalUrl = buildCanonicalUrl({
       origin,
       pathname: location.pathname,
@@ -95,7 +86,7 @@ export function SeoHead({
       : 'TextStack Reader'
     const fullTitle = truncateSeo(rawTitle, MAX_TITLE_LENGTH)
 
-    // Set canonical URL (always set, will update when site loads)
+    // Set canonical URL
     let link = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null
     if (!link) {
       link = document.createElement('link')
@@ -202,7 +193,7 @@ export function SeoHead({
     return () => {
       document.querySelectorAll(`link[${HREFLANG_DATA_ATTR}]`).forEach((el) => el.remove())
     }
-  }, [location.pathname, location.search, title, description, image, type, availableLanguages, language, noindex, statusCode, site?.primaryDomain])
+  }, [location.pathname, location.search, title, description, image, type, availableLanguages, language, noindex, statusCode])
 
   return null
 }

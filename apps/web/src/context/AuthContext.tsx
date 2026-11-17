@@ -8,10 +8,8 @@ import {
 } from '../api/auth'
 import type { GuestMergeSkipReason } from '@textstack/shared'
 import { authToastFor, type AuthToast } from '../lib/authToast'
-import { flushLocalProgress } from '../lib/progressSync'
 import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
-import { V2_OFF, type V2Switch } from '@textstack/shared'
 import { startV2Probe, settleV2Session, v2Store } from '../api/v2'
 import { applyV2MergeMap, type V2MergeMap } from '../lib/v2Merge'
 
@@ -56,8 +54,6 @@ interface AuthContextValue {
    */
   guestMergeSkipped: GuestMergeSkipReason | null
   dismissGuestMergeSkipped: () => void
-  /** The V2 sync API (`Features:V2Api`), probed once a session exists; read it with `useV2()`. */
-  v2: V2Switch
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -83,7 +79,6 @@ const AuthContext = createContext<AuthContextValue>({
   dismissAuthSuccessToast: () => {},
   guestMergeSkipped: null,
   dismissGuestMergeSkipped: () => {},
-  v2: V2_OFF,
 })
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
@@ -94,7 +89,6 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
  */
 async function afterMerge(merge: V2MergeMap | undefined) {
   if (merge) await applyV2MergeMap(merge)
-  void flushLocalProgress().catch(() => {})
   void replayAllPendingHighlights()
 }
 
@@ -111,10 +105,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const dismissAuthSuccessToast = useCallback(() => setAuthSuccessToast(null), [])
   const [guestMergeSkipped, setGuestMergeSkipped] = useState<GuestMergeSkipReason | null>(null)
   const dismissGuestMergeSkipped = useCallback(() => setGuestMergeSkipped(null), [])
-  const [v2, setV2] = useState<V2Switch>(V2_OFF)
   // The V2 probe needs a session (PathGates answers 401 without one): started wherever a user is
   // set, before anything that calls the API next. API calls await the same probe, so none races it.
-  const probeV2 = useCallback(() => { void startV2Probe().then(setV2) }, [])
+  const probeV2 = useCallback(() => { void startV2Probe() }, [])
 
   // The V2 cache is one account's: an account change (sign-out, another sign-in) empties it.
   const userId = user?.id ?? null
@@ -210,29 +203,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     const bootstrap = async () => {
-      // On bootstrap the user didn't just authenticate — they restored a session. So we only
-      // surface the "progress kept" toast if flushLocalProgress actually recovered something
-      // (i.e. they read anonymously in a prior tab before signing in, and that progress was
-      // sitting in localStorage waiting to be dispatched).
-      const flushIfReal = async (u: User) => {
-        if (u.isGuest) return
-        void replayAllPendingHighlights()
-        try {
-          const n = await flushLocalProgress()
-          if (n > 0) setAuthSuccessToast('saved')
-        } catch { /* keep keys for next attempt */ }
+      // A restored session: replay the highlights made without one.
+      const flushIfReal = (u: User) => {
+        if (!u.isGuest) void replayAllPendingHighlights()
       }
       try {
         const response = await getCurrentUser()
         setUser(response.user)
         probeV2()
-        void flushIfReal(response.user)
+        flushIfReal(response.user)
       } catch {
         try {
           const response = await refreshToken()
           setUser(response.user)
           probeV2()
-          void flushIfReal(response.user)
+          flushIfReal(response.user)
         } catch {
           // I1: bootstrap read-only. user остаётся null; фичи сами зовут ensureSession().
         }
@@ -397,7 +382,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         dismissAuthSuccessToast,
         guestMergeSkipped,
         dismissGuestMergeSkipped,
-        v2,
       }}
     >
       {children}
@@ -409,7 +393,3 @@ export function useAuth() {
   return useContext(AuthContext)
 }
 
-/** `{enabled, maxPartBytes}`: whether this app start talks V2 (`/me/v2`). Off until probed. */
-export function useV2(): V2Switch {
-  return useContext(AuthContext).v2
-}

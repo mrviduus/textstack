@@ -23,13 +23,6 @@ describe('useLibrarySource', () => {
     expect(result.current.source).toBe('uploads')
   })
 
-  it('reads catalog source', () => {
-    const { result } = renderHook(() => useLibrarySource(), {
-      wrapper: wrapper('/library?source=catalog'),
-    })
-    expect(result.current.source).toBe('catalog')
-  })
-
   it('falls back to all for unknown source value', () => {
     const { result } = renderHook(() => useLibrarySource(), {
       wrapper: wrapper('/library?source=garbage'),

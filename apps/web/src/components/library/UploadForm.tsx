@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { uploadUserBook, getStorageQuota, type StorageQuota } from '../../api/userBooks'
+import { uploadUserBook } from '../../api/userBooks'
 import { emit } from '../../lib/telemetry/myBooksV2'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { useTranslation } from '../../hooks/useTranslation'
@@ -16,13 +16,8 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [quota, setQuota] = useState<StorageQuota | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const lastInitialRef = useRef<File | null>(null)
-
-  useEffect(() => {
-    getStorageQuota().then(setQuota).catch(() => {})
-  }, [])
 
   const handleUpload = useCallback(async (file: File) => {
     setError(null)
@@ -40,13 +35,12 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
     const startedAt = Date.now()
 
     try {
-      const result = await uploadUserBook(file, undefined, undefined, (percent) => {
+      const result = await uploadUserBook(file, (percent) => {
         setUploadProgress(percent)
       })
       const newBookId = result?.userBookId
       emit('upload.completed', { durationMs: Date.now() - startedAt, sizeBytes: file.size })
       onUploadComplete(newBookId, result?.hasOriginalPdf)
-      getStorageQuota().then(setQuota).catch(() => {})
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       emit('upload.failed', { reason: msg })
@@ -83,14 +77,6 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
   }, [])
 
   const handleDragLeave = useCallback(() => setIsDragging(false), [])
-
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 B'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-  }
 
   return (
     <div className="upload-section">
@@ -132,17 +118,6 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
       </div>
 
       {error && <div className="upload-section__error">{error}</div>}
-
-      {quota && (
-        <div className="upload-section__quota">
-          <div className="upload-section__quota-bar">
-            <div className="upload-section__quota-fill" style={{ width: `${Math.min(quota.usedPercent, 100)}%` }} />
-          </div>
-          <span className="upload-section__quota-text">
-            {formatBytes(quota.usedBytes)} / {formatBytes(quota.limitBytes)} used
-          </span>
-        </div>
-      )}
     </div>
   )
 }

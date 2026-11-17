@@ -54,8 +54,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'charts': ['recharts'],
-          'sanitize': ['dompurify'],
         },
       },
     },
@@ -76,13 +74,6 @@ export default defineConfig({
         },
       },
       '/me': {
-        target: 'http://localhost:8080',
-        changeOrigin: false,
-        headers: {
-          Host: 'general.localhost',
-        },
-      },
-      '/books': {
         target: 'http://localhost:8080',
         changeOrigin: false,
         headers: {
