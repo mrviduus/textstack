@@ -677,6 +677,9 @@ public sealed partial class TextStackApiClient
     private static readonly VocabularyPageJson EmptyVocab = new(0, []);
 }
 
+/// <summary>The upstream route is retired (410): the tool answers that it no longer applies, never an empty result.</summary>
+public sealed class McpRetiredException() : Exception("this feature is retired in this version.");
+
 /// <summary>
 /// Typed "no/invalid auth" signal for user-scoped tools. Raised when the token
 /// provider can't supply a usable token, or the API answers 401. The catalog maps
@@ -689,10 +692,6 @@ public sealed partial class TextStackApiClient
 /// the user where to authorize. Otherwise <see cref="Message"/> carries the reason
 /// (e.g. "no TEXTSTACK_MCP_TOKEN configured") or the default (401 from the API).
 /// </summary>
-/// <summary>The upstream route is retired (410): the tool answers that it no longer applies, never an empty result.</summary>
-public sealed class McpRetiredException()
-    : Exception("this is retired on TextStack: catalog books and chapter reviews are gone; use the uploaded-book (my-library) tools.");
-
 public sealed class McpUnauthorizedException : Exception
 {
     /// <summary>Device-flow verification URL (set only for the Pending case).</summary>

@@ -142,8 +142,8 @@ public sealed partial class TextStackApiClient
     private async Task<HighlightJson?> SaveUserBookHighlightV2Async(
         Guid bookId, Guid chapterId, string color, string selectedText, string? noteText, CancellationToken ct)
     {
-        // ponytail: legacy's 200-assistant-highlights-per-book ceiling is not counted on V2 (the write is rate
-        // limited per user, highlight-write); add it to the annotations write if an assistant ever floods a book.
+        // ponytail: legacy's 200-assistant-highlights-per-book ceiling is not counted on V2 (an assistant's write is rate
+        // limited per user, assistant-write); add it to the annotations write if an assistant ever floods a book.
         if ((await V2BookAsync(bookId, ct))?.CurrentFile is not { } file) return null;
         var chapter = (await V2ChaptersAsync(bookId, file.Id, ct)).FirstOrDefault(c => ChapterId(file.Id, c.ChapterKey) == chapterId);
         if (chapter is null) return null;
