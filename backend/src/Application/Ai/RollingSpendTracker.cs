@@ -37,7 +37,8 @@ public sealed class RollingSpendTracker(
     TimeProvider timeProvider,
     BudgetOptions budgets,
     TracingOptions tracing,
-    ILogger<RollingSpendTracker> logger) : ISpendTracker
+    ILogger<RollingSpendTracker> logger,
+    ILlmSpendSource? spendSource = null) : ISpendTracker
 {
     private const decimal MicrosPerDollar = 1_000_000m;
 
@@ -123,8 +124,13 @@ public sealed class RollingSpendTracker(
             var utcMidnight = new DateTimeOffset(bucket.Utc.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
 
             decimal sampledCost;
-            using (var scope = scopeFactory.CreateScope())
+            if (spendSource is not null)
             {
+                sampledCost = spendSource.SampledCostSince(featureTag, utcMidnight);
+            }
+            else
+            {
+                using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
                 sampledCost = db.LlmTraces
                     .Where(t => t.FeatureTag == featureTag && t.CreatedAt >= utcMidnight)
@@ -203,4 +209,15 @@ public sealed class RollingSpendTracker(
             }
         });
     }
+}
+
+/// <summary>
+/// Where <see cref="RollingSpendTracker"/> seeds today's spend from when the traces are not legacy's
+/// (<c>Database:Mode=v2</c> writes them to V2's <c>llm_traces</c>): the summed, sampled <c>cost_usd</c> of a
+/// feature's traces since a moment. Absent, the tracker reads legacy's table as before. May throw; the seed
+/// swallows it.
+/// </summary>
+public interface ILlmSpendSource
+{
+    decimal SampledCostSince(string featureTag, DateTimeOffset since);
 }

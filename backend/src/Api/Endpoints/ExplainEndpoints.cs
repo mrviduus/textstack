@@ -35,7 +35,7 @@ public static class ExplainEndpoints
         group.MapPost("", Explain).WithName("Explain").RequireRateLimiting("explain");
     }
 
-    private static async Task<IResult> Explain(
+    private static Task<IResult> Explain(
         [FromBody] ExplainRequest request,
         HttpContext httpContext,
         IConfiguration config,
@@ -46,6 +46,26 @@ public static class ExplainEndpoints
         IToolRegistry toolRegistry,
         ToolCallingSession toolSession,
         ILogger<Program> logger,
+        CancellationToken ct) =>
+        ExplainAsync(request, httpContext, config, openAi, llm,
+            token => ResolveGenreAsync(request.Genre, request.BookId, db, logger, token), httpContext.GetUserId(authService),
+            toolRegistry, toolSession, logger, ct);
+
+    /// <summary>
+    /// The explanation, with the book's genre from <paramref name="resolveGenre"/>: legacy's tables or V2's
+    /// (V2CompatEndpoints). A null <paramref name="toolRegistry"/> offers no tools (they read legacy's catalog).
+    /// </summary>
+    internal static async Task<IResult> ExplainAsync(
+        ExplainRequest request,
+        HttpContext httpContext,
+        IConfiguration config,
+        IOptions<OpenAiOptions> openAi,
+        ILlmService llm,
+        Func<CancellationToken, Task<string?>> resolveGenre,
+        Guid? userId,
+        IToolRegistry? toolRegistry,
+        ToolCallingSession toolSession,
+        ILogger logger,
         CancellationToken ct)
     {
         var maxWordLength = config.GetValue("Explain:MaxWordLength", 100);
@@ -61,7 +81,7 @@ public static class ExplainEndpoints
             return Results.BadRequest($"Sentence exceeds {maxSentenceLength} chars");
 
         var targetLang = string.IsNullOrWhiteSpace(request.TargetLang) ? "en" : request.TargetLang.Split('-')[0];
-        var genre = await ResolveGenreAsync(request.Genre, request.BookId, db, logger, ct);
+        var genre = await resolveGenre(ct);
         var cache = new FileJsonCache<ExplainResponse>(
             config.GetValue<string>("Explain:CachePath") ?? "/tmp/explain-cache", config.GetValue("Explain:CacheTtlDays", 30), logger);
         // ponytail: the configured model (the one the openai-explain provider is built with), not the one the gateway
@@ -72,11 +92,10 @@ public static class ExplainEndpoints
         // Function-calling (AI-031b): which tools this request may use. Book tools need an edition in
         // context; the highlights tool additionally needs a signed-in user. Kill switch:
         // Explain:ToolsEnabled.
-        var userId = httpContext.GetUserId(authService);
         Guid? editionId = !string.IsNullOrWhiteSpace(request.BookId) && Guid.TryParse(request.BookId, out var parsed)
             ? parsed
             : null;
-        var tools = ResolveTools(toolRegistry, config, request.Sentence, editionId, userId);
+        IReadOnlyList<ToolSchema> tools = toolRegistry is null ? [] : ResolveTools(toolRegistry, config, request.Sentence, editionId, userId);
         var toolCtx = new ToolContext(userId, editionId, AgentRunId: Guid.NewGuid(), httpContext.RequestServices);
 
         var systemPrompt = ExplainPrompt.BuildSystemPrompt(genre, targetLang, withTools: tools.Count > 0);

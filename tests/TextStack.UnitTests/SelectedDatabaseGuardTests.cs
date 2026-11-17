@@ -71,8 +71,8 @@ public class SelectedDatabaseGuardTests
     [InlineData("GET", "/me/reading/stats", "/me/reading/stats", 410)]
     [InlineData("GET", "/me/library/shelves", "/me/library/shelves", 410)]
     [InlineData("GET", "/me/highlights/all", "/me/highlights/all", 410)]
-    [InlineData("POST", "/explain/", "/explain", 503)]
-    [InlineData("POST", "/translate", "/translate", 503)]
+    [InlineData("POST", "/explain/", "/explain", 410)]
+    [InlineData("POST", "/me/books/clip", "/me/books/clip", 503)]
     public async Task UnadaptedNativeRoute_IsGoneOrPendingBeforeAnyUserLookup(string method, string pattern, string path, int expected)
     {
         var http = Request(path, null, selected: false, pattern: pattern);

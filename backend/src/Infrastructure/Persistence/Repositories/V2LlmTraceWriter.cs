@@ -8,8 +8,22 @@ namespace Infrastructure.Persistence.Repositories;
 /// of <see cref="ILlmTraceWriter"/>, beside the EF <c>DbLlmTraceWriter</c> that stays bound to the
 /// interface until the cutover. <c>user_id</c> has no FK by design: a trace outlives its user.
 /// </summary>
-public sealed class V2LlmTraceWriter(V2DataSource dataSource) : ILlmTraceWriter
+public sealed class V2LlmTraceWriter(V2DataSource dataSource) : ILlmTraceWriter, Application.Ai.ILlmSpendSource
 {
+    private const string SumCost = """
+        SELECT coalesce(sum(cost_usd), 0) FROM llm_traces WHERE feature_tag = @featureTag AND created_at >= @since
+        """;
+
+    /// <summary>
+    /// Today's seed for the spend tracker in v2 mode, where the traces are written here. Sync because the tracker's
+    /// seed is (it ran a sync EF sum on legacy); once per feature per day.
+    /// </summary>
+    public decimal SampledCostSince(string featureTag, DateTimeOffset since)
+    {
+        using var conn = dataSource.OpenConnection();
+        return conn.ExecuteScalar<decimal>(SumCost, new { featureTag, since });
+    }
+
     private const string InsertTrace = """
         INSERT INTO llm_traces (id, feature_tag, model_id, prompt_hash, system_prompt, messages_json, response_text, tool_calls_json, tokens_in, tokens_out, cost_usd, latency_ms, user_id, trace_parent_id, error, created_at)
         VALUES (@Id, @FeatureTag, @ModelId, @PromptHash, @SystemPrompt, CAST(@MessagesJson AS jsonb), @ResponseText, CAST(@ToolCallsJson AS jsonb), @TokensIn, @TokensOut, @CostUsd, @LatencyMs, @UserId, @TraceParentId, @Error, @CreatedAt)
