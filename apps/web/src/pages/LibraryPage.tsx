@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useAuth, useV2 } from '../context/AuthContext'
-import { v2Offers } from '@textstack/shared'
+import { OPENED_AT_KEY, parseOpenedAt, v2Offers } from '@textstack/shared'
+import { readItem } from '../lib/safeLocalStorage'
 import { useHighlightedBook } from '../hooks/useHighlightedBook'
 import { useLibrary } from '../hooks/useLibrary'
 import { useLanguage } from '../context/LanguageContext'
@@ -84,7 +85,7 @@ export function LibraryPage() {
   const [bulkBusy, setBulkBusy] = useState(false)
 
   useEffect(() => {
-    if (!activeCollectionId) {
+    if (!activeCollectionId || !v2Offers(v2, 'collections')) {
       setCollectionSavedIds(null)
       setCollectionUploadIds(null)
       return
@@ -99,7 +100,7 @@ export function LibraryPage() {
       setCollectionUploadIds(new Set(uploads))
     })
     return () => { cancelled = true }
-  }, [activeCollectionId])
+  }, [activeCollectionId, v2])
 
   const onCollectionChange = (id: string | null) => {
     setActiveCollectionId(id)
@@ -263,7 +264,7 @@ export function LibraryPage() {
     if (queryD && !matchesQuery({ title: c.book.title, author: c.book.author, tags: c.book.tags }, queryD)) return false
     return !(activeCollectionId && collectionUploadIds) || collectionUploadIds.has(c.book.id)
   })
-  const combinedSorted: CombinedItem[] = sortEntries(combinedItems, sort, progressMap)
+  const combinedSorted: CombinedItem[] = sortEntries(combinedItems, sort, progressMap, parseOpenedAt(readItem(OPENED_AT_KEY)))
 
   // FTS content-search override: replace combined list with upload-only FTS hits
   // (saved books don't have content FTS, so showing them mixed in would be misleading).

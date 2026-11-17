@@ -617,7 +617,8 @@
       "saveNeedsAccount": "Saving words needs an account — this one wasn't kept. Sign in from Profile.",
       "deletedEarlier": "You deleted “{{word}}” earlier.",
       "restore": "Restore",
-      "restoreFailed": "Couldn't restore the word. Try again."
+      "restoreFailed": "Couldn't restore the word. Try again.",
+      "removeFailed": "Couldn't remove the word. Try again."
     },
     "rareWordNotice": {
       "title": "Rare word — saved to reference",

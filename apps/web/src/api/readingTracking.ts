@@ -78,6 +78,8 @@ export interface AchievementDto {
 // --- API Functions ---
 
 export async function submitSession(data: SubmitSessionRequest): Promise<SubmitSessionResponse> {
+  // A legacy session on V2 answers 410: V2 sessions go to `/me/v2` (`clientSessionId`).
+  await refuseOnV2('readingStats')
   // tz: the server counts the streak and time-of-day achievements in the reader's day, not UTC's.
   return authFetch<SubmitSessionResponse>(`/me/reading/sessions?tz=${-new Date().getTimezoneOffset()}`, {
     method: 'POST',

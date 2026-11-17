@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { useDownload } from '../context/DownloadContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getLibrary, addToLibrary, removeFromLibrary, LibraryItem } from '../api/auth'
+import { ApiError } from '../api/client'
 import { deleteAllCachedData } from '../lib/offlineDb'
 import { emitDataChanges, useDataChange } from '../lib/dataEvents'
 
@@ -24,7 +25,9 @@ export function useLibrary({ enabled = true }: { enabled?: boolean } = {}) {
       const response = await getLibrary()
       setItems(response.items)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load library')
+      // Refused on V2 (the catalog retires): an empty shelf, not an error.
+      if (err instanceof ApiError && err.status === 410) setItems([])
+      else setError(err instanceof Error ? err.message : 'Failed to load library')
     } finally {
       setLoading(false)
     }

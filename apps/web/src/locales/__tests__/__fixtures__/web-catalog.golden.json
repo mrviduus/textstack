@@ -1481,6 +1481,7 @@
   "reader.vocab.deletedEarlier": "You deleted “{{word}}” earlier.",
   "reader.vocab.restore": "Restore",
   "reader.vocab.restoreFailed": "Couldn't restore the word. Try again.",
+  "reader.vocab.removeFailed": "Couldn't remove the word. Try again.",
   "footer.changelog": "What's new",
   "changelog.title": "What's new",
   "changelog.seoTitle": "What's new in TextStack",

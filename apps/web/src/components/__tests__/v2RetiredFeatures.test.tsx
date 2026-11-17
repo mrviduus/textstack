@@ -22,12 +22,14 @@ vi.mock('../../api/userData', async (original) => ({
   ...(await original<typeof import('../../api/userData')>()),
   getAllHighlights: () => Promise.resolve({ items: [], totalCount: 1 }),
 }))
+vi.mock('../../context/DownloadContext', () => ({ useDownload: () => ({ startDownload: () => {}, cancelDownload: () => {} }) }))
 vi.mock('../SeoHead', () => ({ SeoHead: () => null }))
 vi.mock('../Footer', () => ({ Footer: () => null }))
 
 import { OffV2 } from '../OffV2'
 import { HighlightsPage } from '../../pages/HighlightsPage'
 import { useQuickStats } from '../../hooks/useQuickStats'
+import { LibraryPage } from '../../pages/LibraryPage'
 
 // M5 (#1031): features with no V2 storage (owner, 2026-11-16). On V2 their legacy routes answer 410.
 const READS: [() => Promise<unknown>, string][] = [
@@ -111,6 +113,22 @@ describe('the features V2 holds no data for', () => {
     expect(reviewButton()).toBeNull()
     expect(renderHook(() => useQuickStats()).result.current).toBeNull()
     expect(calls).toEqual([])
+  })
+
+  it('with V2 on, the library page lists the uploads and their tags, and never calls the retired routes', async () => {
+    await start(true)
+    const calls = fakeApi({
+      'GET /me/v2/library/changes': feed(book('b1', 'f1', { title: 'Dune', tags: ['scifi'] }), book('b2', 'f2', { title: 'Emma', tags: ['scifi', 'classic'] })),
+      'GET /me/v2/reading/changes': feed(),
+    })
+    render(<MemoryRouter><LibraryPage /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('Emma')).toBeTruthy())
+    expect(screen.getByText('Dune')).toBeTruthy()
+    // The tag list is the uploads' own tags, counted client-side (no `/me/library/tags` on V2).
+    expect(await screen.findByText('#classic')).toBeTruthy()
+    expect(screen.getByText('#scifi').nextElementSibling?.textContent).toBe('2')
+    // No catalog shelf, catalog progress, collections or tags route: only the V2 feeds.
+    expect(calls.map((c) => `${c.method} ${c.path}`).sort()).toEqual(['GET /me/v2/library/changes', 'GET /me/v2/reading/changes'])
   })
 
   it('with V2 off, everything is as before', async () => {
