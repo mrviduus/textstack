@@ -70,7 +70,7 @@ if (app.Environment.IsProduction() && Application.Auth.JwtSettings.IsWeakSecret(
 if (string.IsNullOrWhiteSpace(builder.Configuration["Apple:BundleId"]))
     app.Logger.LogCritical("Apple:BundleId is not set; Apple sign-in is refused. Set APPLE_BUNDLE_ID");
 
-// The `migrator-v2` compose service owns the schema (ADR-021, ADR-026); the Api never migrates.
+// The `migrator` compose service owns the schema (ADR-021, ADR-026); the Api never migrates.
 // A schema behind this build is reported, not fatal: throwing here would crash-loop the Api
 // (restart: always) through a deliberate `migrate.sh down`. /health/ready answers 503 with the
 // pending list until the migrator catches up.

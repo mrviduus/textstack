@@ -17,7 +17,7 @@ cp .env.example .env
 |----------|----------|---------|-------------|
 | `POSTGRES_USER` | Yes | `app` | PostgreSQL username |
 | `POSTGRES_PASSWORD` | Yes | — | PostgreSQL password |
-| `POSTGRES_DB` | Yes | `books` | Database name |
+| `POSTGRES_DB` | Yes | `books` | Init database only: the postgres image creates it on an empty volume, the db healthcheck names it; nothing connects to it. Never the V2 one on a new install (initdb would create it without ICU); on an existing server, the V2 database |
 | `V2_POSTGRES_DB` | No | `textstack_v2` | The database Api and Worker read (`ConnectionStrings__V2`, auto-built); required at startup |
 
 ### ASP.NET Core
@@ -139,7 +139,7 @@ GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
 ```bash
 POSTGRES_USER=textstack_prod
 POSTGRES_PASSWORD=<strong-password>
-POSTGRES_DB=textstack_prod
+POSTGRES_DB=textstack_v2
 ASPNETCORE_ENVIRONMENT=Production
 JWT_SECRET=<256-bit-secret>
 JWT_ISSUER=textstack.app

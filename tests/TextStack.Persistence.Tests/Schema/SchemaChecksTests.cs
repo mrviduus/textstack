@@ -62,7 +62,7 @@ public class SchemaChecksTests(V2PostgresFixture db)
     {
         // Fail closed: the down never rewrites or deletes a real book to fit the old list.
         var book = await db.NewReaderWithBookAsync();
-        var down = await File.ReadAllTextAsync(Path.Combine(V2PostgresFixture.RepoRoot(), "database/v2/migrations/0005_book_formats.down.sql"), Ct);
+        var down = await File.ReadAllTextAsync(Path.Combine(V2PostgresFixture.RepoRoot(), "database/migrations/0005_book_formats.down.sql"), Ct);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await conn.BeginTransactionAsync(Ct);
         await conn.ExecuteAsync(new CommandDefinition("UPDATE book_files SET format = 'fb2' WHERE book_id = @bookId", new { bookId = book.Id }, tx, cancellationToken: Ct));
@@ -82,7 +82,7 @@ public class SchemaChecksTests(V2PostgresFixture db)
     public async Task Down0006_PageNameStateStored_RefusesAndChangesNothing()
     {
         var book = await db.NewReaderWithBookAsync();
-        var down = await File.ReadAllTextAsync(Path.Combine(V2PostgresFixture.RepoRoot(), "database/v2/migrations/0006_page_name_scheme.down.sql"), Ct);
+        var down = await File.ReadAllTextAsync(Path.Combine(V2PostgresFixture.RepoRoot(), "database/migrations/0006_page_name_scheme.down.sql"), Ct);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await conn.BeginTransactionAsync(Ct);
         await conn.ExecuteAsync(new CommandDefinition("UPDATE book_files SET format = 'cbz' WHERE book_id = @bookId", new { bookId = book.Id }, tx, cancellationToken: Ct));
@@ -113,9 +113,9 @@ public class SchemaChecksTests(V2PostgresFixture db)
             }
 
             Assert.True(await Accepts());
-            await db.Databases.ShellAsync($"PGUSER=postgres PGDATABASE={name} sh /database/v2/run.sh down 5");
+            await db.Databases.ShellAsync($"PGUSER=postgres PGDATABASE={name} sh /database/run.sh down 5");
             Assert.False(await Accepts());
-            await db.Databases.ShellAsync($"PGUSER=postgres PGDATABASE={name} sh /database/v2/run.sh up");
+            await db.Databases.ShellAsync($"PGUSER=postgres PGDATABASE={name} sh /database/run.sh up");
             Assert.True(await Accepts());
         }
         finally

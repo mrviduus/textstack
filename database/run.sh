@@ -1,6 +1,6 @@
 #!/bin/sh
-# run.sh — the migrator-v2 entrypoint: creates the database PGDATABASE names if it is missing, then
-# runs migrate.sh with the same arguments. See database/v2/README.md.
+# run.sh — the migrator entrypoint: creates the database PGDATABASE names if it is missing, then
+# runs migrate.sh with the same arguments. See database/README.md.
 #
 #   run.sh up | down <version> | status | verify
 #   run.sh create    only the CREATE below, no migrations: the empty database `make restore` loads

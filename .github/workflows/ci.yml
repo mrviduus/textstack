@@ -310,16 +310,16 @@ jobs:
         run: dotnet format --no-restore --verify-no-changes
 
       # textstack_v2's runner and every migration on scratch databases: up, down one version deeper
-      # per pass then up again (database/v2/README.md). Run in the postgres image, so psql/pg_dump
+      # per pass then up again (database/README.md). Run in the postgres image, so psql/pg_dump
       # match the server and `sh` is a strict POSIX shell (dash), as close to the migrator's busybox as ubuntu gets.
-      - name: V2 migrations round trip
+      - name: Migrations round trip
         run: >-
           docker run --rm --network host -v "$PWD/database:/database:ro"
           -e PGHOST=localhost -e PGUSER=app -e PGPASSWORD=changeme -e PGDATABASE=books
-          pgvector/pgvector:pg16 sh /database/v2/tests/roundtrip.sh
+          pgvector/pgvector:pg16 sh /database/tests/roundtrip.sh
 
       # Dapper repositories against real Postgres (ADR-028): Testcontainers starts its own
-      # pgvector:pg16 and builds the schema with database/v2/run.sh. Uses the runner's Docker.
+      # pgvector:pg16 and builds the schema with database/run.sh. Uses the runner's Docker.
       - name: Persistence tests
         run: dotnet test tests/TextStack.Persistence.Tests --no-build
 
@@ -708,13 +708,12 @@ jobs:
       - name: Build containers
         run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
 
-      # Before `up -d`: the api's readiness reads textstack_v2. migrator-v2 sits behind
-      # profile `v2` (#1053); `compose run` enables it. Also the only check of its compose wiring.
-      - name: V2 migrator runs through compose
+      # `up -d` runs it too (api and worker wait for it); this step shows its output on its own.
+      - name: Migrator runs through compose
         run: |
           COMPOSE="docker compose -f docker-compose.yml -f .github/docker-compose.ci-db.yml"
-          $COMPOSE run --rm migrator-v2 up
-          $COMPOSE run --rm migrator-v2 status
+          $COMPOSE run --rm migrator up
+          $COMPOSE run --rm migrator status
 
       # The ci-db overlay publishes Postgres on loopback for the DB-backed integration tests.
       - name: Start services
@@ -818,10 +817,6 @@ jobs:
       # Same images and cache scopes as `docker`; see the note there.
       - name: Build containers
         run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
-
-      # Before `up -d`, as in `docker`: the api reads textstack_v2.
-      - name: Migrate textstack_v2
-        run: docker compose run --rm migrator-v2 up
 
       - name: Start services
         run: docker compose up -d

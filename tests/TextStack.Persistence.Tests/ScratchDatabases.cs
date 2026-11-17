@@ -6,7 +6,7 @@ using Testcontainers.PostgreSql;
 namespace TextStack.Persistence.Tests;
 
 /// <summary>
-/// One fixture container's databases: the migrate command (<c>database/v2/run.sh up</c>, ICU), and throwaway
+/// One fixture container's databases: the migrate command (<c>database/run.sh up</c>, ICU), and throwaway
 /// databases for tests that need a whole one of their own, each a <c>CREATE DATABASE … TEMPLATE</c> copy of a
 /// template migrated once. Test SQL only: names are the tests' own.
 /// </summary>
@@ -16,8 +16,8 @@ public sealed class ScratchDatabases(PostgreSqlContainer container)
 
     private readonly ConcurrentDictionary<string, Lazy<Task>> _templates = new();
 
-    /// <summary>Creates <paramref name="database"/> when missing (ICU, template0), then migrates it, as migrator-v2 does.</summary>
-    public Task MigrateV2Async(string database) => ShellAsync($"PGUSER=postgres PGDATABASE={database} sh /database/v2/run.sh up");
+    /// <summary>Creates <paramref name="database"/> when missing (ICU, template0), then migrates it, as the migrator does.</summary>
+    public Task MigrateV2Async(string database) => ShellAsync($"PGUSER=postgres PGDATABASE={database} sh /database/run.sh up");
 
     public Task<string> NewV2Async(string name) => CopyAsync(V2Template, name);
 

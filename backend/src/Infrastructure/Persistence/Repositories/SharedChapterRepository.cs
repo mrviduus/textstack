@@ -7,7 +7,7 @@ namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>
 /// Dapper implementation of <see cref="ISharedChapterRepository"/> on <c>textstack_v2</c>. The rules it
-/// leans on live in the schema (database/v2/migrations/0000_baseline.up.sql, "Discussion"): one row
+/// leans on live in the schema (database/migrations/0000_baseline.up.sql, "Discussion"): one row
 /// per <c>(user_id, operation_id)</c>, and a share can only name a book of its own user and a file of
 /// that book (the latter FK deferred, so it is checked when the statement's transaction commits).
 /// </summary>

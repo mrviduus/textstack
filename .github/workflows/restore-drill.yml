@@ -49,7 +49,7 @@ jobs:
       PSQL: psql -X -v ON_ERROR_STOP=1 -qAt
       RESTORE: /tmp/restore
     steps:
-      # database/v2: run.sh creates the scratch V2 database, the migrations name its tables.
+      # database/: run.sh creates the scratch V2 database, the migrations name its tables.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
@@ -95,18 +95,22 @@ jobs:
             || { echo "::error::no /db_v2.sql snapshot in R2"; exit 1; }
           start=$(date +%s)
           $PSQL -d drill -c "CREATE ROLE textstack_prod" >/dev/null
-          sh database/v2/run.sh create
+          sh database/run.sh create
           restic dump --path /db_v2.sql "${DB_SNAP:-latest}" /db_v2.sql | $PSQL >/dev/null
           echo "DB_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
-      # Every table a migration in the restored ledger creates, read from that migration; then the
+      # Every table a migration in the restored ledger creates, read from that migration, unless a
+      # later one in the ledger drops it (0007: migration_runs); then the
       # tables a reader's data lives in must have rows (a truncated or empty dump, not normal churn).
       - name: V2 database is complete
         run: |
           set -euo pipefail
           n=0
-          for v in $($PSQL -c "SELECT lpad(version::text, 4, '0') || '_' || name FROM schema_migrations ORDER BY version"); do
-            for t in $(grep -o 'CREATE TABLE public\.[a-z0-9_]*' "database/v2/migrations/$v.up.sql" | cut -d. -f2); do
+          applied=$($PSQL -c "SELECT lpad(version::text, 4, '0') || '_' || name FROM schema_migrations ORDER BY version")
+          for v in $applied; do
+            for t in $(grep -o 'CREATE TABLE public\.[a-z0-9_]*' "database/migrations/$v.up.sql" | cut -d. -f2); do
+              # Dropped by an applied migration: absent from the dump by design.
+              if grep -qx "DROP TABLE public\.$t;" $(printf 'database/migrations/%s.up.sql ' $applied); then continue; fi
               # Not inside echo: echo's status would hide a table the dump never created.
               c=$($PSQL -c "SELECT count(*) FROM public.$t")
               echo "$t: $c"

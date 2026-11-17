@@ -14,7 +14,7 @@ internal static class SchemaVersion
     private const string Suffix = ".up.sql";
 
     /// <summary>The <c>textstack_v2</c> migrations this build was written against, oldest first: "0000_baseline", …
-    /// Embedded from <c>database/v2/migrations/</c> at build time (Api.csproj).</summary>
+    /// Embedded from <c>database/migrations/</c> at build time (Api.csproj).</summary>
     public static readonly IReadOnlyList<string> V2Known = Embedded("v2migrations/");
 
     private static List<string> Embedded(string prefix) => typeof(SchemaVersion).Assembly.GetManifestResourceNames()

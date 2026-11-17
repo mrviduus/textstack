@@ -27,7 +27,7 @@ make restore FILE=~/backups/textstack/textstack_v2-db_2026-11-18_030012.sql.gz  
 Since the cutover (2026-11-17) every backup is of the V2 database (`V2_POSTGRES_DB`, default `textstack_v2`); the
 legacy one is read-only and archived, and is no longer dumped. `make backup` runs `infra/scripts/pg-dump-checked.sh`:
 a missing database or a dump without pg_dump's trailer exits 1. `make restore` refuses when the V2 database exists
-(`make migrate-v2-drop CONFIRM=<db>` first); see [database/v2/README.md § Backups](../../database/v2/README.md#backups-1043).
+(`make migrate-drop CONFIRM=<db>` first); see [database/README.md § Backups](../../database/README.md#backups-1043).
 
 `backup-verify` spins up `pgvector/pgvector:pg16` on a random port, loads the gzipped
 dump with `ON_ERROR_STOP`, then runs a sanity SELECT: at least 10 tables, and `users`, `books`, `book_files`,
@@ -92,19 +92,16 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    cp restore/backup/env .env && mkdir -p data && mv restore/backup/storage data/storage
    mkdir -p data/library && { [ ! -d restore/backup/library ] || cp -a restore/backup/library/. data/library/; }   # snapshots before #1110 have none
    ```
-3. **Start only the database** and load the dump (prod user from `.env`):
+3. **Start only the database** and load the V2 dump (prod user from `.env`), into an empty database
+   created the way the migrator creates it (ICU, `template0`):
    ```bash
-   set -a; . ./.env; set +a   # POSTGRES_USER / POSTGRES_DB
+   set -a; . ./.env; set +a   # POSTGRES_USER, V2_POSTGRES_DB
    docker compose up -d db
-   $R dump --path /db.sql latest /db.sql \
-     | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1
+   docker compose run --rm migrator create
+   $R dump --path /db_v2.sql latest /db_v2.sql \
+     | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d "${V2_POSTGRES_DB:-textstack_v2}" -v ON_ERROR_STOP=1
    ```
-   Snapshots older than 2026-10-05 hold the dump as `/backup/db.sql.gz` instead:
-   `$R dump --path /backup latest /backup/db.sql.gz | gunzip | docker exec -i …`.
-   `/db.sql` is the last legacy dump (frozen since the cutover); load it while the Api still opens the legacy
-   database (until M6 retires it). Then V2, which holds all live data: create the empty database the way
-   `migrator-v2` does and load it — `docker compose run --rm migrator-v2 create`, then
-   `$R dump --path /db_v2.sql latest /db_v2.sql | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d textstack_v2 -v ON_ERROR_STOP=1`.
+   `/db.sql` is the last legacy dump (frozen since the cutover): nothing reads that database any more.
 4. **Start the rest:** `docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d`
    (the migrator brings the schema forward if the code is newer than the dump).
 5. **Verify:** `curl https://textstack.app/api/health` → `"healthy"`, `/api/health/ready` all ok, open a book,
