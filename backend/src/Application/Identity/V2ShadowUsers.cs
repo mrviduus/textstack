@@ -21,6 +21,13 @@ public sealed class V2ShadowUsers(IUserRepository users, IMemoryCache cache, ILo
     public static Task<bool> HasLegacyAccountAsync(IAppDbContext legacy, Guid userId, CancellationToken ct) =>
         legacy.Users.AnyAsync(u => u.Id == userId, ct);
 
+    /// <summary>The legacy account as its shadow row needs it (id, email, guest flag); null when it is gone.</summary>
+    public static Task<UserAccount?> GetLegacyAccountAsync(IAppDbContext legacy, Guid userId, CancellationToken ct) =>
+        LegacyAccount(legacy, userId).SingleOrDefaultAsync(ct);
+
+    private static IQueryable<UserAccount> LegacyAccount(IAppDbContext legacy, Guid userId) =>
+        legacy.Users.Where(u => u.Id == userId).Select(u => new UserAccount { Id = u.Id, Email = u.Email, IsGuest = u.IsGuest });
+
     /// <summary>
     /// True when the user's V2 row is there (made now, or already). False when another V2 account
     /// holds the email: a case variant of a legacy email, or a deleted account's email reused.
@@ -32,13 +39,27 @@ public sealed class V2ShadowUsers(IUserRepository users, IMemoryCache cache, ILo
         if (cache.TryGetValue(Key(userId), out bool ready)) return ready;
 
         // Only on a miss: the three columns the shadow row needs.
-        var account = await legacy.Users.Where(u => u.Id == userId)
-            .Select(u => new UserAccount { Id = u.Id, Email = u.Email, IsGuest = u.IsGuest })
-            .SingleAsync(ct);
+        return await CreateAsync(await LegacyAccount(legacy, userId).SingleAsync(ct), ct);
+    }
+
+    /// <summary>
+    /// <see cref="EnsureAsync(IAppDbContext, Guid, CancellationToken, bool)"/> with the legacy account already read
+    /// (<see cref="GetLegacyAccountAsync"/>): V2 calls only, so a caller can tell a V2 fault from a legacy one.
+    /// </summary>
+    public async Task<bool> EnsureAsync(UserAccount legacyAccount, CancellationToken ct, bool readOnly = false)
+    {
+        if (readOnly) return await users.GetAsync(legacyAccount.Id, ct) is not null;
+        if (cache.TryGetValue(Key(legacyAccount.Id), out bool ready)) return ready;
+        return await CreateAsync(legacyAccount, ct);
+    }
+
+    private async Task<bool> CreateAsync(UserAccount account, CancellationToken ct)
+    {
+        var userId = account.Id;
         // Null: something unique is taken; the id itself (a concurrent request, the ETL) is fine. The
         // re-read is a second statement on purpose: in the insert's snapshot a concurrent first request's
         // row is invisible, and that user would be refused for the whole TTL.
-        ready = await users.CreateAsync(account, ct) is not null || await users.GetAsync(userId, ct) is not null;
+        var ready = await users.CreateAsync(account, ct) is not null || await users.GetAsync(userId, ct) is not null;
         // ponytail: the PDD has no code for this permanent per-account refusal, so it is v2_unavailable
         // until M2.5 moves auth to V2 and the bridge goes.
         if (!ready)

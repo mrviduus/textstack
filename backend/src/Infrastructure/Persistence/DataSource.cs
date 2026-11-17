@@ -84,7 +84,7 @@ public static class DataSource
             .AddSingleton<ICheckpointRepository, CheckpointRepository>()
             .AddSingleton<IBookInsightRepository, BookInsightRepository>()
             .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>()
-            // Concrete: the identity ports are legacy's until M5.1 (AddLegacyIdentityPorts); V2 services get it through WithV2Users.
+            // Concrete as well: shadow/mirror helpers always use V2, even while identity is selected as legacy.
             .AddSingleton<UserRepository>()
             .AddSingleton(sp => sp.WithV2Users<V2AccountDeletion>())
             .AddSingleton<IAccountMergeRepository, AccountMergeRepository>()
@@ -98,7 +98,7 @@ public static class DataSource
 
     /// <summary>
     /// The identity ports on the legacy database (#1100): what the endpoints, middleware and workers
-    /// reach identity through until M5.1's <c>Database:Mode</c> re-binds them to the V2 repositories.
+    /// reach identity through in <c>Database:Mode=legacy</c>. The selected V2 mode binds Dapper ports instead.
     /// Scoped: they share the request's <see cref="IAppDbContext"/>, which the host registers.
     /// </summary>
     public static IServiceCollection AddLegacyIdentityPorts(this IServiceCollection services) =>

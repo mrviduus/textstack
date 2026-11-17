@@ -3,7 +3,8 @@ using Api.Extensions;
 using Api.Mapping;
 using Api.V2;
 using Application.Auth;
-using Domain.Entities;
+using Domain.Identity;
+using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Endpoints;
@@ -16,7 +17,7 @@ public static class AuthEndpoints
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/auth").WithTags("Auth").RejectOAuthTokens();
+        var group = app.MapGroup("/auth").WithMetadata(V2SelectedRoute.Instance).WithTags("Auth").RejectOAuthTokens();
 
         group.MapPost("/register", Register).WithName("RegisterWithEmail").RequireRateLimiting("user-login");
         group.MapPost("/login", LoginWithEmail).WithName("LoginWithEmail").RequireRateLimiting("user-login");
@@ -38,7 +39,7 @@ public static class AuthEndpoints
     }
 
     private static async Task<IResult> CreateGuestSession(
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -55,9 +56,9 @@ public static class AuthEndpoints
                 // Make the endpoint total for mobile: re-issue a pair for the SAME user.
                 if (IsMobileClient(httpContext))
                 {
-                    var (user, accessToken, refreshToken) =
-                        await authService.IssueSessionAsync(existingUser, ct);
-                    return Results.Ok(new MobileAuthResponse(user.ToDto(), accessToken, refreshToken));
+                    var session = await authService.IssueSessionAsync(existingUser,
+                        httpContext.GetAccessTokenIdentity(authService)!.IssuedAt, ct);
+                    return ReturnAuthResult(session, httpContext);
                 }
 
                 // Web is unchanged: the cookie is already set, so re-issuing would only
@@ -72,7 +73,7 @@ public static class AuthEndpoints
 
     private static async Task<IResult> TestLogin(
         [FromBody] TestLoginRequest request,
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -82,7 +83,7 @@ public static class AuthEndpoints
 
     private static async Task<IResult> Register(
         [FromBody] EmailRegisterRequest request,
-        AuthService authService,
+        IAuthService authService,
         V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
@@ -96,18 +97,17 @@ public static class AuthEndpoints
         if (request.Password.Length > 128)
             return Results.BadRequest(new { error = "Password must be at most 128 characters." });
 
-        if (await authService.EmailExistsAsync(request.Email, ct))
-            return Results.Conflict(new { error = "An account with this email already exists." });
-
         var guest = ResolveGuestToken(httpContext, authService);
 
         var result = await authService.RegisterWithEmailAsync(
             request.Email, request.Password, request.Name, guest.UserId, ct);
-        if (result == null)
-            return Results.BadRequest(new { error = "Invalid email or password." });
+        if (!result.Succeeded)
+            return result.Status == AuthStatus.EmailTaken
+                ? Results.Conflict(new { error = "An account with this email already exists." })
+                : Results.BadRequest(new { error = "Invalid email or password." });
 
         // The guest became the account in place: its V2 row follows, best-effort.
-        var user = result.Value.user;
+        var user = result.User!;
         if (user.Id == guest.UserId)
             await mirror.PromoteAsync(user.Id, user.Email, user.Name, user.PasswordHash!);
 
@@ -118,15 +118,15 @@ public static class AuthEndpoints
         if (guest.SkipReason != null)
         {
             skipped = guest.SkipReason;
-            LogGuestMergeSkipped(httpContext, skipped, "/auth/register", result.Value.user.Id);
+            LogGuestMergeSkipped(httpContext, skipped, "/auth/register", result.User!.Id);
         }
 
-        return ReturnAuthResult(result.Value, httpContext, skipped);
+        return ReturnAuthResult(result, httpContext, skipped);
     }
 
     private static async Task<IResult> LoginWithEmail(
         [FromBody] EmailLoginRequest request,
-        AuthService authService,
+        IAuthService authService,
         V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
@@ -137,19 +137,19 @@ public static class AuthEndpoints
         var guest = ResolveGuestToken(httpContext, authService);
 
         var result = await authService.LoginWithEmailAsync(request.Email, request.Password, ct);
-        if (result == null)
+        if (!result.Succeeded)
             return Results.Unauthorized();
 
         // Merge guest data into existing account
         var (skipped, merge) = await MergeOrExplainAsync(
-            httpContext, authService, mirror, guest, result.Value.user.Id, "/auth/login", ct);
+            httpContext, authService, mirror, guest, result.User!.Id, "/auth/login", ct);
 
-        return ReturnAuthResult(result.Value, httpContext, skipped, merge);
+        return ReturnAuthResult(result, httpContext, skipped, merge);
     }
 
     private static async Task<IResult> LoginWithGoogle(
         [FromBody] GoogleLoginRequest request,
-        AuthService authService,
+        IAuthService authService,
         V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
@@ -157,18 +157,18 @@ public static class AuthEndpoints
         var guest = ResolveGuestToken(httpContext, authService);
 
         var result = await authService.LoginWithGoogleAsync(request.IdToken, ct);
-        if (result == null)
+        if (!result.Succeeded)
             return Results.Unauthorized();
 
         var (skipped, merge) = await MergeOrExplainAsync(
-            httpContext, authService, mirror, guest, result.Value.user.Id, "/auth/google", ct);
+            httpContext, authService, mirror, guest, result.User!.Id, "/auth/google", ct);
 
-        return ReturnAuthResult(result.Value, httpContext, skipped, merge);
+        return ReturnAuthResult(result, httpContext, skipped, merge);
     }
 
     private static async Task<IResult> LoginWithApple(
         [FromBody] AppleLoginRequest request,
-        AuthService authService,
+        IAuthService authService,
         V2IdentityMirror mirror,
         HttpContext httpContext,
         CancellationToken ct)
@@ -177,17 +177,17 @@ public static class AuthEndpoints
 
         var result = await authService.LoginWithAppleAsync(
             request.IdentityToken, request.FullName, request.Email, ct);
-        if (result == null)
+        if (!result.Succeeded)
             return Results.Unauthorized();
 
         var (skipped, merge) = await MergeOrExplainAsync(
-            httpContext, authService, mirror, guest, result.Value.user.Id, "/auth/apple", ct);
+            httpContext, authService, mirror, guest, result.User!.Id, "/auth/apple", ct);
 
-        return ReturnAuthResult(result.Value, httpContext, skipped, merge);
+        return ReturnAuthResult(result, httpContext, skipped, merge);
     }
 
     private static async Task<IResult> RefreshToken(
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -196,30 +196,30 @@ public static class AuthEndpoints
             return Results.Unauthorized();
 
         var result = await authService.RefreshTokenAsync(refreshToken, ct);
-        if (result == null)
+        if (!result.Succeeded)
         {
             ClearAuthCookies(httpContext);
             return Results.Unauthorized();
         }
 
-        return ReturnAuthResult(result.Value, httpContext);
+        return ReturnAuthResult(result, httpContext);
     }
 
     private static async Task<IResult> RefreshTokenMobile(
         [FromBody] MobileRefreshRequest request,
-        AuthService authService,
+        IAuthService authService,
         CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken)) return Results.Unauthorized();
         var result = await authService.RefreshTokenAsync(request.RefreshToken, ct);
-        if (result == null)
+        if (!result.Succeeded)
             return Results.Unauthorized();
 
-        var (user, newAccessToken, newRefreshToken) = result.Value;
-        return Results.Ok(new MobileAuthResponse(user.ToDto(), newAccessToken, newRefreshToken));
+        return Results.Ok(new MobileAuthResponse(result.User.ToDto(), result.AccessToken, result.RefreshToken));
     }
 
     private static async Task<IResult> Logout(
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -232,7 +232,7 @@ public static class AuthEndpoints
     }
 
     private static async Task<IResult> GetCurrentUser(
-        AuthService authService,
+        IAuthService authService,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -249,7 +249,7 @@ public static class AuthEndpoints
 
     private static async Task<IResult> ForgotPassword(
         [FromBody] ForgotPasswordRequest request,
-        AuthService authService,
+        IAuthService authService,
         IEmailService emailService,
         CancellationToken ct)
     {
@@ -267,7 +267,7 @@ public static class AuthEndpoints
 
     private static async Task<IResult> ResetPassword(
         [FromBody] ResetPasswordRequest request,
-        AuthService authService,
+        IAuthService authService,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Token) || string.IsNullOrWhiteSpace(request.Password))
@@ -289,12 +289,13 @@ public static class AuthEndpoints
     /// unchanged.
     /// </param>
     private static IResult ReturnAuthResult(
-        (User user, string accessToken, string refreshToken) result,
+        AuthResult result,
         HttpContext httpContext,
         string? guestMergeSkipped = null,
         GuestMergeMap? merge = null)
     {
-        var (user, accessToken, refreshToken) = result;
+        if (!result.Succeeded) return Results.Unauthorized();
+        var (user, accessToken, refreshToken) = (result.User, result.AccessToken, result.RefreshToken);
         var dto = user.ToDto();
 
         if (IsMobileClient(httpContext))
@@ -390,40 +391,25 @@ public static class AuthEndpoints
     /// a lowercase <c>bearer</c> scheme authenticated the caller but produced an unparsable token
     /// here, so the guest was authenticated and silently not merged.
     /// </remarks>
-    private static GuestToken ResolveGuestToken(HttpContext httpContext, AuthService authService)
+    private static GuestToken ResolveGuestToken(HttpContext httpContext, IAuthService authService)
     {
         var accessToken = httpContext.GetAccessToken();
         // No credential offered at all: an ordinary sign-in with nothing to carry. Stay quiet.
         if (accessToken == null) return default;
 
-        var userId = authService.ValidateAccessToken(accessToken);
-        if (!userId.HasValue) return new GuestToken(null, GuestMergeSkipReason.InvalidToken);
-
-        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-        try
-        {
-            var jwt = handler.ReadJwtToken(accessToken);
-            var isGuest = jwt.Claims.FirstOrDefault(c => c.Type == "is_guest")?.Value;
-            // A valid NON-guest token is not suspicious — an account re-authenticating has nothing
-            // to merge, and flagging it would drown the signal we actually care about.
-            return isGuest == "true" ? new GuestToken(userId, null) : default;
-        }
-        catch
-        {
-            // Validated a moment ago, so this is close to unreachable — but if the token is somehow
-            // unreadable we are once again about to drop guest data, which is the reportable event.
-            return new GuestToken(null, GuestMergeSkipReason.InvalidToken);
-        }
+        var identity = httpContext.GetAccessTokenIdentity(authService);
+        if (identity is null) return new GuestToken(null, GuestMergeSkipReason.InvalidToken);
+        return identity.IsGuest ? new GuestToken(identity.UserId, null) : default;
     }
 
     /// <summary>
     /// Runs the merge if there is one to run, and returns the values for the response's
     /// <c>guestMergeSkipped</c> field (null when nothing was skipped) and <c>merge</c> map (null unless
-    /// V2 merged the guest and some id changed). Legacy decides; V2 follows only a legacy merge.
+    /// V2 merged the guest and some id changed). The selected auth service decides; the mirror follows only in legacy mode.
     /// </summary>
     private static async Task<(string? Skipped, GuestMergeMap? Merge)> MergeOrExplainAsync(
         HttpContext httpContext,
-        AuthService authService,
+        IAuthService authService,
         V2IdentityMirror mirror,
         GuestToken guest,
         Guid realUserId,
@@ -438,8 +424,13 @@ public static class AuthEndpoints
 
         if (!guest.UserId.HasValue) return (null, null);
 
-        if (await authService.MergeGuestAsync(guest.UserId.Value, realUserId, route, ct))
-            return (null, await mirror.MergeAsync(guest.UserId.Value, realUserId));
+        if (await authService.MergeGuestAsync(guest.UserId.Value, realUserId, route, ct) is { } merged)
+        {
+            if (!httpContext.RequestServices.GetRequiredService<DatabaseMode>().IsV2)
+                return (null, await mirror.MergeAsync(guest.UserId.Value, realUserId));
+            return (null, merged.Outcome == AccountMergeOutcome.Merged && merged.Books.Count + merged.Files.Count + merged.Words.Count > 0
+                ? new GuestMergeMap(merged.Books, merged.Files, merged.Words) : null);
+        }
 
         LogGuestMergeSkipped(httpContext, GuestMergeSkipReason.MergeConflict, route, realUserId);
         return (GuestMergeSkipReason.MergeConflict, null);

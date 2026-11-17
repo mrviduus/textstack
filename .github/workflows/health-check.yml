@@ -115,6 +115,25 @@ jobs:
           fi
           echo "schema ok"
 
+      # Database:Mode=v2 (M5.1, #1031): the public catalog still reads the legacy database until M6,
+      # so /health/ready reports it as components.legacy (critical). Absent = legacy mode, where
+      # db/schema above are that database; "skipped" = the selected db already failed above.
+      - name: Legacy catalog database (v2 mode)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          legacy=$(jq -c '.components.legacy // empty' "$RUNNER_TEMP/ready.json")
+          [ -n "$legacy" ] || { echo "legacy mode (no legacy component)"; exit 0; }
+          status=$(printf '%s' "$legacy" | jq -r '.status')
+          case "$status" in
+            ok) echo "legacy catalog db ok" ;;
+            skipped) echo "legacy catalog db not probed: the selected db is down (see readiness)" ;;
+            *)
+              pending=$(printf '%s' "$legacy" | jq -r '(.pending // []) | join(", ")')
+              echo "::error::Legacy catalog database is $status in v2 mode ($legacy). Pending migrations: ${pending:-none listed}. The public catalog reads it until M6: make migrate, or check the db container."
+              exit 1 ;;
+          esac
+
       # The `db` image can change the OS collation version under a live cluster — a digest bump
       # inside one Postgres major can move the base distribution, and with it glibc. Text then sorts
       # by rules the indexes were not built with: a btree lookup walks past rows that are there and

@@ -7,7 +7,7 @@ public class AdminAuthMiddleware(RequestDelegate next)
 {
     private const string AccessTokenCookie = "admin_access_token";
 
-    public async Task InvokeAsync(HttpContext context, AdminAuthService authService)
+    public async Task InvokeAsync(HttpContext context, IAdminAuthService authService)
     {
         var accessToken = context.Request.Cookies[AccessTokenCookie];
 

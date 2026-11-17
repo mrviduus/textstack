@@ -640,9 +640,7 @@ public partial class AuthService
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user == null) return false;
-
-        // Local-file avatar only: external picture URLs (Google) are not ours to delete.
-        var avatarPath = !string.IsNullOrEmpty(user.Picture) && !user.Picture.StartsWith("http") ? user.Picture : null;
+        var picture = user.Picture;
 
         await using (var tx = await _db.BeginTransactionAsync(ct))
         {
@@ -655,24 +653,32 @@ public partial class AuthService
         }
 
         if (_storage is not null)
-        {
-            await DeleteStoredAsync("DeleteUserDirectory", userId, () => _storage.DeleteUserDirectoryAsync(userId, ct));
-            if (avatarPath != null)
-                await DeleteStoredAsync("DeleteAvatar", userId, () => _storage.DeleteFileAsync(avatarPath, ct));
-        }
+            await DeleteUserFilesAsync(_storage, userId, picture, _logger, ct);
         return true;
     }
 
-    // An orphan file is recoverable, but it must be observable.
-    private async Task DeleteStoredAsync(string operation, Guid userId, Func<Task> delete)
+    /// <summary>
+    /// A deleted account's files in the public <c>/storage</c> root: its uploads' tree and a local avatar
+    /// (<paramref name="picture"/>; external URLs such as Google's are not ours). Best-effort and logged,
+    /// after the commit; shared with the V2 account delete, whose avatars still live there.
+    /// </summary>
+    internal static async Task DeleteUserFilesAsync(IFileStorageService storage, Guid userId, string? picture, ILogger? logger, CancellationToken ct)
     {
-        try
+        await DeleteStoredAsync("DeleteUserDirectory", () => storage.DeleteUserDirectoryAsync(userId, ct));
+        if (!string.IsNullOrEmpty(picture) && !picture.StartsWith("http"))
+            await DeleteStoredAsync("DeleteAvatar", () => storage.DeleteFileAsync(picture, ct));
+
+        // An orphan file is recoverable, but it must be observable.
+        async Task DeleteStoredAsync(string operation, Func<Task> delete)
         {
-            await delete();
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogWarning(ex, "Account {UserId} deleted but storage cleanup failed for {Operation}", userId, operation);
+            try
+            {
+                await delete();
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "Account {UserId} deleted but storage cleanup failed for {Operation}", userId, operation);
+            }
         }
     }
 

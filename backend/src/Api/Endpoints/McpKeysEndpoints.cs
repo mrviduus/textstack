@@ -1,3 +1,4 @@
+using Api.V2;
 using Api.Extensions;
 using Application.Auth;
 using Application.Identity;
@@ -22,7 +23,7 @@ public static class McpKeysEndpoints
 {
     public static void MapMcpKeysEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/me/mcp/keys").WithTags("MCP Keys").RejectOAuthTokens();
+        var group = app.MapGroup("/me/mcp/keys").WithMetadata(V2SelectedRoute.Instance).WithTags("MCP Keys").RejectOAuthTokens();
 
         group.MapGet("", ListKeys).WithName("ListMcpKeys");
         group.MapPost("", CreateKey).WithName("CreateMcpKey").RequireRateLimiting("mcp-keys");

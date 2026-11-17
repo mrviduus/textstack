@@ -10,6 +10,13 @@ namespace Application.Identity;
 /// </summary>
 public sealed class V2AccountDeletion(IUserRepository users, IAccountMergeRepository aggregates, ILibraryRepository library, ILibraryFileStore files, ILogger<V2AccountDeletion> logger)
 {
+    /// <summary>Best-effort cleanup after a committed merge; the orphan sweep retries leftovers.</summary>
+    public void DeleteReleasedFiles(IReadOnlyList<string> keys)
+    {
+        foreach (var key in keys)
+            if (!files.TryDelete(key)) logger.LogWarning("Could not delete released {StorageKey}; the orphan sweep will", key);
+    }
+
     /// <summary>
     /// Whether the account holds nothing a reader would miss on V2: no book, annotation, word, reading
     /// state, share, checkpoint or insight. What the guest reaper asks before reaping on legacy, whose

@@ -19,6 +19,7 @@ cp .env.example .env
 | `POSTGRES_PASSWORD` | Yes | — | PostgreSQL password |
 | `POSTGRES_DB` | Yes | `books` | Database name |
 | `ConnectionStrings__Default` | Auto | — | Full connection string (auto-built from above) |
+| `DATABASE_MODE` | No | `legacy` | Startup-only identity/database selection in Api + Worker (`Database__Mode`). `v2` requires `FEATURES_V2API=true` and a V2 connection; invalid values fail startup. No automatic fallback. This is preparation, not authorization to switch production; [M5.1 gates](../internal/v2/m5-1-preparation.md) still apply. |
 
 ### ASP.NET Core
 

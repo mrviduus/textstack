@@ -1465,18 +1465,22 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     for (const b of bookmarks?.bookmarks ?? []) if (notes?.deleted.has(b.id)) call(`window.__fol.removeBookmark(${JSON.stringify(b.id)})`)
   }, [notes, highlightList, bookmarks])
 
-  // #1312: the dev route's deep link (the highlights screen): the book on this device, opened once, then the highlight.
-  const params = useLocalSearchParams<{ book?: string; highlight?: string }>()
+  // #1312: the dev route's deep link (the highlights screen): the book, opened once, then the highlight.
+  // M5 (#1031): the reader route (`/my-books/read/[bookId]/…`) names it `bookId`; a book only the server has is
+  // downloaded first (its highlight link is then dropped by that open).
+  const params = useLocalSearchParams<{ book?: string; bookId?: string; highlight?: string }>()
+  const linkedBook = params.book ?? params.bookId
   const linked = useRef(false)
   useEffect(() => {
-    if (linked.current || !params.book) return
-    const b = books.find((x) => x.id === params.book && x.local)
+    if (linked.current || !linkedBook) return
+    const b = books.find((x) => x.id === linkedBook)
     if (!b) return
     linked.current = true
+    if (!b.local) return download(b)
     open({ file: bookFile(b.sha256), name: b.originalName })
     // After `open`, which clears any earlier one.
     pendingHighlight.current = typeof params.highlight === 'string' ? params.highlight : null
-  }, [books, params.book])
+  }, [books, linkedBook])
 
   /** What translate and explain read the book as: its own language, else the app's (the legacy reader's rule). */
   const textLang = readerTextLanguage(bookLang, language)

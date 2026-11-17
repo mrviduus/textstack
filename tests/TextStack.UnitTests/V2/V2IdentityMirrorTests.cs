@@ -39,7 +39,7 @@ public class V2IdentityMirrorTests
         _library.Setup(l => l.ListStorageKeysAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
     }
 
-    private V2IdentityMirror Mirror(bool flag = true, bool ready = true, TimeSpan? timeout = null)
+    private V2IdentityMirror Mirror(bool flag = true, bool ready = true, TimeSpan? timeout = null, bool native = false)
     {
         var legacy = new Mock<IAppDbContext>();
         legacy.Setup(d => d.Users).Returns(() => new FakeDbSet<User>([_account]));
@@ -47,7 +47,22 @@ public class V2IdentityMirrorTests
         var readiness = V2ReadinessTests.Readiness(_ => { _checks++; return Task.FromResult(ready ? new List<string>() : ["0002_next"]); });
         var shadows = new V2ShadowUsers(_users.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<V2ShadowUsers>.Instance);
         var deletion = new V2AccountDeletion(_users.Object, _merges.Object, _library.Object, _files.Object, NullLogger<V2AccountDeletion>.Instance);
-        return new(config, readiness, shadows, _users.Object, deletion, _merges.Object, legacy.Object, _files.Object, _log) { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
+        return new(config, readiness, shadows, _users.Object, deletion, _merges.Object, legacy.Object, _files.Object, _log,
+            new Infrastructure.Persistence.DatabaseMode(native))
+        { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
+    }
+
+    [Fact]
+    public async Task NativeMode_NeverRepeatsIdentityWorkThroughTheLegacyMirror()
+    {
+        var mirror = Mirror(native: true);
+        await mirror.DeleteAsync(_account.Id);
+        await mirror.PromoteAsync(_guest, "native@test", "Native", "hash");
+        Assert.Null(await mirror.MergeAsync(_guest, _account.Id));
+        Assert.Equal(0, _checks);
+        _users.VerifyNoOtherCalls();
+        _merges.VerifyNoOtherCalls();
+        _library.VerifyNoOtherCalls();
     }
 
     private Moq.Language.Flow.ISetup<IAccountMergeRepository, Task<AccountMerge>> Merge() =>

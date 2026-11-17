@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Infrastructure.Persistence;
+using Infrastructure.Persistence.Repositories;
 
 namespace Worker.Services;
 
@@ -68,7 +70,6 @@ public class RetentionCleanupWorker(
     {
         using var scope = scopeFactory.CreateScope();
         var services = scope.ServiceProvider;
-        var db = services.GetRequiredService<IAppDbContext>();
 
         var now = DateTimeOffset.UtcNow;
         // A day past expiry: nothing reads an expired token (refresh filters on expiry, reuse detection
@@ -83,9 +84,10 @@ public class RetentionCleanupWorker(
             () => services.GetRequiredService<IDeviceLoginRepository>().DeleteExpiredAsync(tokenCutoff, ct), ct);
         await DeleteAsync("OAuth grants",
             () => services.GetRequiredService<IOAuthRepository>().DeleteDeadGrantsAsync(tokenCutoff, ct), ct);
+        var db = services.GetRequiredService<IAppDbContext>();
         // Traces keep their cost, tokens and latency for spend history; only the text goes.
         // Batches: the first run rewrites months of text (~750 MB); one statement would be one huge
-        // transaction.
+        // transaction. Both modes: the ETL does not copy legacy traces/runs and legacy lives till M6 (#941).
         await DeleteAsync("LLM trace texts (scrubbed)", async () =>
         {
             int batch, total = 0;
@@ -103,6 +105,26 @@ public class RetentionCleanupWorker(
         }, ct);
         await DeleteAsync("agent runs",
             () => db.AgentRuns.Where(OldAgentRun(now)).ExecuteDeleteAsync(ct), ct);
+        // In v2 mode new traces and runs land on V2: the same rules there. The remaining Ops sweeps
+        // stay off legacy after cutover (#1090).
+        if (services.GetService<DatabaseMode>()?.IsV2 == true)
+        {
+            var aiCutoff = now - AiTextRetention;
+            await DeleteAsync("V2 LLM trace texts (scrubbed)", async () =>
+            {
+                var traces = services.GetRequiredService<V2LlmTraceWriter>();
+                int batch, total = 0;
+                do
+                {
+                    batch = await traces.ScrubTextBatchAsync(aiCutoff, ScrubBatch, ct);
+                    total += batch;
+                } while (batch == ScrubBatch && !ct.IsCancellationRequested);
+                return total;
+            }, ct);
+            await DeleteAsync("V2 agent runs",
+                () => services.GetRequiredService<V2AgentRunWriter>().DeleteOlderThanAsync(aiCutoff, ct), ct);
+            return;
+        }
         await DeleteAsync("tutor sessions",
             () => db.TutorSessions.Where(OldTutorSession(now)).ExecuteDeleteAsync(ct), ct);
         await DeleteAsync("SSG rebuild jobs", async () =>
