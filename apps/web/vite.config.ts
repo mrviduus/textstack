@@ -54,8 +54,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'charts': ['recharts'],
-          'sanitize': ['dompurify'],
         },
       },
     },
