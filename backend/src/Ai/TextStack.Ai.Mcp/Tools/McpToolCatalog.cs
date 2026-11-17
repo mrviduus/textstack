@@ -110,6 +110,10 @@ public sealed partial class McpToolCatalog
                 ? $"authentication required — open {uri} and enter code {code} to connect TextStack, then retry."
                 : $"authentication required — {ex.Message}");
         }
+        catch (McpRetiredException ex)
+        {
+            return Error($"{tool} failed: {ex.Message}");
+        }
         // Real client cancellation (client disconnected) is cooperative — propagate
         // so the SDK ends the call. Only a TIMEOUT (HttpClient's own timeout also
         // surfaces as OperationCanceledException, but with the caller's token NOT
