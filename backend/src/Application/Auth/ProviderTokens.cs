@@ -1,4 +1,5 @@
 using Google.Apis.Auth;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using JsonWebToken = Microsoft.IdentityModel.JsonWebTokens.JsonWebToken;
 using Microsoft.IdentityModel.Tokens;
@@ -12,9 +13,12 @@ public sealed record ProviderIdentity(string Subject, string? Email, string? Nam
 /// Google and Apple sign-in tokens, read for the identity they name; legacy and V2 alike. Virtual so a
 /// test can stand in for the providers.
 /// </summary>
-public class ProviderTokens(GoogleSettings? google = null, AppleSettings? apple = null, AppleSigningKeys? appleKeys = null)
+public class ProviderTokens(GoogleSettings? google = null, AppleSettings? apple = null, AppleSigningKeys? appleKeys = null,
+    ILogger? logger = null)
 {
     public const string AppleIssuer = "https://appleid.apple.com";
+
+    private static readonly JsonWebTokenHandler Handler = new();
 
     /// <summary>The Google account a verified id token names, for this app's client ids; null when it does not verify.</summary>
     public virtual async Task<ProviderIdentity?> VerifyGoogleAsync(string idToken)
@@ -47,28 +51,41 @@ public class ProviderTokens(GoogleSettings? google = null, AppleSettings? apple 
     public virtual async Task<ProviderIdentity?> VerifyAppleAsync(string identityToken, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(apple?.BundleId)) return null;
+
+        JsonWebToken parsed;
         try
         {
-            var kid = new JsonWebToken(identityToken).Kid;
-            var result = await new JsonWebTokenHandler().ValidateTokenAsync(identityToken, new TokenValidationParameters
-            {
-                ValidIssuer = AppleIssuer,
-                ValidAudience = apple.BundleId,
-                IssuerSigningKeys = await (appleKeys ?? AppleSigningKeys.Default).GetAsync(kid, ct),
-                ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
-                RequireSignedTokens = true,
-                RequireExpirationTime = true,
-                ClockSkew = TimeSpan.FromMinutes(1),
-            });
-            if (!result.IsValid || result.SecurityToken is not JsonWebToken token) return null;
-
-            var email = token.TryGetPayloadValue<string>("email", out var e) ? e : null;
-            return string.IsNullOrEmpty(token.Subject) ? null : new ProviderIdentity(token.Subject, email, null, null);
+            parsed = Handler.ReadJsonWebToken(identityToken);
         }
-        catch (Exception ex) when (ex is ArgumentException or SecurityTokenException)
+        catch (Exception ex)
         {
-            // Not a JWT at all.
+            // Any malformed input (not a JWT, bad base64, bad JSON) is a refusal, never an error.
+            logger?.LogInformation("Apple sign-in refused: unreadable identity token ({Reason})", ex.GetType().Name);
             return null;
         }
+        if (parsed.IsEncrypted)
+        {
+            logger?.LogInformation("Apple sign-in refused: encrypted identity token");
+            return null;
+        }
+
+        var result = await Handler.ValidateTokenAsync(parsed, new TokenValidationParameters
+        {
+            ValidIssuer = AppleIssuer,
+            ValidAudience = apple.BundleId,
+            IssuerSigningKeys = await (appleKeys ?? AppleSigningKeys.Shared).GetAsync(parsed.Kid, logger, ct),
+            ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+            RequireSignedTokens = true,
+            RequireExpirationTime = true,
+            ClockSkew = TimeSpan.FromMinutes(1),
+        });
+        if (!result.IsValid || result.SecurityToken is not JsonWebToken token)
+        {
+            logger?.LogInformation("Apple sign-in refused: {Reason}", result.Exception?.GetType().Name ?? "invalid token");
+            return null;
+        }
+
+        var email = token.TryGetPayloadValue<string>("email", out var e) ? e : null;
+        return string.IsNullOrEmpty(token.Subject) ? null : new ProviderIdentity(token.Subject, email, null, null);
     }
 }

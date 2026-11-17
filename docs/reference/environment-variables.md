@@ -38,6 +38,7 @@ cp .env.example .env
 | `JWT_AUDIENCE` | Yes | — (no compose default) | JWT audience claim → `Jwt__Audience` |
 | `GOOGLE_CLIENT_ID` | Yes | — | Google OAuth client ID → `Google__ClientId` |
 | `GOOGLE_LEGACY_CLIENT_IDS` | No | empty | Comma-separated extra client IDs accepted during rotation |
+| `APPLE_BUNDLE_ID` | No | `app.textstack.mobile` | iOS bundle id, the audience Apple identity tokens must name → `Apple__BundleId`; Apple sign-in is refused if the setting ends up empty |
 
 ### LLM / email / telemetry
 

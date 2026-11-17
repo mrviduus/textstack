@@ -14,6 +14,9 @@ public class GoogleSignInEmailTakenTests
     private sealed class FakeGoogle(ProviderIdentity identity) : ProviderTokens
     {
         public override Task<ProviderIdentity?> VerifyGoogleAsync(string idToken) => Task.FromResult<ProviderIdentity?>(identity);
+
+        public override Task<ProviderIdentity?> VerifyAppleAsync(string identityToken, CancellationToken ct = default) =>
+            Task.FromResult<ProviderIdentity?>(identity with { Subject = "apple-sub" });
     }
 
     private static DbUpdateException UniqueViolation() =>
@@ -35,17 +38,18 @@ public class GoogleSignInEmailTakenTests
         return set;
     }
 
-    private static AuthService Auth(List<User> users, Exception? onSave)
+    private static AuthService Auth(List<User> users, Exception? onSave, string? tokenEmail = "taken@example.com")
     {
         var db = new Mock<IAppDbContext>();
         db.Setup(x => x.Users).Returns(() => FakeUsers(users).Object);
+        db.Setup(x => x.UserRefreshTokens).Returns(new Mock<DbSet<UserRefreshToken>>().Object);
         var save = db.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()));
         if (onSave is null) save.ReturnsAsync(1); else save.ThrowsAsync(onSave);
         return new AuthService(
             db.Object,
             Options.Create(new JwtSettings { SecretKey = "a-test-signing-key-long-enough-for-hmac-sha256-abcdefgh" }),
             Options.Create(new GoogleSettings { ClientId = "test" }),
-            providers: new FakeGoogle(new ProviderIdentity("google-sub", "taken@example.com", "Name", null)));
+            providers: new FakeGoogle(new ProviderIdentity("google-sub", tokenEmail, "Name", null)));
     }
 
     [Fact]
@@ -75,5 +79,26 @@ public class GoogleSignInEmailTakenTests
         var auth = Auth([], new DbUpdateException("down"));
 
         await Assert.ThrowsAsync<DbUpdateException>(() => auth.LoginWithGoogleAsync("id-token", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task LoginWithAppleAsync_NewSubjectWithAnEmailAnotherAccountHolds_IsRefusedNotAnError()
+    {
+        var auth = Auth([], UniqueViolation());
+
+        Assert.Null(await auth.LoginWithAppleAsync("identity-token", null, null, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("reader@privaterelay.appleid.com", "reader@privaterelay.appleid.com")]
+    [InlineData(null, "apple-sub@privaterelay.appleid.com")]
+    public async Task LoginWithAppleAsync_BodyEmail_IgnoredForTheTokensEmail(string? tokenEmail, string expected)
+    {
+        var users = new List<User>();
+        var auth = Auth(users, onSave: null, tokenEmail);
+
+        var result = await auth.LoginWithAppleAsync("identity-token", null, "someone@example.com", CancellationToken.None);
+
+        Assert.Equal(expected, result?.user.Email);
     }
 }

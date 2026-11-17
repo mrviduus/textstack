@@ -62,11 +62,11 @@ public sealed class V2AuthService(
 
         var user = await users.GetByAppleSubjectAsync(apple.Subject, ct);
         if (user is null)
-            // Never linked by email, as Google.
+            // Never linked by email, as Google. Only the verified token's email counts, never the request body's.
             user = await users.CreateAsync(new UserAccount
             {
                 Id = Guid.NewGuid(),
-                Email = email ?? apple.Email ?? Emails.AppleRelay(apple.Subject),
+                Email = apple.Email ?? Emails.AppleRelay(apple.Subject),
                 Name = fullName,
                 AppleSubject = apple.Subject,
             }, ct) ?? await users.GetByAppleSubjectAsync(apple.Subject, ct);

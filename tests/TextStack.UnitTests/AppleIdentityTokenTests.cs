@@ -30,6 +30,20 @@ public class AppleIdentityTokenTests
         });
     }
 
+    /// <summary>A clock a test moves by hand, wall and monotonic time together.</summary>
+    private sealed class MonotonicClock : TimeProvider
+    {
+        private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+        public void Advance(TimeSpan by) => _now += by;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public override long GetTimestamp() => _now.UtcTicks;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+    }
+
     private static AppleSigningKeys Keys(Func<string> jwks, TimeProvider? clock = null) => new(_ => Task.FromResult(jwks()), clock);
 
     private static ProviderTokens Verifier(string? bundleId = BundleId, AppleSigningKeys? keys = null) =>
@@ -135,8 +149,8 @@ public class AppleIdentityTokenTests
         var fetches = 0;
         var keys = Keys(() => { fetches++; return Jwks(AppleKey); });
 
-        await keys.GetAsync(Kid, Ct);
-        await keys.GetAsync(Kid, Ct);
+        await keys.GetAsync(Kid, null, Ct);
+        await keys.GetAsync(Kid, null, Ct);
 
         Assert.Equal(1, fetches);
     }
@@ -144,14 +158,14 @@ public class AppleIdentityTokenTests
     [Fact]
     public async Task GetAsync_UnknownKid_RefetchesAtMostOncePerInterval()
     {
-        var clock = new SteppedClock();
+        var clock = new MonotonicClock();
         var fetches = 0;
         var keys = Keys(() => { fetches++; return Jwks(AppleKey); }, clock);
 
-        await keys.GetAsync("rotated", Ct);
-        await keys.GetAsync("rotated", Ct);
-        clock.Now += AppleSigningKeys.MinRefreshInterval;
-        await keys.GetAsync("rotated", Ct);
+        await keys.GetAsync("rotated", null, Ct);
+        await keys.GetAsync("rotated", null, Ct);
+        clock.Advance(AppleSigningKeys.MinRefreshInterval);
+        await keys.GetAsync("rotated", null, Ct);
 
         Assert.Equal(2, fetches);
     }
@@ -159,14 +173,83 @@ public class AppleIdentityTokenTests
     [Fact]
     public async Task GetAsync_FetchFails_KeepsCachedKeys()
     {
-        var clock = new SteppedClock();
+        var clock = new MonotonicClock();
         var fail = false;
         var keys = Keys(() => fail ? throw new HttpRequestException("down") : Jwks(AppleKey), clock);
-        await keys.GetAsync(Kid, Ct);
+        await keys.GetAsync(Kid, null, Ct);
 
         fail = true;
-        clock.Now += AppleSigningKeys.MinRefreshInterval;
+        clock.Advance(AppleSigningKeys.MinRefreshInterval);
 
-        Assert.Equal(Kid, Assert.Single(await keys.GetAsync("rotated", Ct)).KeyId);
+        Assert.Equal(Kid, Assert.Single(await keys.GetAsync("rotated", null, Ct)).KeyId);
+    }
+
+    [Theory]
+    [InlineData("a.b.c.d.e")]
+    [InlineData("!!!.@@@.###.$$$.%%%")]
+    [InlineData("eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.!!!.###.$$$.%%%")]
+    [InlineData("eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.YQ.YQ.YQ.YQ")]
+    [InlineData("!!!.@@@.###")]
+    [InlineData("")]
+    public async Task VerifyAppleAsync_MalformedOrEncryptedToken_NullNotAnError(string identityToken)
+    {
+        Assert.Null(await Verifier().VerifyAppleAsync(identityToken, Ct));
+    }
+
+    [Fact]
+    public async Task GetAsync_KeySetWithNoUsableKeys_KeepsCachedKeys()
+    {
+        var clock = new MonotonicClock();
+        var empty = false;
+        var keys = Keys(() => empty ? """{"keys":[]}""" : Jwks(AppleKey), clock);
+        await keys.GetAsync(Kid, null, Ct);
+
+        empty = true;
+        clock.Advance(AppleSigningKeys.MinRefreshInterval);
+
+        Assert.Equal(Kid, Assert.Single(await keys.GetAsync("rotated", null, Ct)).KeyId);
+    }
+
+    [Fact]
+    public async Task GetAsync_KeysOlderThanMaxAge_Refetched()
+    {
+        var clock = new MonotonicClock();
+        var fetches = 0;
+        var keys = Keys(() => { fetches++; return Jwks(AppleKey); }, clock);
+        await keys.GetAsync(Kid, null, Ct);
+
+        clock.Advance(AppleSigningKeys.MaxAge);
+        await keys.GetAsync(Kid, null, Ct);
+
+        Assert.Equal(2, fetches);
+    }
+
+    [Fact]
+    public async Task GetAsync_FetchFailed_RetriedOnlyAfterTheInterval()
+    {
+        var clock = new MonotonicClock();
+        var fetches = 0;
+        var keys = Keys(() => { fetches++; throw new HttpRequestException("down"); }, clock);
+
+        Assert.Empty(await keys.GetAsync(Kid, null, Ct));
+        Assert.Empty(await keys.GetAsync(Kid, null, Ct));
+        clock.Advance(AppleSigningKeys.MinRefreshInterval);
+        await keys.GetAsync(Kid, null, Ct);
+
+        Assert.Equal(2, fetches);
+    }
+
+    [Fact]
+    public async Task GetAsync_CallerCancelsAfterwards_FetchUsedItsOwnToken()
+    {
+        using var caller = new CancellationTokenSource();
+        CancellationToken fetchToken = default;
+        var keys = new AppleSigningKeys(t => { fetchToken = t; return Task.FromResult(Jwks(AppleKey)); });
+
+        await keys.GetAsync(Kid, null, caller.Token);
+        caller.Cancel();
+
+        Assert.True(fetchToken.CanBeCanceled);
+        Assert.False(fetchToken.IsCancellationRequested);
     }
 }
