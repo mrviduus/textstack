@@ -4481,7 +4481,8 @@ html.dark .user-book-detail__delete-icon[aria-label]::after {
   border-bottom: 1px solid var(--color-border, #E8E2D9);
 }
 
-.user-book-detail__chapter-list a {
+.user-book-detail__chapter-list a,
+.user-book-detail__chapter-row {
   display: flex;
   align-items: center;
   gap: 12px;

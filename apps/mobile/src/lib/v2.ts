@@ -7,6 +7,7 @@
  * (`createV2Books`, `uploadV2File`, #1121): this file keeps the probe, the DTOs and the device IO.
  */
 import { uuid } from 'expo-modules-core'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
 import {
   v2Api, ApiError, isOfflineError, V2_OFF, v2Offers, placeToV2Locator, createSha256, parsePdfPageLocator,
@@ -26,6 +27,19 @@ import { getUserBookV2State, setUserBookV2State, saveUserBookLocalProgress } fro
 
 let probe: Promise<V2Switch> | null = null
 let known: V2Switch = V2_OFF
+/** The server answered this start (200 on / 404 off); before that, or unreached, `lastAnswer` stands in for the reader. */
+let answered = false
+/** The last answer of an earlier start (M5 #1031): an offline cold start still opens the reader it had. Read at import. */
+const LAST_ANSWER_KEY = 'v2.lastStatus'
+let lastAnswer = false
+const loadLastAnswer = () => AsyncStorage.getItem(LAST_ANSWER_KEY).then((v) => { lastAnswer = v === '1' }, () => {})
+void loadLastAnswer()
+/** Tests only: a new app start reads the stored answer again. */
+export const reloadLastV2AnswerForTests = loadLastAnswer
+const rememberAnswer = (on: boolean) => {
+  answered = true
+  AsyncStorage.setItem(LAST_ANSWER_KEY, on ? '1' : '0').catch(() => {})
+}
 /** The last probe never reached the server: off until the network is back, then asked again. */
 let unreached = false
 
@@ -39,7 +53,10 @@ export function startV2Probe(): Promise<V2Switch> {
   if (probe) return probe
   const seen = onlineEvents
   probe = v2Api.getStatus().then(
-    (s) => (known = { enabled: true, maxPartBytes: s.maxPartBytes }),
+    (s) => {
+      rememberAnswer(true)
+      return (known = { enabled: true, maxPartBytes: s.maxPartBytes })
+    },
     (e) => {
       if (e instanceof ApiError && e.status === 401) probe = null
       // Never reached, or V2 paused (503 `v2_unavailable`): asked again after a reconnect. 404 = unmapped, off.
@@ -48,6 +65,7 @@ export function startV2Probe(): Promise<V2Switch> {
         // The network came back while this one was in flight: that reconnect is spent, so ask again now.
         if (onlineEvents !== seen) forgetUnreached()
       }
+      else if (e instanceof ApiError && e.status === 404) rememberAnswer(false)
       return V2_OFF
     },
   )
@@ -89,6 +107,12 @@ export function reprobeV2AfterReconnect(): Promise<V2Switch> {
 
 /** The probe's answer once it has settled (off before): for the synchronous paths. */
 export const v2Enabled = () => known.enabled
+
+/**
+ * M5 (#1031): which reader opens a book. This start's answer, else the last start's (an offline cold start): never
+ * waited for, so the reading path waits for no network or token.
+ */
+export const v2KnownOrLast = () => (answered ? known.enabled : lastAnswer)
 
 /** Every call site checks one thing: `if (await onV2()) …`. */
 export const onV2 = async () => (await startV2Probe()).enabled
@@ -145,6 +169,8 @@ export function resetV2ForTests() {
   probe = null
   known = V2_OFF
   unreached = false
+  answered = false
+  lastAnswer = false
   unwatch?.()
   unwatch = null
   v2Store.reset()

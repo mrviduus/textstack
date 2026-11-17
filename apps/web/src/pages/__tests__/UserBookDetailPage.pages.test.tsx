@@ -110,4 +110,23 @@ describe('UserBookDetailPage on V2', () => {
     expect(screen.queryByRole('link', { name: 'Open in the V2 reader' })).toBeNull()
     v2On = false
   })
+
+  it.each(['Failed', 'Processing'])('V2 on: a %s book (no file in yet) offers no Start Reading', async (status) => {
+    v2On = true
+    getUserBook.mockResolvedValue({ ...baseBook, status, metadataEnrichmentStatus: undefined, chapters: [] })
+    renderPage()
+    await screen.findByText('Test Book')
+    expect(screen.queryAllByRole('link', { name: 'Start Reading' })).toHaveLength(0)
+    v2On = false
+  })
+
+  // The V2 reader opens at the synced place: a chapter row that named a chapter would not open there.
+  it.each([[false, 1], [true, 0]])('V2 %s: a chapter row is a reader link %i times', async (on, links) => {
+    v2On = on
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [{ id: 'c1', chapterNumber: 1, slug: '', title: 'The Pond', wordCount: null }] })
+    renderPage()
+    await screen.findByText('The Pond')
+    expect(screen.queryAllByRole('link', { name: /The Pond/ })).toHaveLength(links)
+    v2On = false
+  })
 })

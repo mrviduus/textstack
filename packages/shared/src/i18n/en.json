@@ -689,6 +689,7 @@
       "newerPlace": "Read further on another device ({percent}%): go there",
       "saveWordFailed": "Could not save word. Try again.",
       "cannotOpen": "Cannot open {name}: {reason}",
+      "linkFailed": "This book could not be opened on this device.",
       "notServed": "not a file the reader serves",
       "openedLateTwice": "it did not open in time, twice",
       "crashes": "this book crashes the reader",
