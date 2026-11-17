@@ -1,5 +1,7 @@
 # R8 parity audit — legacy readers vs the V2 reader page
 
+> **Historical (M6 done 2026-11-17).** The V2 program is finished: one database (`textstack_v2`), the V2 reader only, legacy dropped. Kept as the decision trail; current state: [`docs/STATUS.md`](../../STATUS.md).
+
 **Date:** 2026-11-11 · **Issue:** [#1040](https://github.com/mrviduus/textstack/issues/1040) (R8) · **Status:** read-only audit, input for wave planning. Nothing here is decided until the owner answers §6.
 
 R8 deletes the legacy readers (web `ReaderPage`, mobile `ReaderShell`, `packages/reader-engine`) and the transitional

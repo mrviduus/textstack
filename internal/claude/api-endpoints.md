@@ -1,29 +1,27 @@
 # API endpoints
 
-Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context small. Read when the task touches this area.
+Read when the task touches the API. Rewritten for one database at M6 (2026-11-17). Source of truth: `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`) and, for every ungated route, `tests/TextStack.UnitTests/Routes/routes.public.txt`.
 
-## API Endpoints
+**Public**: `POST /explain`, `POST /translate`, `POST /api/translate`, `GET /api/translate/languages`, `GET /tts?text=&lang=&voice=&speed=` (`/tts/timestamps`, `/tts/voices`), `GET /app/config`, `GET /mcp/manifest`, `GET /health`, `GET /health/ready`
 
-**Public**: `GET /books`, `/books/{slug}`, `/authors`, `/genres`, `/search?q=`, `/seo/*`, `POST /explain`, `POST /translate`, `GET /api/tts?text=&lang=&voice=&speed=`, `GET /api/tts/voices?lang=`
+**Auth**: `POST /auth/login`, `/auth/guest`, `/auth/google`, `/auth/apple`, `/auth/refresh`, `/auth/refresh-mobile`, `/auth/logout`, `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/test-login` (only with `ENABLE_TEST_AUTH`), `GET /auth/me`; device flow `POST /auth/device/{code,token,approve,deny}`
 
-**Auth**: `POST /auth/login`, `/auth/guest`, `/auth/google`, `/auth/apple`, `/auth/refresh`, `/auth/logout`, `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`
+**OAuth** (ADR-017): `GET /.well-known/oauth-authorization-server`, `GET /oauth/authorize`, `GET /oauth/requests/{id}`, `POST /oauth/authorize/{approve,deny}`, `POST /oauth/{token,register,revoke}`, `GET /oauth/token-status`; `GET/DELETE /me/oauth/grants`
 
-**Profile**: `GET/PUT /me/profile`
+**Account**: `GET/PUT /me/profile`, `POST/DELETE /me/profile/avatar`, `DELETE /me/account`, `GET/POST/DELETE /me/mcp/keys`
 
-**User**: `GET/POST /me/library`, `GET /me/library/shelves`, `/me/progress/{editionId}` (GET/PUT/DELETE), `/me/bookmarks`, `/me/highlights/{editionId}`
+**Sync API** `/me/v2` (every route, payload and code: `docs/internal/v2/v2-sync-protocol.md` "Endpoints"; `V2Gate` filter):
+- status: `GET /status`
+- library: `GET /library/changes`, `GET /books/by-sha256/{sha256}`, `PUT/PATCH/DELETE /books/{id}`, `POST /books/{id}/restore`, `PUT /books/{id}/files/{fileId}` (replace)
+- bytes: `PUT /books/{id}/files/{fileId}/parts/{index}`, `POST|GET|DELETE /books/{id}/files/{fileId}/content`, `PUT|GET /books/{id}/cover`
+- transitional chapters (kept, M6 D8): `GET /books/{id}/files/{fileId}/chapters[/{chapterKey}]`
+- reading: `GET /reading/changes`, `GET/PUT /books/{id}/reading-state`, `POST /books/{id}/reading-state/reset`, `PUT /reading/sessions/{clientSessionId}`
+- annotations (highlights, notes, bookmarks): `GET /annotations/changes`, `PUT/DELETE /annotations/{id}`
+- vocabulary: `GET /vocabulary/changes`, `GET /vocabulary/due`, `PUT /vocabulary/words`, `GET/PATCH/DELETE /vocabulary/words/{id}`, `POST /vocabulary/words/{id}/{restore,examples}`, `POST /vocabulary/reviews`
+- discussion: `POST/GET /books/{id}/shares`, `GET/DELETE /shares/{id}`, `POST/GET /books/{id}/checkpoints`, `DELETE /checkpoints/{id}`, `PUT /books/{id}/checkpoint-saving`, `GET/POST /books/{id}/insights`
 
-**Reading Tracking**: `POST /me/reading/sessions`, `GET /me/reading/sessions`, `GET /me/reading/stats`, `GET /me/reading/stats/daily`, `GET /me/reading/pace`, `GET/POST /me/reading/goals`, `DELETE /me/reading/goals/{id}`, `GET /me/reading/achievements`
+**Old paths answered from V2** (`V2CompatEndpoints.cs`; clients still call them): `POST /me/books/clip` (browser extension), `GET /me/highlights/all`
 
-**User Books**: `POST /me/books/upload`, chunked upload for files over the single-request ceiling (`PUT /me/books/uploads/{id}/parts/{index}`, `POST /me/books/uploads/{id}/complete`, `DELETE /me/books/uploads/{id}`), `GET /me/books`, `GET /me/books/quota`, `GET /me/books/{id}`, `GET /me/books/{id}/chapters/{slug}`, `GET /me/books/{id}/file` (the stored original, any format, Range-enabled), `GET/PUT /me/books/{id}/progress`, `GET/POST/DELETE /me/books/{id}/bookmarks`, `POST /me/books/{id}/retry`, `DELETE /me/books/{id}`
+**Admin**: `POST /admin/auth/{login,logout,refresh}`, `GET /admin/auth/me`. Nothing else (the admin app is a shell, M6 D2).
 
-**V2 sync** (every route and code in `docs/internal/v2/v2-sync-protocol.md` "Endpoints"): library, reading, annotations, vocabulary, shares, checkpoints under `/me/v2`; file bytes (M2.6): `PUT /me/v2/books/{id}/files/{fileId}/parts/{index}`, `POST|GET|DELETE /me/v2/books/{id}/files/{fileId}/content`, `PUT|GET /me/v2/books/{id}/cover`; transitional (dropped at M6.4) `GET /me/v2/books/{id}/files/{fileId}/chapters[/{chapterKey}]`
-
-**Vocabulary**: `POST /me/vocabulary/words`, `GET /me/vocabulary/words?filter=&sort=&search=&limit=&offset=`, `PATCH /me/vocabulary/words/{id}`, `DELETE /me/vocabulary/words/{id}`, `GET /me/vocabulary/review?limit=`, `POST /me/vocabulary/review`, `GET /me/vocabulary/stats`
-
-**Admin**: `POST /admin/books/upload`, `/admin/import/textstack`, `/admin/reimport/textstack`, `/admin/sync/standardebooks`, `/admin/reprocess/{editionId}`, `/admin/reprocess/all`, `GET /admin/ingestion/jobs`, `/admin/ingestion/jobs/{id}/retry`, `/admin/ingestion/jobs/{id}/preview`, `/admin/chapters/{id}` (GET/PUT/DELETE), `/admin/settings`, `/admin/ssg/jobs` (+ `/{id}`, `/cancel`), CRUD for `/admin/authors`, `/admin/genres`
-
-**Auto Publish Admin**: `GET/PUT /admin/autopublish/settings`, `GET /admin/autopublish/jobs`, `GET /admin/autopublish/jobs/{id}`, `POST /admin/autopublish/jobs/{id}/approve`, `POST /admin/autopublish/jobs/{id}/reject`, `POST /admin/autopublish/jobs/{id}/retry`, `POST /admin/autopublish/trigger`, `POST /admin/autopublish/queue/{editionId}`, `GET /admin/autopublish/candidates`
-
-**SEO Backfill Admin**: `GET /admin/seo/coverage`, `GET /admin/seo/gaps?entityType=&limit=`, `GET/PUT /admin/seo/settings`, `GET /admin/seo/templates`, `GET /admin/seo/templates/{id}`, `POST /admin/seo/templates`, `PUT /admin/seo/templates/{id}` (creates new Version), `POST /admin/seo/templates/{id}/deactivate`, `POST /admin/seo/templates/preview`, `GET /admin/seo/jobs`, `GET /admin/seo/jobs/{id}`, `POST /admin/seo/jobs/{id}/approve`, `POST /admin/seo/jobs/{id}/revert`, `POST /admin/seo/jobs/{id}/retry`, `POST /admin/seo/queue`
-
-**Internal**: `PUT /internal/featured` (Popular shelf, replaces all ranks), `POST /internal/editions/{id}/publish`, `POST /internal/ssg/rebuild-all`, `POST /internal/seo/jobs/claim?limit=`, `GET /internal/seo/jobs/{id}/context`, `POST /internal/seo/jobs/{id}/apply`, `POST /internal/seo/jobs/{id}/fail` (Docker network only)
+**Internal**: none mapped; `/internal/*` stays 403 off the docker network (`PathGates`).

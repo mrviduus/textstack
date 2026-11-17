@@ -1,5 +1,7 @@
 # M5.1 preparation
 
+> **Historical (M6 done 2026-11-17).** The V2 program is finished: one database (`textstack_v2`), the V2 reader only, legacy dropped. Kept as the decision trail; current state: [`docs/STATUS.md`](../../STATUS.md).
+
 Status: In progress. Part of [#1031](https://github.com/mrviduus/textstack/issues/1031).
 No production switch or ETL is authorized by this document.
 

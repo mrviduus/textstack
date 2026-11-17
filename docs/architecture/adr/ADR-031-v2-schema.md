@@ -1,6 +1,6 @@
 # ADR-031 — V2 schema: textstack_v2
 
-**Status:** Proposed · **Date:** 2026-10-30 (decisions appended 2026-10-30) · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §4 · **Builds on:** [ADR-030](ADR-030-two-databases-one-cutover.md), ADR-026, ADR-028 · **Keeps:** ADR-014 (guest sessions), ADR-016 (chapter review in book_insight) · **Adopts:** [v2-library-draft.sql](../../internal/v2/v2-library-draft.sql) with the deltas below · **Amended by:** [ADR-032](ADR-032-one-engine-foliate-fork.md) (`book_files.format`)
+**Status:** Proposed · **Date:** 2026-10-30 (decisions appended 2026-10-30) · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §4 · **Builds on:** [ADR-030](ADR-030-two-databases-one-cutover.md), ADR-026, ADR-028 · **Keeps:** ADR-014 (guest sessions), ADR-016 (chapter review in book_insight) · **Adopts:** [v2-library-draft.sql](../../internal/v2/v2-library-draft.sql) with the deltas below · **Amended by:** [ADR-032](ADR-032-one-engine-foliate-fork.md) (`book_files.format`); M6 D8 (transitional tables kept, below)
 
 ## Context
 
@@ -468,3 +468,13 @@ Wire rules: [v2-sync-protocol.md](../../internal/v2/v2-sync-protocol.md) "Annota
   V2 and started empty.
 - Effect at the production switch (2026-11-17): every user signed in again, and MCP connectors were
   connected again. Log: [`v2-cutover-2026-11-17.md`](../../../internal/ops/v2-cutover-2026-11-17.md).
+
+## Amended 2026-11-17 — the transitional tables stay (M6, owner decision D8)
+
+- `book_chapters` and `ingestion_jobs` are **not** dropped at M6.4. The MCP chapter tools (`get_my_chapter`,
+  `share_chapter`) and clip extraction read them; dropping them would take chapter text away from the assistant.
+  They stay, with `V2IngestionWorker` and `Extraction`, until a replacement for those readers exists. Decision:
+  [`m6-deletion-plan.md`](../../internal/v2/m6-deletion-plan.md) §3 D8.
+- The legacy reader they fed is gone (R8), so the "Transitional" table comment ("Dropped at M6.4") is now stale;
+  changing it is a migration and is not done here.
+- `migration_runs` (the ETL ledger) was dropped at M6 by `0007_drop_migration_runs`, as planned.

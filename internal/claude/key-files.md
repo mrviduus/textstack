@@ -1,66 +1,39 @@
 # Key files
 
-Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context small. Read when the task touches this area.
-
-## Key Files
+Read when the task touches this area. Rewritten for one database at M6 (2026-11-17).
 
 | Area | Path |
 |------|------|
-| Domain | `backend/src/Domain/Entities/` |
-| Application | `backend/src/Application/` (services, interfaces) |
-| API Endpoints | `backend/src/Api/Endpoints/` |
-| API Middleware | `backend/src/Api/Middleware/` |
-| API Entry | `backend/src/Api/Program.cs` |
-| Worker | `backend/src/Worker/Services/IngestionWorker.cs` |
-| Extraction | `backend/src/Extraction/` (EPUB/PDF parsers) |
-| Search | `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs` |
-| Identity ports on legacy (EF adapters, bound until M5.1) | `backend/src/Infrastructure/Persistence/Legacy/`, `DataSource.AddLegacyIdentityPorts` |
-| Web Contexts | `apps/web/src/context/` |
-| Web Pages | `apps/web/src/pages/` |
-| Reader | `apps/web/src/pages/ReaderPage.tsx` |
-| Library | `apps/web/src/pages/LibraryPage.tsx` |
-| API Hook | `apps/web/src/hooks/useApi.ts` |
+| Domain | `backend/src/Domain/` (`Library`, `Reading`, `Annotations`, `Vocabulary`, `Discussion`, `Identity`, `Transitional`, `LLM`) |
+| Application (services, repository ports) | `backend/src/Application/` (`Library`, `Reading`, `Annotations`, `Vocabulary`, `Discussion`, `Identity`, `Sync`) |
+| Data source + repositories (Dapper) | `backend/src/Infrastructure/Persistence/V2DataSource.cs`, `Persistence/Repositories/` |
+| Schema ledger | `database/migrations/`, `database/migrate.sh`, `database/run.sh`, `database/README.md`; image `backend/Docker/Migrator.Dockerfile` |
+| API entry, middleware | `backend/src/Api/Program.cs`, `backend/src/Api/Middleware/` |
+| Sync API (`/me/v2`) | `backend/src/Api/Endpoints/V2Endpoints.cs`, gate `backend/src/Api/V2/V2Gate.cs` |
+| Old paths on V2 (clip, highlights/all, explain, translate) | `backend/src/Api/Endpoints/V2CompatEndpoints.cs` |
+| Route snapshot | `tests/TextStack.UnitTests/Routes/routes.public.txt` |
+| Worker | `backend/src/Worker/Services/` (`V2IngestionWorker.cs`, `RetentionCleanupWorker.cs`) |
+| Extraction | `backend/src/Extraction/TextStack.Extraction/` |
+| Storage | `backend/src/Infrastructure/Services/LocalFileStorageService.cs` (`/storage`), `LibraryFileStore.cs` (`/library`) |
+| Vocabulary SRS | `backend/src/Vocabulary/TextStack.Vocabulary/` (`SrsEngine.cs`, `ReviewCardBuilder.cs`, `DistractorGenerator.cs`) |
+| TTS | `backend/src/Tts/TextStack.Tts/`, `backend/src/Api/Endpoints/TtsEndpoints.cs`, web `apps/web/src/hooks/useTts.ts` |
+| Profile, account | `backend/src/Api/Endpoints/ProfileEndpoints.cs`, `AccountEndpoints.cs` |
+| Email | `backend/src/Infrastructure/Services/ResendEmailService.cs` |
+| AI account policy | `backend/src/Api/Extensions/AiAccountPolicy.cs` |
+| MCP | `backend/src/Ai/TextStack.Ai.Mcp/`, manifest `backend/src/Contracts/Mcp/McpManifest.cs` |
+| Reader page (both hosts) | `apps/mobile/src/lib/v2reader/` (`build.mjs`, `page.mjs`, `v2ReaderPage.generated.ts`, README) |
+| Reader host, web | `apps/web/src/pages/V2ReaderPage.tsx`, `apps/web/src/components/reader/V2ReaderHost.tsx`, `apps/web/src/lib/v2ReaderSync.ts` |
+| Reader host, Android | `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx`, `apps/mobile/app/my-books/read/` |
+| Shared client + locators | `packages/shared/src/api/v2.ts`, `packages/shared/src/reader/v2PageEntry.ts` |
+| Mobile local library + sync | `apps/mobile/src/lib/v2reader/localLibrary.ts`, `sync.ts` |
+| Web contexts, pages | `apps/web/src/context/`, `apps/web/src/pages/` |
+| Library | `apps/web/src/pages/LibraryPage.tsx`, `UserBookDetailPage.tsx` |
+| Vocabulary (web) | `apps/web/src/pages/VocabularyPage.tsx`, `VocabularyReviewPage.tsx`, `apps/web/src/components/vocabulary/` |
+| Highlights (web) | `apps/web/src/pages/HighlightsPage.tsx` |
+| Changelog page | `apps/web/src/lib/changelog.ts`, `apps/web/src/pages/ChangelogPage.tsx` |
 | i18n | `apps/web/src/locales/en.json` |
-| Admin | `apps/admin/src/pages/` |
-| Stats | `apps/web/src/pages/StatsPage.tsx` |
-| Reading Hooks | `apps/web/src/hooks/useReadingSession.ts` |
-| Achievements | `backend/src/Application/ReadingTracking/AchievementChecker.cs` |
-| Vocabulary API | `backend/src/Api/Endpoints/VocabularyEndpoints.cs` |
-| Vocabulary SRS | `backend/src/Vocabulary/TextStack.Vocabulary/SrsEngine.cs`, `ReviewCardBuilder.cs` |
-| Distractor Gen | `backend/src/Vocabulary/TextStack.Vocabulary/DistractorGenerator.cs` |
-| Vocabulary Page | `apps/web/src/pages/VocabularyPage.tsx` |
-| Vocab Review | `apps/web/src/pages/VocabularyReviewPage.tsx` |
-| Vocab Components | `apps/web/src/components/vocabulary/` |
-| Vocab Hooks | `apps/web/src/hooks/useVocabulary.ts`, `useVocabularyReview.ts` |
-| TTS Library | `backend/src/Tts/TextStack.Tts/` (EdgeTtsClient, EdgeTtsService, ITtsService) |
-| TTS API | `backend/src/Api/Endpoints/TtsEndpoints.cs` |
-| TTS Hook | `apps/web/src/hooks/useTts.ts` |
-| Auto Publish API | `backend/src/Api/Endpoints/AdminAutoPublishEndpoints.cs` |
-| Auto Publish Admin | `apps/admin/src/pages/AutoPublishPage.tsx` |
-| SEO Generate Script | `infra/scripts/seo-generate.sh` |
-| SEO Publish Poller | `infra/scripts/seo-publish-poll.sh` |
-| SEO Backfill Admin API | `backend/src/Api/Endpoints/AdminSeoBackfillEndpoints.cs` |
-| SEO Backfill Internal API | `backend/src/Api/Endpoints/InternalSeoEndpoints.cs` |
-| SEO Backfill Services | `backend/src/Application/Seo/` (JobProcessor, ContextBuilder, ContentApplier, CoverageAnalyzer, TemplateRenderer, ContentValidator, PromptSanitizer) |
-| SEO Backfill Poller | `infra/scripts/seo-backfill-poll.sh`, `infra/scripts/seo-backfill-generate.sh` |
-| SEO Backfill systemd | `infra/systemd/seo-backfill-poller.service` |
-| SEO Backfill Admin UI | `apps/admin/src/pages/SeoBackfillPage.tsx` |
-| Internal Endpoints | `backend/src/Api/Endpoints/InternalEndpoints.cs` |
-| SSG | `apps/web/scripts/prerender.mjs` |
-| nginx config | `infra/nginx/textstack.conf` |
-| Profile API | `backend/src/Api/Endpoints/ProfileEndpoints.cs` |
-| Guest Context | `apps/web/src/context/GuestLimitsContext.tsx` |
-| Native Lang Context | `apps/web/src/context/NativeLanguageContext.tsx` |
-| Email Service | `backend/src/Infrastructure/Services/ResendEmailService.cs` |
-| Guest Capabilities (mobile) | `apps/mobile/src/lib/capabilities.ts` |
-| Guest Minting (mobile) | `apps/mobile/src/lib/guestSession.ts`, `src/components/SessionGate.tsx` |
-| AI Account Policy | `backend/src/Api/Extensions/AiAccountPolicy.cs` |
-| Highlights Page | `apps/web/src/pages/HighlightsPage.tsx` |
-| Mobile App | `apps/mobile/app/` (Expo Router pages) |
-| Mobile API | `apps/mobile/src/lib/api.ts` |
-| Mobile Contexts | `apps/mobile/src/context/` |
-| Mobile E2E | `apps/mobile/e2e/` |
-| CI Workflow | `.github/workflows/ci.yml` |
-| Deploy Workflow | `.github/workflows/deploy.yml` |
-| Backup Workflow | `.github/workflows/backup.yml` |
-| Health Check | `.github/workflows/health-check.yml` |
+| Admin shell | `apps/admin/src/pages/` (login, home) |
+| Guest policy | `packages/shared/src/lib/capabilities.ts`; mobile `apps/mobile/src/lib/guestSession.ts`, `src/components/SessionGate.tsx` |
+| Mobile app, API, contexts, e2e | `apps/mobile/app/`, `apps/mobile/src/lib/api.ts`, `apps/mobile/src/context/`, `apps/mobile/e2e/` |
+| nginx | `infra/nginx/textstack.conf` |
+| Workflows | `.github/workflows/` (`ci.yml`, `deploy.yml`, `backup.yml`, `restore-drill.yml`, `health-check.yml`, `images.yml`) |

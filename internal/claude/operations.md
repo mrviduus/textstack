@@ -1,34 +1,30 @@
-# CI/CD, deployment, MCP server, telemetry, SSG checks
+# CI/CD, deployment, MCP server, telemetry
 
-Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context small. Read when the task touches this area.
+Read when the task touches this area. Updated for M6 (2026-11-17): one database, no SSG, no systemd pollers.
 
 ## CI/CD
 
 **GitHub Actions workflows** (`.github/workflows/`):
-- **ci.yml** — runs on PR + push to main. Jobs: backend (build, lint, migrations, search tests), frontend (web + admin build), docker (integration tests), e2e (Playwright)
-- **deploy.yml** — skips docs, `apps/mobile/**`, `extension/**` pushes (never `packages/**`/lockfile). In parallel: `ci` (merged-tree) and `images` (GitHub-hosted `images.yml`: build → `scripts/scan-image-secrets.sh` gate → push `ghcr.io/mrviduus/textstack-<svc>:<sha>`, outputs digests; job `web` builds the web bundle with canary env, scans `dist`, pushes `textstack-web` as a `FROM scratch` image). Then self-hosted `deploy`: checkout → SSG wait → pre-deploy dump (failure ships nothing) → pull `textstack-web@digest` → scan it with the server's real values (a hit stops with nothing live changed) → `scripts/swap-web-dist.sh` (file by file, `index.html` last, `dist/ssg*` untouched; server vite build only as fallback) → pull `name@digest` (no digest/pull fails → server build) → health → SSG check. Rollback (`rollback_commit`) must be hex and on `origin/main` (`guard` job). Full SSG rebuild only with `rebuild_ssg`, the admin button or `make rebuild-ssg`; no nightly since #992. Pipeline, deps, controls: `docs/architecture/delivery.md`, ADR-020
+- **ci.yml** — runs on PR + push to main. Jobs: `changes`, `docs-links` (`scripts/check-doc-links.mjs`), `docs-site`, `extension`, `advisories`, `backend` (build, format, vulnerable packages, migrations round trip, persistence/MCP/unit/extraction/AI eval tests, pack the MCP tool), `frontend` (web build + unit tests, shared tests + typecheck, drift-check the V2 reader page, admin build, repo script tests), `v2-reader` (sandbox, formats, prod CSP), `mobile` (typecheck, unit tests, Expo alignment, Metro bundle; **not a required check**), `mobile-runtime`, `docker` (migrator through compose, integration tests, isolated rate-limit test), `e2e` (Playwright)
+- **deploy.yml** — skips docs, `apps/mobile/**`, `extension/**` pushes (never `packages/**`/lockfile). In parallel: `ci` (merged-tree) and `images` (`images.yml`: build → `scripts/scan-image-secrets.sh` gate → push `ghcr.io/mrviduus/textstack-<svc>:<sha>`, outputs digests; job `web` pushes `textstack-web` as a `FROM scratch` image). Then self-hosted `deploy`: checkout → fatal pre-deploy dump of `textstack_v2` → fetch and scan the web bundle with the server's real values → `scripts/swap-web-dist.sh` (`index.html` last) → pull `name@digest` (the migrator runs first; api/worker wait for it) → sync nginx → health checks (API, frontend, MCP) → CSP live check. Rollback (`rollback_commit`) must be hex and on `origin/main` (`guard` job). Pipeline, deps, controls: `docs/architecture/delivery.md`, ADR-020
 - **Pins**: every action by commit SHA (`# vX.Y`), every pulled image `tag@sha256:…`; Dependabot moves them. Every workflow has a read-only/none top-level `permissions:`; widen per job only
-- **backup.yml** — daily at 3 AM UTC. `textstack_v2` dump (fatal if absent or incomplete; legacy is archived, no longer dumped) + storage tar.gz, keeps 2 newest of each; R2 off-site (`/db_v2.sql`, `/backup` = `data/storage` + `data/library` + `.env`). The deploy's pre-deploy dump is V2 too, and fatal. `make backup` dumps V2; `make restore FILE=` = V2 into an absent database. `restore-drill.yml` (monthly) restores V2 from R2, row-counts its migrated tables (`users`, `books`, `book_files`, `annotations` non-empty) and checks book files exist in the restored library. Details: `internal/ops/backup.md`, `database/v2/README.md`
-- **health-check.yml** — every 5 min. Checks API + both frontends; `/health/ready`'s `v2` component must be `ok` unless it says `off` (flag off)
-- **V2 rollback**: `make migrate-drop CONFIRM=textstack_v2` drops the database (the baseline has no down file)
+- **backup.yml** — daily at 3 AM UTC. `textstack_v2` dump (fatal if absent or incomplete; legacy is archived, no longer dumped) + storage tar.gz, keeps 2 newest of each; R2 off-site (`/db_v2.sql`, `/backup` = `data/storage` + `data/library` + `.env`). The deploy's pre-deploy dump is V2 too, and fatal. `make backup` dumps V2; `make restore FILE=` = V2 into an absent database. `restore-drill.yml` (monthly) restores V2 from R2, row-counts its migrated tables (`users`, `books`, `book_files`, `annotations` non-empty) and checks book files exist in the restored library. Details: `internal/ops/backup.md`, `database/README.md`
+- **health-check.yml** — every 5 min. Checks API + both frontends; `/health/ready`'s `v2` component must be `ok`
+- **Schema rollback**: `make migrate-down V=<n>`; `make migrate-drop CONFIRM=textstack_v2` drops the database (the baseline has no down file). Before 2026-11-17 the recovery is the legacy archive + tag `pre-v2-cutover` (`internal/ops/m6-legacy-drop-2026-11-17.md`)
 
 ## Deployment
 
 ```
 Internet → Cloudflare (DNS+SSL) → Cloudflare Tunnel → nginx (port 80)
-  ├─ textstack.app → SSG static files + /api/ proxy to :8080 + /mcp proxy to :8090
-  └─ textstack.dev → admin panel (:81)
+  ├─ textstack.app → SPA (dist/) + /reader-v2/ + /api/ proxy to :8080 + /mcp proxy to :8090; catalog URLs 410
+  └─ textstack.dev → admin shell (:81)
 ```
 
-Docker services: `db` (pgvector pg16, digest-pinned), `migrator`, `api`, `worker`, `admin`, `ssg-worker`, `aspire-dashboard` (profile-gated), `ollama`, `mcp-server` (profile-gated, `--profile mcp`). All localhost-only, no public ports except 80 via tunnel.
+Docker services: `db` (pgvector pg16, digest-pinned; the app's database is `textstack_v2`), `migrator`, `api`, `worker`, `admin`, `aspire-dashboard` (`--profile observability`), `ollama`, `mcp-server` (`--profile mcp`). All localhost-only, no public ports except 80 via tunnel.
 
 Images: built + secret-scanned on GitHub, pulled by digest from GHCR; secrets only in the server's `.env` at runtime. Never deploy by SSH — break-glass is `gh workflow run deploy.yml`.
 
-**Nginx bot detection**: Regex map identifies crawlers (Google, Bing, Yandex, social bots) → routes to prerendered SSG HTML. Rate limiting zones: API (10r/s), uploads (1r/s), translation (5r/m), MCP (10r/s).
-
-**Systemd services** (`infra/systemd/`, user units, restarted on every deploy): `seo-publish-poller` (auto-publish with SEO generation), `seo-backfill-poller` (SEO backfill jobs via the Claude CLI), `quality-poller` (book quality jobs).
-
-**Notable env vars** (beyond `.env.example` basics): `INDEXNOW_KEY`, `INDEXNOW_ENABLED`.
+Rate limiting zones in nginx: API, uploads, translation, MCP (`infra/nginx/textstack.conf`).
 
 ## MCP Server (`backend/src/Ai/TextStack.Ai.Mcp/`)
 
@@ -38,7 +34,7 @@ Thin, stateless MCP↔HTTP bridge (Phase 8) — every tool call becomes an HTTP 
 
 **Assistant writes**: an MCP highlight is a V2 annotation whose `textstack-anchor-v1` locator carries `source: "mcp"`; there is no per-book ceiling on V2 (the assistant writes are rate limited per user, `assistant-write`).
 
-**On a PDF upload an MCP highlight is saved and listed but not painted.** The reader renders PDFs as the original document (ADR-012) and `PdfHighlightLayer` only draws `kind:"pdf"` anchors, which are page geometry the bridge cannot produce. `get_my_book` reports `rendersAsOriginalPdf` so the model can say so. Roughly half the uploaded library is PDF.
+**On a PDF upload an MCP highlight is saved and listed but not painted.** The reader renders PDFs as the original pages, and a PDF highlight is placed by page geometry the bridge cannot produce. `get_my_book` reports `rendersAsOriginalPdf` so the model can say so. Roughly half the uploaded library is PDF.
 
 The write-back exists because the reasoning happens in Claude/ChatGPT — where the reader already has a profile and a year of history — and only the **result** comes home. See `docs/reference/mcp.md`.
 
@@ -50,19 +46,6 @@ The write-back exists because the reasoning happens in Claude/ChatGPT — where 
 
 ## Telemetry
 
-**Errors:** Sentry on api, worker, mcp-server (http mode only) and ssg-worker, one project, `service` tag; the web SPA reports to its own browser project when `VITE_SENTRY_DSN` is in `apps/web/production.env` (`apps/web/src/lib/sentry.ts`, lazy, `service: web`); one shared scrubber (`backend/src/Observability/TextStack.Observability/SentryScrubber.cs`, Node twin `apps/web/scripts/ssgSentry.mjs`) strips tokens (`ts[kocr]_`, Bearer, JWT), `/mcp/k/<key>`, query strings and SQL. No DSN = off.
+**Errors:** Sentry on api, worker and mcp-server (http mode only), one project, `service` tag; the web SPA reports to its own browser project when `VITE_SENTRY_DSN` is in `apps/web/production.env` (`apps/web/src/lib/sentry.ts`, lazy, `service: web`); one shared scrubber (`backend/src/Observability/TextStack.Observability/SentryScrubber.cs`) strips tokens (`ts[kocr]_`, Bearer, JWT), `/mcp/k/<key>`, query strings and SQL. No DSN = off.
 
 **Traces/metrics:** OpenTelemetry is registered only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set — locally Aspire Dashboard (`--profile observability`, UI `localhost:18888`, OTLP `:18889`); unset in production (nothing receives it). Details: `docs/architecture/delivery.md` § Observability.
-
-## Verifying SSG
-
-After content changes, verify SSG is serving correctly:
-```bash
-# Check header indicates SSG (not SPA fallback)
-curl -I https://textstack.app/en/books/dracula/ | grep X-SEO-Render
-# Expected: X-SEO-Render: ssg
-
-# Check SPA routes still work
-curl -I https://textstack.app/en/search | grep X-SEO-Render
-# Expected: X-SEO-Render: spa
-```

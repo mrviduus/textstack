@@ -1,5 +1,7 @@
 # M5.1 Part C: pending routes and MCP tools
 
+> **Historical (M6 done 2026-11-17).** The V2 program is finished: one database (`textstack_v2`), the V2 reader only, legacy dropped. Kept as the decision trail; current state: [`docs/STATUS.md`](../../STATUS.md).
+
 Status: Inventory done; owner cut decided 2026-11-16 ([below](#owner-decision-2026-11-16)), shipping as stacked PRs. Part of [#1031](https://github.com/mrviduus/textstack/issues/1031),
 [#1346](https://github.com/mrviduus/textstack/issues/1346). Base: Part B (#1363).
 
