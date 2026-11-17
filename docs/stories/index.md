@@ -17,8 +17,8 @@ the app, in the code, in the changelog and in these docs.
   - **(owner)** the owner decided it. The source is named under the story.
   - **(today)** the app does this today. It was read in the code or the existing docs.
   - **(to check)** nobody has decided it, or two sources disagree.
-- "After the move" means after the move to V2, the new library and reader. Until then some steps
-  work the old way. Each story says which.
+- "After the move" means after the move to V2, the new library and reader. The move finished on
+  2026-11-17, so those steps are how the app works now.
 
 ## The people
 
@@ -222,5 +222,5 @@ The words are decided (owner, 2026-11-12). Two things are left:
    if one has changed.
 2. Story 2: the exact words on screen when two devices disagree.
 
-Not a story, on purpose: finding a book in the public catalogue. The catalogue goes away after the
+Not a story, on purpose: finding a book in the public catalogue. The catalogue went away with the
 move.

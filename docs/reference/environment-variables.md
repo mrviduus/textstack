@@ -48,27 +48,12 @@ cp .env.example .env
 | `OPENAI_EXPLAIN_MODEL` | No | `gpt-4.1-mini` (in `OpenAiOptions`) | Explain model → `OpenAI__Explain__Model`. Empty = the code default |
 | `RESEND_API_KEY` | For password reset | empty | → `Resend__ApiKey` |
 | `RESEND_FROM_EMAIL` | No | `noreply@textstack.app` | → `Resend__FromEmail` |
-| `ADMIN_ALERT_EMAIL` | No | empty (alerts off) | SEO backfill / ops failure alerts → `Resend__AdminAlertEmail` |
+| `ADMIN_ALERT_EMAIL` | No | empty (alerts off) | AI spend / ops alerts → `Resend__AdminAlertEmail` |
 | `SENTRY_DSN` | No | empty (Sentry fully off) | Keep `ASPNETCORE_ENVIRONMENT=Development` locally, or dev events land in prod Sentry |
 | `GIT_SHA` | No | empty | Build arg → `SENTRY_RELEASE` in the image (set by CI) |
 
 Ollama (`Ollama__BaseUrl`, `Ollama__Model=gemma4:e2b`) and the cache paths (`Tts__CachePath`,
 `Explain__CachePath`, `Translate__CachePath`) are hard-coded in `docker-compose.yml`, not read from `.env`.
-
-### SEO / SSG worker
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `INDEXNOW_KEY` | No | empty | IndexNow key. Bing binds the first key it saw — do not rotate |
-| `INDEXNOW_ENABLED` | No | `false` | Turn IndexNow pings on |
-
-### PDF content cleanup (`quality-poll.sh`, host script)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CONTENT_CLEANUP_ENABLED` | No | `false` | LLM cleanup pass for low-scoring PDF chapters (feat-0007) |
-| `CONTENT_QUALITY_THRESHOLD` | No | `60` | Score below which cleanup runs |
-| `CLEANUP_TIMEOUT` | No | `1500` | Per-chapter Claude budget, seconds |
 
 ### Test / CI knobs (never set in prod)
 
@@ -111,7 +96,7 @@ set in `.github/workflows/deploy.yml`, not in `.env`.
 | `VITE_API_URL` | No | `http://localhost:8080` | API base URL (prod: `/api`) |
 | `VITE_STORAGE_URL` | No | `VITE_API_URL` | Base for `/storage` files (prod: `https://textstack.app`) |
 | `VITE_GOOGLE_CLIENT_ID` | Yes | — | Google OAuth client ID (same as backend) |
-| `VITE_CANONICAL_URL` | No | — | Canonical URL for prerender |
+| `VITE_CANONICAL_URL` | No | — | Canonical URL (`SeoHead`) |
 
 ## Frontend (Admin)
 
@@ -162,15 +147,6 @@ services:
 ```
 
 Docker Compose automatically reads `.env` file in the project root.
-
-## SEO Verification (Optional)
-
-Set in `apps/web/index.html` meta tags:
-
-| Variable | Description |
-|----------|-------------|
-| Google Site Verification | `<meta name="google-site-verification" content="xxx">` |
-| Bing Site Verification | `<meta name="msvalidate.01" content="xxx">` |
 
 ## Security Notes
 

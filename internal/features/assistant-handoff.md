@@ -1,5 +1,7 @@
 # Assistant handoff — the chat lives elsewhere, the conclusions live in the book
 
+> **Historical (M6 done 2026-11-17).** The 2026-09/10 decision log, kept as such; tool counts, routes, catalog editions and EF details below describe the legacy system. Today the bridge has 18 tools, all on `/me/v2` ([`McpManifest.cs`](../../backend/src/Contracts/Mcp/McpManifest.cs), [mcp.md](../../docs/reference/mcp.md)).
+
 You read a book here. You discuss it in Claude or ChatGPT, where your assistant already has your
 profile and a year of history. What you work out comes back and is stored against the book, so you
 can return to it later by category: here is what I concluded, here is what to watch for, here is

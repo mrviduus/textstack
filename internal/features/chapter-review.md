@@ -1,5 +1,7 @@
 # Chapter review — the reader's assistant reviews a chapter, the result comes home as structure
 
+> **Historical (M6 done 2026-11-17).** Kept as the design trail; the code below this banner describes the legacy system. Gone: `GET /me/chapter-review`, the `get_chapter_review` / `save_chapter_review` tools, the summary page, catalog editions and EF mappings. What remains: the **Discuss** brief (`buildChapterDiscussBrief`, `packages/shared/src/lib/chapterReview.ts`) opened by `ReviewChapterButton` / `V2ChapterDiscuss` in the reader, and a review stored on `book_insight` through `/me/v2/books/{id}/insights` (`InsightSyncService`, `save_insight`). MCP today: 18 tools ([`McpManifest.cs`](../../backend/src/Contracts/Mcp/McpManifest.cs), [mcp.md](../../docs/reference/mcp.md)).
+
 **Status (checked 2026-10-04):** Slices A+B (backend + MCP) built 2026-09-29, PR 1; C+D (button on every chapter row + summary page, web + mobile) 2026-09-30 (#655); E+F (web reader badges + Chapter questions on Practice) shipped (#657); Discuss/review merged into one entry (#660). **G (mobile badges + mobile Chapter questions) not built** — no reference in `apps/mobile`. Stage 2 of TextStack × ChatGPT/Claude.
 **Depends on** stage 1 (personal connect URL `/mcp/k/<tsk_key>`), built separately — assumed present.
 **Decision record:** [ADR-016](../../docs/architecture/adr/ADR-016-chapter-review-lives-in-book-insight.md).

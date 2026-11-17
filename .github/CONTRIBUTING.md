@@ -31,8 +31,8 @@ Follow [Ship a first pull request](../docs/start/first-pr.md): issue, branch, ch
 
 ## Code style
 
-- **Backend** — idiomatic C# / .NET 11. Minimal APIs, EF Core. Snake-case
-  in DB (handled by EF naming convention). Nullable-aware. Test naming:
+- **Backend** — idiomatic C# / .NET 11. Minimal APIs, Dapper with
+  inline SQL. Snake-case in DB. Nullable-aware. Test naming:
   `{Method}_{Scenario}_{Expected}`.
 - **Frontend** — React 19 functional components, hooks. CSS variables for
   theming (no CSS-in-JS). No Redux/Zustand — React Context is enough.
@@ -47,7 +47,7 @@ Follow [Ship a first pull request](../docs/start/first-pr.md): issue, branch, ch
 - **Reader UX** — smooth scroll, fast word-tap response, offline works.
 - **SRS quality** — capped queue, anti-spiral tiers, explanations that
   actually help the reader.
-- **Performance** — ingestion speed, SSG prerender time, reader cold-start.
+- **Performance** — ingestion speed, reader cold-start.
 - **Legal hygiene** — only public domain / CC0 / user-owned content.
 
 ## What I'll probably push back on
@@ -64,10 +64,9 @@ backend/src/
   Api/            # Minimal APIs, middleware
   Application/    # Business logic, interfaces
   Domain/         # Entities, enums (pure C#)
-  Infrastructure/ # EF Core, storage, adapters
-  Worker/         # Ingestion + SSG polling + GC
+  Infrastructure/ # Dapper repositories, file stores
+  Worker/         # Ingestion + retention cleanup
   Extraction/     # EPUB/PDF parsers
-  Search/         # Postgres FTS
 
 apps/
   web/            # Public reader (React + Vite)

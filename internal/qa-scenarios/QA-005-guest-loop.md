@@ -42,7 +42,7 @@ Read §7 first if anything behaves oddly — several failures below have a known
 - [ ] Load the JS bundle: `adb reverse tcp:8081 tcp:8081`, then
       `adb shell am start -a android.intent.action.VIEW -d "textstack://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"`
 - [ ] The app points at **production** by default. That is fine and intended here — the guest
-      endpoints are live. No login is needed to reach the catalogue.
+      endpoints are live. No login is needed to open the app.
 - [ ] **A LogBox toast from `window.onerror` swallows taps.** If taps on the reader toolbar seem
       to do nothing, dismiss the toast first. This has cost time before.
 
@@ -196,9 +196,8 @@ It only appears when the access token has expired, which takes an hour.
 - [ ] The **upload tab IS visible** to a guest (the `+`), and tapping it opens the add sheet rather
       than the sign-in screen. It is still hidden with **no session at all** — a fresh install that
       has not yet opened a book — which is now the only case that gets the wall.
-- [ ] Library with zero books shows one primary CTA, and for a guest it is now **Upload a book**,
-      with the catalog as the text link underneath. **Browse free books** as the primary is correct
-      only for a device with no session.
+- [ ] Library with zero books shows one primary CTA: **Upload a book** (the catalog and its
+      **Browse free books** link were removed at M6).
 - [ ] A guest's Profile shows the **Upload space** row (`0 B / 50.0 MB`) — this was filed as a defect
       when the allowance was unspendable, and is deliberate now that it is not.
 - [ ] A guest upload actually completes: pick an EPUB, it parses, and it opens in the reader. The

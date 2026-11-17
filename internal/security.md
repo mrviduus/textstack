@@ -9,21 +9,16 @@
 - No ASP.NET auth middleware: endpoints resolve identity per request (`GetUserId`)
 
 ### Admin Users
-- Separate email/password auth
-- Stored in `admin_users` table
-- Password hashed with BCrypt (`AdminAuthService`)
+- Separate email/password login; an admin is an account with `role = 'admin'` (one role, ADR-031)
+- Password hashed with BCrypt (`V2AdminAuthService`)
 - Token in `admin_access_token` cookie, checked by `AdminAuthMiddleware` on `/admin/*`
-- Role-based access (Admin, Editor, Moderator)
 
 ## Authorization
 
 | Route | Access |
 |-------|--------|
-| `/books/*` | Public |
-| `/search` | Public |
 | `/me/*` | Authenticated user (guest included) |
-| Tutor (paid inference) | Real account — `RequireAiAccount()` → 403 `account_required` |
-| `/admin/*` | Admin role |
+| `/admin/*` | Admin login (except `/admin/auth/*`) |
 | `/internal/*` | Docker network only |
 
 ## Cookies
@@ -57,7 +52,7 @@ Origins come from `Cors:AllowedOrigins` (`appsettings.json`), with a fallback li
 
 - Validate file types on upload
 - Size limits enforced
-- SQL injection: use parameterized queries (EF Core)
+- SQL injection: use parameterized queries (Dapper)
 - XSS: sanitize HTML in chapter content
 
 ## HTML Sanitization
@@ -81,16 +76,14 @@ Never commit secrets to repo. Use `.env` (gitignored).
 ## Rate Limiting
 
 Live. ASP.NET rate limiter policies in `Api/Extensions/ServiceCollectionExtensions.RateLimiting.cs`
-(login, guest-session, device flow, clip, highlight-write, insights, OAuth, mcp-keys, upload, enrich,
-tts, translate, explain, tutor, account-delete, …). Most are per IP; `highlight-write` and
-`insights` are per user, because MCP traffic arrives from one container address. Knobs in
+(login, guest-session, device flow, clip, assistant-write, insights, OAuth, mcp-keys, tts, translate,
+explain, account-delete). Most are per IP; `assistant-write` and `insights` are per user, because MCP traffic arrives from one container address. Knobs in
 `RateLimits:*`. nginx adds its own zones (API 10r/s, uploads 1r/s, translation 5r/m, MCP 10r/s).
 The limiter was inert until PR #555 (middleware order).
 
 ## Logging
 
 - Log auth failures
-- Log admin actions (audit log)
 - No sensitive data in logs
 - Structured logging via `ILogger` → OpenTelemetry (Aspire dashboard); errors → Sentry when `SENTRY_DSN` set
 
@@ -103,7 +96,6 @@ The limiter was inert until PR #555 (middleware order).
 - [ ] Input validation
 - [ ] HTML sanitization
 - [ ] Rate limiting
-- [ ] Audit logging
 - [ ] Dependency updates
 
 ## See Also

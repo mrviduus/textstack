@@ -53,10 +53,9 @@ words in them are the words of the whole project.
 
 ## Where the project is now
 
-TextStack is moving to **V2**: a new library and a new reading screen. Part of it is live, part is
-still switched off.
+TextStack runs on **V2**: one library and one reading screen, live since 2026-11-17.
 
-- [The move to V2](architecture/v2.md).
+- [The move to V2](architecture/v2.md), kept as history.
 - [What changed, week by week](https://textstack.app/en/changelog).
 - [Status](STATUS.md): what is being worked on and what is known to be broken.
 

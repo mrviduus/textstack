@@ -1,6 +1,6 @@
 # Data access — Dapper + repositories
 
-How code talks to Postgres once a module is ported off EF Core. Decision and migration path:
+How code talks to Postgres (`textstack_v2`). Decision:
 [ADR-028](adr/ADR-028-dapper-and-repositories.md). Schema: `database/` ([ADR-026](adr/ADR-026-sql-first-migrations.md)).
 
 ## Layers
@@ -9,7 +9,8 @@ How code talks to Postgres once a module is ported off EF Core. Decision and mig
 Domain/                         entities, value objects — no Dapper, no SQL
 Application/                    use-case services; repository interfaces (ports), e.g. IInsightRepository
 Infrastructure/Persistence/
-  DataSource.cs                 the one NpgsqlDataSource (+ Dapper global setup)
+  DataSource.cs                 Dapper global setup + repository registration
+  V2DataSource.cs               the one NpgsqlDataSource, the pool to textstack_v2
   Repositories/                 one per aggregate; SQL next to the method that runs it
 Api/Endpoints/                  map HTTP → service or repository port; no SQL
 database/                       schema (up/down SQL)
@@ -28,19 +29,13 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
    `ON CONFLICT` target), pick it from a closed `switch` over constants.
 4. **Async with cancellation.** Every call is `await conn.XxxAsync(new CommandDefinition(sql, args,
    transaction, cancellationToken: ct))`.
-5. **One `NpgsqlDataSource`, a singleton**, shared with EF Core. Per operation:
+5. **One data source, a singleton**: `V2DataSource`, the pool to `textstack_v2`. Per operation:
    `await using var conn = await dataSource.OpenConnectionAsync(ct)`; it returns to the pool on
-   dispose. Never hold a connection across awaits you don't own. V2 repositories use `V2DataSource`
-   instead, the pool to `textstack_v2` (one data source per database, ADR-030 §2). Building it opens
-   nothing, so nothing at startup touches `textstack_v2` and V1 keeps serving while V2 is broken or
-   unconfigured (ADR-030 decision 1, amended;
-   [postmortem](../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). Without
-   `ConnectionStrings:V2` every V2 service still resolves; the first open fails naming that key.
-6. **Transactions.** A use case that writes EF tables and a ported table together opens the
-   transaction on EF and passes the `IDbContextTransaction` to the repository; the repository runs on
-   that transaction's connection (`GetDbTransaction()`), never its own. A method whose write must be
-   atomic with EF writes takes a required `IDbContextTransaction tx`; one that may run either way takes
-   `IDbContextTransaction? tx = null`. On V2 a use case that writes two aggregates atomically begins
+   dispose. Never hold a connection across awaits you don't own. Building it opens nothing, so
+   startup never touches the database
+   ([postmortem](../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). Without
+   `ConnectionStrings:V2` every service still resolves; the first open fails naming that key.
+6. **Transactions.** A use case that writes two aggregates atomically begins
    one (`await using var tx = await unitOfWork.BeginAsync(ct)`, `IV2UnitOfWork`), passes
    `tx.Transaction` to each method that takes `NpgsqlTransaction? tx` (null: the method runs on its
    own), and commits. First use: the file replacement and its reading-state delete (#1067).
@@ -63,8 +58,7 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
     `now() - @interval`; a deadline the application wrote (`expires_at`) is compared with the caller's `@now`.
     Exception: a stamp that must post-date a lock wait is `clock_timestamp()` (`users.credentials_reset_at`:
     `now()` is the transaction start, before the wait, and a credential minted during the wait would pass).
-12. **No EF navigation into a ported table.** A join through one becomes a second query through the
-    repository.
+12. *(Retired with EF Core at M6; the number stays so rule 13 keeps its name.)*
 13. **SQL stays inline, next to the method that runs it** (decided 2026-10-30; the owner considered
     stored procedures and `.sql` resource files and rejected both). The golden path is one file read
     top to bottom: method → its SQL → its parameters → its result. Rules that keep that readable:

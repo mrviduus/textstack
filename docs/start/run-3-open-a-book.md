@@ -13,18 +13,15 @@ In this lesson you add a book and read its first page. This is
 
    You should see: the book's page, with its chapters listed.
 
-2. **Open the book.** Click **Open in the V2 reader**.
+2. **Open the book.** Click **Start Reading**.
 
-   You should see: the first page of the book, at an address that ends in `/read-v2`.
+   You should see: the first page of the book, at an address that ends in `/read`.
 
 ## If something goes wrong
 
 - **"Upload failed" next to the button.** The web app cannot reach the backend. The backend
   answers only a web app on port 5173. Check step 3 of [lesson 2](run-2-start-it.md). Check that the
   web app says port 5173. If it chose another port, stop what uses 5173 and start the web app again.
-- **There is no "Open in the V2 reader" link.** `FEATURES_V2API` was not `true` when the backend
-  started. Fix `.env`, then run `docker compose up -d --force-recreate api worker`. A plain restart
-  does not read `.env` again.
 
 ## Check yourself
 

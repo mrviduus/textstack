@@ -35,17 +35,14 @@ version to others over a network, you must publish your changes.
 - **There are no builds made for others.** You build from source, and there are no numbered
   releases to stay on.
 - **Backups and updates are tied to one server.** They target the project's own machine.
-- **The data is about to change.** V2 moves it to a new database in one step. A guide written now
-  would be wrong after that.
 
 You can work around each of these if you know Docker and nginx. We do not document that path,
-because we cannot promise it keeps working until V2 is done.
+because we cannot promise it keeps working.
 
 ## When this changes
 
-A full self-hosting guide comes after the V2 cutover, once the web app runs from
-`docker compose`. Progress: [STATUS.md](../STATUS.md) and
-[issue #1013](https://github.com/mrviduus/textstack/issues/1013).
+A full self-hosting guide comes once the web app runs from `docker compose`. Progress:
+[STATUS.md](../STATUS.md).
 
 ## Next
 

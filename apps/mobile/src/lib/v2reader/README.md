@@ -687,7 +687,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   - *Outcomes*: `deleted` offers Restore (the tombstone's id; never shown as saved: the legacy Android reader did,
     not ported); `pending` says "queued for tomorrow"; `lookup`/`lookup_pending` show the rare-word notice with
     "Add to SRS anyway". V2 answers only `srs` and `deleted`; the other two are legacy answers, kept as legacy shows
-    them. Mark as known stays out (`V2_FEATURES.markAsKnown` false).
+    them. Mark as known stays out.
 - Untrusted text (word, sentence, selection, a search result) reaches the screen only as React / React Native text, and no host
   injects any of it into the page: the calls the hosts inject carry no book text (`search` carries the reader's own query).
 
@@ -1003,7 +1003,7 @@ script (`location ~ ^/reader-v2/page\.[0-9a-f]{16}\.js$`, server-level headers, 
 (the name is the hash, the shell pins it) and no other file carries the page code or the dev route.
 
 One host component, `apps/web/src/components/reader/V2ReaderHost.tsx`, serves the dev route (`/dev/reader-v2`, a
-picked file, dev server only) and the production route (`/:lang/library/my/:id/read-v2`, behind `Features:V2Api`:
+picked file, dev server only) and the production route (`/:lang/library/my/:id/read`, `/read-v2` an alias:
 the current file's bytes from `/me/v2/books/{id}/files/{fileId}/content`, transferred). It embeds the shell with
 `<iframe sandbox="allow-scripts allow-same-origin" src>`, checks every message's source and origin, tracks opens
 with `openTracker.mjs`, and runs the deadlines below. Reader data: localStorage on the

@@ -19,17 +19,15 @@ In this lesson you copy the project to your machine and prepare it to start.
    cp .env.example .env
    ```
 
-3. **Edit four lines in `.env`.**
+3. **Edit three lines in `.env`.**
 
    ```bash
    POSTGRES_PASSWORD=local-dev-password
    JWT_SECRET=local-dev-secret-at-least-32-characters
    ASPNETCORE_ENVIRONMENT=Development
-   FEATURES_V2API=true
    ```
 
    `JWT_SECRET` signs the sign-in tokens. It must be 32 characters or longer.
-   `FEATURES_V2API=true` turns on V2: the new library and reading screen the project is moving to.
    Leave the other lines as they are.
 
 4. **Create the data folders.** The backend keeps books in `./data`.

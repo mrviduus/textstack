@@ -4,6 +4,11 @@ Verified against code, `docker-compose.yml` and the production host on 2026-10-2
 convention as [flows.md](../docs/architecture/flows.md)). Companion to [ADR-022](../docs/architecture/adr/ADR-022-one-consumer-per-queue.md) and
 [ADR-023](../docs/architecture/adr/ADR-023-single-instance-no-fire-and-forget.md), which make the single-consumer rule deliberate.
 
+> **Since M6 (2026-11-17):** the ssg-worker, the host pollers and the catalog are gone. The worker runs
+> `V2IngestionWorker` (claims `ingestion_jobs` with `FOR UPDATE SKIP LOCKED`, `IngestionJobRepository`) and
+> `RetentionCleanupWorker`, and mounts `data/storage` + `data/library`. The measurements and the replica table
+> below are from the legacy queues (2026-10-23).
+
 **Short answer.** One worker handles the load with room to spare, and a second copy on the same machine adds speed
 nobody needs and no availability. The invariant is now enforced (`SingleInstanceLock`), not just assumed.
 
@@ -25,17 +30,15 @@ flowchart TB
   reader([Reader<br/>web + mobile app])
   admin([Admin / owner])
   mcp([MCP client<br/>Claude, ChatGPT])
-  bot([Search crawlers])
   ts[TextStack<br/>single home server]
   cf[Cloudflare<br/>DNS, TLS, tunnel, R2 backups]
   llm[OpenAI + Anthropic CLI<br/>+ local Ollama]
-  ext[Edge TTS, Resend, Google/Apple sign-in,<br/>Open Library, IndexNow]
+  ext[Edge TTS, Resend, Google/Apple sign-in,]
   obs[Sentry, UptimeRobot]
   gh[GitHub Actions + GHCR<br/>self-hosted runner]
   reader --> cf
   admin --> cf
   mcp --> cf
-  bot --> cf
   cf --> ts
   ts --> llm
   ts --> ext
@@ -60,11 +63,6 @@ flowchart TB
   worker -->|polls ingestion_jobs / user_ingestion_jobs<br/>every 5 s| db
   worker -->|reads upload, writes chapters + assets| disk
   worker --> ollama
-  ssg["ssg-worker (x1)<br/>Puppeteer prerender"] -->|claim SKIP LOCKED| db
-  ssg --> api
-  ssg --> disk
-  pollers["systemd pollers x3<br/>seo-backfill, seo-publish, quality<br/>(host, Claude CLI)"] --> api
-  pollers --> db
   api -.no direct call.- worker
 ```
 
@@ -89,7 +87,6 @@ flowchart TB
   w1 --> disk
   w2 --> disk
   w1 & w2 -->|"★ pg_try_advisory_lock<br/>cleanup + enrichment sweeps"| db
-  ssg["ssg-worker x1 (must stay 1)"] --> db
 ```
 
 What each ★ protects against (found by reading the code, not by running two workers):
@@ -115,12 +112,3 @@ background services have no locks), so a second API replica is out of scope here
 
 Queue wait stays above one to two minutes for real users, a job approaches its lease, or an availability
 requirement appears. Until then the cheapest correct state is the current one.
-
-## Resolved while drawing this
-
-`infra/nginx/textstack.conf` has `location /ssg/ { alias .../data/ssg/; }`, and its comment says SSG output lands in
-`data/ssg/`. On the host (2026-10-23) `data/ssg/` does not exist; the pages are in `apps/web/dist/ssg/`, which is
-what compose mounts into the ssg-worker. Bots still get them because `try_files $ssg_file` resolves
-`/ssg/<uri>/index.html` against the nginx root (`apps/web/dist`) directly; the `/ssg/` alias location is never
-reached. So the alias and its comment are stale but harmless. Removing them is a nginx change (it deploys to
-production), so it is left for whoever next touches that file.

@@ -1,37 +1,35 @@
 # Frontend Architecture
 
 pnpm workspace. React 19 + TypeScript (versions pinned in the `catalog:` of `pnpm-workspace.yaml`).
-Three apps, two shared packages.
+Three apps, one shared package.
 
 ---
 
 ## Apps
 
-### `apps/web/` — public site (Vite SPA)
-- Served by host nginx: crawlers get prerendered SSG HTML, people get the SPA
-  ([ssg-prerender.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/ssg-prerender.md)).
-- Pages: home, books, book detail, reader, authors, genres, search, library (catalog + own uploads),
-  vocabulary + review + tutor, highlights + review, chapter review, stats, MCP landing, OAuth
-  consent, legal pages.
+### `apps/web/` — the web app (Vite SPA)
+- Served by host nginx, plus the reader frame under `dist/reader-v2/` (`infra/nginx/textstack.conf`).
+- Pages: home, library, book detail, reader, vocabulary + review, highlights, changelog, MCP landing,
+  OAuth consent, device, legal pages.
 - i18n: `/:lang/` prefix on all routes, but the only language is `en`
   (`SUPPORTED_LANGUAGES` in `context/LanguageContext.tsx`; Ukrainian removed 2026-04-21).
 
-### `apps/admin/` — admin panel (Vite SPA, `textstack.dev`, port 81)
+### `apps/admin/` — admin shell (Vite SPA, `textstack.dev`, port 81)
 - English only. Email/password JWT login, separate from user auth.
-- Pages: Dashboard, Upload, Jobs, User Uploads, Editions, Chapter editor, Authors, Genres, Tools,
-  SSG Rebuild (+ job), Auto Publish, SEO Backfill, Book Quality, AI Quality, Settings.
+- Pages: login and an empty home (M6 D2).
 
 ### `apps/mobile/` — Expo 57 / React Native 0.86 (Expo Router)
-- Android first. Offline reading via SQLite (`src/lib/offlineDb.ts`). See CLAUDE.md "Mobile App
-  Architecture".
+- Android first. The reader opens the book's file kept on the device (`src/lib/v2reader/hostStorage.ts`,
+  `localLibrary.ts`), so reading needs no network. iOS has no reader (M6 D4).
 
 ## Shared packages (`packages/`)
 
 Consumed as source through path aliases (not built or published).
 - `@textstack/shared` — API client, API types, i18n, sentence splitting, anon/guest helpers, reader
   progress logic. Edit here when both web and mobile need the change.
-- `@textstack/reader-engine` — the reader's rendering, position and decorations, shared by web and mobile ([ADR-025](adr/ADR-025-reader-engine-package.md))
-  reader and the mobile WebView bundle.
+
+The reader itself is not a package: our foliate-js fork, built by `apps/mobile/src/lib/v2reader/build.mjs`
+into a generated page that both web and mobile host ([ADR-032](adr/ADR-032-one-engine-foliate-fork.md)).
 
 ---
 
@@ -39,45 +37,35 @@ Consumed as source through path aliases (not built or published).
 
 React Context only — no Redux/Zustand. Order in `App.tsx`:
 ```
-BrowserRouter → SiteProvider → AuthProvider → GuestLimitsProvider → NativeLanguageProvider
-  → DownloadProvider → routes
+BrowserRouter → AuthProvider → GuestLimitsProvider → NativeLanguageProvider → routes
       └─ /:lang/* → LanguageProvider → page routes
 ```
 
-- **SiteProvider**: fetches `/api/site/context`.
-- **AuthProvider**: Google, Apple, email/password; token refresh; skips Google script for bots.
+- **AuthProvider**: Google, Apple, email/password; token refresh; guest sessions.
 - **GuestLimitsProvider**: guest session minting triggers (upload, 3rd pending word).
 - **NativeLanguageProvider**: translation direction.
-- **DownloadProvider**: IndexedDB offline downloads.
 - **LanguageProvider**: `lang` from URL, `switchLanguage()`, `getLocalizedPath()`.
 
 ---
 
 ## Routing
 
-`/` → 301 `/en/` (nginx). Legacy unprefixed `/books|authors|genres|…` and `/uk/*` → 301 to `/en/…`.
+`/` → `/en`. Unprefixed `/library`, `/vocabulary`, legal pages … redirect to `/en/…`. Retired catalog URLs answer `410 Gone` from nginx (M6 D1).
 
 ## API client
 
-`useApi()` → `createApi(language)` → typed methods; `fetchJsonWithRetry()` retries on 5xx/429.
-Modules in `apps/web/src/api/`.
+`apps/web/src/api/client.ts` runs the shared `authFetch` in cookie mode (`initApi({ credentials: 'include' })`;
+a 401 refreshes the cookie and retries once). Modules in `apps/web/src/api/`.
 
 ## Reader (web)
 
-`pages/ReaderPage.tsx` (catalog and `mode="userbook"`):
-- Settings: font, size, line height, width, theme, alignment, TTS speed.
-- Navigation: TOC drawer, prev/next, keyboard, swipe.
-- Offline: cache-first from IndexedDB.
-- Selection: highlights, translate (`POST /api/translate`, OpenAI), contextual Explain, TTS.
-  The free-dictionary lookup was removed 2026-10-03.
-- Progress: server when there is a session (account or guest), else `localStorage`.
-- Uploaded PDFs render as the original document (PDF.js), not reflowed ([ADR-012](adr/ADR-012-pdf-original-first-lazy-parse.md)).
-
-## SEO
-
-- SSG: `ssg-worker` container runs Puppeteer (`scripts/prerender.mjs`) for home, catalog, book,
-  author, genre and static pages.
-- `SeoHead` component: title, description, canonical, robots, OG, JSON-LD.
+`pages/V2ReaderPage.tsx` → `components/reader/V2ReaderHost.tsx`, which hosts the reader page in a
+sandboxed frame (`/:lang/library/my/:id/read`):
+- Settings: theme, font, size, line height, alignment, speech speed, inline translations.
+- Contents, search in the book, bookmarks, highlights and notes, time left.
+- Selection: translate (`POST /api/translate`, OpenAI), contextual Explain, TTS, save a word.
+- Progress: `PUT /me/v2/books/{id}/reading-state` (account or guest session).
+- EPUB, MOBI, AZW3, FB2, CBZ and PDF ([ADR-029](adr/ADR-029-foliate-for-v2-epub.md)).
 
 ## Key directories (`apps/web/src/`)
 
@@ -85,7 +73,7 @@ Modules in `apps/web/src/api/`.
 api/         API modules (client, auth, translation, tts, vocabulary, …)
 components/  UI (reader/, vocabulary/, library/, …)
 context/     React Context providers
-hooks/       ~70 hooks
+hooks/       ~40 hooks
 lib/         helpers (e.g. wordBubbleFetch)
 locales/     en.json
 pages/       route components

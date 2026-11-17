@@ -1,10 +1,10 @@
 # PDD: Text Extraction Core (multi-format)
 
 ## Status
-Implemented, narrower than planned (checked 2026-10-04): `ExtractorRegistry` maps `.epub`, `.pdf`,
+Implemented, narrower than planned (checked 2026-11-17): `ExtractorRegistry` maps `.epub`, `.pdf`,
 `.html` only — **no TXT/MD extractor**. OCR exists only as options/enums (`ExtractionOptions.EnableOcrFallback`, default off) — no OCR
-engine is wired, so Phase 3 below was never built. Uploaded PDFs render original-first since ADR-012; extraction still feeds search and
-the reflow fallback.
+engine is wired, so Phase 3 below was never built. The reader opens the book file itself (ADR-029); extraction now only fills the
+transitional `book_chapters` (`V2IngestionWorker`) for the MCP chapter tools and clips. The admin UX below was never kept: the admin is a login shell.
 
 ## Goal
 Build a core ingestion component that converts uploaded book files into searchable text + reader-friendly content.
