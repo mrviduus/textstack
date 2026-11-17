@@ -39,7 +39,7 @@ promising a smaller implementation. Server extraction is not a prerequisite for 
 - [Upload endpoint](../../../backend/src/Api/Endpoints/UserBooksEndpoints.cs): `UploadBook` resolves user id before accepting the file.
 - [UserBookService](../../../backend/src/Application/UserBooks/UserBookService.cs): `UploadAsync`, `CreateBookAsync`, hash, original storage and queued ingestion.
 - [Worker ingestion](../../../backend/src/Worker/Services/UserIngestionService.cs): extraction, cover handling, chapter persistence, metadata and Ready/Failed states.
-- [Mobile chapter source](../../../apps/mobile/src/components/reader/useUserBookReaderSource.ts): cached chapter first, server refresh second.
+- Mobile chapter source (`apps/mobile/src/components/reader/useUserBookReaderSource.ts`, deleted in M6 M1; git history): cached chapter first, server refresh second.
 - [Open/resume trace](reader-open-resume.md): existing reader behavior and its evidence limitations.
 
 ## First implementation boundary to specify
