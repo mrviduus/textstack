@@ -3,7 +3,7 @@
 The page that renders a local EPUB, MOBI/AZW3, FB2, CBZ or PDF (see Formats) in the V2 reader's WebView ([ADR-029](../../../../../docs/01-architecture/adr/ADR-029-foliate-for-v2-epub.md)).
 foliate-js parses and renders the book; our code adds word tap, the inline translation label, highlights and
 the reading position. Slice R1 of [v2-plan.md](../../../../../docs/01-architecture/v2-plan.md) §7: the page
-and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R2); hidden from production Metro, see metro.config.js.
+and its build only. Hosted by `V2ReaderScreen.tsx` (R2): in production on the reader route `app/my-books/read/[bookId]/…` when V2 is on (M5 #1031); the dev route `app/dev/epub-v2.tsx` (its library list) is hidden from production Metro, see metro.config.js.
 
 | File | What |
 |---|---|

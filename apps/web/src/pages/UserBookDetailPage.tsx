@@ -233,8 +233,8 @@ export function UserBookDetailPage() {
   // of extraction status, so Processing/Failed must not block or scare.
   const hasOriginalPdf = !!book.hasOriginalPdf
   const pages = bookPages(book)
-  // M5 (#1031): on V2 the reader opens the file itself, chapters or not.
-  const canRead = v2.enabled || hasOriginalPdf || (isReady && book.chapters.length > 0)
+  // M5 (#1031): on V2 the reader opens the file itself, chapters or not (a Ready book: its file is in).
+  const canRead = hasOriginalPdf || (isReady && (v2.enabled || book.chapters.length > 0))
   const readerBase = `/${language}/library/my/${book.id}`
   const readHref = continueReadingSlug
     ? `${readerBase}/read/${continueReadingSlug}`
@@ -529,9 +529,9 @@ export function UserBookDetailPage() {
         <div className="user-book-detail__chapters">
           <h2>Chapters</h2>
           <ul className="user-book-detail__chapter-list">
-            {book.chapters.map((chapter) => (
-              <li key={chapter.id}>
-                <Link to={`/${language}/library/my/${book.id}/read/${chapter.slug || chapter.chapterNumber}`}>
+            {book.chapters.map((chapter) => {
+              const row = (
+                <>
                   <span className="user-book-detail__chapter-number">
                     {chapter.chapterNumber}.
                   </span>
@@ -543,7 +543,14 @@ export function UserBookDetailPage() {
                       {chapter.wordCount.toLocaleString()} words
                     </span>
                   )}
-                </Link>
+                </>
+              )
+              return (
+              <li key={chapter.id}>
+                {/* M5 (#1031): the V2 reader opens at the synced place, not at a chapter: on V2 a row is no link. */}
+                {v2.enabled ? <span className="user-book-detail__chapter-row">{row}</span> : (
+                  <Link to={`/${language}/library/my/${book.id}/read/${chapter.slug || chapter.chapterNumber}`}>{row}</Link>
+                )}
                 {/* A review is keyed by slug; a slugless legacy chapter cannot be reviewed. */}
                 {chapter.slug && (
                   <ChapterReviewAction
@@ -553,7 +560,8 @@ export function UserBookDetailPage() {
                   />
                 )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         </div>
       )}

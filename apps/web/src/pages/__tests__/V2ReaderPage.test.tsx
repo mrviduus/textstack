@@ -9,7 +9,9 @@ const v2Status = vi.fn()
 const v2Book = vi.fn()
 const fetchV2FileBytes = vi.fn()
 const pullV2Books = vi.fn()
+const v2Answer = vi.fn()
 vi.mock('../../api/v2', () => ({
+  v2Answer: () => v2Answer(),
   pullV2Books: () => pullV2Books(),
   v2Status: () => v2Status(),
   v2Book: (id: string) => v2Book(id),
@@ -46,6 +48,7 @@ function renderPage(path = '/en/library/my/bk-1/read-v2') {
 beforeEach(() => {
   vi.clearAllMocks()
   v2Status.mockResolvedValue({ enabled: true, maxPartBytes: 0 })
+  v2Answer.mockReturnValue(null)
   v2Book.mockResolvedValue({ id: 'bk-1', title: 'Walden', currentFile: FILE })
   fetchV2FileBytes.mockResolvedValue(BYTES)
   pullV2Books.mockResolvedValue([])
@@ -66,6 +69,15 @@ describe('V2ReaderPage', () => {
     await vi.waitFor(() => expect(fetchV2FileBytes).toHaveBeenCalledWith('bk-1', 'f1', expect.any(Function), expect.any(AbortSignal)))
     expect(screen.getByTestId('host')).toBeInTheDocument()
     expect(screen.queryByTestId('legacy')).toBeNull()
+  })
+
+  // Review #1361: an in-app open after the probe answered picks at once, no blank wait on the session bootstrap.
+  it('probeAlreadyAnsweredOff_TheLegacyReaderAtOnce_WhileAStatusCallIsStillPending', async () => {
+    v2Answer.mockReturnValue(false)
+    v2Status.mockReturnValue(new Promise(() => {}))
+    renderPage('/en/library/my/bk-1/read')
+    expect(await screen.findByTestId('legacy')).toBeInTheDocument()
+    expect(v2Book).not.toHaveBeenCalled()
   })
 
   it('beforeTheProbe_RendersNothing', () => {
