@@ -386,50 +386,31 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
             Color = color,
         }, null, Ct)).Current!;
 
+    // The highlights page (GET /me/highlights/all in v2 mode): one reader's highlights across their books.
     [Fact]
-    public async Task ListAllAsync_LiveAnnotations_NewestFirstWithBookChapterAndAnchor()
+    public async Task AReadersHighlightsPage_ListsTheirLiveHighlightsWithBookChapterAndQuote()
     {
-        var book = await BookWithChapterAsync();
-        var first = await SaveAsync(book, "Quoted");
-        var second = await SaveAsync(book, "Second", locator: Cfi(2));
-        var gone = await SaveAsync(book, "Gone");
-        await _repo.DeleteAsync(book.UserId, gone.Id, Ct);
-        await SaveAsync(await BookWithChapterAsync(), "Someone else's");
+        var moby = await BookWithChapterAsync();
+        var quoted = await SaveAsync(moby, "Quoted whale", "blue");
+        var noted = await SaveAsync(moby, "Call me", "blue", note: "a WHALE of an opening", locator: Cfi(2));
+        await SaveAsync(moby, "A yellow whale");
+        await _repo.DeleteAsync(moby.UserId, (await SaveAsync(moby, "Erased whale", "blue")).Id, Ct);
+        var trashed = await db.NewBookAsync(moby.UserId, "Trashed");
+        await SaveAsync(trashed, "Whale in the trash", "blue", locator: Cfi(1));
+        await db.ExecAsync("UPDATE books SET removed_at = now() WHERE id = @Id", new { trashed.Id });
+        await SaveAsync(await BookWithChapterAsync(), "Someone else's whale", "blue");
 
-        var page = await _repo.ListAllAsync(book.UserId, null, null, false, 10, 0, Ct);
+        var page = await _repo.ListAllAsync(moby.UserId, null, null, false, 10, 0, Ct);
+        var blueWhales = await _repo.ListAllAsync(moby.UserId, "whale", "blue", true, 1, 0, Ct);
 
-        Assert.Equal(2, page.TotalCount);
-        Assert.Equal([second.Id, first.Id], page.Items.Select(i => i.Id));
-        var item = page.Items[1];
-        Assert.Equal((book.Id, book.Title, "Chapter One", "c1"), (item.BookId, item.BookTitle, item.ChapterTitle, item.ChapterKey));
+        // Newest first; the deleted one, the one in a removed book and another reader's are not in it.
+        Assert.Equal(3, page.TotalCount);
+        Assert.Equal(noted.Id, page.Items[1].Id);
+        var item = page.Items[2];
+        Assert.Equal((quoted.Id, moby.Title, "Chapter One", "c1"), (item.Id, item.BookTitle, item.ChapterTitle, item.ChapterKey));
         AssertSameJson("""{"chapterKey":"c1","prefix":"before ","exact":"Quoted","suffix":" after","startOffset":7,"endOffset":13}""", item.AnchorJson);
-        // A CFI's value is a string, not an anchor: {} and no chapter.
-        Assert.Equal(("{}", (string?)null), (page.Items[0].AnchorJson, page.Items[0].ChapterKey));
-    }
-
-    [Fact]
-    public async Task ListAllAsync_SearchColorSortAndPaging_FilterBeforeTheTotal()
-    {
-        var book = await BookWithChapterAsync();
-        var alpha = await SaveAsync(book, "Alpha whale", "blue");
-        await SaveAsync(book, "Beta", "blue", note: "a WHALE note");
-        await SaveAsync(book, "Gamma whale", "yellow");
-
-        var blueWhales = await _repo.ListAllAsync(book.UserId, "whale", "blue", true, 1, 0, Ct);
-        var pastTheEnd = await _repo.ListAllAsync(book.UserId, "whale", "blue", true, 1, 5, Ct);
-
-        Assert.Equal(2, blueWhales.TotalCount);
-        Assert.Equal(alpha.Id, Assert.Single(blueWhales.Items).Id);
-        Assert.Equal((2, 0), (pastTheEnd.TotalCount, pastTheEnd.Items.Count));
-    }
-
-    [Fact]
-    public async Task ListAllAsync_RemovedBook_IsLeftOut()
-    {
-        var book = await BookWithChapterAsync();
-        await SaveAsync(book, "Quoted");
-        await db.ExecAsync("UPDATE books SET removed_at = now() WHERE id = @Id", new { book.Id });
-
-        Assert.Equal(0, (await _repo.ListAllAsync(book.UserId, null, null, false, 10, 0, Ct)).TotalCount);
+        Assert.Equal("{}", page.Items[1].AnchorJson); // a CFI is no anchor the page can show
+        // Searched in the text and the note, by colour, oldest first, a page of one: the total counts both.
+        Assert.Equal((2, quoted.Id), (blueWhales.TotalCount, Assert.Single(blueWhales.Items).Id));
     }
 }

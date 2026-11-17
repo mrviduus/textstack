@@ -342,7 +342,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     }
 
     [Fact]
-    public async Task Native_ExplainAndTranslate_AnswerWithTheV2BookGenreAndAnonymously()
+    public async Task AReaderTranslatesAndExplainsOnV2_AndTheDaysAiSpendIsCountedFromV2()
     {
         // A public path resolves the site from legacy's catalog (read-only in v2 mode until M6): a migrated one.
         var (client, target) = await ApiAsync(migratedLegacy: true);
@@ -352,6 +352,12 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             var book = Guid.NewGuid();
             await ExecAsync(target, "INSERT INTO books (id,user_id,title,genre,origin) VALUES (@book,@user,'Physics','Astrophysics','{\"kind\":\"upload\"}')",
                 new { book, user = UserId(account) });
+            // Spend earlier today (before a restart) and yesterday's, in V2's traces where v2 mode writes them.
+            await ExecAsync(target, """
+                INSERT INTO llm_traces (id, feature_tag, model_id, prompt_hash, messages_json, tokens_in, tokens_out, cost_usd, latency_ms, created_at) VALUES
+                    (gen_random_uuid(), 'explain', 'm', 'h', '[]', 1, 1, 0.05, 1, now()),
+                    (gen_random_uuid(), 'explain', 'm', 'h', '[]', 1, 1, 9, 1, now() - interval '2 days')
+                """, new { });
 
             // Anonymous: the reading loop's translate needs no account, in v2 mode as in legacy.
             var anonymous = await BodyAsync(await client.PostAsJsonAsync("/api/translate",
@@ -367,6 +373,11 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
                 new { word = "shift", sentence = "The red shift grew.", bookId = book.ToString() }, Ct));
             Assert.Equal("fake answer", explained.GetProperty("explanation").GetString());
             Assert.Equal(2, _llm.SystemPrompts.Count(p => p.Contains("Astrophysics", StringComparison.Ordinal)));
+
+            // The daily budget starts from today's V2 traces (scaled up by the sample rate), never legacy's.
+            var services = _apps[^1].Services;
+            var rate = (decimal)services.GetRequiredService<TextStack.Ai.Llm.TracingOptions>().RateFor("explain");
+            Assert.Equal(0.05m / rate, services.GetRequiredService<TextStack.Ai.Core.ISpendTracker>().SpentTodayUsd("explain"));
         }
     }
 
