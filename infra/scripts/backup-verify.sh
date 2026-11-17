@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restore a pg_dump backup into a throwaway postgres container and run sanity queries.
+# Restore a textstack_v2 pg_dump backup into a throwaway postgres container and run sanity queries.
 # Usage: ./backup-verify.sh <path-to-backup.sql.gz>
 
 set -euo pipefail
@@ -50,7 +50,7 @@ docker run -d --rm \
   -e POSTGRES_PASSWORD="$PG_PASS" \
   -e POSTGRES_DB="$PG_DB" \
   -p "$PORT:5432" \
-  pgvector/pgvector:pg16 >/dev/null  # prod schema uses CREATE EXTENSION vector (pgvector); vanilla postgres:16 fails restore
+  pgvector/pgvector:pg16 >/dev/null  # prod's db image
 
 # Dump why the throwaway postgres never came up. "did not become ready" alone
 # hides the real cause — almost always a full disk (initdb can't write its data
@@ -128,24 +128,27 @@ QUERY="
 SELECT
   (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public')::int AS tables,
   (SELECT count(*) FROM pg_catalog.pg_class WHERE relkind = 'i' AND relnamespace = 'public'::regnamespace)::int AS indexes,
-  COALESCE((SELECT count(*) FROM users), 0)::int AS users,
-  COALESCE((SELECT count(*) FROM editions), 0)::int AS editions,
-  COALESCE((SELECT count(*) FROM chapters), 0)::int AS chapters;
+  (SELECT count(*) FROM users)::int AS users,
+  (SELECT count(*) FROM books)::int AS books,
+  (SELECT count(*) FROM book_files)::int AS book_files,
+  (SELECT count(*) FROM annotations)::int AS annotations;
 "
 RESULT=$(docker exec "$CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -At -F'|' -c "$QUERY")
-IFS='|' read -r TABLES INDEXES USERS EDITIONS CHAPTERS <<< "$RESULT"
+IFS='|' read -r TABLES INDEXES USERS BOOKS BOOK_FILES ANNOTATIONS <<< "$RESULT"
 
-echo "[verify] tables=$TABLES indexes=$INDEXES users=$USERS editions=$EDITIONS chapters=$CHAPTERS"
+echo "[verify] tables=$TABLES indexes=$INDEXES users=$USERS books=$BOOKS book_files=$BOOK_FILES annotations=$ANNOTATIONS"
 
 FAIL=0
 if [[ "${TABLES:-0}" -lt 10 ]]; then
   echo "[verify] FAIL: too few tables ($TABLES) — schema looks truncated" >&2
   FAIL=1
 fi
-if [[ "${EDITIONS:-0}" -lt 1 ]]; then
-  echo "[verify] FAIL: editions table empty — data loss suspected" >&2
-  FAIL=1
-fi
+for pair in "users:$USERS" "books:$BOOKS" "book_files:$BOOK_FILES" "annotations:$ANNOTATIONS"; do
+  if [[ "${pair#*:}" -lt 1 ]]; then
+    echo "[verify] FAIL: ${pair%%:*} table empty — data loss suspected" >&2
+    FAIL=1
+  fi
+done
 
 if [[ "$FAIL" -eq 0 ]]; then
   echo "[verify] OK"

@@ -166,29 +166,14 @@ DB_CONTAINER ?= textstack_db_prod
 V2_EXISTS = docker exec $(DB_CONTAINER) psql -XtA -U $$POSTGRES_USER -d postgres \
 	-c "SELECT datname FROM pg_database WHERE datname = '$${V2_POSTGRES_DB:-textstack_v2}'"
 
+# V2 only (M6 O1): legacy is read-only and archived. The same checked dump as backup.yml (pipefail +
+# trailer); a database migrator-v2 has not created yet (profile `v2`) is skipped, not an error.
 backup:
 	@mkdir -p $(BACKUP_DIR)
-	@# The same checked dump as backup.yml: pipefail + trailer, so a failed pg_dump never leaves an
-	@# empty .gz behind a "Backup saved" line.
-	@. ./.env && POSTGRES_USER=$$POSTGRES_USER DB_CONTAINER=$(DB_CONTAINER) \
-		bash infra/scripts/pg-dump-checked.sh $$POSTGRES_DB $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
-	@ls -lh $(BACKUP_DIR)/db_*.sql.gz | tail -1
-	@# V2 after legacy, so nothing legacy waits on it; a database migrator-v2 has not created yet
-	@# (profile `v2`) is skipped, not an error.
 	@. ./.env && v2=$${V2_POSTGRES_DB:-textstack_v2} && POSTGRES_USER=$$POSTGRES_USER DB_CONTAINER=$(DB_CONTAINER) \
 		bash infra/scripts/pg-dump-checked.sh $$v2 $(BACKUP_DIR)/$$v2-db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 
-restore:
-	@if [ -z "$(FILE)" ]; then \
-		echo "Usage: make restore FILE=$(BACKUP_DIR)/db_YYYY-MM-DD_HHMMSS.sql.gz"; \
-		exit 1; \
-	fi
-	@# A V2 dump is often the newest file in backup-list; loaded here it would put V2 tables into legacy.
-	@. ./.env && case "$(notdir $(FILE))" in $${V2_POSTGRES_DB:-textstack_v2}-*) \
-		echo "$(FILE) is a V2 dump: make restore-v2 FILE=$(FILE)"; exit 1;; esac
-	@echo "Restoring from $(FILE)..."
-	@. ./.env && gunzip -c $(FILE) | docker exec -i $(DB_CONTAINER) psql -v ON_ERROR_STOP=1 -U $$POSTGRES_USER $$POSTGRES_DB
-	@echo "Done."
+restore: restore-v2
 
 # A V2 dump (textstack_v2-db_*.sql.gz, textstack_v2-db-*, textstack_v2-pre-deploy-*) into a V2
 # database that does not exist: a dump loaded over tables already there would half-apply. Drop it
@@ -206,12 +191,12 @@ restore-v2:
 	@echo "Done."
 
 backup-list:
-	@ls -lh $(BACKUP_DIR)/*.sql.gz 2>/dev/null || echo "No backups found"
+	@. ./.env && ls -lh $(BACKUP_DIR)/$${V2_POSTGRES_DB:-textstack_v2}-*.sql.gz 2>/dev/null || echo "No backups found"
 
 backup-verify:
 	@FILE="$(FILE)"; \
 	if [ -z "$$FILE" ]; then \
-		FILE=$$(ls -1t $(BACKUP_DIR)/db*.sql.gz 2>/dev/null | head -n 1); \
+		FILE=$$(. ./.env && ls -1t $(BACKUP_DIR)/$${V2_POSTGRES_DB:-textstack_v2}-*.sql.gz 2>/dev/null | head -n 1); \
 	fi; \
 	if [ -z "$$FILE" ]; then \
 		echo "No backup found. Pass FILE=... or run 'make backup' first."; \
