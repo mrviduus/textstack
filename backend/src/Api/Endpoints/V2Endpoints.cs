@@ -86,7 +86,7 @@ public static class V2Endpoints
         v2.MapGet("/annotations/changes", (HttpContext h, IAuthService a, AnnotationSyncService s, string? cursor, string? limit, CancellationToken ct) =>
             Send(s.ChangesAsync(User(h, a), cursor, limit, ct)));
         v2.MapPut("/annotations/{id:guid}", (HttpContext h, IAuthService a, AnnotationSyncService s, Guid id, AnnotationRequest body, CancellationToken ct) =>
-            Send(s.SaveAsync(User(h, a), id, body, ct)));
+            Send(s.SaveAsync(User(h, a), id, body, ct))).RequireRateLimiting("assistant-write");
         v2.MapDelete("/annotations/{id:guid}", (HttpContext h, IAuthService a, AnnotationSyncService s, Guid id, CancellationToken ct) =>
             Send(s.DeleteAsync(User(h, a), id, ct)));
 
@@ -95,7 +95,7 @@ public static class V2Endpoints
         v2.MapGet("/vocabulary/due", (HttpContext h, IAuthService a, VocabularySyncService s, string? limit, CancellationToken ct) =>
             Send(s.DueAsync(User(h, a), limit, ct)));
         v2.MapPut("/vocabulary/words", (HttpContext h, IAuthService a, VocabularySyncService s, SaveVocabularyWordRequest body, CancellationToken ct) =>
-            Send(s.SaveWordAsync(User(h, a), body, ct)));
+            Send(s.SaveWordAsync(User(h, a), body, ct))).RequireRateLimiting("assistant-write");
         v2.MapGet("/vocabulary/words/{id:guid}", (HttpContext h, IAuthService a, VocabularySyncService s, Guid id, CancellationToken ct) =>
             Send(s.GetWordAsync(User(h, a), id, ct)));
         v2.MapPatch("/vocabulary/words/{id:guid}", (HttpContext h, IAuthService a, VocabularySyncService s, Guid id, PatchVocabularyWordRequest body, CancellationToken ct) =>
@@ -103,9 +103,9 @@ public static class V2Endpoints
         v2.MapDelete("/vocabulary/words/{id:guid}", (HttpContext h, IAuthService a, VocabularySyncService s, Guid id, CancellationToken ct) =>
             Send(s.DeleteWordAsync(User(h, a), id, ct)));
         v2.MapPost("/vocabulary/words/{id:guid}/restore", (HttpContext h, IAuthService a, VocabularySyncService s, Guid id, RestoreVocabularyWordRequest body, CancellationToken ct) =>
-            Send(s.RestoreWordAsync(User(h, a), id, body, ct)));
+            Send(s.RestoreWordAsync(User(h, a), id, body, ct))).RequireRateLimiting("assistant-write");
         v2.MapPost("/vocabulary/words/{id:guid}/examples", (HttpContext h, IAuthService a, VocabularySyncService s, Guid id, VocabularyExampleRequest body, CancellationToken ct) =>
-            Send(s.AddExampleAsync(User(h, a), id, body, ct)));
+            Send(s.AddExampleAsync(User(h, a), id, body, ct))).RequireRateLimiting("assistant-write");
         v2.MapPost("/vocabulary/reviews", (HttpContext h, IAuthService a, VocabularySyncService s, VocabularyReviewRequest body, CancellationToken ct) =>
             Send(s.RecordReviewAsync(User(h, a), body, ct)));
 
@@ -123,6 +123,10 @@ public static class V2Endpoints
             Send(s.ListCheckpointsAsync(User(h, a), bookId, chapterKey, cursor, limit, ct)));
         v2.MapDelete("/checkpoints/{id:guid}", (HttpContext h, IAuthService a, DiscussionSyncService s, Guid id, CancellationToken ct) =>
             Send(s.DeleteCheckpointAsync(User(h, a), id, ct)));
+        v2.MapGet("/books/{bookId:guid}/insights", (HttpContext h, IAuthService a, InsightSyncService s, Guid bookId, CancellationToken ct) =>
+            Send(s.ListAsync(User(h, a), bookId, ct)));
+        v2.MapPost("/books/{bookId:guid}/insights", (HttpContext h, IAuthService a, InsightSyncService s, Guid bookId, InsightRequest body, CancellationToken ct) =>
+            Send(s.SaveAsync(User(h, a), bookId, body, ct))).RequireRateLimiting("insights");
         v2.MapPut("/books/{bookId:guid}/checkpoint-saving", (HttpContext h, IAuthService a, DiscussionSyncService s, Guid bookId, CheckpointSavingRequest body, CancellationToken ct) =>
             Send(s.SetCheckpointSavingAsync(User(h, a), bookId, body, ct)));
     }

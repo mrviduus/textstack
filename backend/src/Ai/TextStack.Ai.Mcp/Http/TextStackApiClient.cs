@@ -120,8 +120,7 @@ public sealed partial class TextStackApiClient
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/highlights/{editionId}", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.OK)
         {
@@ -158,8 +157,7 @@ public sealed partial class TextStackApiClient
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.OK)
         {
@@ -226,8 +224,7 @@ public sealed partial class TextStackApiClient
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<HighlightJson>(JsonOptions, ct);
@@ -258,6 +255,7 @@ public sealed partial class TextStackApiClient
     public async Task<IReadOnlyList<UserBookSearchHitJson>?> SearchMyLibraryAsync(
         string query, string? tags, CancellationToken ct)
     {
+        if (_v2) return await SearchMyLibraryV2Async(query, tags, ct);
         var url = $"/me/library/search?q={Uri.EscapeDataString(query)}";
         if (!string.IsNullOrWhiteSpace(tags))
             url += $"&tags={Uri.EscapeDataString(tags)}";
@@ -265,8 +263,7 @@ public sealed partial class TextStackApiClient
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.OK)
         {
@@ -285,11 +282,11 @@ public sealed partial class TextStackApiClient
     /// </summary>
     public async Task<UserBookDetailJson?> GetMyBookAsync(Guid bookId, CancellationToken ct)
     {
+        if (_v2) return await GetMyBookV2Async(bookId, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/books/{bookId}", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<UserBookDetailJson>(JsonOptions, ct);
@@ -304,12 +301,12 @@ public sealed partial class TextStackApiClient
     /// </summary>
     public async Task<UserChapterJson?> GetMyChapterAsync(Guid bookId, string chapterSlug, CancellationToken ct)
     {
+        if (_v2) return await GetMyChapterV2Async(bookId, chapterSlug, ct);
         var url = $"/me/books/{bookId}/chapters/{Uri.EscapeDataString(chapterSlug)}";
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<UserChapterJson>(JsonOptions, ct);
@@ -334,11 +331,11 @@ public sealed partial class TextStackApiClient
     /// </summary>
     public async Task<IReadOnlyList<HighlightJson>?> GetUserBookHighlightsAsync(Guid bookId, CancellationToken ct)
     {
+        if (_v2) return await GetUserBookHighlightsV2Async(bookId, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/highlights/userbook/{bookId}", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.OK)
         {
@@ -360,6 +357,7 @@ public sealed partial class TextStackApiClient
         Guid userBookId, Guid userChapterId, string anchorJson, string color, string selectedText,
         string? noteText, CancellationToken ct)
     {
+        if (_v2) return await SaveUserBookHighlightV2Async(userBookId, userChapterId, color, selectedText, noteText, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/highlights", ct);
         request.Content = JsonContent.Create(
             new CreateUserBookHighlightJson(userBookId, userChapterId, anchorJson, color, selectedText, noteText),
@@ -367,8 +365,7 @@ public sealed partial class TextStackApiClient
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<HighlightJson>(JsonOptions, ct);
@@ -393,13 +390,14 @@ public sealed partial class TextStackApiClient
     public async Task<IReadOnlyList<BookInsightJson>?> GetInsightsAsync(
         Guid? editionId, Guid? userBookId, CancellationToken ct)
     {
+        // V2 has no catalog editions: an edition's insights stay on legacy's route (410 in v2 mode).
+        if (_v2 && userBookId is { } bookId) return await GetInsightsV2Async(bookId, ct);
         var url = editionId is { } e ? $"/me/insights?editionId={e}" : $"/me/insights?userBookId={userBookId}";
 
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.OK)
         {
@@ -419,14 +417,14 @@ public sealed partial class TextStackApiClient
         Guid? editionId, Guid? userBookId, string? chapterSlug, string text, string? question,
         CancellationToken ct)
     {
+        if (_v2 && userBookId is { } bookId) return await SaveInsightV2Async(bookId, chapterSlug, text, question, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/insights", ct);
         request.Content = JsonContent.Create(
             new SaveInsightJson(editionId, userBookId, chapterSlug, text, question), options: JsonOptions);
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<BookInsightJson>(JsonOptions, ct);
@@ -473,8 +471,7 @@ public sealed partial class TextStackApiClient
     // plus one "path: message" line per field error; anything else → a bare status line.
     private static async Task<ApiResult<JsonElement>> ReadResultAsync(HttpResponseMessage response, CancellationToken ct)
     {
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
 
         if (response.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created)
             return new(await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct), null, response.StatusCode);
@@ -514,10 +511,11 @@ public sealed partial class TextStackApiClient
     /// </summary>
     public async Task<ShelvesJson?> GetShelvesAsync(CancellationToken ct)
     {
+        if (_v2) return (await ReadingV2Async(ct)).Shelves;
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, "/me/library/shelves", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
         if (response.StatusCode is HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<ShelvesJson>(JsonOptions, ct);
 
@@ -530,10 +528,12 @@ public sealed partial class TextStackApiClient
     /// </summary>
     public async Task<IReadOnlyList<MyBookJson>?> GetMyBooksAsync(CancellationToken ct)
     {
+        // ponytail: get_my_reading reads the V2 feeds twice (shelves, then this); one read if it ever matters.
+        if (_v2) return (await ReadingV2Async(ct)).All;
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, "/me/books", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
         if (response.StatusCode is HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<IReadOnlyList<MyBookJson>>(JsonOptions, ct);
 
@@ -546,7 +546,7 @@ public sealed partial class TextStackApiClient
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/progress/{editionId}", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
         if (response.StatusCode is HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<EditionProgressJson>(JsonOptions, ct);
 
@@ -556,10 +556,11 @@ public sealed partial class TextStackApiClient
     /// <summary><c>GET /me/books/{id}/progress</c>. 404 when the reader has never opened it.</summary>
     public async Task<UserBookProgressJson?> GetUserBookProgressAsync(Guid bookId, CancellationToken ct)
     {
+        if (_v2) return await GetUserBookProgressV2Async(bookId, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/books/{bookId}/progress", ct);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
         if (response.StatusCode is HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<UserBookProgressJson>(JsonOptions, ct);
 
@@ -581,7 +582,7 @@ public sealed partial class TextStackApiClient
             new SetEditionProgressJson(chapterId, locator, percent, "book"), options: JsonOptions);
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
         return response.IsSuccessStatusCode;
     }
 
@@ -599,12 +600,13 @@ public sealed partial class TextStackApiClient
         Guid bookId, string? chapterSlug, string locator, double? percent, string? locatorKind,
         CancellationToken ct)
     {
+        if (_v2) return await SetUserBookProgressV2Async(bookId, chapterSlug, percent, ct);
         using var request = await AuthorizedRequestAsync(HttpMethod.Put, $"/me/books/{bookId}/progress", ct);
         request.Content = JsonContent.Create(
             new SetUserBookProgressJson(chapterSlug, locator, percent, "book", locatorKind), options: JsonOptions);
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        ThrowIfRefused(response);
         return response.IsSuccessStatusCode;
     }
 
@@ -661,9 +663,22 @@ public sealed partial class TextStackApiClient
         }
     }
 
+    /// <summary>
+    /// 401 → <see cref="McpUnauthorizedException"/>; 410 → <see cref="McpRetiredException"/>: in <c>Database:Mode=v2</c> the
+    /// catalog (edition) and chapter-review routes are gone (M5.1 Part C), and an empty answer would read as "nothing there".
+    /// </summary>
+    private static void ThrowIfRefused(HttpResponseMessage response)
+    {
+        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        if (response.StatusCode is HttpStatusCode.Gone) throw new McpRetiredException();
+    }
+
     private static readonly PaginatedResult<SearchResultDto> EmptySearch = new(0, []);
     private static readonly VocabularyPageJson EmptyVocab = new(0, []);
 }
+
+/// <summary>The upstream route is retired (410): the tool answers that it no longer applies, never an empty result.</summary>
+public sealed class McpRetiredException() : Exception("this feature is retired in this version.");
 
 /// <summary>
 /// Typed "no/invalid auth" signal for user-scoped tools. Raised when the token

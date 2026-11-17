@@ -173,3 +173,11 @@ public sealed record CheckpointDto(
     string Language, DateTimeOffset CreatedAt);
 
 public sealed record CheckpointSavingRequest(bool? Enabled);
+
+/// <summary>An insight on a book (the assistant's conclusion, MCP <c>save_insight</c>); <c>ChapterKey</c> null = about the whole book.</summary>
+public sealed record InsightRequest(string? ChapterKey, string? Text, string? Question);
+
+/// <summary>A saved insight; its chapter's number and title come from the book's current file, null when it has none of that key.</summary>
+public sealed record InsightDto(
+    Guid Id, Guid BookId, string? ChapterKey, int? ChapterNumber, string? ChapterTitle, string Text, string? Question,
+    string Source, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);

@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\backend\src\Infrastructure\Infrastructure.csproj" />
     <ProjectReference Include="..\..\backend\src\Api\Api.csproj" />
+    <ProjectReference Include="..\..\backend\src\Ai\TextStack.Ai.Mcp\TextStack.Ai.Mcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

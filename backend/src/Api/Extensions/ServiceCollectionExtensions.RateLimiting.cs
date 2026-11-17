@@ -153,6 +153,18 @@ public static partial class ServiceCollectionExtensions
             // HighlightsEndpoints.MaxAssistantHighlightsPerBook. This is only the loop guard: high
             // enough that a person highlighting hard, or a client syncing an offline queue after a
             // flight, never meets it.
+            // The V2 writes an assistant makes (annotations, vocabulary): highlight-write's ceiling, but only for a
+            // caller on an MCP connect key or OAuth token (McpKeyAuth). A reader's device is never limited here: its
+            // first sync pushes a whole outbox at once, and a 429 there parks the entries.
+            options.AddPolicy("assistant-write", httpContext =>
+                httpContext.Items[Api.Middleware.McpKeyAuthMiddleware.UserIdItemKey] is Guid assistantUser
+                    ? RateLimitPartition.GetFixedWindowLimiter(assistantUser.ToString(), _ => new FixedWindowRateLimiterOptions
+                    {
+                        Window = TimeSpan.FromMinutes(1),
+                        PermitLimit = 120,
+                        QueueLimit = 0,
+                    })
+                    : RateLimitPartition.GetNoLimiter("reader"));
             options.AddPolicy("highlight-write", httpContext =>
             {
                 var auth = httpContext.RequestServices.GetRequiredService<Application.Auth.AuthService>();
