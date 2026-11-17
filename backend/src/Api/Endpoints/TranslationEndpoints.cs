@@ -21,7 +21,7 @@ public static class TranslationEndpoints
         app.MapPost("/translate", Translate).WithTags("Translation").WithName("TranslateCompat").RequireRateLimiting("translate");
     }
 
-    private static async Task<IResult> Translate(
+    private static Task<IResult> Translate(
         [FromBody] TranslateRequest request,
         IConfiguration config,
         IOptions<OpenAiOptions> openAi,
@@ -29,6 +29,19 @@ public static class TranslationEndpoints
         IAppDbContext db,
         IFrequencyFilter freqFilter,
         ILogger<Program> logger,
+        CancellationToken ct) =>
+        TranslateAsync(request, token => ExplainEndpoints.ResolveGenreAsync(request.Genre, request.BookId, db, logger, token),
+            config, openAi, llmFactory, freqFilter, logger, ct);
+
+    /// <summary>The translation, with the book's genre from <paramref name="resolveGenre"/>: legacy's tables or V2's (V2CompatEndpoints).</summary>
+    internal static async Task<IResult> TranslateAsync(
+        TranslateRequest request,
+        Func<CancellationToken, Task<string?>> resolveGenre,
+        IConfiguration config,
+        IOptions<OpenAiOptions> openAi,
+        ILlmServiceFactory llmFactory,
+        IFrequencyFilter freqFilter,
+        ILogger logger,
         CancellationToken ct)
     {
         var maxLength = config.GetValue("OpenAI:Translate:MaxTextLength", 500);
@@ -82,7 +95,7 @@ public static class TranslationEndpoints
             }
         }
 
-        var genre = await ExplainEndpoints.ResolveGenreAsync(request.Genre, request.BookId, db, logger, ct);
+        var genre = await resolveGenre(ct);
 
         var cache = new FileJsonCache<TranslateResponse>(cachePath, cacheTtlDays, logger);
         // ponytail: the configured model (the one the openai provider is built with), not the gateway's runtime route.

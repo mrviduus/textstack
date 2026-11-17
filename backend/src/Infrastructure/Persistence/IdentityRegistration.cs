@@ -34,6 +34,8 @@ public static class IdentityRegistration
         services.RemoveAll<ILlmTraceWriter>();
         services.RemoveAll<IAgentRunWriter>();
         services.AddSingleton<ILlmTraceWriter>(sp => sp.GetRequiredService<V2LlmTraceWriter>());
+        // The daily AI budgets seed from the traces where they are written (RollingSpendTracker).
+        services.AddSingleton<Application.Ai.ILlmSpendSource>(sp => sp.GetRequiredService<V2LlmTraceWriter>());
         services.AddSingleton<IAgentRunWriter>(sp => sp.GetRequiredService<V2AgentRunWriter>());
         return services;
     }

@@ -24,6 +24,22 @@ public class OpsWritersTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task SampledCostSince_FeatureTraces_SumsOnlyThatFeatureSinceTheMoment()
+    {
+        var user = await db.NewReaderAsync();
+        var feature = "spend-" + Guid.NewGuid().ToString("N")[..8];
+        var since = DateTimeOffset.UtcNow.AddHours(-1);
+        var writer = new V2LlmTraceWriter(db.DataSource);
+        await writer.WriteAsync(NewTrace(user) with { Id = Guid.NewGuid(), FeatureTag = feature, CostUsd = 0.25m }, Ct);
+        await writer.WriteAsync(NewTrace(user) with { Id = Guid.NewGuid(), FeatureTag = feature, CostUsd = 0.5m }, Ct);
+        await writer.WriteAsync(NewTrace(user) with { Id = Guid.NewGuid(), FeatureTag = feature, CostUsd = 9m, CreatedAt = since.AddDays(-1) }, Ct);
+        await writer.WriteAsync(NewTrace(user) with { Id = Guid.NewGuid(), FeatureTag = feature + "-other", CostUsd = 9m }, Ct);
+
+        Assert.Equal(0.75m, writer.SampledCostSince(feature, since));
+        Assert.Equal(0m, writer.SampledCostSince("none-" + feature, since));
+    }
+
+    [Fact]
     public async Task WriteAsync_AgentRun_IsStoredWithItsSteps()
     {
         var user = await db.NewReaderAsync();

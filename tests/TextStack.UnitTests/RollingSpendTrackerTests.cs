@@ -215,6 +215,21 @@ public class RollingSpendTrackerTests
         Assert.Equal(0.5m, t.SpentTodayUsd("explain")); // live record still works
     }
 
+    [Fact]
+    public void LazySeed_SpendSourceGiven_SeedsFromItNotLegacyAndScales()
+    {
+        // v2 mode: the traces are V2's; legacy's table (here a 9.99 trace) must not be read.
+        var source = new Mock<ILlmSpendSource>();
+        source.Setup(s => s.SampledCostSince("explain", new DateTimeOffset(2026, 6, 18, 0, 0, 0, TimeSpan.Zero))).Returns(0.2m);
+        var scopeFactory = new RecordingScopeFactory([Trace("explain", 9.99m, Day1)], Mock.Of<IEmailService>());
+        var t = new RollingSpendTracker(scopeFactory, new SteppedClock { Now = Day1 }, BudgetOptions.Empty,
+            new TracingOptions(1.0, new Dictionary<string, double> { ["explain"] = 0.1 }),
+            NullLogger<RollingSpendTracker>.Instance, source.Object);
+
+        Assert.Equal(2.0m, t.SpentTodayUsd("explain"));
+        Assert.Equal(0, scopeFactory.ScopesCreated);
+    }
+
     // ---- harness ----
 
     private static void Eventually(Action assert, int timeoutMs = 10000)

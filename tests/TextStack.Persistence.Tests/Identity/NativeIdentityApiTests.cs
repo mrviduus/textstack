@@ -22,6 +22,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     private readonly string _prefix = "native_" + Guid.NewGuid().ToString("N")[..12];
     private readonly List<WebApplicationFactory<ApiMarker>> _apps = [];
     private readonly Mail _mail = new();
+    private readonly FakeLlm _llm = new();
     private const string Password = "correct horse battery";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -59,11 +60,18 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             b.UseSetting("Storage:RootPath", Path.Combine(root, "storage"));
             b.UseSetting("Storage:LibraryRoot", Path.Combine(root, "library"));
             b.UseSetting("Ollama:BaseUrl", "http://127.0.0.1:1");
+            b.UseSetting("Translate:CachePath", Path.Combine(root, "translate-cache"));
+            b.UseSetting("Explain:CachePath", Path.Combine(root, "explain-cache"));
             b.ConfigureTestServices(s =>
             {
                 s.RemoveAll<IHostedService>();
                 s.RemoveAll<IEmailService>();
                 s.AddSingleton<IEmailService>(_mail);
+                // No paid calls: both LLM seams answer from the fake, which keeps the prompts it was given.
+                s.RemoveAll<Domain.LLM.ILlmServiceFactory>();
+                s.AddSingleton<Domain.LLM.ILlmServiceFactory>(_llm);
+                s.RemoveAll<TextStack.Ai.Core.ILlmService>();
+                s.AddSingleton<TextStack.Ai.Core.ILlmService>(_llm);
                 if (!v2) return;
                 // The one legacy pool EF and Dapper share (DataSource.AddTextStackDataAccess), counted.
                 s.RemoveAll<NpgsqlDataSource>();
@@ -331,6 +339,58 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
         await db.Databases.DropAsync(_prefix);
         var root = Path.Combine(Path.GetTempPath(), _prefix);
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task Native_ExplainAndTranslate_AnswerWithTheV2BookGenreAndAnonymously()
+    {
+        // A public path resolves the site from legacy's catalog (read-only in v2 mode until M6): a migrated one.
+        var (client, target) = await ApiAsync(migratedLegacy: true);
+        using (client)
+        {
+            var account = await RegisterAsync(client);
+            var book = Guid.NewGuid();
+            await ExecAsync(target, "INSERT INTO books (id,user_id,title,genre,origin) VALUES (@book,@user,'Physics','Astrophysics','{\"kind\":\"upload\"}')",
+                new { book, user = UserId(account) });
+
+            // Anonymous: the reading loop's translate needs no account, in v2 mode as in legacy.
+            var anonymous = await BodyAsync(await client.PostAsJsonAsync("/api/translate",
+                new { text = "good morning", sourceLang = "en", targetLang = "uk" }, Ct));
+            Assert.Equal("fake answer", anonymous.GetProperty("translatedText").GetString());
+
+            Bearer(client, Access(account));
+            await BodyAsync(await client.PostAsJsonAsync("/translate",
+                new { text = "red shift", sourceLang = "en", targetLang = "uk", bookId = book.ToString() }, Ct));
+            Assert.Contains(_llm.SystemPrompts, p => p.Contains("Domain hint: Astrophysics", StringComparison.Ordinal));
+
+            var explained = await BodyAsync(await client.PostAsJsonAsync("/explain",
+                new { word = "shift", sentence = "The red shift grew.", bookId = book.ToString() }, Ct));
+            Assert.Equal("fake answer", explained.GetProperty("explanation").GetString());
+            Assert.Equal(2, _llm.SystemPrompts.Count(p => p.Contains("Astrophysics", StringComparison.Ordinal)));
+        }
+    }
+
+    /// <summary>Both LLM seams (Translate's factory, Explain's gateway): a fixed answer, the system prompts kept.</summary>
+    private sealed class FakeLlm : Domain.LLM.ILlmServiceFactory, Domain.LLM.ILlmService, TextStack.Ai.Core.ILlmService
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> SystemPrompts { get; } = new();
+
+        public Domain.LLM.ILlmService Get(string jobName) => this;
+
+        public Task<string> CompleteAsync(string systemPrompt, string userPrompt, int maxOutputTokens, CancellationToken ct)
+        {
+            SystemPrompts.Enqueue(systemPrompt);
+            return Task.FromResult("fake answer");
+        }
+
+        public Task<TextStack.Ai.Core.LlmResponse> CompleteAsync(TextStack.Ai.Core.LlmRequest request, CancellationToken ct)
+        {
+            SystemPrompts.Enqueue(request.SystemPrompt);
+            return Task.FromResult(new TextStack.Ai.Core.LlmResponse("fake answer", [], new(1, 1, 0m), "fake", Guid.NewGuid()));
+        }
+
+        public IAsyncEnumerable<TextStack.Ai.Core.LlmDelta> StreamAsync(TextStack.Ai.Core.LlmRequest request, CancellationToken ct) =>
+            throw new NotSupportedException();
     }
 
     private sealed class Mail : IEmailService
