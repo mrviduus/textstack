@@ -119,6 +119,11 @@ if (!app.Environment.IsEnvironment("Test"))
         var selected = app.Services.GetRequiredService<Api.V2.SelectedDatabaseProbe>();
         await using var active = await selected.OpenAsync(CancellationToken.None);
         var pending = await SchemaVersion.PendingAsync(active, selected.KnownMigrations);
+        if (selected.CatalogLegacy is { } catalog)
+        {
+            await using var legacyConn = await catalog.OpenConnectionAsync(CancellationToken.None);
+            pending = [.. pending, .. await SchemaVersion.PendingAsync(legacyConn, SchemaVersion.Known)];
+        }
         if (pending.Count > 0)
             app.Logger.LogCritical(
                 "Database schema is behind this build: {PendingCount} pending migration(s), newest {NewestPending}. " +
@@ -241,6 +246,11 @@ app.MapGet("/health", async (Api.V2.SelectedDatabaseProbe selected, Cancellation
     {
         await using var conn = await selected.OpenAsync(ct);
         await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
+        if (selected.CatalogLegacy is { } catalog)
+        {
+            await using var legacyConn = await catalog.OpenConnectionAsync(ct);
+            await new Npgsql.NpgsqlCommand("SELECT 1", legacyConn).ExecuteScalarAsync(ct);
+        }
         return Results.Ok("healthy");
     }
     catch
@@ -291,6 +301,23 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
         catch (Exception ex)
         {
             components["schema"] = new { status = "unknown", error = ex.GetType().Name };
+            criticalOk = false;
+        }
+    }
+
+    // v2 mode: the public catalog still reads legacy until M6, so its db and schema are critical too.
+    if (selected.CatalogLegacy is { } catalog)
+    {
+        try
+        {
+            await using var conn = await catalog.OpenConnectionAsync(ct);
+            var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.Known, ct);
+            components["legacy"] = pending.Count == 0 ? new { status = "ok" } : new { status = "behind", pending };
+            criticalOk &= pending.Count == 0;
+        }
+        catch (Exception ex)
+        {
+            components["legacy"] = new { status = "down", error = ex.GetType().Name };
             criticalOk = false;
         }
     }
@@ -454,7 +481,7 @@ app.UseMiddleware<WriteFreezeMiddleware>();
 app.UseMiddleware<Api.Middleware.McpKeyAuthMiddleware>();
 
 app.UseRateLimiter();
-app.UseMiddleware<SelectedDatabaseGuard>();
+if (databaseMode.IsV2) app.UseMiddleware<SelectedDatabaseGuard>();
 
 // Guest activity tracking (update LastActiveAt, debounced 10 min)
 app.UseWhen(_ => !writeFreeze, branch => branch.UseMiddleware<Api.Middleware.GuestActivityMiddleware>());

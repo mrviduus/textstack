@@ -11,4 +11,10 @@ public sealed class SelectedDatabaseProbe(DatabaseMode mode, NpgsqlDataSource le
         mode.IsV2 ? v2.OpenConnectionAsync(ct) : legacy.OpenConnectionAsync(ct);
 
     public IReadOnlyList<string> KnownMigrations => mode.IsV2 ? SchemaVersion.V2Known : SchemaVersion.Known;
+
+    /// <summary>
+    /// v2 mode: the legacy database the public catalog still reads until M6, so readiness needs it too;
+    /// null in legacy mode (it is the selected one).
+    /// </summary>
+    public NpgsqlDataSource? CatalogLegacy => mode.IsV2 ? legacy : null;
 }

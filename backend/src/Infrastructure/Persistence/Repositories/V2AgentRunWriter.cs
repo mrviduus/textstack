@@ -41,4 +41,11 @@ public sealed class V2AgentRunWriter(V2DataSource dataSource) : IAgentRunWriter
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(InsertRun, args, cancellationToken: ct));
     }
+
+    /// <summary>Deletes the runs older than <paramref name="cutoff"/> (#941); how many.</summary>
+    public async Task<int> DeleteOlderThanAsync(DateTimeOffset cutoff, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition("DELETE FROM agent_run WHERE created_at < @cutoff", new { cutoff }, cancellationToken: ct));
+    }
 }

@@ -34,11 +34,14 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     /// <summary>
     /// v2 mode: V2 is the scratch database; legacy is a reachable, counted pool (<see cref="AssertLegacyUntouched"/>).
     /// legacy mode: legacy is a migrated scratch database; V2 is unreachable.
+    /// <paramref name="migratedLegacy"/> (v2 mode): legacy is a migrated scratch database too, what readiness needs.
     /// </summary>
-    private async Task<(HttpClient Client, string Target)> ApiAsync(bool v2 = true)
+    private async Task<(HttpClient Client, string Target)> ApiAsync(bool v2 = true, bool migratedLegacy = false)
     {
-        var target = v2 ? await db.Databases.NewV2Async(_prefix) : (await db.Databases.NewLegacyAsync(_prefix + "_legacy")).Admin;
-        var legacy = v2 ? db.Databases.ConnectionString("postgres") : target;
+        var target = v2 ? await db.Databases.NewV2Async(_prefix + (migratedLegacy ? "_m" : "")) : (await db.Databases.NewLegacyAsync(_prefix + "_legacy")).Admin;
+        var legacy = !v2 ? target
+            : migratedLegacy ? (await db.Databases.NewLegacyAsync(_prefix + "_catalog")).Admin
+            : db.Databases.ConnectionString("postgres");
         var root = Path.Combine(Path.GetTempPath(), _prefix);
         Directory.CreateDirectory(Path.Combine(root, "library"));
         var app = new WebApplicationFactory<ApiMarker>().WithWebHostBuilder(b =>
@@ -186,21 +189,31 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     }
 
     [Fact]
-    public async Task Native_HealthUsesV2_AndUnadaptedPrivateRoutesFailClosed()
+    public async Task Native_HealthNeedsV2AndLegacyCatalog_AndUnadaptedPrivateRoutesFailClosed()
     {
-        var (client, _) = await ApiAsync();
+        // The catalog still reads legacy until M6: an unmigrated legacy database is not ready.
+        var (unmigrated, _) = await ApiAsync();
+        using (unmigrated)
+        {
+            using var notReady = await unmigrated.GetAsync("/health/ready", Ct);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, notReady.StatusCode);
+            var components = JsonSerializer.Deserialize<JsonElement>(await notReady.Content.ReadAsStringAsync(Ct)).GetProperty("components");
+            Assert.Equal(("ok", "behind"), (components.GetProperty("db").GetProperty("status").GetString(), components.GetProperty("legacy").GetProperty("status").GetString()));
+        }
+
+        var (client, _) = await ApiAsync(migratedLegacy: true);
         using (client)
         {
             var body = await BodyAsync(await client.GetAsync("/health/ready", Ct));
             Assert.Equal("ready", body.GetProperty("status").GetString());
             Assert.Equal("v2", body.GetProperty("components").GetProperty("db").GetProperty("mode").GetString());
+            Assert.Equal("ok", body.GetProperty("components").GetProperty("legacy").GetProperty("status").GetString());
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health", Ct)).StatusCode);
             var account = await RegisterAsync(client);
             Bearer(client, Access(account));
             Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/me/books", Ct)).StatusCode);
             Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.DeleteAsync("/me/books/" + Guid.NewGuid(), Ct)).StatusCode);
         }
-        AssertLegacyUntouched();
     }
 
     [Fact]

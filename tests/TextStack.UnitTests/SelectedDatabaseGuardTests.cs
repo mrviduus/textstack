@@ -44,6 +44,26 @@ public class SelectedDatabaseGuardTests
     }
 
     [Theory]
+    [InlineData("/auth/guest", true)]
+    [InlineData("/auth/me", false)]
+    public async Task GoneAccountToken_OnlyGuestSessionCreationPasses(string path, bool expectedReached)
+    {
+        var tokens = new JwtTokens(new JwtSettings { SecretKey = TestTokens.Secret, Issuer = TestTokens.Issuer });
+        var http = Request(path, tokens);
+        http.Request.Method = path == "/auth/guest" ? "POST" : "GET";
+        http.Request.Headers.Authorization = "Bearer " + tokens.MintAccessToken(Guid.NewGuid(), "gone@test", null, false);
+        var auth = new Mock<IAuthService>();
+        auth.Setup(a => a.ValidateAccessTokenIdentity(It.IsAny<string>())).Returns((string value) => tokens.ValidateAccessToken(value));
+        var users = new Mock<IUserRepository>(); // every account is gone
+        var reached = false;
+
+        await new SelectedDatabaseGuard(_ => { reached = true; return Task.CompletedTask; }, new(true)).InvokeAsync(http, auth.Object, users.Object);
+
+        Assert.Equal(expectedReached, reached);
+        Assert.Equal(expectedReached ? 200 : 401, http.Response.StatusCode);
+    }
+
+    [Theory]
     [InlineData("GET", "/me/books")]
     [InlineData("DELETE", "/me/books/book")]
     [InlineData("POST", "/translate")]

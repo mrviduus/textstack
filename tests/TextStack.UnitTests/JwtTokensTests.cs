@@ -30,6 +30,18 @@ public class JwtTokensTests
     }
 
     [Fact]
+    public void MintAccessToken_IssuedAtGiven_StampsItToTheTick()
+    {
+        // Taken before the session write: a reset committing after it must post-date the token.
+        var issuedAt = DateTimeOffset.UtcNow.AddMilliseconds(-1234.5678);
+
+        var identity = Tokens.ValidateAccessToken(Tokens.MintAccessToken(Guid.NewGuid(), "reader@example.test", null, false, issuedAt))!;
+        var admin = Tokens.ValidateAdminAccessTokenIdentity(Tokens.MintAdminAccessToken(Guid.NewGuid(), "admin@example.test", AdminRole.Admin, 15, issuedAt))!;
+
+        Assert.Equal((issuedAt, issuedAt), (identity.IssuedAt, admin.IssuedAt));
+    }
+
+    [Fact]
     public void MintAccessToken_LegacyAuthService_ValidatesWhatJwtTokensMints()
     {
         var id = Guid.NewGuid();

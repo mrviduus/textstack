@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Infrastructure.Persistence;
+using Infrastructure.Persistence.Repositories;
 
 namespace Worker.Services;
 
@@ -84,7 +85,25 @@ public class RetentionCleanupWorker(
         await DeleteAsync("OAuth grants",
             () => services.GetRequiredService<IOAuthRepository>().DeleteDeadGrantsAsync(tokenCutoff, ct), ct);
         // V2 identity cleanup must not keep mutating legacy after cutover. The remaining Ops sweeps are #1090.
-        if (services.GetService<DatabaseMode>()?.IsV2 == true) return;
+        // The AI text rules follow the writers: in v2 mode traces and runs land on V2 (#941).
+        if (services.GetService<DatabaseMode>()?.IsV2 == true)
+        {
+            var aiCutoff = now - AiTextRetention;
+            await DeleteAsync("LLM trace texts (scrubbed)", async () =>
+            {
+                var traces = services.GetRequiredService<V2LlmTraceWriter>();
+                int batch, total = 0;
+                do
+                {
+                    batch = await traces.ScrubTextBatchAsync(aiCutoff, ScrubBatch, ct);
+                    total += batch;
+                } while (batch == ScrubBatch && !ct.IsCancellationRequested);
+                return total;
+            }, ct);
+            await DeleteAsync("agent runs",
+                () => services.GetRequiredService<V2AgentRunWriter>().DeleteOlderThanAsync(aiCutoff, ct), ct);
+            return;
+        }
         var db = services.GetRequiredService<IAppDbContext>();
         // Traces keep their cost, tokens and latency for spend history; only the text goes.
         // Batches: the first run rewrites months of text (~750 MB); one statement would be one huge

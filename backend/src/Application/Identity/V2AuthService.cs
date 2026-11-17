@@ -1,5 +1,6 @@
 using Application.Auth;
 using Application.Common;
+using Application.Common.Interfaces;
 using Domain.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -20,6 +21,7 @@ public sealed class V2AuthService(
     JwtTokens tokens,
     ProviderTokens providers,
     TimeProvider clock,
+    IFileStorageService storage,
     ILogger<V2AuthService> logger) : IAuthService
 {
     public async Task<AuthResult> TestLoginAsync(string email, CancellationToken ct)
@@ -126,13 +128,13 @@ public sealed class V2AuthService(
     public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct)
     {
         var (raw, hash) = JwtTokens.NewOpaqueToken();
-        var now = clock.GetUtcNow();
+        var now = clock.GetUtcNow(); // before the write: also the new token's iat
         var refreshed = await sessions.RefreshAsync(
             DeviceCodes.HashToken(refreshToken), hash, SessionKind.Reader, user => RefreshExpiresAt(user, now), now, ct);
         if (refreshed.Outcome == SessionRefreshOutcome.Reused)
             logger.LogWarning("Rotated refresh token presented again; revoked its family for user {UserId}", refreshed.RevokedUserId);
         return refreshed is { Outcome: SessionRefreshOutcome.Rotated, User: { } user }
-            ? AuthResult.Ok(user, MintAccessToken(user), raw)
+            ? AuthResult.Ok(user, MintAccessToken(user, now), raw)
             : AuthResult.Failed(AuthStatus.InvalidToken);
     }
 
@@ -256,14 +258,21 @@ public sealed class V2AuthService(
                 if (user is null) return expired;
                 var (raw, hash) = JwtTokens.NewOpaqueToken();
                 return await devices.RedeemAsync(login.Id, hash, RefreshExpiresAt(user, now), now, ct)
-                    ? DeviceRedeemResult<UserAccount>.Success(user, MintAccessToken(user), raw)
+                    ? DeviceRedeemResult<UserAccount>.Success(user, MintAccessToken(user, now), raw)
                     : expired;
             default:
                 return expired;
         }
     }
 
-    public Task<bool> DeleteAccountAsync(Guid userId, CancellationToken ct) => deletion.DeleteAsync(userId, ct);
+    /// <summary>The V2 rows and library bytes, then the files the account left in the legacy <c>/storage</c> root (uploads' tree, avatar).</summary>
+    public async Task<bool> DeleteAccountAsync(Guid userId, CancellationToken ct)
+    {
+        var picture = (await users.GetAsync(userId, ct))?.Picture;
+        var deleted = await deletion.DeleteAsync(userId, ct);
+        await AuthService.DeleteUserFilesAsync(storage, userId, picture, logger, ct);
+        return deleted;
+    }
 
     public AccessTokenIdentity? ValidateAccessTokenIdentity(string accessToken) => tokens.ValidateAccessToken(accessToken);
 
@@ -278,13 +287,13 @@ public sealed class V2AuthService(
         var refused = AuthResult.Failed(verifiedPasswordHash is null ? AuthStatus.InvalidToken : AuthStatus.InvalidCredentials);
         if (user.Role == UserAccount.AdminRole && verifiedPasswordHash is null) return refused;
         var (raw, hash) = JwtTokens.NewOpaqueToken();
-        var expiresAt = RefreshExpiresAt(user, clock.GetUtcNow());
-        return await sessions.IssueAsync(user.Id, hash, expiresAt, verifiedPasswordHash, accessTokenIssuedAt, SessionKind.Reader, ct) is null
+        var now = clock.GetUtcNow(); // before the write: also the token's iat
+        return await sessions.IssueAsync(user.Id, hash, RefreshExpiresAt(user, now), verifiedPasswordHash, accessTokenIssuedAt, SessionKind.Reader, ct) is null
             ? refused
-            : AuthResult.Ok(user, MintAccessToken(user), raw);
+            : AuthResult.Ok(user, MintAccessToken(user, now), raw);
     }
 
     private DateTimeOffset RefreshExpiresAt(UserAccount user, DateTimeOffset now) => now.AddDays(tokens.RefreshTokenDays(user.IsGuest));
 
-    private string MintAccessToken(UserAccount user) => tokens.MintAccessToken(user.Id, user.Email, user.Name, user.IsGuest);
+    private string MintAccessToken(UserAccount user, DateTimeOffset issuedAt) => tokens.MintAccessToken(user.Id, user.Email, user.Name, user.IsGuest, issuedAt);
 }

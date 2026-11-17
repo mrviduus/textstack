@@ -40,6 +40,8 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private readonly DeviceLoginRepository _devices = new(db.DataSource);
     private static readonly string FilesRoot = Path.Combine(Path.GetTempPath(), "textstack-v2-auth-" + Guid.NewGuid());
     private readonly LibraryFileStore _files = new(FilesRoot);
+    private static readonly string LegacyStorageRoot = Path.Combine(Path.GetTempPath(), "textstack-v2-auth-storage-" + Guid.NewGuid());
+    private readonly LocalFileStorageService _legacyStorage = new(LegacyStorageRoot);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -47,7 +49,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
 
     private V2AuthService AuthWith(IUserRepository? users = null, ISessionTokenRepository? sessions = null, IAccountMergeRepository? merges = null) =>
         new(users ?? _users, sessions ?? _sessions, _devices, merges ?? new AccountMergeRepository(db.DataSource), Deletion,
-            _tokens, _providers, _clock, NullLogger<V2AuthService>.Instance);
+            _tokens, _providers, _clock, _legacyStorage, NullLogger<V2AuthService>.Instance);
 
     private V2AccountDeletion Deletion => new(_users, new AccountMergeRepository(db.DataSource), new LibraryRepository(db.DataSource), _files, NullLogger<V2AccountDeletion>.Instance);
 
@@ -485,6 +487,23 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Null(await _users.GetAsync(account.Id, Ct));
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", account.Id));
         Assert.False(File.Exists(Path.Combine(FilesRoot, cover)));
+    }
+
+    [Fact]
+    public async Task DeleteAccountAsync_LegacyStorageFiles_AvatarAndUploadsTreeGo()
+    {
+        var (account, _, _) = await SignedInAsync();
+        var avatar = await _legacyStorage.SaveFileAsync(account.Id, "avatar.png", new MemoryStream([1]), Ct);
+        await _users.SetPictureAsync(account.Id, avatar, Ct);
+        var shard = account.Id.ToString()[..2];
+        var uploads = Path.Combine(LegacyStorageRoot, "users", shard, account.Id.ToString());
+        Directory.CreateDirectory(uploads);
+        await File.WriteAllBytesAsync(Path.Combine(uploads, "book.epub"), [1], Ct);
+
+        Assert.True(await Auth.DeleteAccountAsync(account.Id, Ct));
+
+        Assert.False(File.Exists(Path.Combine(LegacyStorageRoot, avatar)));
+        Assert.False(Directory.Exists(uploads));
     }
 
     [Fact]

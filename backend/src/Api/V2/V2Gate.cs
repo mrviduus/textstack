@@ -37,6 +37,13 @@ public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbC
         if (!(await readiness.GetAsync()).IsReady) return Unavailable(http);
 
         var userId = http.GetUserId(auth)!.Value;
+        // Legacy-DB checks stay outside the try: a legacy outage must not drop V2 readiness.
+        if (!mode.IsV2)
+        {
+            if (!await V2ShadowUsers.HasLegacyAccountAsync(legacy, userId, http.RequestAborted)) return Results.Unauthorized();
+            if (!await shadows.EnsureAsync(legacy, userId, http.RequestAborted,
+                readOnly: configuration.GetValue<bool>(Middleware.WriteFreezeMiddleware.ConfigurationKey))) return Unavailable(http);
+        }
         try
         {
             if (mode.IsV2)
@@ -44,12 +51,6 @@ public sealed class V2Gate(V2Readiness readiness, V2ShadowUsers shadows, IAppDbC
                 var account = http.Items.TryGetValue(Middleware.SelectedDatabaseGuard.AccountItemKey, out var cached)
                     ? cached as UserAccount : await users.GetAsync(userId, http.RequestAborted);
                 if (account is null) return Results.Unauthorized();
-            }
-            else
-            {
-                if (!await V2ShadowUsers.HasLegacyAccountAsync(legacy, userId, http.RequestAborted)) return Results.Unauthorized();
-                if (!await shadows.EnsureAsync(legacy, userId, http.RequestAborted,
-                    readOnly: configuration.GetValue<bool>(Middleware.WriteFreezeMiddleware.ConfigurationKey))) return Unavailable(http);
             }
             return await next(context);
         }

@@ -60,6 +60,12 @@ public sealed class SelectedDatabaseGuard(RequestDelegate next, DatabaseMode mod
             {
                 var account = await users.GetAsync(id, http.RequestAborted);
                 var token = http.GetAccessTokenIdentity(auth);
+                // A gone account's token on /auth/guest falls through to a new guest (CreateGuestSession).
+                if (account is null && path.StartsWithSegments("/auth/guest"))
+                {
+                    await next(http);
+                    return;
+                }
                 if (account is null || (token is not null && ResetAfter(account, token.IssuedAt)))
                 {
                     http.Response.StatusCode = 401;

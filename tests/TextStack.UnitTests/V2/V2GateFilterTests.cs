@@ -130,6 +130,17 @@ public class V2GateFilterTests
     }
 
     [Fact]
+    public async Task InvokeAsync_LegacyDatabaseError_RethrowsAndKeepsTheV2ReadinessCache()
+    {
+        _legacy.Setup(d => d.Users).Throws(new PostgresException("connection lost", "FATAL", "FATAL", "57P01"));
+
+        await Assert.ThrowsAsync<PostgresException>(() => GateAsync(Guid.NewGuid()));
+        await _ready.GetAsync();
+
+        Assert.Equal(1, _checks);
+    }
+
+    [Fact]
     public async Task InvokeAsync_UsersForeignKeyViolation_UnauthorizedAndTheShadowRowEnsuredAgainNextTime()
     {
         var user = LegacyUser();

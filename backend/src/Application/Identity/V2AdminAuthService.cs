@@ -32,9 +32,10 @@ public sealed class V2AdminAuthService(
         var (raw, hash) = JwtTokens.NewOpaqueToken();
         var (_, days) = await SessionSettingsAsync(ct);
         // Null: a reset changed the password since it was checked.
-        return await sessions.IssueAsync(admin.Id, hash, clock.GetUtcNow().AddDays(days), verified, null, SessionKind.Admin, ct) is null
+        var now = clock.GetUtcNow(); // before the write: also the token's iat
+        return await sessions.IssueAsync(admin.Id, hash, now.AddDays(days), verified, null, SessionKind.Admin, ct) is null
             ? null
-            : await ResultAsync(admin, raw, ct);
+            : await ResultAsync(admin, raw, now, ct);
     }
 
     public async Task<AdminAuthResult?> RefreshTokenAsync(string refreshToken, CancellationToken ct)
@@ -43,7 +44,7 @@ public sealed class V2AdminAuthService(
         var (_, days) = await SessionSettingsAsync(ct);
         var now = clock.GetUtcNow();
         var refreshed = await sessions.RefreshAsync(DeviceCodes.HashToken(refreshToken), hash, SessionKind.Admin, _ => now.AddDays(days), now, ct);
-        return refreshed is { Outcome: SessionRefreshOutcome.Rotated, User: { } admin } ? await ResultAsync(admin, raw, ct) : null;
+        return refreshed is { Outcome: SessionRefreshOutcome.Rotated, User: { } admin } ? await ResultAsync(admin, raw, now, ct) : null;
     }
 
     public Task<bool> LogoutAsync(string refreshToken, CancellationToken ct) =>
@@ -76,9 +77,9 @@ public sealed class V2AdminAuthService(
                 AdminSettingsService.ParseDays(await settings.GetAsync(AdminSettingsService.RefreshTokenExpiryKey, ct)));
         });
 
-    private async Task<AdminAuthResult> ResultAsync(UserAccount admin, string refreshToken, CancellationToken ct) => new(
+    private async Task<AdminAuthResult> ResultAsync(UserAccount admin, string refreshToken, DateTimeOffset issuedAt, CancellationToken ct) => new(
         ToDto(admin),
-        tokens.MintAdminAccessToken(admin.Id, admin.Email, AdminRole.Admin, (await SessionSettingsAsync(ct)).Minutes),
+        tokens.MintAdminAccessToken(admin.Id, admin.Email, AdminRole.Admin, (await SessionSettingsAsync(ct)).Minutes, issuedAt),
         refreshToken);
 
     private static AdminUserDto ToDto(UserAccount admin) => new(admin.Id, admin.Email, AdminRole.Admin, admin.CreatedAt);

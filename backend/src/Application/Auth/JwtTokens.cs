@@ -39,8 +39,11 @@ public sealed class JwtTokens
         _adminValidation = jwt.ValidationParameters(JwtSettings.AdminAudience);
     }
 
-    /// <summary>A reader's (or guest's) access token.</summary>
-    public string MintAccessToken(Guid userId, string email, string? name, bool isGuest)
+    /// <summary>
+    /// A reader's (or guest's) access token. <paramref name="issuedAt"/>: its <c>iat</c>, taken before the
+    /// session write it rides on, so a reset committing in between still post-dates it; now when null.
+    /// </summary>
+    public string MintAccessToken(Guid userId, string email, string? name, bool isGuest, DateTimeOffset? issuedAt = null)
     {
         var claims = new List<Claim>
         {
@@ -51,7 +54,7 @@ public sealed class JwtTokens
         if (isGuest)
             claims.Add(new Claim(GuestClaimType, "true"));
 
-        return Write(claims, JwtSettings.UserAudience, _jwt.AccessTokenExpiryMinutes);
+        return Write(claims, JwtSettings.UserAudience, _jwt.AccessTokenExpiryMinutes, issuedAt);
     }
 
     /// <summary>The user a reader's access token names, whether it is a guest's, and its <c>iat</c>; null when it does not validate.</summary>
@@ -73,15 +76,15 @@ public sealed class JwtTokens
         }
     }
 
-    /// <summary>An admin-panel access token, living <paramref name="expiryMinutes"/> (the admin panel's setting).</summary>
-    public string MintAdminAccessToken(Guid adminId, string email, AdminRole role, int expiryMinutes) =>
+    /// <summary>An admin-panel access token, living <paramref name="expiryMinutes"/> (the admin panel's setting); <paramref name="issuedAt"/> as for <see cref="MintAccessToken"/>.</summary>
+    public string MintAdminAccessToken(Guid adminId, string email, AdminRole role, int expiryMinutes, DateTimeOffset? issuedAt = null) =>
         Write(
         [
             new Claim(ClaimTypes.NameIdentifier, adminId.ToString()),
             new Claim(ClaimTypes.Email, email),
             new Claim(ClaimTypes.Role, role.ToString()),
             new Claim(AdminClaimType, "true")
-        ], JwtSettings.AdminAudience, expiryMinutes);
+        ], JwtSettings.AdminAudience, expiryMinutes, issuedAt);
 
     /// <summary>The admin an admin-panel token names and its role; <c>(null, null)</c> when it does not validate.</summary>
     public (Guid? AdminId, AdminRole? Role) ValidateAdminAccessToken(string accessToken)
@@ -132,9 +135,9 @@ public sealed class JwtTokens
         isGuest ? _jwt.GuestRefreshTokenExpiryDays : _jwt.RefreshTokenExpiryDays;
 
     // iat: what a credentials-reset stamp is compared with.
-    private string Write(IEnumerable<Claim> claims, string audience, int expiryMinutes)
+    private string Write(IEnumerable<Claim> claims, string audience, int expiryMinutes, DateTimeOffset? issuedAt)
     {
-        var now = _clock.GetUtcNow().UtcDateTime;
+        var now = (issuedAt ?? _clock.GetUtcNow()).UtcDateTime;
         var token = new JwtSecurityToken(
             issuer: _jwt.Issuer,
             audience: audience,
@@ -149,7 +152,8 @@ public sealed class JwtTokens
 
 /// <summary>
 /// What a validated reader access token says: whose it is, whether a guest's, and when it was issued
-/// (<c>iat</c>, whole seconds, UTC), which a credential minted from it is checked against (#1092).
+/// (UTC, full tick precision from <c>ts_iat_ticks</c>; whole-second <c>iat</c> only for tokens minted before it),
+/// which a credential minted from it is checked against (#1092).
 /// </summary>
 public sealed record AccessTokenIdentity(Guid UserId, bool IsGuest, DateTimeOffset IssuedAt);
 
