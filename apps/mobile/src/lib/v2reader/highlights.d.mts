@@ -8,12 +8,16 @@ export function isHighlightColor(c: unknown): c is V2HighlightColor
 export function colorOf(c: unknown): V2HighlightColor
 export const MAX_LIST: number
 export const MAX_LIST_TEXT: number
-/** One `highlight-list` item: drawn on screen, in book order; `text` is display only (cut). */
-export interface V2HighlightItem { id: string; cfi: string; color: V2HighlightColor; text: string; at: number | null }
+/**
+ * One `highlight-list` item: drawn on screen, in book order; `text` is display only (cut). A `quotation` (#1195, a legacy
+ * anchor annotation) is listed after them, never drawn: its `cfi` is '' and it goes nowhere.
+ */
+export interface V2HighlightItem { id: string; cfi: string; color: V2HighlightColor; text: string; at: number | null; quotation?: true }
 export function highlightList(
   highlights: { id: string; cfi: string; color?: string; selectedText?: string; quote?: string; at?: number }[],
   drawn: Set<string>,
   compare: (a: string, b: string) => number,
+  quotes?: { id: string; selectedText: string; color?: string; at?: number }[],
 ): V2HighlightItem[]
 /** One list item without its colour (a bookmark's, #1314). */
 export interface V2ListItem { id: string; cfi: string; text: string; at: number | null }

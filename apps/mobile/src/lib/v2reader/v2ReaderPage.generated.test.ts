@@ -111,8 +111,8 @@ describe('v2ReaderPageHtml', () => {
     expect(html).not.toContain('saves.cancel')
     // Sniffing still precedes the view swap: a refused file leaves the shown book reading and saving.
     // #1069: request order is assigned before reading, and stale read callbacks cannot open a book.
-    expect(html).toMatch(/function openFor\(bytes, name, mine\) \{\s*let kind;\s*try \{\s*kind = sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*return open\(bytes, name, kind, mine\)/)
-    expect(html).toMatch(/openUrl: \(url, name\) => \{\s*const mine = \+\+openSeq;\s*const \w+ = new XMLHttpRequest\(\)/)
+    expect(html).toMatch(/function openFor\(bytes, name, mine, fileFormat\) \{\s*let kind;\s*try \{\s*kind = fileFormat === \"html\" \? \"html\" : sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*return open\(bytes, name, kind, mine\)/)
+    expect(html).toMatch(/openUrl: \(url, name, fileFormat = null\) => \{\s*const mine = \+\+openSeq;\s*const \w+ = new XMLHttpRequest\(\)/)
     expect(html).toMatch(/\w+\.onload = \(\) => \{\s*if \(mine !== openSeq\) return;/)
     expect(html).toMatch(/function highlightSelection\(color = "yellow"\) \{[\s\S]{0,600}?if \(!entry\) return log\("warn"/)
     // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
@@ -130,7 +130,7 @@ describe('v2ReaderPageHtml', () => {
     // fires relocate (#1168). A newer open still being made does not silence the view on screen (#1128 S5).
     expect(html).toMatch(/view\.addEventListener\("relocate", \(\{ detail: \w+ \}\) => \{\s*(var [^;]*;\s*)?if \(mine !== viewSeq\) return;[\s\S]{0,400}?post\(\{\s*type: "relocate"/)
     expect(html).toMatch(/view\.addEventListener\("create-overlay", [\s\S]{0,80}?if \(mine !== viewSeq\) return;/)
-    expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*hostMoving = true;\s*awaitingRestore = true;\s*readerActed = false;\s*navs = 0;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
+    expect(html).toMatch(/endSession\(\);\s*book = \{ sha256[^}]*\};\s*entry = null;\s*quotes = \[\];\s*hostMoving = true;\s*awaitingRestore = true;\s*readerActed = false;\s*navs = 0;\s*lastCfi = null;\s*viewSeq = mine;\s*navigating = Promise\.resolve\(\);/)
     // A restore is for the view on screen that answered `opened`, whatever is being made meanwhile.
     expect(html).toMatch(/if \(!book \|\| readySeq !== viewSeq\) return log\("warn", "restore ignored/)
     // The host-move guard is cleared however restore ends, or the page saves nothing for the rest of the session.

@@ -44,7 +44,7 @@ describe('V2ReaderHost', () => {
     fromPage({ type: 'ready' })
     expect(posted.map((m) => m.call)).toEqual(['flow', 'settings', 'labels', 'openBytes'])
     const openBytes = posted.find((m) => m.call === 'openBytes')!
-    expect(openBytes.args).toEqual([b.bytes, '1/a.epub'])
+    expect(openBytes.args).toEqual([b.bytes, '1/a.epub', null])
     expect(frameWindow().postMessage).toHaveBeenLastCalledWith(openBytes, location.origin, [b.bytes])
   })
 
