@@ -92,7 +92,10 @@ export const V2_FEATURES = {
   tags: false,
   collections: false,
   stats: false,
-  insights: false,
+  /** Read from `/me/v2/books/{id}/insights` (#1031); a catalog edition's are none. */
+  insights: true,
+  /** V2 has no insight delete route: the remove button is hidden. */
+  insightDelete: false,
   contentSearch: false,
   readLater: false,
   storageQuota: false,
@@ -614,6 +617,21 @@ export interface V2ShareWrite {
 }
 export interface V2Share { id: string; bookId: string; chapterKey: string; createdAt: string }
 export const shareChapter = (bookId: string, body: V2ShareWrite) => authFetch<V2Share>(`${book(bookId)}/shares`, jsonBody('POST', body))
+
+/** A saved insight (`InsightDto`), in reading order; chapter number and title from the book's current file. No delete route. */
+export interface V2Insight {
+  id: string
+  bookId: string
+  chapterKey: string | null
+  chapterNumber: number | null
+  chapterTitle: string | null
+  text: string
+  question: string | null
+  source: string
+  createdAt: string
+  updatedAt: string
+}
+export const listInsights = (bookId: string) => authFetch<V2Insight[]>(`${book(bookId)}/insights`)
 
 /** The annotation's URL, for a keepalive write that outlives the page (the web V2 reader, #1226). */
 export const annotationUrl = (id: string) => `${getApiConfig().baseUrl}${V2}/annotations/${id}`

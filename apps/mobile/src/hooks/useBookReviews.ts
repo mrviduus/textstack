@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { insightsApi, reviewsBySlug, type BookInsight } from '@textstack/shared'
+import { onV2 } from '../lib/v2'
 
 /**
  * The book's insights and which chapters have a structured review (ADR-016: one `/me/insights`
@@ -17,7 +18,7 @@ export function useBookReviews(target: { userBookId: string } | { editionId: str
   useEffect(() => {
     if (!target) return
     let cancelled = false
-    insightsApi.getBookInsights(target)
+    onV2().then(v2 => insightsApi.getBookInsights(target, v2))
       .then(rows => { if (!cancelled) setState({ key, insights: rows, error: false }) })
       .catch(() => { if (!cancelled) setState({ key, insights: [], error: true }) })
     return () => { cancelled = true }
