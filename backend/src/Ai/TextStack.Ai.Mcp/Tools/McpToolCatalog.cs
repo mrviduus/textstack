@@ -15,13 +15,9 @@ namespace TextStack.Ai.Mcp.Tools;
 /// returns a clean <c>IsError</c> instead of a JSON-RPC protocol fault, while a
 /// genuine caller cancellation still propagates.
 ///
-/// The working tools require a Bearer token; when none is available they return a clean
+/// Every tool requires a Bearer token; when none is available they return a clean
 /// auth-required <c>IsError</c> and never issue the HTTP call. All tools are ALWAYS listed
 /// (stable discovery) regardless of token presence — only the call fails-clean.
-///
-/// The retired tools (<see cref="Retired"/>: the catalog, edition and chapter-review tools legacy
-/// served) stay listed and answer that they are retired, without a call. Deleting them is the
-/// owner's open M6 decision D6 (a new tool version).
 /// </summary>
 public sealed partial class McpToolCatalog
 {
@@ -33,18 +29,13 @@ public sealed partial class McpToolCatalog
         _logger = logger ?? NullLogger<McpToolCatalog>.Instance;
         var tools = new[]
         {
-            BuildSearchBooks(),
-            BuildGetBook(),
-            BuildGetChapter(),
             BuildSearchMyLibrary(api),
             BuildGetMyBook(api),
             BuildGetMyChapter(api),
-            BuildListMyHighlights(),
             BuildListMyVocabulary(api),
             BuildAddVocabularyWords(api),
             BuildUpdateVocabularyWord(api),
             BuildDeleteVocabularyWord(api),
-            BuildSaveHighlight(),
             BuildSaveMyHighlight(api),
             BuildListMyBookHighlights(api),
             BuildSaveInsight(api),
@@ -52,8 +43,6 @@ public sealed partial class McpToolCatalog
             BuildGetMyReading(api),
             BuildGetBookProgress(api),
             BuildSetBookProgress(api),
-            BuildGetChapterReview(),
-            BuildSaveChapterReview(),
             BuildShareChapter(api),
             BuildSaveCheckpoint(api),
             BuildListCheckpoints(api),
@@ -139,80 +128,6 @@ public sealed partial class McpToolCatalog
             return Error($"{tool} failed: unexpected error");
         }
     }
-
-    // ── search_books ──────────────────────────────────────────────────────────
-
-    private static readonly JsonElement SearchBooksSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "query": { "type": "string", "minLength": 2, "maxLength": 200 },
-            "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
-          },
-          "required": ["query"],
-          "additionalProperties": false
-        }
-        """).RootElement;
-
-    private static McpToolDescriptor BuildSearchBooks() => new()
-    {
-        Name = "search_books",
-        Title = "Search the catalog",
-        ReadOnly = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("search_books"),
-        InputSchema = SearchBooksSchema,
-        Handler = (_, _) => Task.FromResult(Retired("search_books")),
-    };
-
-    // ── get_book ────────────────────────────────────────────────────────────────
-
-    private static readonly JsonElement GetBookSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "slug": { "type": "string", "minLength": 1, "maxLength": 300 }
-          },
-          "required": ["slug"],
-          "additionalProperties": false
-        }
-        """).RootElement;
-
-    private static McpToolDescriptor BuildGetBook() => new()
-    {
-        Name = "get_book",
-        Title = "Get a catalog book",
-        ReadOnly = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_book"),
-        InputSchema = GetBookSchema,
-        Handler = (_, _) => Task.FromResult(Retired("get_book")),
-    };
-
-    // ── get_chapter ───────────────────────────────────────────────────────────
-
-    private static readonly JsonElement GetChapterSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "slug": { "type": "string", "minLength": 1, "maxLength": 300 },
-            "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 }
-          },
-          "required": ["slug", "chapterSlug"],
-          "additionalProperties": false
-        }
-        """).RootElement;
-
-    private static McpToolDescriptor BuildGetChapter() => new()
-    {
-        Name = "get_chapter",
-        Title = "Read a catalog chapter",
-        ReadOnly = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_chapter"),
-        InputSchema = GetChapterSchema,
-        Handler = (_, _) => Task.FromResult(Retired("get_chapter")),
-    };
 
     // ── my library: search_my_library / get_my_book / get_my_chapter ────────────
     //
@@ -385,30 +300,6 @@ public sealed partial class McpToolCatalog
         },
     };
 
-    // ── list_my_highlights ──────────────────────────────────────────────────────
-
-    private static readonly JsonElement ListMyHighlightsSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "editionId": { "type": "string", "format": "uuid" }
-          },
-          "required": ["editionId"],
-          "additionalProperties": false
-        }
-        """).RootElement;
-
-    private static McpToolDescriptor BuildListMyHighlights() => new()
-    {
-        Name = "list_my_highlights",
-        Title = "List my highlights",
-        ReadOnly = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("list_my_highlights"),
-        InputSchema = ListMyHighlightsSchema,
-        Handler = (_, _) => Task.FromResult(Retired("list_my_highlights")),
-    };
-
     // ── list_my_vocabulary ──────────────────────────────────────────────────────
 
     private static readonly JsonElement ListMyVocabularySchema = JsonDocument.Parse(
@@ -491,7 +382,6 @@ public sealed partial class McpToolCatalog
               }
             },
             "bookId": { "type": "string", "format": "uuid" },
-            "editionId": { "type": "string", "format": "uuid" },
             "bookTitle": { "type": "string", "maxLength": 300 },
             "operationId": { "type": "string", "format": "uuid" }
           },
@@ -520,17 +410,12 @@ public sealed partial class McpToolCatalog
         InputSchema = AddVocabularyWordsSchema,
         Handler = (args, ct) =>
         {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "words", "bookId", "editionId", "bookTitle", "operationId")
+            if (!ArgReader.TryObject(args, out var obj, out var err, "words", "bookId", "bookTitle", "operationId")
                 || !ArgReader.TryOptionalGuid(obj, "operationId", out var operationId, out err)
                 || !ArgReader.TryOptionalGuid(obj, "bookId", out var bookId, out err)
-                || !ArgReader.TryOptionalGuid(obj, "editionId", out var editionId, out err)
                 || !ArgReader.TryOptionalString(obj, "bookTitle", 300, out var bookTitle, out err)
-                || !TryReadWords(obj, bookId, editionId, bookTitle, out var words, out err))
+                || !TryReadWords(obj, bookId, bookTitle, out var words, out err))
                 return Task.FromResult(Error(err));
-
-            if (bookId.HasValue && editionId.HasValue)
-                return Task.FromResult(Error(
-                    "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."));
 
             // Owner decision 13: required, so a retry never saves twice.
             if (operationId is null)
@@ -587,7 +472,7 @@ public sealed partial class McpToolCatalog
     // The words array, checked item by item before any HTTP call: one bad item refuses the whole
     // batch, so the model fixes it and resends rather than half a batch landing.
     private static bool TryReadWords(
-        JsonElement obj, Guid? bookId, Guid? editionId, string? bookTitle,
+        JsonElement obj, Guid? bookId, string? bookTitle,
         out List<SaveWordJson> words, out string error)
     {
         words = [];
@@ -626,7 +511,7 @@ public sealed partial class McpToolCatalog
                 return false;
             }
 
-            words.Add(new SaveWordJson(word, language, translation, definition, editionId, bookId, sentence, bookTitle));
+            words.Add(new SaveWordJson(word, language, translation, definition, bookId, sentence, bookTitle));
             i++;
         }
 
@@ -726,36 +611,8 @@ public sealed partial class McpToolCatalog
         },
     };
 
-    // ── save_highlight (Bearer, WRITE) ───────────────────────────────────────────
-
-    private static readonly JsonElement SaveHighlightSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "editionId": { "type": "string", "format": "uuid" },
-            "chapterId": { "type": "string", "format": "uuid" },
-            "selectedText": { "type": "string", "minLength": 1, "maxLength": 5000 },
-            "color": { "type": "string", "enum": ["yellow", "green", "blue", "pink"] },
-            "noteText": { "type": "string", "maxLength": 2000 }
-          },
-          "required": ["editionId", "chapterId", "selectedText"],
-          "additionalProperties": false
-        }
-        """).RootElement;
-
     // Match the web reader's HighlightColor palette (offlineDb.ts) — no "orange".
     private static readonly string[] HighlightColors = ["yellow", "green", "blue", "pink"];
-
-    private static McpToolDescriptor BuildSaveHighlight() => new()
-    {
-        Name = "save_highlight",
-        Title = "Save a highlight",
-        ReadOnly = false,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("save_highlight"),
-        InputSchema = SaveHighlightSchema,
-        Handler = (_, _) => Task.FromResult(Retired("save_highlight")),
-    };
 
     // ── write-back: highlights and insights on the user's OWN books ─────────────
     //
@@ -874,21 +731,17 @@ public sealed partial class McpToolCatalog
         },
     };
 
-    // bookId XOR editionId: JSON Schema could express it with oneOf, but the SDK
-    // does not validate InputSchema at all, so the exclusivity is enforced in the
-    // handler either way (TryReadInsightTarget) and the schema stays readable.
     private static readonly JsonElement SaveInsightSchema = JsonDocument.Parse(
         """
         {
           "type": "object",
           "properties": {
             "bookId": { "type": "string", "format": "uuid" },
-            "editionId": { "type": "string", "format": "uuid" },
             "chapterSlug": { "type": "string", "maxLength": 300 },
             "text": { "type": "string", "minLength": 1, "maxLength": 20000 },
             "question": { "type": "string", "maxLength": 1000 }
           },
-          "required": ["text"],
+          "required": ["bookId", "text"],
           "additionalProperties": false
         }
         """).RootElement;
@@ -904,13 +757,12 @@ public sealed partial class McpToolCatalog
         InputSchema = SaveInsightSchema,
         Handler = (args, ct) =>
         {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId", "chapterSlug", "text", "question")
-                || !TryReadInsightTarget(obj, out _, out var bookId, out err)
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "chapterSlug", "text", "question")
+                || !ArgReader.TryRequiredGuid(obj, "bookId", out var id, out err)
                 || !ArgReader.TryRequiredString(obj, "text", 1, 20000, out var text, out err)
                 || !ArgReader.TryOptionalString(obj, "chapterSlug", 300, out var chapterSlug, out err)
                 || !ArgReader.TryOptionalString(obj, "question", 1000, out var question, out err))
                 return Task.FromResult(Error(err));
-            if (bookId is not { } id) return Task.FromResult(Retired("save_insight"));
 
             return InvokeAsync("save_insight", ct, async () =>
             {
@@ -922,7 +774,6 @@ public sealed partial class McpToolCatalog
                 var mapped = new
                 {
                     id = saved.Id,
-                    editionId = saved.EditionId,
                     bookId = saved.UserBookId,
                     chapterSlug = saved.ChapterSlug,
                     question = saved.Question,
@@ -939,10 +790,9 @@ public sealed partial class McpToolCatalog
         {
           "type": "object",
           "properties": {
-            "bookId": { "type": "string", "format": "uuid" },
-            "editionId": { "type": "string", "format": "uuid" }
+            "bookId": { "type": "string", "format": "uuid" }
           },
-          "required": [],
+          "required": ["bookId"],
           "additionalProperties": false
         }
         """).RootElement;
@@ -956,10 +806,9 @@ public sealed partial class McpToolCatalog
         InputSchema = GetMyInsightsSchema,
         Handler = (args, ct) =>
         {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId")
-                || !TryReadInsightTarget(obj, out _, out var bookId, out err))
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId")
+                || !ArgReader.TryRequiredGuid(obj, "bookId", out var id, out err))
                 return Task.FromResult(Error(err));
-            if (bookId is not { } id) return Task.FromResult(Retired("get_my_insights"));
 
             return InvokeAsync("get_my_insights", ct, async () =>
             {
@@ -989,127 +838,6 @@ public sealed partial class McpToolCatalog
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
-
-    // ── chapter review (retired) ──────────────────────────────────────────────────
-
-    private static readonly JsonElement GetChapterReviewSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["chapterSlug"],
-          "properties": {
-            "bookId": { "type": "string", "format": "uuid" },
-            "editionId": { "type": "string", "format": "uuid" },
-            "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 },
-            "part": { "type": "integer", "minimum": 1, "maximum": 20 }
-          }
-        }
-        """).RootElement;
-
-    private static McpToolDescriptor BuildGetChapterReview() => new()
-    {
-        Name = "get_chapter_review",
-        Title = "Get a chapter review",
-        ReadOnly = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_chapter_review"),
-        InputSchema = GetChapterReviewSchema,
-        Handler = (_, _) => Task.FromResult(Retired("get_chapter_review")),
-    };
-
-    private static readonly JsonElement SaveChapterReviewSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["chapterSlug", "review"],
-          "properties": {
-            "bookId": { "type": "string", "format": "uuid" },
-            "editionId": { "type": "string", "format": "uuid" },
-            "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 },
-            "review": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["blocks", "applications"],
-              "properties": {
-                "recall": { "type": "string", "maxLength": 3000 },
-                "blocks": {
-                  "type": "array", "minItems": 3, "maxItems": 6,
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["title", "problem", "rootCause", "rule", "highlightIds", "question"],
-                    "properties": {
-                      "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-                      "problem": { "type": "string", "minLength": 1, "maxLength": 1200 },
-                      "rootCause": { "type": "string", "minLength": 1, "maxLength": 300 },
-                      "rule": { "type": "string", "minLength": 1, "maxLength": 300 },
-                      "highlightIds": { "type": "array", "maxItems": 20, "items": { "type": "string", "format": "uuid" } },
-                      "question": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": ["prompt", "answer"],
-                        "properties": {
-                          "prompt": { "type": "string", "minLength": 1, "maxLength": 500 },
-                          "answer": { "type": "string", "minLength": 1, "maxLength": 1500 }
-                        }
-                      }
-                    }
-                  }
-                },
-                "applications": {
-                  "type": "array", "minItems": 1, "maxItems": 5,
-                  "items": { "type": "string", "minLength": 1, "maxLength": 400 }
-                },
-                "openThreads": {
-                  "type": "array", "maxItems": 10,
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["text"],
-                    "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 300 } }
-                  }
-                },
-                "closedThreadIds": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 20 } }
-              }
-            }
-          }
-        }
-        """).RootElement;
-
-    private static McpToolDescriptor BuildSaveChapterReview() => new()
-    {
-        Name = "save_chapter_review",
-        Title = "Save a chapter review",
-        ReadOnly = false,
-        Destructive = true,
-        Idempotent = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("save_chapter_review"),
-        InputSchema = SaveChapterReviewSchema,
-        Handler = (_, _) => Task.FromResult(Retired("save_chapter_review")),
-    };
-
-    // Exactly one of bookId / editionId. Both or neither is a caller error, and
-    // saying which is missing beats a 400 from three layers down.
-    private static bool TryReadInsightTarget(
-        JsonElement obj, out Guid? editionId, out Guid? bookId, out string error)
-    {
-        editionId = null;
-        if (!ArgReader.TryOptionalGuid(obj, "bookId", out bookId, out error))
-            return false;
-        if (!ArgReader.TryOptionalGuid(obj, "editionId", out editionId, out error))
-            return false;
-
-        if (bookId.HasValue == editionId.HasValue)
-        {
-            error = bookId.HasValue
-                ? "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."
-                : "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book).";
-            return false;
-        }
-
-        return true;
-    }
 
     // Optional color: absent → "yellow"; present must be one of the reader palette.
     private static bool TryReadColor(JsonElement obj, out string color, out string error)
@@ -1202,10 +930,9 @@ public sealed partial class McpToolCatalog
         {
           "type": "object",
           "properties": {
-            "bookId": { "type": "string", "format": "uuid" },
-            "editionId": { "type": "string", "format": "uuid" }
+            "bookId": { "type": "string", "format": "uuid" }
           },
-          "required": [],
+          "required": ["bookId"],
           "additionalProperties": false
         }
         """).RootElement;
@@ -1223,10 +950,9 @@ public sealed partial class McpToolCatalog
         InputSchema = GetBookProgressSchema,
         Handler = (args, ct) =>
         {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId")
-                || !TryReadInsightTarget(obj, out _, out var bookId, out err))
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId")
+                || !ArgReader.TryRequiredGuid(obj, "bookId", out var id, out err))
                 return Task.FromResult(Error(err));
-            if (bookId is not { } id) return Task.FromResult(Retired("get_book_progress"));
 
             return InvokeAsync("get_book_progress", ct, async () =>
             {
@@ -1254,10 +980,9 @@ public sealed partial class McpToolCatalog
           "type": "object",
           "properties": {
             "bookId": { "type": "string", "format": "uuid" },
-            "slug": { "type": "string", "minLength": 1, "maxLength": 300 },
             "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 }
           },
-          "required": ["chapterSlug"],
+          "required": ["bookId", "chapterSlug"],
           "additionalProperties": false
         }
         """).RootElement;
@@ -1277,16 +1002,10 @@ public sealed partial class McpToolCatalog
         InputSchema = SetBookProgressSchema,
         Handler = (args, ct) =>
         {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "slug", "chapterSlug")
-                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err)
-                || !ArgReader.TryOptionalGuid(obj, "bookId", out var bookId, out err)
-                || !ArgReader.TryOptionalString(obj, "slug", 300, out var bookSlug, out err))
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "chapterSlug")
+                || !ArgReader.TryRequiredGuid(obj, "bookId", out var id, out err)
+                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err))
                 return Task.FromResult(Error(err));
-
-            if ((bookId is null) == (bookSlug is null))
-                return Task.FromResult(Error(
-                    "Pass either 'bookId' (an uploaded book) or 'slug' (a catalog book), not both."));
-            if (bookId is not { } id) return Task.FromResult(Retired("set_book_progress"));
 
             return InvokeAsync("set_book_progress", ct, async () =>
             {
@@ -1345,9 +1064,6 @@ public sealed partial class McpToolCatalog
     }
 
     // ── MCP result helpers ──────────────────────────────────────────────────────
-
-    /// <summary>A retired tool's (or a retired argument's) answer; no call is made.</summary>
-    private static CallToolResult Retired(string tool) => Error($"{tool} failed: this feature is retired in this version.");
 
     private static CallToolResult Text(string text) => new()
     {

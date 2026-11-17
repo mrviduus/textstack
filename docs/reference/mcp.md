@@ -11,7 +11,7 @@ and the [landing page](https://textstack.app/en/mcp) point here.
 
 ## The tools
 
-The server exposes 25 tools, every one on your own account: sign in first (see
+The server exposes 18 tools, every one on your own account: sign in first (see
 [Authentication](#authentication)). A book is addressed by its `bookId`.
 
 | Tool | What it does | Auth |
@@ -34,7 +34,6 @@ The server exposes 25 tools, every one on your own account: sign in first (see
 | `save_checkpoint` | Save one checkpoint of a discussion (the reader's thoughts, the assistant's suggestions, conclusions, open questions). Append-only. | User |
 | `list_checkpoints` | Read a book's checkpoints, oldest first, paged. | User |
 | `get_shared_chapter` | Read a chapter the reader shared from the reader's Discuss, in parts when long. | User |
-| `search_books`, `get_book`, `get_chapter`, `list_my_highlights`, `save_highlight`, `get_chapter_review`, `save_chapter_review` | **Retired**: the public catalog, edition highlights and chapter review are gone. Still listed; a call answers "this feature is retired in this version". | — |
 
 Every enabled tool is always listed regardless of whether you're signed in — only a
 user-scoped *call* fails with a clean "authentication required" message when no
@@ -317,7 +316,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 25 tools.
+result containing all 18 tools.
 
 ## Troubleshooting
 

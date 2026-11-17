@@ -426,11 +426,6 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             await Call("save_insight", new { bookId = book, chapterSlug = "c1", text = "Sagan opens with scale." });
             var insight = Assert.Single((await Call("get_my_insights", new { bookId = book })).GetProperty("insights").EnumerateArray());
             Assert.Equal("Shores", insight.GetProperty("chapterTitle").GetString());
-
-            // A retired tool says so, never an empty answer.
-            var review = await mcp.CallAsync("get_chapter_review", JsonSerializer.SerializeToElement(new { bookId = book, chapterSlug = "c1" }), Ct);
-            Assert.True(review.IsError);
-            Assert.Contains("retired", ((ModelContextProtocol.Protocol.TextContentBlock)review.Content[0]).Text);
         }
     }
 

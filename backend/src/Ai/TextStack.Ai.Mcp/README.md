@@ -5,7 +5,7 @@ library to Claude Desktop, Cursor, or any [Model Context Protocol](https://model
 client. Search and read your books, and manage your highlights and
 vocabulary straight from your AI assistant.
 
-It exposes **25 tools**; seven of them are retired (they answer that the feature is gone):
+It exposes **18 tools**:
 
 | Tool | What it does |
 |------|--------------|
@@ -27,7 +27,6 @@ It exposes **25 tools**; seven of them are retired (they answer that the feature
 | `save_checkpoint` | Save one checkpoint of a discussion (requires sign-in) |
 | `list_checkpoints` | Read a book's discussion checkpoints (requires sign-in) |
 | `get_shared_chapter` | Read a chapter shared from the reader's Discuss (requires sign-in) |
-| `search_books`, `get_book`, `get_chapter`, `list_my_highlights`, `save_highlight`, `get_chapter_review`, `save_chapter_review` | Retired: the public catalog, edition highlights and chapter review are gone |
 
 ## Install
 

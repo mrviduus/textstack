@@ -79,7 +79,7 @@ public class McpReadToolsTests
         var names = catalog.ListTools().Select(t => t.Name).OrderBy(n => n).ToArray();
 
         Assert.Equal(
-            ["add_vocabulary_words", "delete_vocabulary_word", "get_book", "get_book_progress", "get_chapter", "get_chapter_review", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_chapter_review", "save_checkpoint", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
+            ["add_vocabulary_words", "delete_vocabulary_word", "get_book_progress", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_vocabulary", "save_checkpoint", "save_insight", "save_my_highlight", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
             names);
     }
 
@@ -177,7 +177,7 @@ public class McpReadToolsTests
     [InlineData("get_my_chapter", $$"""{"bookId":"{{Book}}"}""")] // no chapterSlug
     [InlineData("save_my_highlight", $$"""{"bookId":"{{Book}}","chapterId":"{{Book}}","selectedText":"x","color":"orange"}""")]
     [InlineData("list_my_book_highlights", "{}")]
-    [InlineData("save_insight", $$"""{"bookId":"{{Book}}","editionId":"{{Book}}","text":"x"}""")] // both ids
+    [InlineData("save_insight", $$"""{"editionId":"{{Book}}","text":"x"}""")] // no bookId (editionId is not an argument)
     [InlineData("get_my_insights", "{}")]                        // no id
     public async Task AnyTool_InvalidArgs_ReturnsToolError_NeverHitsHttp(string tool, string args)
     {

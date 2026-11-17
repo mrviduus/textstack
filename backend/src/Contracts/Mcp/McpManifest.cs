@@ -29,9 +29,7 @@ public sealed record McpToolDescriptor(string Name, string Description);
 /// project references this dependency-free assembly). A test still checks the
 /// tool NAMES match the catalog.
 ///
-/// Order matches the catalog's. The retired tools (the public catalog, edition-scoped
-/// highlights, chapter review) stay listed and answer an error; their descriptions say
-/// which tool to use instead.
+/// Order matches the catalog's.
 /// </summary>
 public static class McpManifestCatalog
 {
@@ -41,9 +39,6 @@ public static class McpManifestCatalog
     /// <summary>Every tool, as the manifest advertises them.</summary>
     public static IReadOnlyList<McpToolDescriptor> Tools { get; } =
     [
-        new("search_books", "Retired in this version: answers an error. The public catalog is gone; search the user's own books with search_my_library."),
-        new("get_book", "Retired in this version: answers an error. Use get_my_book for a book the user uploaded."),
-        new("get_chapter", "Retired in this version: answers an error. Use get_my_chapter for a book the user uploaded."),
         new("search_my_library",
             "Search the books the signed-in user has UPLOADED to TextStack by title or author "
             + "(requires authentication); tags (comma-separated) must all be on the book. "
@@ -59,7 +54,6 @@ public static class McpManifestCatalog
             + "(HTML stripped, length-capped) plus its chapterId, number, title and prev/next "
             + "slugs (requires authentication). The chapterId it returns is what save_my_highlight "
             + "needs."),
-        new("list_my_highlights", "Retired in this version: answers an error. Use list_my_book_highlights with the book's bookId."),
         new("list_my_vocabulary",
             "List the signed-in user's saved vocabulary words, optionally filtered by SRS stage or search (requires authentication). "
             + "Each word carries its id, which is what update_vocabulary_word and delete_vocabulary_word take."),
@@ -81,7 +75,6 @@ public static class McpManifestCatalog
             "Remove one word from the user's vocabulary (WRITE on their own account — requires "
             + "authentication). Pass the word's id from list_my_vocabulary. Only when the user clearly asked for it; if "
             + "you are inferring that they want it gone, confirm first. One word per call — there is no bulk delete."),
-        new("save_highlight", "Retired in this version: answers an error. Use save_my_highlight with the book's bookId."),
         new("save_my_highlight",
             "Highlight a passage in one of the books the user UPLOADED (WRITE on their own account — "
             + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "
@@ -127,8 +120,6 @@ public static class McpManifestCatalog
             + "chapters-finished over chapters-total; finishing the last chapter marks the book complete. "
             + "Only call this when the reader says they finished something — it overwrites the exact "
             + "position their reader had stored, and it cannot be undone from here."),
-        new("get_chapter_review", "Retired in this version: answers an error. Save conclusions about a chapter with save_insight."),
-        new("save_chapter_review", "Retired in this version: answers an error. Save conclusions about a chapter with save_insight."),
         new("share_chapter",
             "Snapshot one chapter of a book the user UPLOADED for this discussion (WRITE on their own account — "
             + "requires authentication). Pass the bookId, the chapterKey, the chapter text as the reader shared it, and "

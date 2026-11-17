@@ -47,9 +47,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     private async Task<CallToolResult> CallAsync(McpClient client, string tool, Dictionary<string, object?> args) =>
         await client.CallToolAsync(tool, args!, cancellationToken: Ct);
 
-    // ── 1. search_books (public, no Bearer) ───────────────────────────────────────
 
-    // ── 2. get_book (public, maps editionId) ──────────────────────────────────────
 
     // ── 3. get_chapter (public, HTML stripped) ────────────────────────────────────
 
@@ -92,7 +90,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
 
         var names = tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Assert.Equal(
-            ["add_vocabulary_words", "delete_vocabulary_word", "get_book", "get_book_progress", "get_chapter", "get_chapter_review", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_chapter_review", "save_checkpoint", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
+            ["add_vocabulary_words", "delete_vocabulary_word", "get_book_progress", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_vocabulary", "save_checkpoint", "save_insight", "save_my_highlight", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
             names);
     }
 
@@ -105,7 +103,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
 
         var tools = (await client.ListToolsAsync(cancellationToken: Ct)).Select(t => t.ProtocolTool).ToList();
 
-        string[] writes = ["save_highlight", "save_my_highlight", "save_insight", "save_chapter_review", "set_book_progress", "add_vocabulary_words", "update_vocabulary_word", "delete_vocabulary_word", "share_chapter", "save_checkpoint"];
+        string[] writes = ["save_my_highlight", "save_insight", "set_book_progress", "add_vocabulary_words", "update_vocabulary_word", "delete_vocabulary_word", "share_chapter", "save_checkpoint"];
         foreach (var tool in tools)
         {
             Assert.False(string.IsNullOrWhiteSpace(tool.Title), tool.Name);
@@ -118,7 +116,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
             if (a.ReadOnlyHint == true) Assert.False(a.DestructiveHint);
         }
         Assert.True(tools.Single(t => t.Name == "save_insight").Annotations!.DestructiveHint); // replaces on re-save
-        Assert.False(tools.Single(t => t.Name == "save_highlight").Annotations!.DestructiveHint); // only adds
+        Assert.False(tools.Single(t => t.Name == "save_my_highlight").Annotations!.DestructiveHint); // only adds
     }
 
     // ── 10. negative: NO bearer → HTTP 401 + OAuth challenge, zero upstream hits ──
@@ -408,7 +406,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var result = await CallAsync(client, "get_book_progress",
-            Args(("bookId", StubBackend.UserBookId), ("editionId", StubBackend.UnopenedBookId)));
+            Args(("bookId", StubBackend.UserBookId), ("editionId", StubBackend.UnopenedBookId))); // not an argument any more
 
         Assert.True(result.IsError);
         Assert.Equal(0, _harness.Stub.TotalRequests);
@@ -488,7 +486,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var result = await CallAsync(client, "set_book_progress",
-            Args(("bookId", StubBackend.UserBookId), ("slug", "dds"), ("chapterSlug", "replication")));
+            Args(("bookId", StubBackend.UserBookId), ("slug", "dds"), ("chapterSlug", "replication"))); // not an argument any more
 
         Assert.True(result.IsError);
         Assert.Equal(0, _harness.Stub.TotalRequests);
