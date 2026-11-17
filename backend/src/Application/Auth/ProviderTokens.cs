@@ -1,5 +1,7 @@
-using System.IdentityModel.Tokens.Jwt;
 using Google.Apis.Auth;
+using Microsoft.IdentityModel.JsonWebTokens;
+using JsonWebToken = Microsoft.IdentityModel.JsonWebTokens.JsonWebToken;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Application.Auth;
 
@@ -10,7 +12,7 @@ public sealed record ProviderIdentity(string Subject, string? Email, string? Nam
 /// Google and Apple sign-in tokens, read for the identity they name; legacy and V2 alike. Virtual so a
 /// test can stand in for the providers.
 /// </summary>
-public class ProviderTokens(GoogleSettings? google = null, AppleSettings? apple = null)
+public class ProviderTokens(GoogleSettings? google = null, AppleSettings? apple = null, AppleSigningKeys? appleKeys = null)
 {
     public const string AppleIssuer = "https://appleid.apple.com";
 
@@ -39,30 +41,33 @@ public class ProviderTokens(GoogleSettings? google = null, AppleSettings? apple 
     }
 
     /// <summary>
-    /// The Apple account an identity token names; null when its audience, issuer or expiry is wrong.
-    /// ponytail: verification kept exactly as legacy does it; a review is owner-deferred (2026-11-02).
+    /// The Apple account an identity token names: RS256-signed by one of Apple's published keys, issued by
+    /// Apple, for this app's bundle id, unexpired. Null otherwise, and always null without <c>Apple:BundleId</c>.
     /// </summary>
-    public virtual ProviderIdentity? VerifyApple(string identityToken)
+    public virtual async Task<ProviderIdentity?> VerifyAppleAsync(string identityToken, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(apple?.BundleId)) return null;
         try
         {
-            var token = new JwtSecurityTokenHandler().ReadJwtToken(identityToken);
+            var kid = new JsonWebToken(identityToken).Kid;
+            var result = await new JsonWebTokenHandler().ValidateTokenAsync(identityToken, new TokenValidationParameters
+            {
+                ValidIssuer = AppleIssuer,
+                ValidAudience = apple.BundleId,
+                IssuerSigningKeys = await (appleKeys ?? AppleSigningKeys.Default).GetAsync(kid, ct),
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                RequireSignedTokens = true,
+                RequireExpirationTime = true,
+                ClockSkew = TimeSpan.FromMinutes(1),
+            });
+            if (!result.IsValid || result.SecurityToken is not JsonWebToken token) return null;
 
-            var audience = apple?.BundleId;
-            if (audience != null && token.Audiences.All(a => a != audience))
-                return null;
-
-            if (token.Issuer != AppleIssuer)
-                return null;
-
-            if (token.ValidTo < DateTime.UtcNow)
-                return null;
-
-            var email = token.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
-            return token.Subject is null ? null : new ProviderIdentity(token.Subject, email, null, null);
+            var email = token.TryGetPayloadValue<string>("email", out var e) ? e : null;
+            return string.IsNullOrEmpty(token.Subject) ? null : new ProviderIdentity(token.Subject, email, null, null);
         }
-        catch
+        catch (Exception ex) when (ex is ArgumentException or SecurityTokenException)
         {
+            // Not a JWT at all.
             return null;
         }
     }

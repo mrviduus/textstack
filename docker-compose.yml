@@ -159,6 +159,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       Google__ClientId: ${GOOGLE_CLIENT_ID}
       Google__LegacyClientIds: ${GOOGLE_LEGACY_CLIENT_IDS:-}
+      Apple__BundleId: ${APPLE_BUNDLE_ID:-app.textstack.mobile}
       Tts__CachePath: /data/tts-cache
       Explain__CachePath: /data/explain-cache
       Translate__CachePath: /data/translate-cache

@@ -105,6 +105,10 @@ if (app.Environment.IsProduction() && Application.Auth.JwtSettings.IsWeakSecret(
         "Jwt:SecretKey is shorter than {MinBytes} bytes; rotate JWT_SECRET to a longer random value",
         Application.Auth.JwtSettings.MinSecretKeyBytes);
 
+// Apple sign-in is refused without the bundle id its tokens must name: loud, not fatal.
+if (string.IsNullOrWhiteSpace(builder.Configuration["Apple:BundleId"]))
+    app.Logger.LogCritical("Apple:BundleId is not set; Apple sign-in is refused. Set APPLE_BUNDLE_ID");
+
 // Skip migrations in Test environment (uses InMemory DB)
 if (!app.Environment.IsEnvironment("Test"))
 {

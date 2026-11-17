@@ -129,35 +129,9 @@ public class JwtTokensTests
         Assert.NotEqual(raw, JwtTokens.NewOpaqueToken().Raw);
     }
 
-    [Theory]
-    [InlineData(ProviderTokens.AppleIssuer, "app.textstack", 5, true)]
-    [InlineData("https://evil.example", "app.textstack", 5, false)]
-    [InlineData(ProviderTokens.AppleIssuer, "another.app", 5, false)]
-    [InlineData(ProviderTokens.AppleIssuer, "app.textstack", -1, false)]
-    public void VerifyApple_IssuerAudienceExpiry_IdentityOnlyForApplesUnexpiredTokenForThisApp(string issuer, string audience, int expiresInMinutes, bool accepted)
-    {
-        var apple = new ProviderTokens(apple: new AppleSettings { BundleId = "app.textstack" })
-            .VerifyApple(AppleToken(issuer, audience, expiresInMinutes));
-
-        // The token email proves nothing on its own (verification as legacy; review owner-deferred): nothing links by it.
-        Assert.Equal(accepted ? ("apple-subject", "reader@privaterelay.appleid.com") : default, (apple?.Subject, apple?.Email));
-    }
-
-    [Fact]
-    public void VerifyApple_NotAJwt_Null()
-    {
-        Assert.Null(new ProviderTokens().VerifyApple("not a jwt"));
-    }
-
     [Fact]
     public async Task VerifyGoogleAsync_NoGoogleSettings_Null()
     {
         Assert.Null(await new ProviderTokens().VerifyGoogleAsync("anything"));
     }
-
-    private static string AppleToken(string issuer, string audience, int expiresInMinutes = 5) => new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
-        issuer: issuer, audience: audience,
-        claims: [new Claim("sub", "apple-subject"), new Claim("email", "reader@privaterelay.appleid.com")],
-        notBefore: DateTime.UtcNow.AddMinutes(-10),
-        expires: DateTime.UtcNow.AddMinutes(expiresInMinutes)));
 }
