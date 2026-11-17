@@ -4,7 +4,7 @@
 # dependency-free Contracts project (tool descriptions) and Observability (the
 # shared Sentry setup — Sentry and nothing else), never Application /
 # Infrastructure / Domain.
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:cc02b814237a76c4735fb6eeee87181597b5e56f2ce458a435e527674d91f4d7 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0-alpine@sha256:52556c0fb9d0f609ae9aeab9efeeba96f4acc2f7038f7696f2235ccbdbb8e290 AS build
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props ./
@@ -18,7 +18,7 @@ COPY backend/src/Contracts/ backend/src/Contracts/
 COPY backend/src/Observability/TextStack.Observability/ backend/src/Observability/TextStack.Observability/
 RUN dotnet publish backend/src/Ai/TextStack.Ai.Mcp/TextStack.Ai.Mcp.csproj -c Release -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:254fe017495996d3abcc487ffacdcce2b73affb380d3af87af12c8dff41fe0b0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0-alpine@sha256:d39b72ad1534fa0faf52b488bffb0762df7ba269d120f0338713d4dda2a41bf5 AS runtime
 RUN deluser app 2>/dev/null; delgroup app 2>/dev/null; \
     addgroup -g 1000 app && adduser -D -u 1000 -G app app
 WORKDIR /app
