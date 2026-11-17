@@ -1,7 +1,7 @@
 import { View, Text, TouchableOpacity } from 'react-native'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
-import { getStorageUrl, formatTimeAgo, type ContinueReadingPick } from '@textstack/shared'
+import { formatTimeAgo, type ContinueReadingPick } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
@@ -9,6 +9,7 @@ import type { BookRowModel } from '../../lib/bookRow'
 import type { BookOffline } from '../../hooks/useBookOffline'
 import { BookStatusBadge } from './BookStatusBadge'
 import { GeneratedCover } from './GeneratedCover'
+import { useCoverSource } from '../../hooks/useCoverSource'
 import { OfflineStateBadge } from './OfflineStateBadge'
 import { ResumeButton } from './ResumeButton'
 import { styles } from './shared'
@@ -29,6 +30,7 @@ export function BookListRow({ model, offline, pick, isTop, busyKey, onOpen, onMe
   const { colors } = useTheme()
   const { t } = useLanguage()
   const { title, author, cover, pct, isFailed, isFinished, dimmed, pill, lastRead, errorMessage } = model
+  const [coverSource, onCoverError] = useCoverSource(cover)
   const continuePill = pick ? <ResumeButton pick={pick} filled={isTop} onResume={onResume} busyKey={busyKey} /> : null
 
   return (
@@ -40,8 +42,8 @@ export function BookListRow({ model, offline, pick, isTop, busyKey, onOpen, onMe
         activeOpacity={0.85}
       >
         <View style={styles.coverWrapper}>
-          {cover ? (
-            <Image source={getStorageUrl(cover)} style={styles.cover} contentFit="cover" />
+          {coverSource ? (
+            <Image source={coverSource} style={styles.cover} contentFit="cover" onError={onCoverError} />
           ) : (
             <GeneratedCover title={title} author={author} style={styles.cover} />
           )}

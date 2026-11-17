@@ -3,7 +3,7 @@
 # runs migrate.sh with the same arguments. See database/v2/README.md.
 #
 #   run.sh up | down <version> | status | verify
-#   run.sh create    only the CREATE below, no migrations: the empty database `make restore-v2` loads
+#   run.sh create    only the CREATE below, no migrations: the empty database `make restore` loads
 #   run.sh drop <name>   DROP DATABASE, the baseline's only rollback; <name> must equal PGDATABASE
 #
 # Connection: the libpq variables, as for migrate.sh. PGUSER must be allowed to CREATE DATABASE,

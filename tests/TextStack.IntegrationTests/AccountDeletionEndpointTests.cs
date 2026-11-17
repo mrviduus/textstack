@@ -11,8 +11,8 @@ namespace TextStack.IntegrationTests;
 /// destructive delete never touches the shared <see cref="AuthenticatedApiFixture"/>
 /// user. The throwaway user authenticates with a Bearer access token (returned in
 /// the body when the request advertises <c>X-Client: mobile</c>), populates
-/// representative dependent rows (vocabulary word, catalog highlight, user book via
-/// clip, reading session), then deletes the account and verifies everything is gone.
+/// representative dependent rows on <c>/me/v2</c> (book, highlight, reading session,
+/// vocabulary word), then deletes the account and verifies everything is gone.
 ///
 /// Requires: docker compose up with ENABLE_TEST_AUTH=true.
 /// </summary>
@@ -43,58 +43,49 @@ public class AccountDeletionEndpointTests : IClassFixture<LiveApiFixture>
         var token = await CreateThrowawayUserAsync(ct);
         Assert.SkipWhen(token is null, "test auth unavailable");
 
-        // 2. Discover a catalog edition + chapter (for the highlight).
-        var (editionId, chapterId) = await DiscoverEditionChapterAsync(ct);
-        Assert.SkipWhen(editionId is null, "no catalog book available");
-
-        // 3. Populate representative dependent rows.
-
-        // Vocabulary word — no edition FK required.
-        var vocabResp = await SendAsync(HttpMethod.Post, "/me/vocabulary/words", token!,
-            new { word = $"w{Guid.NewGuid():N}"[..12], language = "de", nativeLanguage = "en" }, ct);
-        Assert.SkipWhen(IntegrationSkip.Unavailable(vocabResp), "vocabulary endpoint unavailable");
-        Assert.True(vocabResp.IsSuccessStatusCode, $"save word failed: {vocabResp.StatusCode}");
-
-        // Catalog highlight.
-        var highlightResp = await SendAsync(HttpMethod.Post, "/me/highlights", token!, new
+        // 2. Populate representative dependent rows (V2): a book with a file, a highlight in it,
+        // a reading session and a vocabulary word.
+        var (bookId, fileId) = (Guid.NewGuid(), Guid.NewGuid());
+        var bookResp = await SendAsync(HttpMethod.Put, $"/me/v2/books/{bookId}", token!, new
         {
-            editionId,
-            chapterId,
-            anchorJson = """{"prefix":"a","exact":"b","suffix":"c","startOffset":0,"endOffset":1,"chapterId":"x"}""",
-            color = "yellow",
-            selectedText = "b"
+            title = "Deletion test book",
+            file = new { id = fileId, sha256 = V2.V2ApiFixture.NewSha256(), byteSize = 1024, originalName = "book.epub", format = "epub" },
+        }, ct);
+        Assert.SkipWhen(IntegrationSkip.Unavailable(bookResp), "/me/v2 unavailable");
+        Assert.Equal(HttpStatusCode.Created, bookResp.StatusCode);
+
+        var highlightId = Guid.NewGuid();
+        var highlightResp = await SendAsync(HttpMethod.Put, $"/me/v2/annotations/{highlightId}", token!, new
+        {
+            bookId,
+            fileId,
+            selectedText = "It was a bright cold day",
+            locator = new { version = 1, scheme = "epub-cfi", value = "epubcfi(/6/4!/4/2/1:0)", quote = "bright", prefix = "It was a ", suffix = " cold day" },
         }, ct);
         Assert.True(highlightResp.IsSuccessStatusCode, $"create highlight failed: {highlightResp.StatusCode}");
 
-        // User book via clip (synchronous row creation, no file upload needed).
-        var clipResp = await SendAsync(HttpMethod.Post, "/me/books/clip", token!, new
-        {
-            title = $"Clip {Guid.NewGuid():N}"[..16],
-            html = "<p>Hello world. This is a clipped article body for the deletion test.</p>",
-            language = "en"
-        }, ct);
-        Assert.True(clipResp.IsSuccessStatusCode, $"clip failed: {clipResp.StatusCode}");
-        var clipBody = await clipResp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        var userBookId = clipBody.GetProperty("userBookId").GetGuid();
-
-        // Reading session against the clipped user book.
         var now = DateTimeOffset.UtcNow;
-        var sessionResp = await SendAsync(HttpMethod.Post, "/me/reading/sessions", token!, new
+        var sessionResp = await SendAsync(HttpMethod.Put, $"/me/v2/reading/sessions/{Guid.NewGuid()}", token!, new
         {
-            userBookId,
+            bookId,
             startedAt = now.AddMinutes(-5),
             endedAt = now,
             durationSeconds = 300,
             wordsRead = 100,
-            startPercent = 0.0,
-            endPercent = 0.5
+            startPercent = 0.0m,
+            endPercent = 0.5m,
         }, ct);
         Assert.True(sessionResp.IsSuccessStatusCode, $"session failed: {sessionResp.StatusCode}");
 
-        // Sanity: the data is actually visible before deletion.
-        Assert.True(await CountAsync("/me/vocabulary/words?search=", token!, ct) > 0, "vocab not present pre-delete");
-        Assert.True(await CountAsync($"/me/highlights/{editionId}", token!, ct) > 0, "highlight not present pre-delete");
-        Assert.True((await GetUserBooksAsync(token!, ct)).Contains(userBookId), "user book not present pre-delete");
+        var wordId = Guid.NewGuid();
+        var vocabResp = await SendAsync(HttpMethod.Put, "/me/v2/vocabulary/words", token!,
+            new { id = wordId, language = "de", word = $"w{Guid.NewGuid():N}"[..12], translation = "x" }, ct);
+        Assert.True(vocabResp.IsSuccessStatusCode, $"save word failed: {vocabResp.StatusCode}");
+
+        // 3. Sanity: the data is actually visible before deletion.
+        Assert.Contains(bookId.ToString(), await ReadAsync("/me/v2/library/changes", token!, ct));
+        Assert.Contains(highlightId.ToString(), await ReadAsync("/me/v2/annotations/changes", token!, ct));
+        Assert.Contains(wordId.ToString(), await ReadAsync("/me/v2/vocabulary/changes", token!, ct));
 
         // 4. Delete the account.
         var delResp = await SendAsync(HttpMethod.Delete, "/me/account", token!, null, ct);
@@ -116,9 +107,9 @@ public class AccountDeletionEndpointTests : IClassFixture<LiveApiFixture>
         var freshToken = await TestLoginAsync(_lastEmail!, ct);
         Assert.False(string.IsNullOrEmpty(freshToken), "re-login failed");
 
-        Assert.Equal(0, await CountAsync("/me/vocabulary/words?search=", freshToken!, ct));
-        Assert.Equal(0, await CountAsync($"/me/highlights/{editionId}", freshToken!, ct));
-        Assert.DoesNotContain(userBookId, await GetUserBooksAsync(freshToken!, ct));
+        Assert.DoesNotContain(bookId.ToString(), await ReadAsync("/me/v2/library/changes", freshToken!, ct));
+        Assert.DoesNotContain(highlightId.ToString(), await ReadAsync("/me/v2/annotations/changes", freshToken!, ct));
+        Assert.DoesNotContain(wordId.ToString(), await ReadAsync("/me/v2/vocabulary/changes", freshToken!, ct));
 
         // Cleanup the re-created empty user so we don't leak rows.
         await SendAsync(HttpMethod.Delete, "/me/account", freshToken!, null, ct);
@@ -147,29 +138,6 @@ public class AccountDeletionEndpointTests : IClassFixture<LiveApiFixture>
         return body.TryGetProperty("accessToken", out var t) ? t.GetString() : null;
     }
 
-    private async Task<(Guid? editionId, Guid? chapterId)> DiscoverEditionChapterAsync(CancellationToken ct)
-    {
-        var listReq = new HttpRequestMessage(HttpMethod.Get, "/books?limit=1");
-        listReq.Headers.Host = TestHost;
-        var listResp = await _fixture.Client.SendAsync(listReq, ct);
-        if (!listResp.IsSuccessStatusCode) return (null, null);
-        var list = await listResp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        var items = list.GetProperty("items");
-        if (items.GetArrayLength() == 0) return (null, null);
-        var slug = items[0].GetProperty("slug").GetString();
-
-        var bookReq = new HttpRequestMessage(HttpMethod.Get, $"/books/{slug}");
-        bookReq.Headers.Host = TestHost;
-        var bookResp = await _fixture.Client.SendAsync(bookReq, ct);
-        if (!bookResp.IsSuccessStatusCode) return (null, null);
-        var book = await bookResp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        var editionId = book.GetProperty("id").GetGuid();
-        if (!book.TryGetProperty("chapters", out var chapters) || chapters.GetArrayLength() == 0)
-            return (null, null);
-        var chapterId = chapters[0].GetProperty("id").GetGuid();
-        return (editionId, chapterId);
-    }
-
     private async Task<HttpResponseMessage> SendAsync(
         HttpMethod method, string path, string token, object? body, CancellationToken ct)
     {
@@ -180,30 +148,11 @@ public class AccountDeletionEndpointTests : IClassFixture<LiveApiFixture>
         return await _fixture.Client.SendAsync(req, ct);
     }
 
-    private async Task<int> CountAsync(string listPath, string token, CancellationToken ct)
+    /// <summary>A V2 changes feed as text (ids are matched in it); fails on a non-success answer.</summary>
+    private async Task<string> ReadAsync(string path, string token, CancellationToken ct)
     {
-        var resp = await SendAsync(HttpMethod.Get, listPath, token, null, ct);
-        if (!resp.IsSuccessStatusCode) return -1;
-        var body = await resp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        // /me/vocabulary/words → { total, items }; /me/highlights/{id} → array.
-        if (body.ValueKind == JsonValueKind.Array) return body.GetArrayLength();
-        if (body.TryGetProperty("items", out var items)) return items.GetArrayLength();
-        return -1;
-    }
-
-    private async Task<List<Guid>> GetUserBooksAsync(string token, CancellationToken ct)
-    {
-        // Clipped books live on the "read later" shelf (IsClip = true).
-        var resp = await SendAsync(HttpMethod.Get, "/me/books?shelf=readlater", token, null, ct);
-        var result = new List<Guid>();
-        if (!resp.IsSuccessStatusCode) return result;
-        var body = await resp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        var arr = body.ValueKind == JsonValueKind.Array ? body
-            : body.TryGetProperty("items", out var items) ? items : default;
-        if (arr.ValueKind == JsonValueKind.Array)
-            foreach (var b in arr.EnumerateArray())
-                if (b.TryGetProperty("id", out var id) && id.TryGetGuid(out var g))
-                    result.Add(g);
-        return result;
+        var resp = await SendAsync(HttpMethod.Get, path, token, null, ct);
+        Assert.True(resp.IsSuccessStatusCode, $"GET {path} failed: {resp.StatusCode}");
+        return await resp.Content.ReadAsStringAsync(ct);
     }
 }

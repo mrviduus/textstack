@@ -17,32 +17,29 @@ All day-to-day backup flows go through the Makefile — it already knows the
 container name + credentials from `.env`.
 
 ```bash
-make backup                       # pg_dump → ~/backups/textstack/db_<ts>.sql.gz
+make backup                       # V2 pg_dump → ~/backups/textstack/textstack_v2-db_<ts>.sql.gz
 make backup-list                  # list existing backups
-make backup-verify                # restore latest dump into throwaway pg + sanity queries
+make backup-verify                # restore latest V2 dump into throwaway pg + sanity queries
 make backup-verify FILE=<path>    # verify specific backup
-make restore FILE=~/backups/textstack/db_2026-04-22_030012.sql.gz
+make restore FILE=~/backups/textstack/textstack_v2-db_2026-11-18_030012.sql.gz   # into an absent V2 db
 ```
 
-`backup-verify` spins up `pgvector/pgvector:pg16` on a random port (vanilla `postgres:16` fails: the schema still has `CREATE EXTENSION vector`), loads the gzipped
-dump with `ON_ERROR_STOP`, then runs a sanity SELECT over tables/editions/
-chapters. Exits non-zero if restore aborts or core tables look truncated.
+Since the cutover (2026-11-17) every backup is of the V2 database (`V2_POSTGRES_DB`, default `textstack_v2`); the
+legacy one is read-only and archived, and is no longer dumped. `make backup` runs `infra/scripts/pg-dump-checked.sh`:
+a missing database or a dump without pg_dump's trailer exits 1. `make restore` refuses when the V2 database exists
+(`make migrate-v2-drop CONFIRM=<db>` first); see [database/v2/README.md § Backups](../../database/v2/README.md#backups-1043).
+
+`backup-verify` spins up `pgvector/pgvector:pg16` on a random port, loads the gzipped
+dump with `ON_ERROR_STOP`, then runs a sanity SELECT: at least 10 tables, and `users`, `books`, `book_files`,
+`annotations` non-empty. Exits non-zero if restore aborts or core tables look truncated.
 The throwaway container is removed on exit.
-
-Under the hood `make backup` runs:
-```bash
-docker exec textstack_db_prod pg_dump -U $POSTGRES_USER $POSTGRES_DB \
-  | gzip > ~/backups/textstack/db_$(date +%Y-%m-%d_%H%M%S).sql.gz
-```
 
 ## Automated backup (GitHub Actions)
 
 `.github/workflows/backup.yml` runs **daily at 03:00 UTC** on the self-hosted runner:
 
-1. `pg_dump` → `~/backups/textstack/db-<YYYY-MM-DD>.sql.gz` (`pipefail` + dump-complete trailer check).
-   Then the V2 database → `textstack_v2-db-<YYYY-MM-DD>.sql.gz`: skipped while it does not exist, and a
-   failure there lets every legacy step run and turns the job red at the end
-   ([database/v2/README.md § Backups](../../database/v2/README.md#backups-1043)).
+1. The V2 database → `~/backups/textstack/textstack_v2-db-<YYYY-MM-DD>.sql.gz` (`pg-dump-checked.sh`: a missing
+   database or an incomplete dump fails the job).
 2. `infra/scripts/backup-files-tar.sh`: `tar czf` of `./data/storage` and `./data/library` (a notice while the
    latter does not exist) → `storage-<YYYY-MM-DD>.tar.gz`. Tar exit 1 "file changed as we read it" is a warning; an
    unreadable file fails the job.
@@ -59,9 +56,9 @@ To trigger manually: GitHub UI → Actions → **Scheduled Backup** → Run work
 The only copy that survives losing the server. restic runs in Docker (`restic/restic:0.17.3`), nothing installed
 on the host. Bucket `textstack-backups`, repository encrypted client-side.
 
-- **What:** the DB dump as plain SQL through stdin (`/db.sql` — plain so it deduplicates; a `.gz` re-uploaded
-  ~1.2 GB every night), plus `data/storage`, `data/library` and `.env` (`/backup`). The V2 dump goes as `/db_v2.sql`, last,
-  on nights it exists.
+- **What:** the V2 dump as plain SQL through stdin (`/db_v2.sql` — plain so it deduplicates; a `.gz` re-uploaded
+  ~1.2 GB every night), plus `data/storage`, `data/library` and `.env` (`/backup`). The legacy `/db.sql` is no longer
+  sent; its last snapshots stay (forget keeps the newest of each path).
 - **Retention:** 7 nightly + 3 monthly. **Guard:** the job fails above 9 GB to stay inside R2's free 10 GB.
 - **Secrets (GitHub → Actions):** `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, `R2_ACCESS_KEY_ID` (32 chars),
   `R2_SECRET_ACCESS_KEY` (64 chars). **`RESTIC_PASSWORD` must also be in the owner's password manager** — without
@@ -71,9 +68,10 @@ on the host. Bucket `textstack-backups`, repository encrypted client-side.
 ## Restore drill (monthly, automatic)
 
 `.github/workflows/restore-drill.yml` — 1st of each month and on demand. A clean GitHub-hosted runner restores the
-latest R2 snapshots with **nothing from the server**: DB into a fresh pgvector postgres (fails if core tables look
-truncated), storage + `.env`, then checks 200 random edition covers from the DB exist in the restored files and the
-critical `.env` keys are set (names only).
+latest R2 snapshots with **nothing from the server**: the V2 dump (`/db_v2.sql`) into a fresh pgvector postgres
+(every migrated table counted; fails if `users`, `books`, `book_files` or `annotations` is empty), storage + `.env`,
+then checks 200 random current book files from the DB exist in the restored library and the critical `.env` keys
+are set (names only). Before the cutover it restored the legacy dump and checked edition covers (numbers below).
 
 First run, 2026-10-05: **DB 206 s, files 37 s**; 65 tables, 1,423 editions, 40,582 chapters, 313 users;
 22,449 files / 4.3 GB; covers 200/200.
@@ -103,10 +101,10 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    ```
    Snapshots older than 2026-10-05 hold the dump as `/backup/db.sql.gz` instead:
    `$R dump --path /backup latest /backup/db.sql.gz | gunzip | docker exec -i …`.
-   Then V2, if the backup has one (`$R snapshots --path /db_v2.sql`): create the empty database the way
+   `/db.sql` is the last legacy dump (frozen since the cutover); load it while the Api still opens the legacy
+   database (until M6 retires it). Then V2, which holds all live data: create the empty database the way
    `migrator-v2` does and load it — `docker compose run --rm migrator-v2 create`, then
    `$R dump --path /db_v2.sql latest /db_v2.sql | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d textstack_v2 -v ON_ERROR_STOP=1`.
-   Skip it and the cluster has no V2 database at all (not an empty one); fine only while `FEATURES_V2API` is off.
 4. **Start the rest:** `docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d`
    (the migrator brings the schema forward if the code is newer than the dump).
 5. **Verify:** `curl https://textstack.app/api/health` → `"healthy"`, `/api/health/ready` all ok, open a book,

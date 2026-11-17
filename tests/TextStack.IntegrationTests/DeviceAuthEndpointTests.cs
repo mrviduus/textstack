@@ -10,7 +10,7 @@ namespace TextStack.IntegrationTests;
 /// Requires: docker compose up (API at localhost:8080), ENABLE_TEST_AUTH=true.
 ///
 /// The DB-poking tests (expired seed, hashed-storage assertion) need a host-reachable
-/// Postgres via TEST_DB_CONNECTION; they SKIP when it's unset so the HTTP-only suite
+/// Postgres via TEST_V2_DB_CONNECTION; they SKIP when it's unset so the HTTP-only suite
 /// still runs anywhere.
 /// </summary>
 public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
@@ -198,12 +198,12 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
 
     // ---- DB-backed tests (need host-reachable Postgres) ----
 
-    private static string? DbConn => Environment.GetEnvironmentVariable("TEST_DB_CONNECTION");
+    private static string? DbConn => Environment.GetEnvironmentVariable("TEST_V2_DB_CONNECTION");
 
     [Fact]
     public async Task DeviceCode_StoredHashed()
     {
-        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
+        Assert.SkipWhen(DbConn is null, "TEST_V2_DB_CONNECTION not set");
         var ct = TestContext.Current.CancellationToken;
 
         var body = await RequestCodeAsync(ct);
@@ -231,7 +231,7 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
         // to the live pending row — a stale terminal row of the same code must be
         // invisible, otherwise FirstOrDefault could return it and wrongly yield
         // AlreadyUsed/Expired for a genuinely-approvable CLI flow.
-        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
+        Assert.SkipWhen(DbConn is null, "TEST_V2_DB_CONNECTION not set");
         Assert.SkipUnless(_fixture.IsAuthenticated, "test-login unavailable");
         var ct = TestContext.Current.CancellationToken;
 
@@ -252,7 +252,7 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
                     (@id, @hash, @uc, 'denied', now() - interval '1 hour', 5, now() - interval '2 hour')
                 """, conn);
             cmd.Parameters.AddWithValue("id", Guid.NewGuid());
-            cmd.Parameters.AddWithValue("hash", new string('a', 64)); // distinct device_code_hash
+            cmd.Parameters.AddWithValue("hash", Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N")); // distinct, and unique across runs on a warm database
             cmd.Parameters.AddWithValue("uc", userCode);
             await cmd.ExecuteNonQueryAsync(ct);
         }
@@ -276,7 +276,7 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
     {
         // Companion to the approve scoping test: deny must also hit the live pending
         // row so the CLI poll transitions to access_denied (not authorization_pending).
-        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
+        Assert.SkipWhen(DbConn is null, "TEST_V2_DB_CONNECTION not set");
         Assert.SkipUnless(_fixture.IsAuthenticated, "test-login unavailable");
         var ct = TestContext.Current.CancellationToken;
 
@@ -296,7 +296,7 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
                     (@id, @hash, @uc, 'expired', now() - interval '1 hour', 5, now() - interval '2 hour')
                 """, conn);
             cmd.Parameters.AddWithValue("id", Guid.NewGuid());
-            cmd.Parameters.AddWithValue("hash", new string('b', 64));
+            cmd.Parameters.AddWithValue("hash", Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"));
             cmd.Parameters.AddWithValue("uc", userCode);
             await cmd.ExecuteNonQueryAsync(ct);
         }
@@ -316,7 +316,7 @@ public class DeviceAuthEndpointTests : IClassFixture<AuthenticatedApiFixture>
     [Fact]
     public async Task PollToken_ExpiredCode_ReturnsExpiredToken()
     {
-        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
+        Assert.SkipWhen(DbConn is null, "TEST_V2_DB_CONNECTION not set");
         var ct = TestContext.Current.CancellationToken;
 
         var body = await RequestCodeAsync(ct);

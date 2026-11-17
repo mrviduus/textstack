@@ -24,31 +24,17 @@ jobs:
       - name: Set backup date
         run: |
           echo "BACKUP_DATE=$(date +%F)" >> $GITHUB_ENV
-          # The V2 database (ADR-030): same container, its own dump, files prefixed by its name.
+          # The V2 database (ADR-030) holds all live data since the cutover; the legacy one is
+          # read-only and archived, so it is no longer dumped. Files are prefixed by the V2 name.
           v2=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
           echo "V2_DB=${v2:-textstack_v2}" >> $GITHUB_ENV
 
       - name: Create backup directory
         run: mkdir -p $BACKUP_DIR
 
-      - name: Backup database
-        run: |
-          # Without pipefail a failed pg_dump still exits 0 through gzip and leaves
-          # an empty archive that every later step accepts.
-          set -o pipefail
-          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > $BACKUP_DIR/db-$BACKUP_DATE.sql.gz
-          # pg_dump writes this trailer last; a truncated dump doesn't have it.
-          zcat $BACKUP_DIR/db-$BACKUP_DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
-            || { echo "::error::db-$BACKUP_DATE.sql.gz has no dump-complete trailer"; exit 1; }
-          echo "Database backup: db-$BACKUP_DATE.sql.gz"
-
-      # V2 next to legacy (#1043). Skipped, green, while the database does not exist: migrator-v2 is
-      # behind a profile, so a fresh server has none. continue-on-error: a failure here must not stop
-      # one legacy step below; the last step turns it red. Means nothing for the site.
-      # The script writes the file only once complete: the R2 step sends it only if it exists.
+      # pg-dump-checked.sh: a missing database or a dump without pg_dump's trailer fails the job, and
+      # the file gets its real name only once complete.
       - name: Backup V2 database
-        id: v2
-        continue-on-error: true
         run: |
           POSTGRES_USER=textstack_prod bash $PROJECT_DIR/infra/scripts/pg-dump-checked.sh \
             $V2_DB $BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
@@ -58,6 +44,7 @@ jobs:
       - name: Backup storage
         run: bash $PROJECT_DIR/infra/scripts/backup-files-tar.sh $PROJECT_DIR/data $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz
 
+      # The legacy db-* and pre-deploy-* files are no longer written; the 2 newest of each stay.
       - name: Cleanup old backups (keep 2 newest of each type — history lives in R2)
         run: |
           cd $BACKUP_DIR
@@ -70,12 +57,12 @@ jobs:
       - name: Verify archive integrity
         run: |
           ls -lh $BACKUP_DIR/*.gz | tail -5
-          gunzip -t $BACKUP_DIR/db-$BACKUP_DATE.sql.gz
+          gunzip -t $BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
 
       - name: Verify backup restores into fresh postgres
         run: |
           cd $PROJECT_DIR
-          ./infra/scripts/backup-verify.sh $BACKUP_DIR/db-$BACKUP_DATE.sql.gz
+          ./infra/scripts/backup-verify.sh $BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
 
       # Off-site copy. Everything above lives on the same box as the data it protects; this is the
       # only copy that survives losing the server. restic (in Docker, nothing installed on the host)
@@ -118,21 +105,13 @@ jobs:
           fi
           restic backup --host textstack-prod --tag nightly /backup
           # The dump goes in UNcompressed, through stdin. A .gz differs byte-for-byte every night,
-          # so restic stored all ~1.2 GB of it each time (2026-10-05). Plain SQL dedups by chunk:
-          # a night adds only what changed; restic compresses it itself.
-          zcat "$BACKUP_DIR/db-$BACKUP_DATE.sql.gz" \
-            | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db.sql
-          # V2 before forget/check and the size guard, so it is pruned, integrity-checked and counted
-          # against 9 GB like the rest. Its failure is recorded, not fatal here: legacy's forget/check
-          # still run, and the last step turns the job red. Its own stdin path: restore-drill.yml reads
-          # "no /db_v2.sql snapshot" as "no V2 in this backup".
-          v2="$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz"
-          if [ -f "$v2" ]; then
-            zcat "$v2" | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db_v2.sql \
-              || { echo "::error::V2 upload to R2 failed"; echo "V2_R2_FAILED=1" >> "$GITHUB_ENV"; }
-          else
-            echo "No V2 dump tonight: nothing V2 sent to R2"
-          fi
+          # so restic stored all of it each time (2026-10-05). Plain SQL dedups by chunk: a night adds
+          # only what changed; restic compresses it itself. Before forget/check and the size guard, so
+          # it is pruned, integrity-checked and counted against 9 GB like the rest. The stdin path
+          # stays /db_v2.sql: restore-drill.yml reads it. The last legacy /db.sql snapshots stay:
+          # forget keeps the newest of each path, and none is added any more.
+          zcat "$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz" \
+            | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db_v2.sql
           restic forget --host textstack-prod --keep-daily 7 --keep-monthly 3 --prune
           restic check
           size=$(repo_size)
@@ -157,11 +136,3 @@ jobs:
             [ "$pct" -lt 85 ] || { echo "::error::$mnt is ${pct}% full"; bad=1; }
           done
           exit $bad
-
-      # The V2 dump above is continue-on-error and its R2 upload only records a failure, so every
-      # legacy step runs; this makes either failure the job's red (and email) anyway.
-      - name: V2 backup failed
-        if: always() && (steps.v2.outcome == 'failure' || env.V2_R2_FAILED == '1')
-        run: |
-          echo "::error::The $V2_DB dump or its R2 upload failed (see 'Backup V2 database' / 'Off-site backup'). Legacy backup unaffected."
-          exit 1

@@ -50,6 +50,7 @@ cp .env.example .env          # Edit with real values
 make nginx-setup              # Install nginx config (Linux)
 make nginx-setup-mac          # Mac
 make fix-permissions          # Create data/library etc. owned by uid 1000 (else V2 uploads fail)
+make migrate-v2               # Create + migrate textstack_v2 (V2 mode is the default; the api reads it)
 make up                       # Start services
 
 # Docker
@@ -227,22 +228,20 @@ apps/mobile/e2e/                   # Mobile Playwright E2E
 
 Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 
-**E2E setup**: Global setup authenticates test user + admin, discovers books from API → `.test-data.json`. Auth state stored in `apps/web/e2e/.auth/`. Page object helpers in `apps/web/e2e/helpers/`.
+**E2E setup**: Global setup authenticates test user + admin; auth state stored in `apps/web/e2e/.auth/`. CI runs the whole suite once, in V2 mode, as the PR gate.
 
 **Running the integration suite locally**: it trips its own rate limits at production values — a dozen classes seed a book by clipping one, and the GDPR-delete class calls account-delete four times. CI raises the knobs; do the same locally or you will read 429s as failures:
 
 ```bash
 make migrate-v2               # once: the textstack_v2 database the V2 classes (tests/…/V2) need
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
-  USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 MCP_KEYS_PERMIT_LIMIT=100 FEATURES_V2API=true \
+  USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 MCP_KEYS_PERMIT_LIMIT=100 \
   docker compose up -d --no-deps --force-recreate api
-# once per database: editions ChapterReviewEndpointTests needs (else it skips); idempotent
-docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' \
-  < tests/TextStack.IntegrationTests/Fixtures/chapter-review-editions.sql
 V2_API_TESTS=1 dotnet test tests/TextStack.IntegrationTests   # without V2_API_TESTS the V2 classes skip
-# DB-backed tests (DeviceAuth, RefreshTokenHardening, …) skip unless Postgres is reachable: start the
-# stack with `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
-# TEST_DB_CONNECTION="Host=localhost;Port=5432;Database=<db>;Username=<user>;Password=<pw>"
+# DB-backed tests skip unless Postgres is reachable: start the stack with
+# `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
+# TEST_DB_CONNECTION="Host=localhost;Port=5432;Database=<db>;Username=<user>;Password=<pw>"   (legacy: SchemaDrift, HealthReadyLibrary)
+# TEST_V2_DB_CONNECTION="…;Database=textstack_v2;…"   (identity in V2 mode: DeviceAuth, RefreshTokenHardening)
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```
 
@@ -252,8 +251,6 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 - `ENABLE_TEST_AUTH=true` — enables test auth endpoints (needed for integration + E2E)
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` — needed for admin E2E
 - Integration tests set `Host` header: `general.localhost` (public), `textstack.dev` (admin)
-
-**Vocabulary E2E tests** (`apps/web/e2e/tests/vocabulary.spec.ts`): serial suite; `beforeAll` logs in, wipes the test user's words and saves 3 common words via the API (inline `TEST_WORDS` — rare words would route to `WordLookup` and never reach the SRS list). Covers: flashcards is the default mode, the streak badge shows when words are due, a review session starts in flashcard mode.
 
 ## Extraction Pipeline
 

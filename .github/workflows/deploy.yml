@@ -263,32 +263,18 @@ jobs:
       # containers. Not at the start of the run and not in a parallel job: CI, images
       # and the up-to-40-min SSG wait could then put an hour of writes between the
       # dump and a bad migration, all lost on restore. Here it is minutes before the
-      # migrator (next: web scan + swap or fallback build, "Deploy containers"). Correctness of the
-      # rollback point beats the ~2.5 min this costs.
+      # migrator (next: web scan + swap or fallback build, "Deploy containers").
+      # The V2 database only: it holds all live data since the cutover (ADR-030); the legacy one is
+      # read-only and archived, so it has nothing new to roll back to. A missing V2 database or an
+      # incomplete dump stops the deploy (pg-dump-checked.sh: trailer check, .tmp until complete).
       - name: Pre-deploy backup
         run: |
           mkdir -p ~/backups/textstack
-          DATE=$(date +%F-%H%M)
-          # pipefail + trailer check: a failed pg_dump used to leave an empty archive
-          # and let the deploy proceed with no usable rollback point.
-          set -o pipefail
-          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > ~/backups/textstack/pre-deploy-$DATE.sql.gz
-          zcat ~/backups/textstack/pre-deploy-$DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
-            || { echo "::error::pre-deploy dump is incomplete"; exit 1; }
-          echo "Backup created: pre-deploy-$DATE.sql.gz"
-          # Keep only the 2 newest pre-deploy backups
-          cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
-
-      # The V2 database's rollback point (ADR-030, #1043), after legacy's. A deploy never migrates V2
-      # (that is `make migrate-v2`), and nothing legacy may wait on V2 (the 2026-10-30 postmortem):
-      # a missing database is skipped and a failed dump is a warning, never a stopped deploy.
-      - name: Pre-deploy backup (V2)
-        continue-on-error: true
-        run: |
           v2=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
           v2=${v2:-textstack_v2}
           POSTGRES_USER=textstack_prod bash $PROJECT_DIR/infra/scripts/pg-dump-checked.sh \
             "$v2" ~/backups/textstack/"$v2-pre-deploy-$(date +%F-%H%M).sql.gz"
+          # Keep only the 2 newest pre-deploy backups
           cd ~/backups/textstack && ls -1t $v2-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       # Vite reads apps/web/.env* and inlines VITE_* values into public JS. Nothing
