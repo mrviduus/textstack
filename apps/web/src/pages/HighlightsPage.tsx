@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth, useV2 } from '../context/AuthContext'
-import { v2Offers } from '@textstack/shared'
+import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { getAllHighlights, type HighlightListItem } from '../api/userData'
@@ -24,8 +23,6 @@ interface BookGroup {
 
 export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   const { isAuthenticated } = useAuth()
-  // M5 (#1031): highlight review has no V2 storage: no Review button on V2.
-  const reviewOffered = v2Offers(useV2(), 'highlightReview')
   const { t } = useTranslation()
   const { language, getLocalizedPath } = useLanguage()
   const navigate = useNavigate()
@@ -33,7 +30,6 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   const [highlights, setHighlights] = useState<HighlightListItem[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'all' | 'edition' | 'userbook'>('all')
   const [search, setSearch] = useState('')
   const [colorFilter, setColorFilter] = useState<string | ''>('')
   const [offset, setOffset] = useState(0)
@@ -46,7 +42,6 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
       const result = await getAllHighlights({
         limit: PAGE_SIZE,
         offset: newOffset,
-        bookType: activeTab,
         sort: 'newest',
         search: search || undefined,
         color: colorFilter || undefined,
@@ -64,13 +59,13 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
     } finally {
       setLoading(false)
     }
-  }, [activeTab, search, colorFilter, offset])
+  }, [search, colorFilter, offset])
 
   useEffect(() => {
     if (!isAuthenticated) return
     setOffset(0)
     fetchHighlights(true)
-  }, [isAuthenticated, activeTab, search, colorFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, search, colorFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Highlights added/removed in the reader (or any other surface) re-pull
   // the list so this page stays current without remount.
@@ -124,7 +119,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
             title={t('highlights.empty.title')}
             subtitle={t('highlights.empty.subtitle')}
             buttonLabel={t('highlights.empty.cta')}
-            buttonTo="/books"
+            buttonTo="/library"
           />
         </div>
         <Footer />
@@ -138,30 +133,9 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
 
         <div className="highlights-page__header">
           {!embedded && <h1>{t('highlights.title')}</h1>}
-          {reviewOffered && <div className="vocab-review-actions">
-            <button
-              className="vocab-review-btn"
-              onClick={() => navigate(getLocalizedPath('/highlights/review'))}
-              disabled={totalCount === 0}
-            >
-              {t('highlights.reviewButton')}
-            </button>
-          </div>}
         </div>
 
         <div className="highlights-page__filters">
-          <div className="highlights-page__tabs">
-            {(['all', 'edition', 'userbook'] as const).map(tab => (
-              <button
-                key={tab}
-                className={`highlights-page__tab ${activeTab === tab ? 'highlights-page__tab--active' : ''}`}
-                onClick={() => setActiveTab(tab)}
-              >
-                {tab === 'all' ? t('highlights.all') : tab === 'edition' ? t('highlights.libraryBooks') : t('highlights.myBooks')}
-              </button>
-            ))}
-          </div>
-
           <div className="highlights-page__search-row">
             <input
               type="text"
@@ -268,15 +242,9 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   )
 }
 
-/**
- * Where a highlight opens (unprefixed). The catalog reader is `/books/:slug/:chapter` — there is no
- * `/read/` segment there (that is uploads only); the old `/books/:slug/read/:chapter` was a 404.
- */
+/** Where a highlight opens (unprefixed): its upload in the reader, which jumps to `?highlight`. */
 export function highlightReaderPath(h: HighlightListItem): string | null {
-  if (h.editionId && h.editionSlug && h.chapterSlug) return `/books/${h.editionSlug}/${h.chapterSlug}?direct=1&highlight=${h.id}`
-  if (h.editionId && h.editionSlug) return `/books/${h.editionSlug}`
   if (h.userBookId && h.userChapterSlug) return `/library/my/${h.userBookId}/read/${h.userChapterSlug}?direct=1&highlight=${h.id}`
-  // Chapterless (Original-layout PDF) highlight — ReaderPage reads ?highlight and scrolls to the anchor's page.
   if (h.userBookId) return `/library/my/${h.userBookId}/read?direct=1&highlight=${h.id}`
   return null
 }

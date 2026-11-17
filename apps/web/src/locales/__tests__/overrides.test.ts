@@ -27,21 +27,9 @@ const OVERRIDES: Record<string, string> = {
     'Brand. The website is "TextStack Reader" (index.html, the manifest, SeoHead, the ' +
     'JSON-LD); the app is "TextStack" (app.json). Each names itself.',
 
-  'library.actions.addToCollectionEmpty':
-    'Different affordance in view: web points at the sidebar, mobile at a sheet below.',
-
-  'library.collections.new':
-    'Mobile bakes a "+" into the copy where web renders an icon. A smell worth fixing on ' +
-    'the mobile side — until it is, the two really do differ.',
-
   'library.sort.added':   'Short labels for a phone; both reached via t(`library.sort.${key}`).',
   'library.sort.progress': 'Short labels for a phone; both reached via t(`library.sort.${key}`).',
   'library.sort.recent':  'Short labels for a phone; both reached via t(`library.sort.${key}`).',
-
-  'reader.vocab.tapAgainToStudy':
-    'A mechanism difference, not copy: web\'s t() interpolates {{n}}, the shared t() does ' +
-    'no interpolation at all and mobile hand-rolls .replace("{n}", …). Retire this by ' +
-    'giving the shared t() a vars argument, not by editing the string.',
 }
 
 type Node = Record<string, unknown>

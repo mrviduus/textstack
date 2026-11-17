@@ -1,11 +1,7 @@
-import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { insightChapterLabel, insightDateLabel, v2Offers, type BookInsight } from '@textstack/shared'
-import { useV2 } from '../../context/AuthContext'
+import { insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
 import { useTranslation } from '../../hooks/useTranslation'
-import { chapterReviewPath } from '../../hooks/useBookReviews'
-import { LocalizedLink } from '../LocalizedLink'
 
 /**
  * "What you've worked out" — the conclusions an outside assistant wrote back into
@@ -21,37 +17,12 @@ import { LocalizedLink } from '../LocalizedLink'
  * belongs next to the connect prompt, not on every book page.
  */
 interface Props {
-  /** From the page's `useBookReviews` — one copy, so a delete here also clears the chapter rows' badge. */
+  /** From the page's `useBookReviews`. */
   insights: BookInsight[]
-  /** Deletes on the server and from `insights`; rejects when the server refuses. */
-  onRemove: (id: string) => Promise<void>
-  /** Exactly one of these — where a reviewed row's summary page lives. */
-  userBookId?: string
-  bookSlug?: string
 }
 
-export function BookInsightsSection({ insights, onRemove, userBookId, bookSlug }: Props) {
+export function BookInsightsSection({ insights }: Props) {
   const { t } = useTranslation()
-  // M5 (#1031): no chapter review on V2: no link to one.
-  const reviewOffered = v2Offers(useV2(), 'chapterReview')
-  // No delete route on V2: no remove button.
-  const removable = v2Offers(useV2(), 'insightDelete')
-  // The id being removed, so the row can say so and cannot be double-submitted.
-  const [removing, setRemoving] = useState<string | null>(null)
-
-  // The page's list drops the row on success: the section disappears when the last one goes.
-  const remove = async (id: string) => {
-    setRemoving(id)
-    try {
-      await onRemove(id)
-    } catch {
-      // A supplementary panel never takes the book page down. The row stays, which is the honest
-      // outcome — it is still there.
-    } finally {
-      setRemoving(null)
-    }
-  }
-
   if (insights.length === 0) return null
 
   return (
@@ -76,34 +47,10 @@ export function BookInsightsSection({ insights, onRemove, userBookId, bookSlug }
                   {insightDateLabel(insight)}
                 </time>
               )}
-              {/* A conclusion filed against the wrong chapter is never revisited by the assistant —
-                  it only ever replaces its own row for the chapter it MEANT. Removing it is the
-                  reader's, and only the reader's. Its own element, not inside the label: the label
-                  is what says which chapter this is, and it should read as only that. */}
-              {removable && <button
-                type="button"
-                className="book-insights__remove"
-                onClick={() => remove(insight.id)}
-                disabled={removing === insight.id}
-                aria-label={t('library.insights.remove')}
-                title={t('library.insights.remove')}
-              >
-                ×
-              </button>}
             </div>
 
             {insight.question && (
               <div className="book-insights__question">{insight.question}</div>
-            )}
-
-            {/* A structured review has its own page; the Markdown below is its fallback rendering. */}
-            {reviewOffered && insight.review && insight.chapterSlug && (userBookId || bookSlug) && (
-              <LocalizedLink
-                className="book-insights__review-link"
-                to={chapterReviewPath(userBookId ? { userBookId } : { bookSlug: bookSlug! }, insight.chapterSlug)}
-              >
-                {t('chapterReview.openReview')}
-              </LocalizedLink>
             )}
 
             {/* react-markdown does not parse raw HTML (no rehype-raw), so assistant

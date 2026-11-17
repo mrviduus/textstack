@@ -82,13 +82,6 @@ export default defineConfig({
           Host: 'general.localhost',
         },
       },
-      '/books': {
-        target: 'http://localhost:8080',
-        changeOrigin: false,
-        headers: {
-          Host: 'general.localhost',
-        },
-      },
       '/storage': {
         target: 'http://localhost:8080',
         changeOrigin: false,

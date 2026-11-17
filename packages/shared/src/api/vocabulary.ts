@@ -75,10 +75,6 @@ export function updateVocabSettings(data: VocabSettingsDto, signal?: AbortSignal
   return authFetch<VocabSettingsDto>('/me/vocabulary/settings', { ...jsonBody('PUT', data), signal })
 }
 
-export function unretireWord(id: string) {
-  return authFetch<VocabularyWordDto>(`/me/vocabulary/words/${id}/unretire`, { method: 'POST' })
-}
-
 export function submitReview(data: { wordId: string; isCorrect: boolean; responseTimeMs: number; selfAssessment?: string; isPractice?: boolean }) {
   return authFetch<SubmitReviewResponse>('/me/vocabulary/review', jsonBody('POST', data))
 }

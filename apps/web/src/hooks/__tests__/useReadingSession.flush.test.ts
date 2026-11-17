@@ -1,152 +1,45 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
-
-// submitSession is driven per-test; keep a stable spy the mock delegates to.
-const submitSession = vi.fn()
-vi.mock('../../api/readingTracking', () => ({
-  submitSession: (...args: unknown[]) => submitSession(...args),
-}))
-
-// Flush only runs when authenticated.
-vi.mock('../../context/AuthContext', () => ({
-  useAuth: () => ({ isAuthenticated: true }),
-}))
-
-vi.mock('../../lib/analytics', () => ({
-  trackReadingSessionEnd: vi.fn(),
-}))
-
-import { useReadingSession } from '../useReadingSession'
-import { ApiError } from '../../api/client'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { flushPendingSessions } from '../useReadingSession'
 
 const KEY = 'reading.pendingSessions'
 
-function makePendingSession() {
-  const now = new Date()
-  return {
-    editionId: 'dead-book-id',
-    userBookId: null,
-    startedAt: now.toISOString(),
-    endedAt: now.toISOString(),
-    durationSeconds: 60,
-    wordsRead: 100,
-    startPercent: 0,
-    endPercent: 0.1,
-  }
+const session = (over: object = {}) => {
+  const now = new Date().toISOString()
+  return { editionId: null, userBookId: 'b1', clientSessionId: 's1', startedAt: now, endedAt: now, durationSeconds: 0, wordsRead: 0, startPercent: 0, endPercent: 0.1, ...over }
 }
+const answer = (status: number) => vi.fn().mockResolvedValue({ ok: status < 400, status, text: async () => '{"code":"x","message":"x"}', json: async () => ({}) })
 
-const opts = { editionId: 'e1', totalWords: 100, startPercent: 0, isAuthenticated: true }
+beforeEach(() => localStorage.clear())
+afterEach(() => vi.unstubAllGlobals())
 
-describe('useReadingSession — flushPendingSessions pruning', () => {
-  beforeEach(() => {
-    localStorage.clear()
-    submitSession.mockReset()
+// The V2 reader's ended sessions: queued, sent, retried until the server settles them.
+describe('flushPendingSessions', () => {
+  it('a session the server took leaves the queue', async () => {
+    vi.stubGlobal('fetch', answer(200))
+    localStorage.setItem(KEY, JSON.stringify([session()]))
+    await flushPendingSessions()
+    expect(localStorage.getItem(KEY)).toBeNull()
   })
 
-  it('prunes the pending session on a 404 (deleted book) — not re-queued', async () => {
-    localStorage.setItem(KEY, JSON.stringify([makePendingSession()]))
-    submitSession.mockRejectedValue(new ApiError(404, 'Not Found'))
+  it('a book gone (404) drops its session, a server error (5xx) keeps it for the next flush', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('fetch', answer(404))
+    localStorage.setItem(KEY, JSON.stringify([session()]))
+    await flushPendingSessions()
+    expect(localStorage.getItem(KEY)).toBeNull()
 
-    renderHook(() => useReadingSession(opts))
-
-    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
-    // 404 => dropped permanently, nothing re-saved.
-    await waitFor(() => expect(localStorage.getItem(KEY)).toBeNull())
+    vi.stubGlobal('fetch', answer(503))
+    localStorage.setItem(KEY, JSON.stringify([session()]))
+    await flushPendingSessions()
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toHaveLength(1)
   })
 
-  it('re-queues the pending session on a 5xx (transient) for retry', async () => {
-    localStorage.setItem(KEY, JSON.stringify([makePendingSession()]))
-    submitSession.mockRejectedValue(new ApiError(500, 'Server Error'))
-
-    renderHook(() => useReadingSession(opts))
-
-    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
-    await waitFor(() => {
-      const raw = localStorage.getItem(KEY)
-      expect(raw).not.toBeNull()
-      expect(JSON.parse(raw!)).toHaveLength(1)
-    })
-  })
-
-  it('re-queues the pending session on a network error for retry', async () => {
-    localStorage.setItem(KEY, JSON.stringify([makePendingSession()]))
-    submitSession.mockRejectedValue(new Error('network down'))
-
-    renderHook(() => useReadingSession(opts))
-
-    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
-    await waitFor(() => {
-      const raw = localStorage.getItem(KEY)
-      expect(raw).not.toBeNull()
-      expect(JSON.parse(raw!)).toHaveLength(1)
-    })
-  })
-
-  it('clamps a queued duration to its own span and drops a 400 instead of re-queuing it', async () => {
-    const started = new Date(Date.now() - 27_600)
-    const session = { ...makePendingSession(), startedAt: started.toISOString(), endedAt: new Date(started.getTime() + 27_600).toISOString(), durationSeconds: 30 }
-    localStorage.setItem(KEY, JSON.stringify([session]))
-    submitSession.mockRejectedValue(new ApiError(400, 'EndedAt - StartedAt must be >= DurationSeconds'))
-
-    renderHook(() => useReadingSession(opts))
-
-    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
-    expect(submitSession.mock.calls[0][0].durationSeconds).toBe(27)
-    await waitFor(() => expect(localStorage.getItem(KEY) ?? '[]').toBe('[]'))
-  })
-
-  it('keeps a session enqueued while the flush is in flight (no clobber on write-back)', async () => {
-    const old = makePendingSession()
-    localStorage.setItem(KEY, JSON.stringify([old]))
-    let resolveSubmit!: () => void
-    submitSession.mockReturnValue(new Promise<void>(r => { resolveSubmit = r }))
-
-    renderHook(() => useReadingSession(opts))
-    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
-
-    // Another tab / the unload path enqueues while the request is outstanding.
-    const fresh = { ...makePendingSession(), editionId: 'fresh-book' }
-    localStorage.setItem(KEY, JSON.stringify([...JSON.parse(localStorage.getItem(KEY) ?? '[]'), fresh]))
-    resolveSubmit()
-
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(KEY) ?? '[]')).toEqual([fresh]))
-  })
-
-  it('keeps a failed session and one enqueued during the flush', async () => {
-    localStorage.setItem(KEY, JSON.stringify([makePendingSession()]))
-    let rejectSubmit!: (e: Error) => void
-    submitSession.mockReturnValue(new Promise<void>((_, r) => { rejectSubmit = r }))
-
-    renderHook(() => useReadingSession(opts))
-    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
-
-    const fresh = { ...makePendingSession(), editionId: 'fresh-book' }
-    localStorage.setItem(KEY, JSON.stringify([...JSON.parse(localStorage.getItem(KEY) ?? '[]'), fresh]))
-    rejectSubmit(new Error('network down'))
-
-    await waitFor(() => {
-      const q = JSON.parse(localStorage.getItem(KEY) ?? '[]')
-      expect(q.map((s: { editionId: string }) => s.editionId)).toEqual(['dead-book-id', 'fresh-book'])
-    })
-  })
-})
-
-describe('useReadingSession — a queued V2 session', () => {
-  beforeEach(() => {
-    localStorage.clear()
-    submitSession.mockReset()
-  })
-
-  it('answered 404 (V2 unmapped, or the book gone) is dropped, not retried forever', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => '{"code":"book_not_found","message":"x"}' }))
-    localStorage.setItem(KEY, JSON.stringify([{ ...makePendingSession(), editionId: null, userBookId: 'b1', clientSessionId: 's1' }]))
-
-    renderHook(() => useReadingSession(opts))
-
-    await waitFor(() => expect(localStorage.getItem(KEY)).toBeNull())
-    expect(submitSession).not.toHaveBeenCalled()
-    expect(warn).toHaveBeenCalled()
-    vi.unstubAllGlobals()
+  it('a session the retired reader queued (no client session id) is dropped unsent', async () => {
+    const fetch = answer(200)
+    vi.stubGlobal('fetch', fetch)
+    localStorage.setItem(KEY, JSON.stringify([session({ clientSessionId: undefined, userBookId: null, editionId: 'e1' })]))
+    await flushPendingSessions()
+    expect(localStorage.getItem(KEY)).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

@@ -6,7 +6,6 @@ import { BookStatusBadge } from './BookStatusBadge'
 import { GeneratedCover } from './GeneratedCover'
 import { BookActionMenu } from './BookActionMenu'
 import { TagPill } from './TagPill'
-import { SuggestedTagsPopover } from './SuggestedTagsPopover'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useReadingPace } from '../../hooks/useReadingPace'
 import { formatTimeLeft } from '../../lib/timeEstimate'
@@ -17,17 +16,12 @@ const NEW_BADGE_TTL_MS = 24 * 60 * 60 * 1000
 interface UserBookCardProps {
   book: UserBook
   onDelete: () => void
-  onRetry?: () => void
-  onCancel?: () => void
   onUpdate?: () => void
   progress?: { percent: number | null; chapterSlug: string | null; updatedAt: string | null }
   highlighted?: boolean
   selectable?: boolean
   selected?: boolean
   onSelectToggle?: (id: string) => void
-  excerpt?: string | null
-  excerptChapterSlug?: string | null
-  excerptQuery?: string
 }
 
 function formatElapsed(seconds: number): string {
@@ -42,23 +36,12 @@ function isNew(createdAt: string): boolean {
   return Date.now() - t < NEW_BADGE_TTL_MS
 }
 
-// User-uploaded book text is rendered as plain HTML excerpt; allow only <mark>.
-function sanitizeExcerpt(raw: string): string {
-  return raw
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/&lt;mark&gt;/g, '<mark>')
-    .replace(/&lt;\/mark&gt;/g, '</mark>')
-}
-
-export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, progress, highlighted, selectable, selected, onSelectToggle, excerpt, excerptChapterSlug, excerptQuery }: UserBookCardProps) {
+export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, selectable, selected, onSelectToggle }: UserBookCardProps) {
   const { language } = useLanguage()
   const { t } = useTranslation()
   const pace = useReadingPace()
   const percent = progress?.percent ?? 0
   const [elapsed, setElapsed] = useState(0)
-  const [suggestedOpen, setSuggestedOpen] = useState(false)
   const [, setSearchParams] = useSearchParams()
   const filterByTag = (tag: string) => {
     setSearchParams((prev) => {
@@ -87,8 +70,6 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
 
   const onChange = () => {
     onUpdate?.()
-    onRetry?.()
-    onCancel?.()
     onDelete()
   }
 
@@ -102,7 +83,7 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
   const hasOriginalPdf = !!book.hasOriginalPdf
   const readable = isReady || hasOriginalPdf
 
-  const targetSlug = excerptChapterSlug || progress?.chapterSlug
+  const targetSlug = progress?.chapterSlug
   const readerBase = `/${language}/library/my/${book.id}`
   // Where "Continue" goes: straight into the text at the reader's position.
   const continueHref = !readable
@@ -113,16 +94,10 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
         ? `${readerBase}/read`                   // chapterless Original (instant read)
         : readerBase
   // The card itself opens the book's page — cover, description, chapters, its own Continue — rather
-  // than dropping the reader into the text with no idea what they opened. The one exception is a
-  // search hit: clicking a matched excerpt means "show me that place", so it still goes to the text.
-  const isSearchHit = !!(excerpt && excerptQuery && isReady)
-  const destination = !readable
-    ? '#'
-    : isSearchHit
-      ? `${continueHref}?find=${encodeURIComponent(excerptQuery!)}`
-      : readerBase
+  // than dropping the reader into the text with no idea what they opened.
+  const destination = !readable ? '#' : readerBase
   const hasPosition = percent > 0 || !!progress?.chapterSlug
-  const showContinue = readable && hasPosition && !book.completedAt && !isSearchHit
+  const showContinue = readable && hasPosition && !book.completedAt
 
   const cardClasses = [
     'user-book-card',
@@ -227,12 +202,6 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
           {book.author && (
             <div className="user-book-card__author" title={book.author}>{book.author}</div>
           )}
-          {excerpt && (
-            <div
-              className="user-book-card__excerpt"
-              dangerouslySetInnerHTML={{ __html: sanitizeExcerpt(excerpt) }}
-            />
-          )}
           {book.tags && book.tags.length > 0 && (
             <div className="user-book-card__tags">
               {book.tags.slice(0, 4).map((tag) => (
@@ -240,28 +209,6 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
               ))}
               {book.tags.length > 4 && (
                 <span className="user-book-card__tags-more">+{book.tags.length - 4}</span>
-              )}
-            </div>
-          )}
-          {isReady && book.suggestedTags && book.suggestedTags.length > 0 && (!book.tags || book.tags.length === 0) && (
-            <div className="user-book-card__suggested-wrap">
-              <button
-                type="button"
-                className="user-book-card__suggested-pill"
-                onClick={(e) => { e.stopPropagation(); setSuggestedOpen((v) => !v) }}
-                aria-haspopup="dialog"
-                aria-expanded={suggestedOpen}
-              >
-                ✨ {book.suggestedTags.length} suggested
-              </button>
-              {suggestedOpen && (
-                <SuggestedTagsPopover
-                  bookId={book.id}
-                  suggestions={book.suggestedTags}
-                  existingTags={book.tags ?? []}
-                  onClose={() => setSuggestedOpen(false)}
-                  onApplied={() => onUpdate?.()}
-                />
               )}
             </div>
           )}
@@ -302,7 +249,7 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
           )}
         </div>
 
-        <BookActionMenu type="userbook" book={book} onChange={onChange} />
+        <BookActionMenu book={book} onChange={onChange} />
       </div>
     </div>
   )

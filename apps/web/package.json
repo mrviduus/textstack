@@ -29,7 +29,6 @@
     "@sentry/node": "catalog:",
     "@sentry/react": "catalog:",
     "cmdk": "^1.1.1",
-    "dompurify": "^3.4.17",
     "pdfjs-dist": "catalog:",
     "pg": "^8.20.0",
     "puppeteer": "^25.16.0",
@@ -37,7 +36,6 @@
     "react-dom": "catalog:",
     "react-markdown": "^10.1.0",
     "react-router-dom": "catalog:",
-    "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {

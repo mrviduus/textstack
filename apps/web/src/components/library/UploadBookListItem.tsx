@@ -128,7 +128,7 @@ export function UploadBookListItem({
         {showContinue && (
           <Link to={continueHref!} className="library-continue">{t('library.continue')}</Link>
         )}
-        <BookActionMenu type="userbook" book={book} onChange={onChange} />
+        <BookActionMenu book={book} onChange={onChange} />
       </div>
     </article>
   )

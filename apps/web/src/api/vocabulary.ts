@@ -1,8 +1,7 @@
-import { authFetch } from './client'
 import { createV2Vocabulary } from '@textstack/shared'
-import { onV2, refuseOnV2, v2Book, v2Store } from './v2'
+import { v2Book, v2Store } from './v2'
 
-// Vocabulary on V2 (#1025): the shared V2 vocabulary (one copy for web and mobile) with the
+// Vocabulary: the shared V2 vocabulary (one copy for web and mobile) with the
 // browser's ids, the last library pull's files and this tab's revision cache.
 const {
   saveV2Word, getV2Words, getV2ReaderVocab, deleteV2Word, updateV2Word, getV2ReviewQueue, submitV2Review,
@@ -210,48 +209,12 @@ export interface PendingListResponse {
 
 // --- API Functions ---
 
-/** `id`/`operationId`: V2 only — a queued save replays as the same card and the same operation. */
-export async function saveWord(request: SaveWordRequest & { id?: string; operationId?: string }): Promise<SaveWordResponse> {
-  if (await onV2()) return saveV2Word(request)
-  const { id: _id, operationId: _operationId, ...data } = request
-  return authFetch<SaveWordResponse>('/me/vocabulary/words', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
+/** `id`/`operationId`: a queued save replays as the same card and the same operation. */
+export function saveWord(request: SaveWordRequest & { id?: string; operationId?: string }): Promise<SaveWordResponse> {
+  return saveV2Word(request)
 }
 
-export async function getPendingWords(): Promise<PendingListResponse> {
-  await refuseOnV2('pendingWords')
-  return authFetch<PendingListResponse>('/me/vocabulary/pending')
-}
-
-export async function promotePendingWord(id: string): Promise<VocabWordDto> {
-  return authFetch<VocabWordDto>(`/me/vocabulary/pending/${id}/promote`, { method: 'POST' })
-}
-
-export async function dismissPendingWord(id: string): Promise<void> {
-  await authFetch<void>(`/me/vocabulary/pending/${id}`, { method: 'DELETE' })
-}
-
-export async function getLookups(params?: { limit?: number; offset?: number }): Promise<WordLookupListResponse> {
-  await refuseOnV2('wordLookups')
-  const query = new URLSearchParams()
-  if (params?.limit) query.set('limit', String(params.limit))
-  if (params?.offset) query.set('offset', String(params.offset))
-  const qs = query.toString()
-  return authFetch<WordLookupListResponse>(`/me/vocabulary/lookups${qs ? `?${qs}` : ''}`)
-}
-
-export async function promoteLookup(id: string): Promise<VocabWordDto> {
-  return authFetch<VocabWordDto>(`/me/vocabulary/lookups/${id}/promote`, { method: 'POST' })
-}
-
-export async function dismissLookup(id: string): Promise<void> {
-  await authFetch<void>(`/me/vocabulary/lookups/${id}`, { method: 'DELETE' })
-}
-
-export async function getWords(params?: {
+export function getWords(params?: {
   stage?: string
   language?: string
   editionId?: string
@@ -261,80 +224,28 @@ export async function getWords(params?: {
   limit?: number
   offset?: number
 }): Promise<{ total: number; items: VocabWordDto[] }> {
-  if (await onV2()) return getV2Words(params)
-  const query = new URLSearchParams()
-  if (params?.stage) query.set('stage', params.stage)
-  if (params?.language) query.set('language', params.language)
-  if (params?.editionId) query.set('editionId', params.editionId)
-  if (params?.search) query.set('search', params.search)
-  if (params?.sort) query.set('sort', params.sort)
-  if (params?.reviewedSince) query.set('reviewedSince', params.reviewedSince)
-  if (params?.limit) query.set('limit', String(params.limit))
-  if (params?.offset) query.set('offset', String(params.offset))
-  const qs = query.toString()
-  return authFetch<{ total: number; items: VocabWordDto[] }>(`/me/vocabulary/words${qs ? `?${qs}` : ''}`)
+  return getV2Words(params)
 }
 
-export async function deleteWord(id: string): Promise<void> {
-  if (await onV2()) return deleteV2Word(id)
-  await authFetch<void>(`/me/vocabulary/words/${id}`, { method: 'DELETE' })
+export function deleteWord(id: string): Promise<void> {
+  return deleteV2Word(id)
 }
 
-export async function deleteAllWords(): Promise<{ deleted: number }> {
-  if (await onV2()) return deleteAllV2Words()
-  return authFetch<{ deleted: number }>('/me/vocabulary/words', { method: 'DELETE' })
+export function deleteAllWords(): Promise<{ deleted: number }> {
+  return deleteAllV2Words()
 }
 
-export async function updateWord(id: string, data: UpdateWordRequest): Promise<VocabWordDto> {
-  if (await onV2()) return updateV2Word(id, data)
-  return authFetch<VocabWordDto>(`/me/vocabulary/words/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
+export function updateWord(id: string, data: UpdateWordRequest): Promise<VocabWordDto> {
+  return updateV2Word(id, data)
 }
 
-export async function getReviewQueue(limit?: number, includeAll?: boolean, practice?: boolean): Promise<ReviewQueueResponse> {
-  if (await onV2()) return getV2ReviewQueue(limit, includeAll)
-  const params = new URLSearchParams()
-  if (limit) params.set('limit', String(limit))
-  if (includeAll) params.set('includeAll', 'true')
-  if (practice) params.set('practice', 'true')
-  const qs = params.toString()
-  return authFetch<ReviewQueueResponse>(`/me/vocabulary/review${qs ? `?${qs}` : ''}`)
+export function getReviewQueue(limit?: number, includeAll?: boolean): Promise<ReviewQueueResponse> {
+  return getV2ReviewQueue(limit, includeAll)
 }
 
-/** `reviewMode`, `operationId`: V2 only (the review row records the mode; a retried answer reuses its id). */
-export async function submitReview(request: SubmitReviewRequest & { reviewMode?: string; operationId?: string }): Promise<SubmitReviewResponse> {
-  if (await onV2()) return submitV2Review(request)
-  const { reviewMode: _reviewMode, operationId: _operationId, ...data } = request
-  return authFetch<SubmitReviewResponse>('/me/vocabulary/review', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-}
-
-export async function getVocabStats(): Promise<VocabStatsDto> {
-  await refuseOnV2('vocabStats')
-  return authFetch<VocabStatsDto>('/me/vocabulary/stats')
-}
-
-export interface VocabDailyStatDto {
-  date: string
-  wordsAdded: number
-  reviewCount: number
-  correctCount: number
-  practiceCount: number
-  srsCount: number
-}
-
-export async function getVocabDailyStats(tz?: number): Promise<VocabDailyStatDto[]> {
-  await refuseOnV2('vocabStats')
-  const params = new URLSearchParams()
-  if (tz != null) params.set('tz', String(tz))
-  const qs = params.toString()
-  return authFetch<VocabDailyStatDto[]>(`/me/vocabulary/stats/daily${qs ? `?${qs}` : ''}`)
+/** `reviewMode`, `operationId`: the review row records the mode; a retried answer reuses its id. */
+export function submitReview(request: SubmitReviewRequest & { reviewMode?: string; operationId?: string }): Promise<SubmitReviewResponse> {
+  return submitV2Review(request)
 }
 
 // --- Reader vocab (lightweight) ---
@@ -344,92 +255,13 @@ export interface ReaderVocabWordDto {
   word: string
   stage: number
   translation?: string
-  /** The card's language (V2 only: the legacy list has none). */
+  /** The card's language. */
   language?: string
 }
 
-/** V2 only: bring back a word deleted earlier (a save answered `deleted`). */
+/** Bring back a word deleted earlier (a save answered `deleted`). */
 export const restoreWord = (id: string): Promise<VocabWordDto> => restoreV2Word(id)
 
-export async function getReaderVocab(): Promise<ReaderVocabWordDto[]> {
-  if (await onV2()) return getV2ReaderVocab()
-  return authFetch<ReaderVocabWordDto[]>('/me/vocabulary/words/reader')
-}
-
-export async function markAsKnown(id: string): Promise<VocabWordDto> {
-  await refuseOnV2('markAsKnown')
-  return authFetch<VocabWordDto>(`/me/vocabulary/words/${id}/known`, { method: 'PUT' })
-}
-
-// --- Anti-spiral (Phase 1) ---
-
-export async function getVocabSettings(): Promise<VocabSettingsDto> {
-  await refuseOnV2('vocabSettings')
-  return authFetch<VocabSettingsDto>('/me/vocabulary/settings')
-}
-
-export async function updateVocabSettings(data: VocabSettingsDto): Promise<VocabSettingsDto> {
-  return authFetch<VocabSettingsDto>('/me/vocabulary/settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-}
-
-export async function unretireWord(id: string): Promise<VocabWordDto> {
-  return authFetch<VocabWordDto>(`/me/vocabulary/words/${id}/unretire`, { method: 'POST' })
-}
-
-// --- Anti-spiral F3: thematic clusters ---
-
-export interface WordClusterDto {
-  id: string
-  title: string
-  theme: string | null
-  editionId: string | null
-  userBookId: string | null
-  bookTitle: string | null
-  memberCount: number
-  cohesionScore: number
-  isConfirmed: boolean
-  createdAt: string
-}
-
-export interface ClusterBonusResponse {
-  clusterId: string
-  title: string
-  cards: ReviewCardDto[]
-}
-
-export async function getClusters(): Promise<{ items: WordClusterDto[] }> {
-  return authFetch<{ items: WordClusterDto[] }>('/me/vocabulary/clusters')
-}
-
-export async function startClusterBonus(id: string): Promise<ClusterBonusResponse> {
-  return authFetch<ClusterBonusResponse>(`/me/vocabulary/clusters/${id}/start-bonus`, { method: 'POST' })
-}
-
-export async function dismissCluster(id: string): Promise<void> {
-  await authFetch<void>(`/me/vocabulary/clusters/${id}/dismiss`, { method: 'POST' })
-}
-
-export async function completeCluster(id: string): Promise<void> {
-  await authFetch<void>(`/me/vocabulary/clusters/${id}/complete`, { method: 'POST' })
-}
-
-// --- Concept clusters (AI-060) ---
-
-export interface ConceptCluster {
-  id: string
-  title: string
-  theme: string | null
-  memberCount: number
-  cohesionScore: number
-  words: string[]
-}
-
-export async function getConcepts(): Promise<ConceptCluster[]> {
-  await refuseOnV2('concepts')
-  const res = await authFetch<{ items: ConceptCluster[] }>('/me/vocabulary/concepts')
-  return res.items
+export function getReaderVocab(): Promise<ReaderVocabWordDto[]> {
+  return getV2ReaderVocab()
 }

@@ -98,20 +98,4 @@ describe('UserBookCard destinations', () => {
     renderCard(makeBook({ status: 'Ready', chapterCount: 10, completedAt: '2026-09-01T00:00:00Z', progressChapterSlug: 'ch-9' }))
     expect(screen.queryByText('library.continue')).toBeNull()
   })
-
-  it('a content-search hit still goes to the matched place in the text', () => {
-    render(
-      <MemoryRouter>
-        <UserBookCard
-          book={makeBook({ id: 'b2', status: 'Ready', chapterCount: 10 })}
-          onDelete={() => {}}
-          excerpt="the <mark>leader</mark> election"
-          excerptChapterSlug="ch-8"
-          excerptQuery="leader"
-        />
-      </MemoryRouter>,
-    )
-    expect((screen.getByText('My PDF').closest('a') as HTMLAnchorElement).getAttribute('href')).toBe('/en/library/my/b2/read/ch-8?find=leader')
-    expect(screen.queryByText('library.continue')).toBeNull()
-  })
 })

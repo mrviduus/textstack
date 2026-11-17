@@ -1,20 +1,16 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { useAuth, useV2 } from '../context/AuthContext'
-import { v2Offers } from '@textstack/shared'
+import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
-import { getUserBook, getUserBookProgress, deleteUserBook, retryUserBook, enrichUserBook, markUserBookComplete, unmarkUserBookComplete, getUserBookCoverUrl, getUserBookFileUrl, type UserBookDetail } from '../api/userBooks'
+import { getUserBook, getUserBookProgress, deleteUserBook, markUserBookComplete, unmarkUserBookComplete, getUserBookCoverUrl, getUserBookFileUrl, type UserBookDetail } from '../api/userBooks'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { stringToColor } from '../utils/colors'
-import { BookStatsSection } from '../components/library/BookStatsSection'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
 import { AssistantMenu } from '../components/library/AssistantMenu'
 import { currentReviewChapter, bookPages, plural } from '@textstack/shared'
-import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
 import { useBookReviews } from '../hooks/useBookReviews'
 import { emitDataChanges } from '../lib/dataEvents'
-import { AddToCollectionButton } from '../components/library/AddToCollectionButton'
 import { useTranslation } from '../hooks/useTranslation'
 
 interface SavedProgress {
@@ -28,27 +24,19 @@ export function UserBookDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
-  // V2 (#1025): no stats, insights or re-extract on a V2 book (V2_FEATURES).
-  const v2 = useV2()
   const { language } = useLanguage()
   const { t } = useTranslation()
   const [book, setBook] = useState<UserBookDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [reprocessing, setReprocessing] = useState(false)
-  const [enriching, setEnriching] = useState(false)
-  // Local, dismissible error for the enrich-retry action only. Kept SEPARATE
-  // from the page-level `error` so a benign retry rejection (e.g. the sweep
-  // already re-claimed the row → 400) never tears down the whole detail page.
-  const [enrichError, setEnrichError] = useState<string | null>(null)
   // Inline two-stage confirm — mirrors VocabularyPage's delete pattern.
   // First click flips the icon button into a red "Confirm?" pill; a second
   // click within 3 s actually deletes. Avoids the browser-native confirm()
   // popup and the prior loud red-circle visual.
   const [pendingDelete, setPendingDelete] = useState(false)
   const pendingTimeoutRef = useRef<number | null>(null)
-  const { reviews, insights, remove: removeInsight } = useBookReviews(isAuthenticated && book?.status === 'Ready' && v2Offers(v2, 'insights') ? { userBookId: book.id } : null)
+  const { reviews, insights } = useBookReviews(isAuthenticated && book?.status === 'Ready' ? { userBookId: book.id } : null)
 
   // The server's position is the truth (the library card already shows it); localStorage only
   // knows what THIS browser read, so on any other device a 44%-read book said "Start Reading" and
@@ -125,31 +113,6 @@ export function UserBookDetailPage() {
     }, 5000)
     return () => clearInterval(interval)
   }, [book?.status, id])
-
-  // Auto-refresh while metadata enrichment is in flight. The existing poll above
-  // stops at Ready (before enrichment runs), so this covers the Pending/Running
-  // window — the worker can't reach the browser, so we poll until a terminal
-  // state (Completed/Failed) and then stop.
-  useEffect(() => {
-    const s = book?.metadataEnrichmentStatus
-    if (s !== 'Pending' && s !== 'Running') return
-    // Cap the poll so a down worker can't leave us refetching forever. ~24
-    // ticks × 5 s ≈ 2 min, then we give up (the badge keeps showing
-    // "Generating…"); revisiting the page re-arms this effect and restarts it.
-    let ticks = 0
-    const MAX_TICKS = 24
-    const interval = setInterval(() => {
-      if (ticks >= MAX_TICKS) {
-        clearInterval(interval)
-        return
-      }
-      ticks += 1
-      getUserBook(id!)
-        .then(setBook)
-        .catch(() => {})
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [book?.metadataEnrichmentStatus, id])
 
   const handleDelete = async () => {
     if (!id || deleting) return
@@ -233,8 +196,8 @@ export function UserBookDetailPage() {
   // of extraction status, so Processing/Failed must not block or scare.
   const hasOriginalPdf = !!book.hasOriginalPdf
   const pages = bookPages(book)
-  // M5 (#1031): on V2 the reader opens the file itself (queued, processing or failed extraction alike) once its bytes are in.
-  const canRead = v2.enabled ? !!book.hasFile : hasOriginalPdf || (isReady && book.chapters.length > 0)
+  // The reader opens the file itself (queued, processing or failed extraction alike) once its bytes are in.
+  const canRead = !!book.hasFile
   const readerBase = `/${language}/library/my/${book.id}`
   const readHref = continueReadingSlug
     ? `${readerBase}/read/${continueReadingSlug}`
@@ -280,81 +243,10 @@ export function UserBookDetailPage() {
             <p className="user-book-detail__description">{book.description}</p>
           )}
 
-          {/* Visible metadata-enrichment status. Only surfaced while work is in
-              flight (Pending/Running) or after a failure — Completed/NotStarted/
-              undefined render nothing so we don't nag on old rows or genuinely
-              undescribable books. */}
-          {(book.metadataEnrichmentStatus === 'Pending' || book.metadataEnrichmentStatus === 'Running') && (
-            <div className="user-book-detail__enrich user-book-detail__enrich--running">
-              <span className="user-book-detail__spinner user-book-detail__spinner--sm" />
-              <span>{t('userBook.enriching')}</span>
-            </div>
-          )}
-
-          {book.metadataEnrichmentStatus === 'Failed' && (
-            <div className="user-book-detail__enrich user-book-detail__enrich--failed">
-              <span>{t('userBook.enrichFailed')}</span>
-              <button
-                type="button"
-                className="user-book-detail__enrich-retry"
-                disabled={enriching}
-                onClick={async () => {
-                  if (!id || enriching) return
-                  setEnriching(true)
-                  setEnrichError(null)
-                  // Optimistic: flip to Pending so the spinner shows immediately
-                  // and the enrichment poll effect starts refetching.
-                  setBook((prev) => (prev ? { ...prev, metadataEnrichmentStatus: 'Pending' } : prev))
-                  try {
-                    await enrichUserBook(id)
-                  } catch (err) {
-                    // The POST may have reached the server (row is now Pending)
-                    // even though the response failed — blindly rolling back to
-                    // Failed would halt the poll while the server enriches. So
-                    // reconcile with the server's TRUE status via a refetch, and
-                    // surface a LOCAL, dismissible error (never the page-level
-                    // `error`, which renders a full-page "Book Not Found").
-                    getUserBook(id)
-                      .then(setBook)
-                      .catch(() => {
-                        // Refetch failed too — keep status at Pending so the poll
-                        // keeps reconciling rather than forcing a stuck Failed.
-                        setBook((prev) => (prev ? { ...prev, metadataEnrichmentStatus: 'Pending' } : prev))
-                      })
-                    setEnrichError(err instanceof Error ? err.message : 'Failed to generate details')
-                  } finally {
-                    setEnriching(false)
-                  }
-                }}
-              >
-                {t('userBook.enrichRetry')}
-              </button>
-            </div>
-          )}
-
-          {/* Local retry error — subtle, dismissible, and NEVER the page-level
-              `error` (which renders a full-page "Book Not Found"). Clears on the
-              next retry attempt / on success. */}
-          {enrichError && (
-            <div className="user-book-detail__enrich user-book-detail__enrich--failed" role="status">
-              <span>{enrichError}</span>
-              <button
-                type="button"
-                className="user-book-detail__enrich-retry"
-                onClick={() => setEnrichError(null)}
-                aria-label="Dismiss"
-              >
-                {t('common.dismiss')}
-              </button>
-            </div>
-          )}
-
           <div className="user-book-detail__meta">
             <span>Language: {book.language}</span>
             {book.genre && <span>{book.genre}</span>}
             {book.publishedYear && <span>{book.publishedYear}</span>}
-            {/* V2: the server's split is not the book's contents (the reader's Contents is). */}
-            {isReady && !v2.enabled && <span>{book.chapters.length} chapters</span>}
             {pages && (
               <span>{plural(pages.pages, 'page', 'pages', `${pages.exact ? '' : '~'}${pages.pages.toLocaleString()} {noun}`)}</span>
             )}
@@ -401,8 +293,8 @@ export function UserBookDetailPage() {
               </Link>
             )}
 
-            {/* V2: the book's own contents, in the reader (its Contents panel opens with the book). */}
-            {canRead && v2.enabled && (
+            {/* The book's own contents, in the reader (its Contents panel opens with the book). */}
+            {canRead && (
               <Link to={`${readerBase}/read?contents=1`} className="user-book-detail__mark-btn">
                 Contents
               </Link>
@@ -421,8 +313,8 @@ export function UserBookDetailPage() {
               />
             )}
 
-            {/* V2: completion is written on the reading place, so a book with no chapter yet has none to mark. */}
-            {isReady && !book.completedAt && (!v2.enabled || book.chapters.length > 0) && (
+            {/* Completion is written on the reading place, so a book with no chapter yet has none to mark. */}
+            {isReady && !book.completedAt && book.chapters.length > 0 && (
               <button
                 onClick={async () => {
                   if ((await markUserBookComplete(book.id)) === 'dropped') return
@@ -446,15 +338,6 @@ export function UserBookDetailPage() {
               </button>
             )}
 
-            {isReady && (
-              <AddToCollectionButton
-                variant="button"
-                bookId={book.id}
-                bookType="userbook"
-                iconOnly
-              />
-            )}
-
             {/* The file you uploaded, not a link: this page is private, so a shared URL opened a
                 login wall for whoever received it (mobile made the same change). */}
             {isReady && (
@@ -469,36 +352,6 @@ export function UserBookDetailPage() {
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
               </a>
-            )}
-
-            {isReady && v2Offers(v2, 'retry') && (
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!id || reprocessing) return
-                  setReprocessing(true)
-                  try {
-                    await retryUserBook(id)
-                    // Flip to Processing so the auto-refresh effect kicks in
-                    // and the user sees the spinner instead of stale Ready state.
-                    setBook({ ...book, status: 'Processing' })
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed to reprocess')
-                  } finally {
-                    setReprocessing(false)
-                  }
-                }}
-                disabled={reprocessing}
-                className="user-book-detail__reextract-icon"
-                aria-label={reprocessing ? 'Reprocessing…' : 'Re-extract this book (pick up extraction improvements)'}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="23 4 23 10 17 10" />
-                  <polyline points="1 20 1 14 7 14" />
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
-                  <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
-                </svg>
-              </button>
             )}
 
             {isReady && (
@@ -523,53 +376,9 @@ export function UserBookDetailPage() {
         </div>
       </div>
 
-      {isReady && book && v2Offers(v2, 'stats') && (
-        <BookStatsSection bookId={book.id} />
-      )}
-
-      {/* Above the chapter list on purpose: coming back to a book, what you
-          already worked out is more use than the table of contents. */}
-      {isReady && book && v2Offers(v2, 'insights') && (
-        <BookInsightsSection insights={insights} onRemove={removeInsight} userBookId={book.id} />
-      )}
-
-      {/* V2 (M5): the server's chapter split is not the book's table of contents: the Contents button opens the book's own. */}
-      {isReady && !v2.enabled && book.chapters.length > 0 && (
-        <div className="user-book-detail__chapters">
-          <h2>Chapters</h2>
-          <ul className="user-book-detail__chapter-list">
-            {book.chapters.map((chapter) => {
-              const row = (
-                <>
-                  <span className="user-book-detail__chapter-number">
-                    {chapter.chapterNumber}.
-                  </span>
-                  <span className="user-book-detail__chapter-title">
-                    {chapter.title}
-                  </span>
-                  {chapter.wordCount && (
-                    <span className="user-book-detail__chapter-words">
-                      {chapter.wordCount.toLocaleString()} words
-                    </span>
-                  )}
-                </>
-              )
-              return (
-              <li key={chapter.id}>
-                <Link to={`/${language}/library/my/${book.id}/read/${chapter.slug || chapter.chapterNumber}`}>{row}</Link>
-                {/* A review is keyed by slug; a slugless legacy chapter cannot be reviewed. M5 (#1031): none on V2. */}
-                {chapter.slug && v2Offers(v2, 'chapterReview') && (
-                  <ChapterReviewAction
-                    book={{ title: book.title, author: book.author, userBookId: book.id }}
-                    chapter={{ slug: chapter.slug, title: chapter.title, wordCount: chapter.wordCount }}
-                    reviewed={reviews.has(chapter.slug)}
-                  />
-                )}
-              </li>
-              )
-            })}
-          </ul>
-        </div>
+      {/* Coming back to a book, what you already worked out. */}
+      {isReady && book && (
+        <BookInsightsSection insights={insights} />
       )}
 
     </div>

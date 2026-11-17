@@ -25,12 +25,6 @@ export function Footer() {
             if (link && link.target !== '_blank') window.scrollTo(0, 0)
           }}
         >
-          <nav className="site-footer__col" aria-labelledby="footer-col-read">
-            <h2 id="footer-col-read" className="site-footer__heading">{t('footer.colRead')}</h2>
-            <LocalizedLink to="/books" className="site-footer__link">{t('nav.catalog')}</LocalizedLink>
-            <LocalizedLink to="/authors" className="site-footer__link">{t('footer.authors')}</LocalizedLink>
-            <LocalizedLink to="/genres" className="site-footer__link">{t('nav.genres')}</LocalizedLink>
-          </nav>
           <nav className="site-footer__col" aria-labelledby="footer-col-app">
             <h2 id="footer-col-app" className="site-footer__heading">{t('footer.colApp')}</h2>
             <a href={PLAY_URL} className="site-footer__link" target="_blank" rel="noopener noreferrer">{t('footer.android')} ↗</a>
@@ -49,7 +43,6 @@ export function Footer() {
             <LocalizedLink to="/terms" className="site-footer__link">{t('footer.terms')}</LocalizedLink>
             <LocalizedLink to="/dmca" className="site-footer__link">{t('footer.dmca')}</LocalizedLink>
             <LocalizedLink to="/delete-account" className="site-footer__link">{t('footer.deleteAccount')}</LocalizedLink>
-            <LocalizedLink to="/sitemap" className="site-footer__link">{t('footer.sitemap')}</LocalizedLink>
           </nav>
         </div>
 

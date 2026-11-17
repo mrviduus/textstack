@@ -3,15 +3,11 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 
 const markComplete = vi.fn(async (_id: string) => {})
 const unmarkComplete = vi.fn(async (_id: string) => {})
-const retry = vi.fn(async (_id: string) => {})
-const cancel = vi.fn(async (_id: string) => {})
 const del = vi.fn(async (_id: string) => {})
 
 vi.mock('../../api/userBooks', () => ({
   markUserBookComplete: (id: string) => markComplete(id),
   unmarkUserBookComplete: (id: string) => unmarkComplete(id),
-  retryUserBook: (id: string) => retry(id),
-  cancelUserBook: (id: string) => cancel(id),
   deleteUserBook: (id: string) => del(id),
 }))
 
@@ -27,7 +23,7 @@ const book: UserBook = {
 
 beforeEach(() => {
   markComplete.mockClear(); unmarkComplete.mockClear()
-  retry.mockClear(); cancel.mockClear(); del.mockClear()
+  del.mockClear()
 })
 
 describe('useBookActions', () => {
@@ -65,9 +61,9 @@ describe('useBookActions', () => {
   })
 
   it('captures error and stops loading', async () => {
-    retry.mockRejectedValueOnce(new Error('boom'))
+    del.mockRejectedValueOnce(new Error('boom'))
     const { result } = renderHook(() => useBookActions(book, {}))
-    await act(() => result.current.retry())
+    await act(() => result.current.remove())
     await waitFor(() => expect(result.current.error).toBe('boom'))
     expect(result.current.isLoading).toBe(false)
   })
@@ -77,8 +73,8 @@ describe('useBookActions', () => {
     markComplete.mockImplementationOnce(() => new Promise<void>(r => { release = () => r() }))
     const { result } = renderHook(() => useBookActions(book, {}))
     act(() => { result.current.markFinished() })
-    await act(() => result.current.retry())
-    expect(retry).not.toHaveBeenCalled()
+    await act(() => result.current.remove())
+    expect(del).not.toHaveBeenCalled()
     release()
   })
 })
