@@ -81,6 +81,7 @@ function getLast7Days(dailyStats: VocabDailyStatDto[]) {
 export function VocabularyPage() {
   const { isAuthenticated } = useAuth()
   // V2 (#1025): no mode switch, cluster rounds or tutor (V2_FEATURES); the review hook forces the mode.
+  // M5 (#1031): no settings, pending, lookups or chapter questions either (no V2 storage).
   const v2 = useV2()
   const { getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
@@ -139,7 +140,7 @@ export function VocabularyPage() {
         <div className="vocab-page">
           <h1>{t('vocabulary.title')}</h1>
           {/* No words yet can still mean chapter questions due. */}
-          {isAuthenticated && <ChapterQuestionsCard />}
+          {isAuthenticated && v2Offers(v2, 'chapterReview') && <ChapterQuestionsCard />}
           <EmptyState
             icon="📚"
             title={t('vocabulary.emptyPage.title')}
@@ -221,7 +222,9 @@ export function VocabularyPage() {
   }
 
   const dueCount = stats?.dueNow ?? 0
-  const totalWords = stats?.totalWords ?? 0
+  // M5 (#1031): no vocabulary stats on V2; the word list's own count keeps practice and delete-all reachable.
+  const statsOffered = v2Offers(v2, 'vocabStats')
+  const totalWords = stats?.totalWords ?? (statsOffered ? 0 : total)
 
   const bannerContent = () => {
     if (!stats) return null
@@ -262,7 +265,7 @@ export function VocabularyPage() {
       <div className="vocab-page">
         <div className="vocab-page__header">
           <h1>{t('vocabulary.title')}</h1>
-          {isAuthenticated && (
+          {isAuthenticated && v2Offers(v2, 'vocabSettings') && (
             <button
               type="button"
               className="vocab-settings-btn"
@@ -310,7 +313,7 @@ export function VocabularyPage() {
         )}
 
         {/* Start practice card (from Practice) */}
-        {isAuthenticated && stats && totalWords > 0 && (
+        {isAuthenticated && (stats || !statsOffered) && totalWords > 0 && (
           <div className="practice-page__card">
             <div className="practice-page__settings">
               {!v2.enabled && <div className="practice-page__setting">
@@ -363,7 +366,7 @@ export function VocabularyPage() {
         )}
 
         {/* Chapter-review questions — a separate queue from the words (chapter-review.md §11) */}
-        {isAuthenticated && <ChapterQuestionsCard />}
+        {isAuthenticated && v2Offers(v2, 'chapterReview') && <ChapterQuestionsCard />}
 
         {/* Weekly activity — area chart (from Practice) */}
         {isAuthenticated && stats && totalWords > 0 && dailyStats.length > 0 && (
@@ -416,7 +419,7 @@ export function VocabularyPage() {
         )}
 
         {/* Delete all */}
-        {stats && stats.totalWords > 0 && (
+        {(stats || !statsOffered) && totalWords > 0 && (
           <div className="vocab-delete-all-row">
             <button
               className={`vocab-delete-all ${confirmDeleteAll ? 'vocab-delete-all--confirming' : ''}`}
@@ -430,7 +433,10 @@ export function VocabularyPage() {
         {/* Filters */}
         <div className="vocab-filters">
           <div className="vocab-tabs" role="tablist">
-            {['all', 'new', 'learning', 'mastered', 'pending', 'lookups'].map(tab => (
+            {['all', 'new', 'learning', 'mastered',
+              ...(v2Offers(v2, 'pendingWords') ? ['pending'] : []),
+              ...(v2Offers(v2, 'wordLookups') ? ['lookups'] : []),
+            ].map(tab => (
               <button
                 key={tab}
                 role="tab"

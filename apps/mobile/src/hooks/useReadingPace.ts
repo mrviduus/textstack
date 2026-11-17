@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { readingTrackingApi, FALLBACK_WPM } from '@textstack/shared'
+import { refuseOnV2 } from '../lib/v2'
 
 let cached: number | null = null
 
@@ -28,7 +29,8 @@ export function useFetchedReadingPace(enabled: boolean): number | null {
   useEffect(() => {
     if (!enabled || cached != null) return
     let cancelled = false
-    readingTrackingApi.getReadingPace()
+    // M5 (#1031): no pace on V2 (its route answers 410): not asked for; the fallback pace stands.
+    refuseOnV2('readingStats').then(() => readingTrackingApi.getReadingPace())
       .then(p => {
         if (cancelled) return
         // Guard the wire value: a zero would divide by zero downstream.

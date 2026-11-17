@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { readingTrackingApi, vocabularyApi } from '@textstack/shared'
+import { refuseOnV2 } from '../lib/v2'
 
 interface QuickStats {
   todaySeconds: number
@@ -22,11 +23,12 @@ export function useQuickStats(isAuthenticated: boolean) {
       return
     }
     let cancelled = false
-    Promise.all([
+    // M5 (#1031): reading stats and goals are not on V2: none asked for, no figures shown.
+    refuseOnV2('readingStats').then(() => Promise.all([
       readingTrackingApi.getStats(),
       readingTrackingApi.getGoals(),
       vocabularyApi.getVocabularyStats().catch(() => null),
-    ])
+    ]))
       .then(([s, goals, v]) => {
         if (cancelled) return
         const dailyGoal = goals.find(g => g.goalType === 'daily_minutes')

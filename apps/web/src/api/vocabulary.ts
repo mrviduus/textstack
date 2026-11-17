@@ -1,6 +1,6 @@
 import { authFetch } from './client'
 import { createV2Vocabulary } from '@textstack/shared'
-import { onV2, v2Book, v2Store } from './v2'
+import { onV2, refuseOnV2, v2Book, v2Store } from './v2'
 
 // Vocabulary on V2 (#1025): the shared V2 vocabulary (one copy for web and mobile) with the
 // browser's ids, the last library pull's files and this tab's revision cache.
@@ -222,6 +222,7 @@ export async function saveWord(request: SaveWordRequest & { id?: string; operati
 }
 
 export async function getPendingWords(): Promise<PendingListResponse> {
+  await refuseOnV2('pendingWords')
   return authFetch<PendingListResponse>('/me/vocabulary/pending')
 }
 
@@ -234,6 +235,7 @@ export async function dismissPendingWord(id: string): Promise<void> {
 }
 
 export async function getLookups(params?: { limit?: number; offset?: number }): Promise<WordLookupListResponse> {
+  await refuseOnV2('wordLookups')
   const query = new URLSearchParams()
   if (params?.limit) query.set('limit', String(params.limit))
   if (params?.offset) query.set('offset', String(params.offset))
@@ -314,6 +316,7 @@ export async function submitReview(request: SubmitReviewRequest & { reviewMode?:
 }
 
 export async function getVocabStats(): Promise<VocabStatsDto> {
+  await refuseOnV2('vocabStats')
   return authFetch<VocabStatsDto>('/me/vocabulary/stats')
 }
 
@@ -327,6 +330,7 @@ export interface VocabDailyStatDto {
 }
 
 export async function getVocabDailyStats(tz?: number): Promise<VocabDailyStatDto[]> {
+  await refuseOnV2('vocabStats')
   const params = new URLSearchParams()
   if (tz != null) params.set('tz', String(tz))
   const qs = params.toString()
@@ -359,6 +363,7 @@ export async function markAsKnown(id: string): Promise<VocabWordDto> {
 // --- Anti-spiral (Phase 1) ---
 
 export async function getVocabSettings(): Promise<VocabSettingsDto> {
+  await refuseOnV2('vocabSettings')
   return authFetch<VocabSettingsDto>('/me/vocabulary/settings')
 }
 
@@ -423,6 +428,7 @@ export interface ConceptCluster {
 }
 
 export async function getConcepts(): Promise<ConceptCluster[]> {
+  await refuseOnV2('concepts')
   const res = await authFetch<{ items: ConceptCluster[] }>('/me/vocabulary/concepts')
   return res.items
 }

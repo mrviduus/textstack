@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom'
 import { SiteProvider, useSite } from './context/SiteContext'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { OffV2 } from './components/OffV2'
 import { LanguageProvider, isValidLanguage } from './context/LanguageContext'
 import { DownloadProvider } from './context/DownloadContext'
 import { GuestLimitsProvider } from './context/GuestLimitsContext'
@@ -119,7 +120,7 @@ function LanguageRoutes() {
           <Route path="/books/:bookSlug" element={<BookDetailPage />} />
           <Route path="/books/:bookSlug/:chapterSlug" element={<ReaderPage />} />
           {/* Chapter review summary (chapter-review.md §12): signed-in, noindex, not in /ssg/routes. */}
-          <Route path="/books/:bookSlug/review/:chapterSlug" element={<ChapterReviewPage />} />
+          <Route path="/books/:bookSlug/review/:chapterSlug" element={<OffV2 feature="chapterReview" to="../.."><ChapterReviewPage /></OffV2>} />
           <Route path="/authors" element={<AuthorsPage />} />
           <Route path="/authors/:slug" element={<AuthorDetailPage />} />
           <Route path="/genres" element={<GenresPage />} />
@@ -134,17 +135,17 @@ function LanguageRoutes() {
           {/* OAuth consent (ADR-017): /oauth/authorize 302s here. Not in /ssg/routes, noindex. */}
           <Route path="/oauth/consent" element={<OAuthConsentPage />} />
           <Route path="/library" element={<LibraryPage />} />
-          <Route path="/library/shelf/:shelfId" element={<LibraryShelfPage />} />
-          <Route path="/stats" element={<StatsPage />} />
+          <Route path="/library/shelf/:shelfId" element={<OffV2 feature="shelves" to="../.."><LibraryShelfPage /></OffV2>} />
+          <Route path="/stats" element={<OffV2 feature="readingStats" to=".."><StatsPage /></OffV2>} />
           <Route path="/vocabulary" element={<VocabularyPage />} />
           <Route path="/vocabulary/review" element={<VocabularyReviewPage />} />
           <Route path="/vocabulary/tutor" element={<TutorSessionPage />} />
           <Route path="/highlights" element={<HighlightsPage />} />
-          <Route path="/highlights/review" element={<HighlightReviewPage />} />
+          <Route path="/highlights/review" element={<OffV2 feature="highlightReview" to=".."><HighlightReviewPage /></OffV2>} />
           {/* Chapter questions session (chapter-review.md §11): signed-in, noindex, not in /ssg/routes. */}
-          <Route path="/review/questions" element={<ChapterQuestionReviewPage />} />
+          <Route path="/review/questions" element={<OffV2 feature="chapterReview" to="../../vocabulary"><ChapterQuestionReviewPage /></OffV2>} />
           <Route path="/library/my/:id" element={<UserBookDetailPage />} />
-          <Route path="/library/my/:id/review/:chapterSlug" element={<ChapterReviewPage />} />
+          <Route path="/library/my/:id/review/:chapterSlug" element={<OffV2 feature="chapterReview" to="../.."><ChapterReviewPage /></OffV2>} />
           {/* Chapterless Original-layout route — a PDF opens instantly here before
               extraction produces chapters (ADR-012). */}
           {/* M5 (#1031): the V2 reader page is the reader when Features:V2Api is on, else the legacy one (it

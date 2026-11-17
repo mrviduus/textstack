@@ -544,8 +544,8 @@ export function UserBookDetailPage() {
                     </span>
                   )}
                 </Link>
-                {/* A review is keyed by slug; a slugless legacy chapter cannot be reviewed. */}
-                {chapter.slug && (
+                {/* A review is keyed by slug; a slugless legacy chapter cannot be reviewed. M5 (#1031): none on V2. */}
+                {chapter.slug && v2Offers(v2, 'chapterReview') && (
                   <ChapterReviewAction
                     book={{ title: book.title, author: book.author, userBookId: book.id }}
                     chapter={{ slug: chapter.slug, title: chapter.title, wordCount: chapter.wordCount }}

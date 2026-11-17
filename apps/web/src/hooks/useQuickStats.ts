@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { getStats } from '../api/readingTracking'
 import { getVocabStats } from '../api/vocabulary'
 
@@ -34,6 +35,8 @@ const EMPTY: QuickStats = {
  */
 export function useQuickStats({ includeReading = true }: { includeReading?: boolean } = {}): QuickStats | null {
   const { isAuthenticated } = useAuth()
+  // M5 (#1031): reading and vocabulary stats are not on V2 (their reads refuse there); the cached legacy figures are not shown.
+  const offered = v2Offers(useV2(), 'vocabStats')
   const [data, setData] = useState<QuickStats | null>(getCached)
 
   useEffect(() => {
@@ -97,5 +100,5 @@ export function useQuickStats({ includeReading = true }: { includeReading?: bool
     return () => window.removeEventListener('vocab-review-submitted', handler)
   }, [])
 
-  return data
+  return offered ? data : null
 }

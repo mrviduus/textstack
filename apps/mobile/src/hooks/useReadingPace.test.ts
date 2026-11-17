@@ -12,6 +12,9 @@ vi.mock('@textstack/shared', async (original) => ({
   readingTrackingApi: { getReadingPace: () => getReadingPace() },
 }))
 
+// V2 off (M5 #1031 gate: v2Hidden.test.ts).
+vi.mock('../lib/v2', () => ({ refuseOnV2: async () => {} }))
+
 /** A fresh module per test: the pace is cached at module level. */
 const hooks = () => import('./useReadingPace')
 const mount = <R,>(hook: (enabled: boolean) => R, enabled: boolean) => renderHook(() => hook(enabled), {})
