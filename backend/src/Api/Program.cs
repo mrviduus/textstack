@@ -543,6 +543,7 @@ app.MapTtsEndpoints();
 app.MapInternalEndpoints();
 app.MapInternalSeoEndpoints();
 app.MapV2Endpoints();
+app.MapV2CompatEndpoints();
 
 // CLI: import-textstack command
 if (args.Length > 0 && args[0] == "import-textstack")

@@ -359,4 +359,60 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
 
         Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
     }
+
+    private const string AnchorC1 = """{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"c1","prefix":"before ","exact":"Quoted","suffix":" after","startOffset":7,"endOffset":13}}""";
+
+    /// <summary>A reader's book whose current file has chapter <c>c1</c>, "Chapter One".</summary>
+    private async Task<Book> BookWithChapterAsync()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await db.ExecAsync("""
+            INSERT INTO book_chapters (id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, created_at)
+            VALUES (gen_random_uuid(), @UserId, @Id, @fileId, 'c1', 1, 'Chapter One', '<p>x</p>', 'x', now())
+            """, new { book.UserId, book.Id, fileId = book.CurrentFile!.Id });
+        return book;
+    }
+
+    private async Task<Annotation> SaveAsync(Book book, string text, string color = "yellow", string? note = null, string locator = AnchorC1) =>
+        (await _repo.SaveAsync(book.UserId, new Annotation
+        {
+            Id = Guid.NewGuid(),
+            UserId = book.UserId,
+            BookId = book.Id,
+            FileId = book.CurrentFile!.Id,
+            SelectedText = text,
+            NoteText = note,
+            Locator = locator,
+            Color = color,
+        }, null, Ct)).Current!;
+
+    // The highlights page (GET /me/highlights/all in v2 mode): one reader's highlights across their books.
+    [Fact]
+    public async Task AReadersHighlightsPage_ListsTheirLiveHighlightsWithBookChapterAndQuote()
+    {
+        var moby = await BookWithChapterAsync();
+        var quoted = await SaveAsync(moby, "Quoted whale", "blue");
+        var noted = await SaveAsync(moby, "Call me", "blue", note: "a WHALE of an opening", locator: Cfi(2));
+        await SaveAsync(moby, "A yellow whale");
+        await _repo.DeleteAsync(moby.UserId, (await SaveAsync(moby, "Erased whale", "blue")).Id, Ct);
+        var trashed = await db.NewBookAsync(moby.UserId, "Trashed");
+        await SaveAsync(trashed, "Whale in the trash", "blue", locator: Cfi(1));
+        await db.ExecAsync("UPDATE books SET removed_at = now() WHERE id = @Id", new { trashed.Id });
+        await SaveAsync(await BookWithChapterAsync(), "Someone else's whale", "blue");
+
+        var page = await _repo.ListAllAsync(moby.UserId, null, null, false, 10, 0, Ct);
+        var blueWhales = await _repo.ListAllAsync(moby.UserId, "whale", "blue", true, 1, 0, Ct);
+
+        // Newest first; the deleted one and another reader's are not in it. The removed book's stays, marked (#982).
+        Assert.Equal(4, page.TotalCount);
+        Assert.Equal(("Trashed", true), (page.Items[0].BookTitle, page.Items[0].BookRemoved));
+        Assert.Equal(noted.Id, page.Items[2].Id);
+        var item = page.Items[3];
+        Assert.Equal((quoted.Id, moby.Title, false, "Chapter One", "c1"), (item.Id, item.BookTitle, item.BookRemoved, item.ChapterTitle, item.ChapterKey));
+        AssertSameJson("""{"chapterKey":"c1","prefix":"before ","exact":"Quoted","suffix":" after","startOffset":7,"endOffset":13}""", item.AnchorJson);
+        // The V2 reader's epub-cfi highlight shows as its quote with its context.
+        AssertSameJson("""{"prefix":"","exact":"Call me","suffix":""}""", page.Items[2].AnchorJson);
+        // Searched in the text and the note, by colour, oldest first, a page of one: the total counts all three.
+        Assert.Equal((3, quoted.Id), (blueWhales.TotalCount, Assert.Single(blueWhales.Items).Id));
+    }
 }

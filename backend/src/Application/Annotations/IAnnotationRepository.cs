@@ -15,6 +15,14 @@ public interface IAnnotationRepository
     /// <summary>The user's annotations in the book that are not deleted, oldest first.</summary>
     Task<IReadOnlyList<Annotation>> ListForBookAsync(Guid userId, Guid bookId, CancellationToken ct);
 
+    /// <summary>
+    /// The all-highlights list: the user's live annotations (a removed book's too), newest first (or oldest), filtered by
+    /// <paramref name="search"/> (in the text or the note, case-insensitive) and <paramref name="color"/>, one page,
+    /// with the total before paging. Each row carries its book's title and, when the locator names a chapter of the
+    /// book's current file, that chapter.
+    /// </summary>
+    Task<AnnotationPage> ListAllAsync(Guid userId, string? search, string? color, bool oldestFirst, int limit, int offset, CancellationToken ct);
+
     /// <summary>One of the user's annotations, deleted or not; null when not the user's.</summary>
     Task<Annotation?> GetAsync(Guid userId, Guid id, CancellationToken ct);
 
@@ -44,3 +52,14 @@ public interface IAnnotationRepository
     /// </summary>
     Task<Annotation?> DeleteAsync(Guid userId, Guid id, CancellationToken ct);
 }
+
+/// <summary>
+/// One row of <see cref="IAnnotationRepository.ListAllAsync"/>. <c>AnchorJson</c> is legacy's anchor: the quote with its
+/// context for an <c>epub-cfi</c> locator, the locator's object value otherwise (a PDF one marked <c>kind: pdf</c>), else
+/// <c>{}</c>. <c>BookRemoved</c>: the book is in the trash, <c>BookTitle</c> the title it had.
+/// </summary>
+public sealed record AnnotationListItem(
+    Guid Id, string SelectedText, string AnchorJson, string Color, string? NoteText, DateTimeOffset CreatedAt,
+    Guid BookId, string BookTitle, bool BookRemoved, Guid? ChapterId, string? ChapterTitle, string? ChapterKey);
+
+public sealed record AnnotationPage(int TotalCount, IReadOnlyList<AnnotationListItem> Items);
