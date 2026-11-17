@@ -63,8 +63,8 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
     expect(upload.match(/if \(!live\(\)\) return/g)).toHaveLength(3)
   })
 
-  it('an upload left while the picker was open does nothing, and keeps its copy for deletion', () => {
-    expect(upload).toMatch(/pickedUri = file\.uri\s*\/\/[^\n]*\n\s*if \(!live\(\)\) return\s*setFileName/)
+  it('an upload left while the picker was open does nothing', () => {
+    expect(upload).toMatch(/const file = result\.assets\[0\]\s*\/\/[^\n]*\n\s*if \(!live\(\)\) return\s*setFileName/)
   })
 
   it('a superseded upload never moves the progress bar', () => {
@@ -76,8 +76,8 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
     expect(fin).toContain('if (live()) setUploading(false)')
   })
 
-  it('the picker copy is deleted in finally, best-effort', () => {
-    const fin = upload.slice(upload.lastIndexOf('} finally {'))
-    expect(fin).toMatch(/if \(pickedUri\) try \{ new File\(pickedUri\)\.delete\(\) \} catch \{\}/)
+  it('the picker makes no cache copy: the upload\'s one copy is the staged one (#1426, deleted by uploadPicked)', () => {
+    expect(upload).toContain('copyToCacheDirectory: false')
+    expect(upload).toContain('await uploadPicked(')
   })
 })

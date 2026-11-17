@@ -229,6 +229,9 @@
       "body": "It was deleted from your account on the server. The downloaded copy is still on this device.",
       "bodyNoCopy": "It was deleted from your account on the server.",
       "removeDownload": "Remove download from this device"
+    },
+    "upload": {
+      "formats": "Supported formats: EPUB, MOBI, AZW3, FB2, CBZ, PDF"
     }
   },
   "addMenu": {
