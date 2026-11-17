@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Application.Common;
 using Application.Sync;
 using Contracts.V2;
 using Domain.Library;
+using Npgsql;
 using static Application.Sync.SyncValidation;
 
 namespace Application.Library;
@@ -15,16 +17,35 @@ namespace Application.Library;
 /// the file store are the V2 ones. Its chapters are extracted (the html extractor) for the assistant tools; the V2
 /// reader reads the page itself.
 /// </summary>
-public sealed class ClipService(ILibraryRepository library, LibraryContentService content)
+public sealed class ClipService(ILibraryRepository library, LibraryContentService content, IV2UnitOfWork unitOfWork)
 {
-    /// <summary>The new book (or the one already holding this page) on success; the refusal otherwise.</summary>
+    /// <summary>
+    /// The new book (or the one already holding this page) on success; the refusal otherwise. Clips of the same page by
+    /// the same user run one at a time (a transaction advisory lock on user + sha256): a concurrent duplicate waits and
+    /// then finds the first one's book, instead of racing its upload.
+    /// </summary>
     public async Task<(Guid? BookId, SyncResult? Refused)> ClipAsync(
         Guid userId, string title, string? author, string? language, string? sourceUrl, string html, CancellationToken ct)
     {
         var bytes = Encoding.UTF8.GetBytes(html);
         var metadata = new BookMetadata(title.Trim(), author, language, null, null, null, []);
         if (Metadata(metadata) is { } invalid) return (null, invalid);
+        var sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes));
 
+        await using var tx = await unitOfWork.BeginAsync(ct);
+        await using (var lockPage = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended(@key, 0))", tx.Connection, tx.Transaction))
+        {
+            lockPage.Parameters.AddWithValue("key", $"clip:{userId:N}:{sha256}");
+            await lockPage.ExecuteNonQueryAsync(ct);
+        }
+        var result = await ClipLockedAsync(userId, metadata, sourceUrl, bytes, sha256, ct);
+        await tx.Transaction.CommitAsync(ct);
+        return result;
+    }
+
+    private async Task<(Guid? BookId, SyncResult? Refused)> ClipLockedAsync(
+        Guid userId, BookMetadata metadata, string? sourceUrl, byte[] bytes, string sha256, CancellationToken ct)
+    {
         var (bookId, fileId) = (Guid.CreateVersion7(), Guid.CreateVersion7());
         var imported = await library.ImportAsync(userId, new Book
         {
@@ -37,7 +58,7 @@ public sealed class ClipService(ILibraryRepository library, LibraryContentServic
         {
             Id = fileId,
             BookId = bookId,
-            Sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)),
+            Sha256 = sha256,
             ByteSize = bytes.Length,
             OriginalName = "original.html",
             Format = "html",
@@ -45,11 +66,11 @@ public sealed class ClipService(ILibraryRepository library, LibraryContentServic
         var created = imported.Outcome == ImportOutcome.Created;
         if (!created && imported.Outcome != ImportOutcome.DuplicateFile) return (null, SyncResult.IdConflict);
         // The same page clipped again is the book that already holds it (a client import's duplicate_file). If an
-        // earlier attempt stopped before its bytes landed, this one stores them.
+        // earlier attempt stopped before its bytes landed, this one stores them; bytes the reader removed stay removed.
         if (!created)
         {
             var held = imported.Book!;
-            if (held.CurrentFile is not { ServerStorageKey: null } empty || empty.Sha256 != Convert.ToHexStringLower(SHA256.HashData(bytes)))
+            if (held.CurrentFile is not { ServerStorageKey: null, ContentRemovedAt: null } empty || empty.Sha256 != sha256)
                 return (held.Id, null);
             (bookId, fileId) = (held.Id, empty.Id);
         }

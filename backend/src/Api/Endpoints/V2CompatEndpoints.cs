@@ -46,7 +46,8 @@ public static class V2CompatEndpoints
 
     /// <summary>
     /// <c>POST /me/books/clip</c> on V2: legacy's checks, then a V2 book with one <c>html</c> file (<see cref="ClipService"/>).
-    /// Answered in legacy's shape (no ingestion job on V2: <c>jobId</c> is empty, the page is ready to read).
+    /// Answered in legacy's shape. The page's chapter extraction is queued (for the assistant tools), but the V2 reader
+    /// reads the page itself, so <c>status</c> is <c>Ready</c> at once; <c>jobId</c> is empty (no legacy job to follow).
     /// </summary>
     private static async Task<IResult> Clip(HttpContext http, IAuthService auth, ClipService clips, [FromBody] ClipRequest request, CancellationToken ct)
     {
