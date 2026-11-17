@@ -64,12 +64,17 @@ public class SelectedDatabaseGuardTests
     }
 
     [Theory]
-    [InlineData("GET", "/me/books")]
-    [InlineData("DELETE", "/me/books/book")]
-    [InlineData("POST", "/translate")]
-    public async Task UnadaptedNativeRoute_Is503BeforeAnyUserLookup(string method, string path)
+    [InlineData("GET", "/me/books/{id:guid}", "/me/books/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11", 410)]
+    [InlineData("DELETE", "/me/books/{id:guid}", "/me/books/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11", 410)]
+    [InlineData("PUT", "/me/progress/{editionId:guid}", "/me/progress/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11", 410)]
+    [InlineData("POST", "/admin/editions/{id:guid}/publish", "/admin/editions/7d2c0c56-8f5e-4a0e-9a59-0b1c1f0e0a11/publish", 410)]
+    [InlineData("GET", "/me/reading/stats", "/me/reading/stats", 410)]
+    [InlineData("GET", "/me/library/shelves", "/me/library/shelves", 410)]
+    [InlineData("GET", "/me/highlights/all", "/me/highlights/all", 503)]
+    [InlineData("POST", "/translate", "/translate", 503)]
+    public async Task UnadaptedNativeRoute_IsGoneOrPendingBeforeAnyUserLookup(string method, string pattern, string path, int expected)
     {
-        var http = Request(path, null, selected: false);
+        var http = Request(path, null, selected: false, pattern: pattern);
         http.Request.Method = method;
         var reached = false;
         var users = new Mock<IUserRepository>(MockBehavior.Strict);
@@ -78,8 +83,43 @@ public class SelectedDatabaseGuardTests
             .InvokeAsync(http, Mock.Of<IAuthService>(), users.Object);
 
         Assert.False(reached);
-        Assert.Equal(503, http.Response.StatusCode);
+        Assert.Equal(expected, http.Response.StatusCode);
+        http.Response.Body.Position = 0;
+        Assert.Contains(expected == 410 ? "gone_in_v2" : "v2_compatibility_pending", new StreamReader(http.Response.Body).ReadToEnd());
         users.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GoneRoute_LogsRouteAppVersionAndOutcome()
+    {
+        var http = Request("/me/bookmarks", null, selected: false, pattern: "/me/bookmarks");
+        http.Request.Headers[Api.Middleware.AppVersionMiddleware.VersionHeader] = "1.4.2";
+        var logger = new ListLogger();
+
+        await new SelectedDatabaseGuard(_ => Task.CompletedTask, new(true), logger)
+            .InvokeAsync(http, Mock.Of<IAuthService>(), Mock.Of<IUserRepository>());
+
+        Assert.Equal(410, http.Response.StatusCode);
+        var line = Assert.Single(logger.Lines);
+        Assert.Contains("GET /me/bookmarks", line);
+        Assert.Contains("1.4.2", line);
+        Assert.Contains("410", line);
+    }
+
+    [Fact]
+    public void Pending_EveryLineIsARealRoute()
+    {
+        var routes = TextStack.Tests.Routes.ApiRouteTable.Routes.Select(r => r.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.All(SelectedDatabaseGuard.Pending, p => Assert.Contains(p, routes));
+    }
+
+    private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger<SelectedDatabaseGuard>
+    {
+        public List<string> Lines { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Lines.Add(formatter(state, exception));
     }
 
     [Fact]
@@ -94,8 +134,15 @@ public class SelectedDatabaseGuardTests
         users.VerifyNoOtherCalls();
     }
 
-    private static DefaultHttpContext Request(string path, JwtTokens? tokens, bool selected = true)
+    private static DefaultHttpContext Request(string path, JwtTokens? tokens, bool selected = true, string? pattern = null)
     {
+        if (pattern is not null)
+        {
+            var routed = Request(path, tokens, selected);
+            routed.SetEndpoint(new Microsoft.AspNetCore.Routing.RouteEndpoint(_ => Task.CompletedTask,
+                Microsoft.AspNetCore.Routing.Patterns.RoutePatternFactory.Parse(pattern), 0, EndpointMetadataCollection.Empty, "test"));
+            return routed;
+        }
         var services = new ServiceCollection();
         if (tokens is not null) services.AddSingleton(tokens);
         var http = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };

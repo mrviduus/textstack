@@ -214,8 +214,13 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Interlocked.Exchange(ref _legacyConnections, 0);
             var account = await RegisterAsync(client);
             Bearer(client, Access(account));
-            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/me/books", Ct)).StatusCode);
-            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.DeleteAsync("/me/books/" + Guid.NewGuid(), Ct)).StatusCode);
+            // Part C: an old-build route is gone; a route still being ported is pending.
+            client.DefaultRequestHeaders.Add("X-App-Version", "1.0.0");
+            Assert.Equal(HttpStatusCode.Gone, (await client.GetAsync("/me/books", Ct)).StatusCode);
+            Assert.Equal(HttpStatusCode.Gone, (await client.DeleteAsync("/me/books/" + Guid.NewGuid(), Ct)).StatusCode);
+            Assert.Equal(HttpStatusCode.Gone, (await client.PutAsJsonAsync("/me/progress/" + Guid.NewGuid(), new { }, Ct)).StatusCode);
+            Assert.Equal(HttpStatusCode.Gone, (await client.GetAsync("/me/reading/stats", Ct)).StatusCode);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/me/highlights/all", Ct)).StatusCode);
         }
         AssertLegacyUntouched();
     }
