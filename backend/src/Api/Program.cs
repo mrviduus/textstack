@@ -246,11 +246,6 @@ app.MapGet("/health", async (Api.V2.SelectedDatabaseProbe selected, Cancellation
     {
         await using var conn = await selected.OpenAsync(ct);
         await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
-        if (selected.CatalogLegacy is { } catalog)
-        {
-            await using var legacyConn = await catalog.OpenConnectionAsync(ct);
-            await new Npgsql.NpgsqlCommand("SELECT 1", legacyConn).ExecuteScalarAsync(ct);
-        }
         return Results.Ok("healthy");
     }
     catch
@@ -306,19 +301,25 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     }
 
     // v2 mode: the public catalog still reads legacy until M6, so its db and schema are critical too.
+    // Skipped once the selected db failed: already a 503, no second connect timeout.
     if (selected.CatalogLegacy is { } catalog)
     {
-        try
+        if (!criticalOk)
+            components["legacy"] = new { status = "skipped" };
+        else
         {
-            await using var conn = await catalog.OpenConnectionAsync(ct);
-            var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.Known, ct);
-            components["legacy"] = pending.Count == 0 ? new { status = "ok" } : new { status = "behind", pending };
-            criticalOk &= pending.Count == 0;
-        }
-        catch (Exception ex)
-        {
-            components["legacy"] = new { status = "down", error = ex.GetType().Name };
-            criticalOk = false;
+            try
+            {
+                await using var conn = await catalog.OpenConnectionAsync(ct);
+                var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.Known, ct);
+                components["legacy"] = pending.Count == 0 ? new { status = "ok" } : new { status = "behind", pending };
+                criticalOk &= pending.Count == 0;
+            }
+            catch (Exception ex)
+            {
+                components["legacy"] = new { status = "down", error = ex.GetType().Name };
+                criticalOk = false;
+            }
         }
     }
 

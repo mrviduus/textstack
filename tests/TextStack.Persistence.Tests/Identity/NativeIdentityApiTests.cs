@@ -40,7 +40,8 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     {
         var target = v2 ? await db.Databases.NewV2Async(_prefix + (migratedLegacy ? "_m" : "")) : (await db.Databases.NewLegacyAsync(_prefix + "_legacy")).Admin;
         var legacy = !v2 ? target
-            : migratedLegacy ? (await db.Databases.NewLegacyAsync(_prefix + "_catalog")).Admin
+            // No pooling: every legacy open is a physical one, so the counter still sees use after the health probe's.
+            : migratedLegacy ? (await db.Databases.NewLegacyAsync(_prefix + "_catalog")).Admin + ";Pooling=false"
             : db.Databases.ConnectionString("postgres");
         var root = Path.Combine(Path.GetTempPath(), _prefix);
         Directory.CreateDirectory(Path.Combine(root, "library"));
@@ -209,11 +210,14 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Assert.Equal("v2", body.GetProperty("components").GetProperty("db").GetProperty("mode").GetString());
             Assert.Equal("ok", body.GetProperty("components").GetProperty("legacy").GetProperty("status").GetString());
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health", Ct)).StatusCode);
+            // Readiness reads legacy on purpose; identity and /me must not.
+            Interlocked.Exchange(ref _legacyConnections, 0);
             var account = await RegisterAsync(client);
             Bearer(client, Access(account));
             Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/me/books", Ct)).StatusCode);
             Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.DeleteAsync("/me/books/" + Guid.NewGuid(), Ct)).StatusCode);
         }
+        AssertLegacyUntouched();
     }
 
     [Fact]

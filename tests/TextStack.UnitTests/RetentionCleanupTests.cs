@@ -12,26 +12,24 @@ namespace TextStack.UnitTests;
 public class RetentionCleanupTests
 {
     [Fact]
-    public async Task CleanupAsync_NativeMode_UsesSelectedCredentialPortsWithoutResolvingLegacy()
+    public async Task CleanupAsync_NativeMode_SelectedCredentialPortsThenLegacyAiSweeps()
     {
-        var done = new TaskCompletionSource();
+        // Legacy traces/runs are not copied by the ETL and legacy lives till M6: still scrubbed (#941).
         var oauth = new Mock<IOAuthRepository>();
-        oauth.Setup(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
-            .Callback(done.SetResult).ReturnsAsync(0);
-        var legacyResolved = false;
+        var legacyResolved = new TaskCompletionSource();
         await using var services = new ServiceCollection()
             .AddSingleton(new Infrastructure.Persistence.DatabaseMode(true))
-            .AddScoped<IAppDbContext>(_ => { legacyResolved = true; return Mock.Of<IAppDbContext>(); })
+            .AddScoped<IAppDbContext>(_ => { legacyResolved.TrySetResult(); return Mock.Of<IAppDbContext>(); })
             .AddScoped(_ => Mock.Of<ISessionTokenRepository>())
             .AddScoped(_ => Mock.Of<IDeviceLoginRepository>())
             .AddScoped(_ => oauth.Object).BuildServiceProvider();
         using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance);
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
-        await done.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await legacyResolved.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await worker.StopAsync(TestContext.Current.CancellationToken);
 
-        Assert.False(legacyResolved);
+        oauth.Verify(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);

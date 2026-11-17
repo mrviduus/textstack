@@ -19,7 +19,8 @@ namespace Infrastructure.Persistence.Repositories;
 /// <c>created_at</c>) and every replayed token finds its successor (the family revoke).</item>
 /// </list>
 /// </summary>
-public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTokenRepository
+/// <param name="clock">Stamps <c>credentials_reset_at</c>: the api's clock, the one access-token <c>iat</c> is minted from.</param>
+public sealed class SessionTokenRepository(V2DataSource dataSource, TimeProvider? clock = null) : ISessionTokenRepository
 {
     private const string SessionColumns = "id, user_id, token_hash, previous_token_hash, expires_at, created_at";
 
@@ -161,15 +162,16 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
     // its snapshot is taken after the lock wait, so it sees what was committed meanwhile. Of two
     // redemptions of one code, the second finds it used. Keys and grants are revoked, not deleted,
     // as the reader's own revoke does. The stamp refuses what access tokens minted before it would
-    // still create (UserRepository.NotResetSinceToken); clock_timestamp(), not now(): a rotation this
-    // waited for may have minted a token after the transaction began, and the stamp must follow it.
+    // still create (UserRepository.NotResetSinceToken). @stamp is the api's clock (the one iat comes
+    // from, so no skew with the database's), read once the lock is held: a rotation this waited for
+    // may have minted a token after the transaction began, and the stamp must follow it.
     private const string RedeemPasswordReset = """
         WITH spent AS (
             UPDATE password_reset_tokens SET used = true
             WHERE token_hash = @tokenHash AND NOT used AND expires_at > @now
             RETURNING user_id),
         new_password AS (
-            UPDATE users SET password_hash = @passwordHash, credentials_reset_at = clock_timestamp() WHERE id IN (SELECT user_id FROM spent)),
+            UPDATE users SET password_hash = @passwordHash, credentials_reset_at = @stamp WHERE id IN (SELECT user_id FROM spent)),
         signed_out AS (
             DELETE FROM user_refresh_tokens WHERE user_id IN (SELECT user_id FROM spent)),
         expired_logins AS (
@@ -190,8 +192,9 @@ public sealed class SessionTokenRepository(V2DataSource dataSource) : ISessionTo
         await using var tx = await conn.BeginTransactionAsync(ct);
         if (await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(LockResetOwner, new { tokenHash, now }, tx, cancellationToken: ct)) is null)
             return null;
+        var stamp = (clock ?? TimeProvider.System).GetUtcNow();
         var reset = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            RedeemPasswordReset, new { tokenHash, passwordHash, now }, tx, cancellationToken: ct));
+            RedeemPasswordReset, new { tokenHash, passwordHash, now, stamp }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return reset;
     }

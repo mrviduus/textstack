@@ -396,6 +396,22 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
     }
 
     [Fact]
+    public async Task ResetPasswordAsync_StampIsTheApiClock_NotTheDatabases()
+    {
+        // iat comes from the api's clock; the stamp it is compared with must too, or skew is a window.
+        var user = await db.NewReaderAsync();
+        var code = NewHash();
+        await _repo.CreatePasswordResetAsync(user, code, DateTimeOffset.UtcNow.AddHours(1), Ct);
+        var apiNow = DateTimeOffset.UtcNow.AddMinutes(-3).AddTicks(-7); // a skewed api clock, sub-millisecond
+        var repo = new SessionTokenRepository(db.DataSource, new UnitTests.SteppedClock { Now = apiNow });
+
+        await repo.ResetPasswordAsync(code, "new-hash", DateTimeOffset.UtcNow, Ct);
+
+        var stamp = (await new UserRepository(db.DataSource).GetAsync(user, Ct))!.CredentialsResetAt!.Value;
+        Assert.Equal(apiNow.UtcTicks / 10, stamp.UtcTicks / 10); // timestamptz keeps microseconds
+    }
+
+    [Fact]
     public async Task ResetPasswordAsync_ApprovedDeviceLogin_CannotBeRedeemedAfter()
     {
         var user = await db.NewReaderAsync();
