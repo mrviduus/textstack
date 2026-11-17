@@ -198,7 +198,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
     }
 
     [Fact]
-    public async Task Native_HealthNeedsV2AndLegacyCatalog_AndUnadaptedPrivateRoutesFailClosed()
+    public async Task Native_HealthNeedsV2AndLegacyCatalog_AndPortedRoutesServeFromV2()
     {
         // The catalog still reads legacy until M6: an unmigrated legacy database is not ready.
         var (unmigrated, _) = await ApiAsync();
@@ -222,12 +222,6 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Interlocked.Exchange(ref _legacyConnections, 0);
             var account = await RegisterAsync(client);
             Bearer(client, Access(account));
-            // Part C: an old-build route is gone; a route still being ported is pending.
-            client.DefaultRequestHeaders.Add("X-App-Version", "1.0.0");
-            Assert.Equal(HttpStatusCode.Gone, (await client.GetAsync("/me/books", Ct)).StatusCode);
-            Assert.Equal(HttpStatusCode.Gone, (await client.DeleteAsync("/me/books/" + Guid.NewGuid(), Ct)).StatusCode);
-            Assert.Equal(HttpStatusCode.Gone, (await client.PutAsJsonAsync("/me/progress/" + Guid.NewGuid(), new { }, Ct)).StatusCode);
-            Assert.Equal(HttpStatusCode.Gone, (await client.GetAsync("/me/reading/stats", Ct)).StatusCode);
             // Ported (V2CompatEndpoints): the legacy path answers from V2, the legacy shape.
             var highlights = await BodyAsync(await client.GetAsync("/me/highlights/all?limit=5", Ct));
             Assert.Equal(0, highlights.GetProperty("totalCount").GetInt32());

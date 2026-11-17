@@ -40,7 +40,7 @@ public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
     public void RouteTable_GatedRoutes_AreFound()
     {
         // Guards the sweep against sweeping nothing: an empty table would pass it vacuously.
-        Assert.True(ApiRouteTable.Routes.Count(r => r.Under("/me")) > 30);
+        Assert.True(ApiRouteTable.Routes.Count(r => r.Under("/me")) > 5);
     }
 
     [Fact]

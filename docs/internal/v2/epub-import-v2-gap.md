@@ -36,8 +36,8 @@ promising a smaller implementation. Server extraction is not a prerequisite for 
 - [Mobile upload](../../../apps/mobile/app/my-books/upload.tsx): picker, session gate, POST, return navigation and background sweep.
 - [Web upload form](../../../apps/web/src/components/library/UploadForm.tsx): file upload and progress.
 - [Web upload modal](../../../apps/web/src/components/library/UploadModal.tsx): processing polling, Ready/Failed states; PDF opens separately without waiting for extraction.
-- [Upload endpoint](../../../backend/src/Api/Endpoints/UserBooksEndpoints.cs): `UploadBook` resolves user id before accepting the file.
-- [UserBookService](../../../backend/src/Application/UserBooks/UserBookService.cs): `UploadAsync`, `CreateBookAsync`, hash, original storage and queued ingestion.
+- Upload endpoint (`backend/src/Api/Endpoints/UserBooksEndpoints.cs`, deleted in M6 B2; git history): `UploadBook` resolves user id before accepting the file.
+- UserBookService (`backend/src/Application/UserBooks/UserBookService.cs`, deleted in M6 B2; git history): `UploadAsync`, `CreateBookAsync`, hash, original storage and queued ingestion.
 - [Worker ingestion](../../../backend/src/Worker/Services/UserIngestionService.cs): extraction, cover handling, chapter persistence, metadata and Ready/Failed states.
 - Mobile chapter source (`apps/mobile/src/components/reader/useUserBookReaderSource.ts`, deleted in M6 M1; git history): cached chapter first, server refresh second.
 - [Open/resume trace](reader-open-resume.md): existing reader behavior and its evidence limitations.
