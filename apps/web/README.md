@@ -1,6 +1,6 @@
 # TextStack Web App
 
-Public-facing reader application built with React + Vite.
+The web app (textstack.app), built with React + Vite.
 
 ## Quick Start
 
@@ -18,12 +18,12 @@ docker compose up web
 
 ```
 src/
-├── api/          # API client functions
-├── components/   # Reusable UI components
-├── config/       # Site configuration (themes, sites)
-├── context/      # React contexts (Auth, Site, Download)
+├── api/          # API client functions (`@textstack/shared` client in cookie mode)
+├── components/   # UI components; the reader host is `components/reader/V2ReaderHost.tsx`
+├── context/      # React contexts (Auth, GuestLimits, NativeLanguage, Language)
+├── data/         # Static data
 ├── hooks/        # Custom React hooks
-├── lib/          # Utilities (offlineDb, etc.)
+├── lib/          # Utilities (offlineDb, sync, sentry, ...)
 ├── locales/      # i18n translations
 ├── pages/        # Route pages
 ├── styles/       # Global CSS
@@ -33,14 +33,16 @@ src/
 
 ## Key Pages
 
+All under `/:lang` (`/` redirects to `/en`).
+
 | Page | Path | Description |
 |------|------|-------------|
-| Home | `/` | Book listing |
-| Book | `/books/:slug` | Book details + chapters |
-| Reader | `/books/:slug/:chapter` | Kindle-like reader |
-| Library | `/library` | User's saved books |
-| Search | `/search` | Full-text search |
-| Author | `/authors/:slug` | Author page |
+| Home | `/` | Landing |
+| Library | `/library` | The reader's own books (upload here) |
+| Book | `/library/my/:id` | Book details |
+| Reader | `/library/my/:id/read` | The V2 reader (`/read-v2` is an alias) |
+| Vocabulary | `/vocabulary`, `/vocabulary/review` | Saved words, spaced-repetition review |
+| Highlights | `/highlights` | Highlights across books |
 
 ## Commands
 
@@ -54,35 +56,19 @@ pnpm test:watch # Watch mode
 
 ## Key Features
 
-### Reader (`pages/ReaderPage.tsx`)
-- Page-based pagination
-- Customizable: font, size, theme, width
-- Keyboard shortcuts (arrows, F for fullscreen)
-- Mobile: swipe, tap zones
-- Auto-save reading progress
-
-### Offline Reading (`context/DownloadContext.tsx`, `lib/offlineDb.ts`)
-- Download books for offline
-- IndexedDB storage
-- Resume interrupted downloads
-- Storage quota management
+### Reader (`components/reader/V2ReaderHost.tsx`)
+- Hosts the foliate-js fork in a sandboxed frame (`dist/reader-v2/`); built by
+  `apps/mobile/src/lib/v2reader/build.mjs`, documented in that folder's README
+- Position, highlights and bookmarks sync through `/me/v2`
 
 ### Auth (`context/AuthContext.tsx`)
-- Google OAuth
-- JWT with refresh tokens
-- Library sync across devices
-
-### Site Context (`context/SiteContext.tsx`)
-- Multi-site support
-- Per-site theming
-- Resolves from host header
+- Google, Apple, email/password; guest sessions
+- JWT with refresh tokens in HttpOnly cookies
 
 ## State Management
 
-- **Auth**: `AuthContext` - user session, tokens
-- **Site**: `SiteContext` - current site, theme
-- **Download**: `DownloadContext` - offline book management
-- **Local**: Component state + custom hooks
+React Context only (no Redux/Zustand): `AuthContext`, `GuestLimitsContext`,
+`NativeLanguageContext`, `LanguageContext`; otherwise component state + custom hooks.
 
 ## Adding a New Page
 

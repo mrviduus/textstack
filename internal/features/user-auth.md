@@ -4,7 +4,7 @@ Google, Apple and email/password sign-in, plus anonymous **guest** sessions. JWT
 rotating refresh token. Web keeps both in HttpOnly cookies; mobile (`X-Client: mobile`) gets them in
 the response body and stores them in SecureStore.
 
-Checked against code 2026-10-04. Guest posture and its rejected alternatives:
+Checked against code 2026-11-17. Guest posture and its rejected alternatives:
 [ADR-014](../../docs/architecture/adr/ADR-014-guest-sessions.md). Admin auth is separate
 (`admin_access_token` cookie, `AdminAuthMiddleware`) — see [security.md](../security.md).
 
@@ -56,18 +56,18 @@ cookies, re-set on every refresh so an active session slides).
 
 ## User data endpoints
 
-- Library: `GET /me/library`, `POST/DELETE /me/library/{editionId}`
-- Progress: `GET /me/progress`, `GET/PUT/DELETE /me/progress/{editionId}`
-- Bookmarks: `GET /me/bookmarks`, `GET /me/bookmarks/{editionId}`, `POST /me/bookmarks`, `DELETE /me/bookmarks/{id}`
-- Notes live on highlights (`/me/highlights`); there is no `/me/notes` route.
+The sync API under `/me/v2` (`V2Endpoints.cs`): library, reading state, annotations (highlights, notes
+and bookmarks are all annotations), vocabulary, shares/checkpoints/insights. Routes:
+[api-endpoints.md](../claude/api-endpoints.md).
 
 ## Database
 
 `users`: `email` (guests get `guest-<hex>@guest.local`), `name`, `picture`, `password_hash?`,
 `google_subject?`, `apple_subject?` (each unique where not null), `is_guest`, `promoted_at`,
-`last_active_at`, `tier`, `native_language`, storage counters.
+`last_active_at`, `tier`, `role` (`reader` / `admin`), `native_language`, storage counters.
 
-`user_refresh_tokens`: `user_id`, `token` (unique), `expires_at`, `created_at`.
+`user_refresh_tokens`: `user_id`, `token_hash` (unique), `kind`, `family_id`, `expires_at`, `created_at`
+(`SessionTokenRepository`).
 
 ## Key Files
 
@@ -78,8 +78,8 @@ cookies, re-set on every refresh so an active session slides).
 | `apps/mobile/src/context/AuthContext.tsx` | Mobile auth context |
 | `apps/mobile/src/lib/capabilities.ts` | Guest vs account policy (mobile) |
 | `backend/src/Api/Endpoints/AuthEndpoints.cs` | Auth endpoints, cookies |
-| `backend/src/Application/Auth/AuthService.cs` | Sign-in, refresh rotation, guest promote/merge |
-| `backend/src/Domain/Entities/User.cs` | User entity |
+| `backend/src/Application/Identity/V2AuthService.cs` | Sign-in, refresh rotation, guest promote/merge |
+| `backend/src/Domain/Identity/UserAccount.cs` | User entity |
 
 ## Configuration
 

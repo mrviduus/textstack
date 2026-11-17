@@ -49,8 +49,8 @@ flowchart LR
 ```
 
 You pick a book file. The desk puts the file in the stacks and writes a card for it in the
-catalogue. Then the processing room takes the book and cuts it into chapters. This takes a moment,
-so the reading room shows "processing" until it is done.
+catalogue. You can read at once: the reading room opens the file itself. In the background the
+processing room cuts a copy into chapters, for your assistant.
 
 This is [story 1](../stories/index.md).
 
@@ -59,17 +59,18 @@ This is [story 1](../stories/index.md).
 ```mermaid
 flowchart LR
     you(["You"]) -->|"1. open"| room["Reading room"]
-    room -->|"2. ask for the chapter"| desk["Librarian's desk"]
-    desk -->|"3. look it up"| cat[("Catalogue")]
-    desk -->|"4. the page"| room
+    room -->|"2. ask for the file"| desk["Librarian's desk"]
+    desk -->|"3. fetch it"| stacks[("Stacks")]
+    desk -->|"4. the book"| room
     room -->|"5. remember the place"| desk
+    desk -->|"6. write it down"| cat[("Catalogue")]
 ```
 
-The reading room asks the desk for the chapter and shows it. As you read, it tells the desk where
-you are, and the desk writes your reading position in the catalogue.
+The reading room gets the book's file and opens it. As you read, it tells the desk where you are,
+and the desk writes your reading position in the catalogue.
 
-On Android, a downloaded book is read from the phone first. The network is asked afterwards, and
-only to refresh. That is why reading works offline.
+On Android, the book's file stays on the phone, so the reading room opens it without asking the
+desk at all. Your place is sent when there is a network. That is why reading works offline.
 
 ## Scene 3. You tap a hard word
 
@@ -117,7 +118,7 @@ flowchart LR
 
 Your assistant never walks into the building. It knocks at its own door with the key you gave it.
 The door only passes requests on. The desk checks the key and decides what the assistant may see.
-After the move to V2 that is only the chapters you chose to share, and what you worked out before.
+That is your own books, the chapters you shared, and what you worked out before.
 
 What you and the assistant conclude is saved back the same way, through the desk.
 
@@ -137,17 +138,6 @@ The building changes while it stays open. A contributor offers a change, the che
 themselves, a maintainer accepts it, and it goes live with no one copying files by hand.
 
 This is [story 8](../stories/index.md). To do it yourself: [Ship a first pull request](../start/first-pr.md).
-
-## What is being rebuilt
-
-TextStack is moving to **V2**: a new catalogue and a new reading room. Two things change for the
-book's journey:
-
-- A book will open straight from its file. The processing room will no longer cut it into chapters
-  first.
-- Reading will not need the desk at all for a book that is on your device.
-
-The old rooms stay open until the move is done. More: [the move to V2](v2.md).
 
 ## Words used here
 

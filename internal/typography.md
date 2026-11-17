@@ -13,6 +13,8 @@
 
 ## Native mobile and offline reader
 
+> **Since M6 (2026-11-17)** the WebView reader is the V2 reader ([`v2reader/README.md`](../apps/mobile/src/lib/v2reader/README.md), "Reading settings"); `readerFonts.generated.ts`, `build:reader-fonts` and the reflow documents described below were deleted with the legacy reader. The "Verification" section is the 2026-10-16 record.
+
 Expo loads TextStack's four named styles and Source Sans 3's three interface weights for native screens. Shared typography tokens and existing literal font references use these registered names.
 
 The WebView reader cannot use Expo's native font registry. `src/lib/readerFonts.generated.ts` stores compressed WOFF2 data by family. Each document includes **only the selected family**: TextStack 330,472 bytes, Source Sans 3 521,140 bytes, or the existing OpenDyslexic payload. A system-family document embeds no custom font data. The previous implementation included 1,877,830 bytes of font CSS in every standard document.

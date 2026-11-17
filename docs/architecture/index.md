@@ -7,17 +7,9 @@ Android app and an MCP server for AI assistants. It is a modular monolith
 ([ADR-006](adr/006-modular-monolith.md)): one deployable backend, split into projects with strict
 dependency rules.
 
-> **V2 is in flight.** The project is moving to a second database (`textstack_v2`) and a new reader,
-> with one cutover at the end ([ADR-030](adr/ADR-030-two-databases-one-cutover.md)).
->
-> | | Today |
-> |---|---|
-> | **Live in production** | The legacy database, the legacy reader (`packages/reader-engine`), the public catalog and its prerendered pages |
-> | **Behind the flag `Features:V2Api`** (off in production, on in CI and local dev) | The `/me/v2/*` API on `textstack_v2`, the V2 reader page at `/:lang/library/my/:id/read-v2` |
-> | **Goes away at the cutover** | The legacy database, EF Core, the public catalog, the prerendered (SSG) pages |
->
-> Current state: [STATUS.md](../STATUS.md). The V2 map: [v2.md](v2.md). This page describes what
-> runs in production today.
+Production runs V2 only since 2026-11-17: one database (`textstack_v2`), one reader (our foliate-js
+fork). The plan that got here, kept as history: [v2.md](v2.md),
+[ADR-030](adr/ADR-030-two-databases-one-cutover.md). Current state: [STATUS.md](../STATUS.md).
 
 New here? Read [a book's journey](story.md) first: the same system as a short story with pictures.
 
@@ -36,24 +28,20 @@ How the deployment is laid out and what a second worker would take: [c4-worker-s
 
 ```
 Internet ─► Cloudflare (DNS + TLS) ─► Cloudflare Tunnel ─► nginx on host (:80)
-   textstack.app ─┬─ bots → prerendered SSG HTML, humans → SPA (apps/web/dist)
+   textstack.app ─┬─ SPA (apps/web/dist) + reader frame (dist/reader-v2/)
                   ├─ /api/*  → api        :8080
                   └─ /mcp    → mcp-server :8090
    textstack.dev  ── admin SPA            :81   (noindex, JWT login)
 
 Docker services (docker-compose.yml, all bound to 127.0.0.1):
-  db          pgvector/pgvector:pg16 — Postgres 16 + FTS + pgvector
+  db          pgvector/pgvector:pg16 — Postgres 16, database textstack_v2
   migrator    one-shot: applies the plain-SQL migrations in database/ (ADR-026); api waits for it
-  api         HTTP API + some hosted services (see below)
-  worker      ingestion + enrichment + cleanup jobs (polls DB)
-  ssg-worker  Node + Puppeteer; polls DB for SSG rebuild jobs, writes apps/web/dist/ssg
+  api         HTTP API + the TTS cache sweep
+  worker      chapter extraction + retention cleanup (polls DB)
   admin       nginx serving the admin SPA
-  ollama      local LLM (gemma4:e2b) for vocabulary distractors / metadata
+  ollama      local LLM (gemma4:e2b) for local tasks
   mcp-server  MCP↔HTTP bridge (profile `mcp`; prod deploy enables it)
   aspire-dashboard  OpenTelemetry UI (profile `observability`)
-
-Host (systemd user units, outside Docker): seo-publish-poller, seo-backfill-poller,
-quality-poller — shell scripts in infra/scripts/ that call the Claude CLI.
 ```
 
 ## Backend projects
@@ -62,24 +50,24 @@ quality-poller — shell scripts in infra/scripts/ that call the Claude CLI.
 
 | Project | Role |
 |---------|------|
-| `Domain` | Entities, enums, value objects. Only package: `Npgsql` (for `NpgsqlTsVector` on `Chapter`) |
+| `Domain` | Entities, enums, value objects |
 | `Contracts` | Request/response DTOs, MCP manifest. No references |
-| `Application` | Services + `IAppDbContext`, `IFileStorageService`. References Domain, Contracts, Extraction, Vocabulary, Ai.Core, Ai.Llm, Ai.Agents; packages incl. EF Core |
-| `Infrastructure` | `AppDbContext` (split into partials per area), migrations, `LocalFileStorageService`, `ResendEmailService`, `ImageOptimizer` |
-| `Api` | Minimal API endpoints (`Api/Endpoints/`), middleware, site resolution, SEO/SSG endpoints |
-| `Worker` | Background host: ingestion, enrichment, guest cleanup |
+| `Application` | Services + repository interfaces, `IFileStorageService`. References Domain, Contracts, Extraction, Vocabulary, Ai.Core, Ai.Llm, Ai.Agents |
+| `Infrastructure` | Dapper repositories over one `V2DataSource` (`Persistence/`, [ADR-028](adr/ADR-028-dapper-and-repositories.md)), `LibraryFileStore`, `LocalFileStorageService`, `ResendEmailService`, `ImageOptimizer` |
+| `Api` | Minimal API endpoints (`Api/Endpoints/`), middleware |
+| `Worker` | Background host: chapter extraction, retention cleanup |
 | `Extraction/TextStack.Extraction` | EPUB (VersOne.Epub) / PDF (PdfPig) / HTML extractors, text pipeline, quality scorer |
-| `Search/TextStack.Search` | Postgres FTS via Dapper (`PostgresSearchProvider`) |
 | `Tts/TextStack.Tts` | Edge TTS WebSocket client + disk cache |
 | `Vocabulary/TextStack.Vocabulary` | SRS engine, review cards, distractor generator |
 | `Ai/TextStack.Ai.Core` | AI abstractions (`ILlmService` etc.) |
 | `Ai/TextStack.Ai.Llm` | `ModelGateway`: OpenAI + Ollama clients, routing, tracing, budgets |
-| `Ai/TextStack.Ai.Tools`, `Ai/TextStack.Ai.Agents` | Tool calling + agent loop (`TutorAgent`, `EnrichmentAgent` in `Application/Agents/`) |
-| `Ai/TextStack.Ai.Evals`, `Ai/TextStack.Ai.EvalSuite` | Eval framework + runners (admin AI-quality page, continuous evals) |
+| `Ai/TextStack.Ai.Tools`, `Ai/TextStack.Ai.Agents` | Tool calling + agent loop (`EnrichmentAgent` in `Application/Agents/`) |
+| `Ai/TextStack.Ai.Evals`, `Ai/TextStack.Ai.EvalSuite` | Eval framework + runners |
 | `Ai/TextStack.Ai.Mcp` | MCP server; references only `Contracts`, talks to the API over HTTP |
 
 Deleted and gone from the solution: `TextStack.Epub` (2026-09-28), `TextStack.Search.Meilisearch`
-and `search_documents` (2026-10-01), `TextStack.Ai.Rag` and all chat/RAG features (2026-09-10).
+and `search_documents` (2026-10-01), `TextStack.Ai.Rag` and all chat/RAG features (2026-09-10),
+`TextStack.Search` and EF Core (M6, 2026-11-17).
 Empty `bin/obj` folders of those may still exist in local checkouts.
 
 ## Dependency rules
@@ -88,7 +76,7 @@ Empty `bin/obj` folders of those may still exist in local checkouts.
 Api ──► Application ──► Domain ◄── Infrastructure
  │           │             ▲
  │           └─► Ai.*, Extraction, Vocabulary
- └─► Search, Tts           │
+ └─► Tts                   │
                         Worker
 ```
 
@@ -99,29 +87,20 @@ Api ──► Application ──► Domain ◄── Infrastructure
 ## Request pipeline (`Api/Program.cs`, order matters)
 
 `ForwardedHeaders` → `Cors` → `AppVersion` → `ExceptionMiddleware` → `UserStoragePolicy` →
-`StaticFiles(/storage)` → `/health` → `SiteContext` → `LanguageContext` → `Routing` → `McpKeyAuth` →
-`RateLimiter` → `GuestActivity` (10-min debounce) → `AdminAuth` (only `/admin/*`) → `PathGates`
+`StaticFiles(/storage)` → `/health`, `/health/ready` → `Routing` → `WriteFreeze` (off unless configured) →
+`McpKeyAuth` → `RateLimiter` → `AccountGuard` → `GuestActivity` (10-min debounce) → `AdminAuth` (only `/admin/*`) → `PathGates`
 (`/me/*` needs a user, `/internal/*` only from the Docker network; [ADR-024](adr/ADR-024-auth-fails-closed-by-path.md)) → endpoints.
 
 The rate limiter must sit after `UseRouting`; before it, every per-endpoint policy was inert
 (comment in `Program.cs`). There is no ASP.NET authentication middleware — endpoints read the
 bearer token themselves (`GetUserId`).
 
-## Site context
-
-Single site forever (ADR-007). `SiteContextMiddleware` resolves `Host` via `site_domains`; an
-unknown host falls back to the one site (`ICurrentSite.Id`, config `Site:Id`) — 404 only if that
-row is missing. EF global query filters on `ISiteScoped` entities key on `ICurrentSite.Id`, so
-code does not pass `SiteId` by hand. The `site_id` columns stay. See [multisite.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/multisite.md).
-
 ## Background work
 
 | Host | Hosted services |
 |------|-----------------|
-| Worker | `IngestionWorker` (admin + user uploads, polls every 5 s), `MetadataEnrichmentWorker`, `GuestCleanupWorker` (2 h / 30 d), `RetentionCleanupWorker` (daily: expired tokens, AI traces > 30 d, idle tutor sessions > 90 d, finished SSG jobs > 30 d), `HeartbeatWorker`, `AiProviderReadinessCheck`, `TextStackWatcher` (optional) |
-| Api | `AutoRetireSweeperWorker`, `DailyCapReconcilerWorker`, `ClusterCandidateBuilderWorker`, `ConceptClusteringWorker`, `ContinuousEvalWorker`, `EdgeTtsService` (cache cleanup) |
-| ssg-worker | Polls `ssg_rebuild_jobs` every 5 s, runs `prerender.mjs`, swaps `dist/ssg` atomically, pings IndexNow |
-| Host systemd | `seo-publish-poll.sh`, `seo-backfill-poll.sh`, `quality-poll.sh` (Claude CLI) |
+| Worker | `SingleInstanceLock`, `V2IngestionWorker` (uploaded files → `book_chapters`), `RetentionCleanupWorker` (daily: expired tokens, AI traces > 30 d), `HeartbeatWorker`, `AiProviderReadinessCheck` |
+| Api | `EdgeTtsService` (cache cleanup) |
 
 All queues are Postgres tables polled by the consumer; there is no message broker.
 
@@ -129,22 +108,22 @@ All queues are Postgres tables polled by the consumer; there is no message broke
 
 | Store | What |
 |-------|------|
-| PostgreSQL 16 | ~63 tables ([data-model.md](data-model.md)). FTS: `chapters.search_vector` (trigger). pgvector: `vocabulary_words.embedding` (1536-d) |
-| `./data/storage` (bind mount, [ADR-001](adr/001-storage-bind-mounts.md)) | Original uploads + covers, served at `/storage` |
-| `./data/tts-cache`, `./data/explain-cache` | SHA256-keyed disk caches, 30-day TTL |
+| PostgreSQL 16 | `textstack_v2`, ~27 tables ([data-model.md](data-model.md)) |
+| `./data/storage` (bind mount, [ADR-001](adr/001-storage-bind-mounts.md)) | Avatars + upload covers, served at `/storage` |
+| `./data/library` | Book files, outside the public root (`LibraryFileStore`) |
+| `./data/tts-cache`, `./data/explain-cache`, `./data/translate-cache` | SHA256-keyed disk caches |
 | `./data/ollama` | Ollama models |
-| Web IndexedDB | Offline chapters, TTS audio |
-| Mobile SQLite (`offlineDb.ts`) + files | Offline chapters and original PDFs |
+| Web IndexedDB (`offlineDb.ts`) | Highlights, translations, explains, TTS audio, pending vocabulary |
+| Mobile files + local library (`v2reader/hostStorage.ts`, `localLibrary.ts`) | Book files and their rows, read offline |
 
 ## Clients and shared code
 
 | Path | What |
 |------|------|
-| `apps/web` | Public React 19 + Vite SPA; also the SSG source |
-| `apps/admin` | Admin React SPA on `textstack.dev` |
-| `apps/mobile` | Expo 57 / React Native 0.86 (Android first) |
+| `apps/web` | React 19 + Vite SPA; hosts the reader page (`V2ReaderHost`) |
+| `apps/admin` | Admin shell on `textstack.dev`: login and an empty home |
+| `apps/mobile` | Expo 57 / React Native 0.86 (Android first); builds the reader page (`src/lib/v2reader/`, [ADR-032](adr/ADR-032-one-engine-foliate-fork.md)) |
 | `packages/shared` | `@textstack/shared` — API client, types, i18n, reader progress logic (source alias, not published) |
-| `packages/reader-engine` | `@textstack/reader-engine` — the reader engine, reflow + PDF ([ADR-025](adr/ADR-025-reader-engine-package.md)); `packages/reader-overlay` was deleted in #868 |
 
 Details: [frontend.md](frontend.md).
 
@@ -152,15 +131,13 @@ Details: [frontend.md](frontend.md).
 
 | Service | Used for | Failure mode |
 |---------|----------|--------------|
-| OpenAI | Translate (`gpt-4.1-mini`), Explain (`gpt-4.1-mini`), Tutor, embeddings (`text-embedding-3-small`) | Feature returns error; reading unaffected |
-| Ollama (self-hosted) | Vocabulary distractors/hint/explanation, book metadata | Fallback distractors; fields stay null |
+| OpenAI | Translate (`gpt-4.1-mini`), Explain (`gpt-4.1-mini`) | Feature returns error; reading unaffected |
+| Ollama (self-hosted) | Local LLM tasks (routes in `AiRouteMap`) | Soft in `/health/ready` |
 | Edge TTS (`speech.platform.bing.com`, no key) | Text-to-speech | No audio |
 | Resend | Password reset, admin alert emails | No email |
 | Google / Apple sign-in | OAuth login | Email/password and guest still work |
-| Sentry | Errors from api + worker (no-op without DSN) | — |
+| Sentry | Errors from api, worker, MCP server, web, mobile (no-op without DSN) | — |
 | Cloudflare | DNS, TLS, tunnel to the home server | Site down |
-| IndexNow (Bing/Yandex) | Push changed URLs after SSG rebuild | — |
-| Claude CLI (host, Max subscription) | SEO generation, PDF cleanup pollers | Jobs stay queued |
 | GitHub Actions | CI, image builds and deploy on merge to `main` ([delivery.md](delivery.md)) | No deploys |
 | EAS / Google Play | Mobile builds, OTA updates | — |
 
@@ -168,13 +145,6 @@ Details: [frontend.md](frontend.md).
 
 **TTS**: `useTts()` → IndexedDB → `GET /api/tts` → `EdgeTtsService` disk cache → `EdgeTtsClient`
 WebSocket. Server key `SHA256(text+voice+rate)`.
-
-**PDF content quality**: after ingestion, `ChapterContentQualityAnalyzer` scores each chapter
-0–100; if `quality.autoQueueAfterIngestion` / `quality.autoQueueForUserBooks` (admin settings) is on,
-a `BookQualityJob` is queued. `quality-poll.sh` on the host runs a Claude pass on low-score
-chapters behind a word-diff gate (`pdf-cleanup-gate.py`). Off by default
-(`CONTENT_CLEANUP_ENABLED=false`). Full design:
-[feat-0007](../../internal/features/feat-0007-pdf-content-quality.md).
 
 ## ADRs
 
@@ -184,8 +154,7 @@ are superseded or obsolete.
 
 ## See also
 
-- [flows.md](flows.md) — runtime view: upload, read, MCP, SSG, background AI
+- [flows.md](flows.md) — runtime view: upload, read, MCP, background AI
 - [data-model.md](data-model.md) — entity map + PII
-- [multisite.md](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/multisite.md) — host → site resolution
 - [frontend.md](frontend.md) — apps and packages
-- [ingestion](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/ingestion.md), [SSG](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/ssg-prerender.md), [SEO](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/seo-implementation.md), [admin](../../internal/admin.md)
+- [admin](../../internal/admin.md)
