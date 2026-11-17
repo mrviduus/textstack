@@ -78,6 +78,7 @@ export const V2_OFF: V2Switch = { enabled: false, maxPartBytes: 0 }
  * from this one table, and M6 deletes it. `false` = hidden.
  */
 export const V2_FEATURES = {
+  /** The legacy readers' bookmarks (chapter- and page-level, not carried). The V2 reader has its own (#1314): annotations of colour `bookmark`. */
   bookmarks: false,
   /** Flashcards only: multiple choice needs server-made distractors. */
   reviewModes: ['classic'] as const,
@@ -96,6 +97,24 @@ export const V2_FEATURES = {
   readLater: false,
   storageQuota: false,
   markAsKnown: false,
+  // M5 (#1031, owner 2026-11-16): no V2 storage; hidden on V2, their legacy routes answer 410. Back after M5.
+  goals: false,
+  achievements: false,
+  /** The stats page's per-book figures (`/me/reading/book-stats`): the Books and Time tabs. */
+  bookStats: false,
+  vocabSettings: false,
+  pendingWords: false,
+  wordLookups: false,
+  concepts: false,
+  highlightReview: false,
+  /** The saved chapter review and its questions (#1345 deferred). The Discuss handoff stays. */
+  chapterReview: false,
+  /** Reading stats, daily, pace, library summary: the stats page, streaks, quick stats (the time-left estimate falls back to the default pace). */
+  readingStats: false,
+  /** Vocabulary stats and daily stats: counts, due badges, streaks. */
+  vocabStats: false,
+  /** The home shelves (`/me/library/shelves`). */
+  shelves: false,
 } as const
 
 export type V2Feature = { [K in keyof typeof V2_FEATURES]: (typeof V2_FEATURES)[K] extends boolean ? K : never }[keyof typeof V2_FEATURES]

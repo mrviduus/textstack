@@ -411,7 +411,7 @@ export function LibraryPage() {
           {user && <p className="library-header__email">{user.email}</p>}
         </header>
 
-        {isAuthenticated && <LibraryStatsHeader />}
+        {isAuthenticated && v2Offers(v2, 'readingStats') && <LibraryStatsHeader />}
 
         <CollectionChips activeId={activeCollectionId} onSelect={onCollectionChange} />
 

@@ -15,6 +15,7 @@ import { V2ReaderPopups, type V2HighlightEditor } from './V2ReaderPopups'
 import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
 import { showsFinishBook } from '../../../../mobile/src/lib/v2reader/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
+import { readBookmarkList, type V2BookmarkList } from '../../../../mobile/src/lib/v2reader/bookmarks.mjs'
 import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../mobile/src/lib/v2reader/chapters.mjs'
 import { V2ChapterDiscuss, type V2DiscussState } from './V2ChapterDiscuss'
 import { v2Store } from '../../api/v2'
@@ -56,6 +57,8 @@ export interface V2OpenedMessage {
   title?: string
   author?: string
   annotatable?: boolean
+  /** #1314: a bookmark can be made somewhere in this book. */
+  bookmarkable?: boolean
   reflowable?: boolean
   /** #1315: strictly `true` where the page can search the book (not a CBZ or a PDF). */
   searchable?: unknown
@@ -361,6 +364,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * and the deep link's highlight still to jump to (once per open).
    */
   const [highlightList, setHighlightList] = useState<V2HighlightItem[]>([])
+  /** #1314: the open book's bookmarks, the one on screen and whether one can be made here (the page's `bookmark-list`); null until it comes. */
+  const [bookmarks, setBookmarks] = useState<V2BookmarkList | null>(null)
+  /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (false: an image book, a PDF, a pre-paginated EPUB). */
+  const [bookmarkable, setBookmarkable] = useState(false)
   const openedSha = useRef<string | null>(null)
   const devNotes = useRef(new Map<string, string | null>())
   const [, setNotesSeen] = useState(0)
@@ -495,6 +502,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     discuss.reset()
     discussLocks.reset()
     setHighlightList([])
+    setBookmarks(null)
     openedSha.current = null
     pendingHighlight.current = highlightId ?? null
     // The previous book's session stays until `takeOpened`: no Finish block (and no click finishing that book)
@@ -552,6 +560,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       // The previous book's list goes; this one's comes with its `restored`.
       openedSha.current = m.book.sha256
       setHighlightList([])
+      setBookmarks(null)
+      setBookmarkable(m.bookmarkable === true)
       devNotes.current = new Map()
       const target = current.sync
       // Bytes that are not the server file's record no session either (below: nothing of that book's is saved).
@@ -578,7 +588,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           // Drawn without moving the reader; highlighting is offered from now on.
           onHighlights: (list) => {
             setHighlightsReady(true)
-            if (list.length) call('addHighlights', [list])
+            // Always, an empty list too (#1314): the page was told more annotations follow the restore, and makes no
+            // bookmark until this call has placed them (its `bookmark-list` then says `can`).
+            call('addHighlights', [list])
           },
           highlights: m.annotatable !== false,
           // A later offer replaces the one shown (the newest place).
@@ -594,7 +606,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           setReadFailed(false)
           s.restore().then((json) => {
             if (sync.current !== s || json === null) return
-            call('restore', [json])
+            // `true`: the book's annotations follow by `addHighlights` (#1314: no bookmark before them).
+            call('restore', [json, true])
             void s.loadHighlights()
           }, (e: unknown) => {
             console.warn('[v2] reading state not read:', e)
@@ -679,6 +692,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             hostMove('goTo', [want.cfi, true])
             onHighlightShownRef.current?.()
           }
+          return
+        }
+        case 'bookmark-list': {
+          // #1314, untrusted: only what readBookmarkList takes; another book's (a previous open's) is dropped.
+          const l = readBookmarkList(m)
+          if (l && l.key === openedSha.current) setBookmarks(l)
           return
         }
         case 'highlight-tap': {
@@ -979,8 +998,23 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     },
     onDelete: () => call('removeHighlight', [tapped.id]),
   } : null
-  /** A highlight chosen in the list, or a search result (#1315): the reader's choice, saved where it lands. */
+  /** A highlight or a bookmark chosen in its list, or a search result (#1315): the reader's choice, saved where it lands. */
   const goHighlight = (h: { cfi: string }) => hostMove('goTo', [h.cfi, true])
+  /**
+   * #1314: bookmarks are the book's annotations, offered as highlights are (never before the server's are in: a write
+   * would duplicate one). The button adds one at the place on screen, or removes the one there; the page answers a
+   * removal with `highlight-removed`, the tombstone's path.
+   */
+  const bookmarkHere = offersHighlights && bookmarks ? bookmarks.here : null
+  // Only for the book being read, where the book takes bookmarks (or holds some). Kept on the bars while the page says
+  // none can be made now (bookmarks being placed, nothing to keep on this screen): disabled, so the bars never shift.
+  const offersBookmark = reading && offersHighlights && (bookmarkable || !!bookmarks?.bookmarks.length)
+  const bookmarkEnabled = !!bookmarks && (bookmarks.can || !!bookmarks.here)
+  const toggleBookmark = () => (bookmarkHere ? call('removeBookmark', [bookmarkHere]) : call('addBookmark'))
+  /** The Bookmarks tab: where the book can take one, or holds some already. */
+  const bookmarksTab = offersHighlights && (bookmarkable || !!bookmarks?.bookmarks.length)
+    ? { items: bookmarks?.bookmarks ?? [], can: !!bookmarks?.can, placing: !bookmarks || bookmarks.placing, onGo: goHighlight, onRemove: (id: string) => call('removeBookmark', [id]) }
+    : null
 
   /** Never a section number (#1261): the percent, then the current entry's title when there is one. */
   const currentEntry = tocAround(toc, tocIndex).current
@@ -1014,7 +1048,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         </div>
         <div className="reader-top-bar__right">
           {toolbar}
-          {reading && (toc.length > 0 || offersHighlights) && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
+          {reading && (toc.length > 0 || offersHighlights || !!bookmarksTab) && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
           {reading && search.searchable && (
             <button className="reader-top-bar__btn" onClick={() => setSearchOpen(true)} aria-label={t('v2Reader.search')} title={t('v2Reader.search')}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -1024,6 +1058,15 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
             </button>
           )}
           {offersHighlights && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
+          {offersBookmark && (
+            // One name, its state in aria-pressed (#1314 review): a toggle's label never changes with its state.
+            <button className="reader-top-bar__btn" data-testid="v2-bookmark" aria-pressed={!!bookmarkHere} aria-label={t('reader.chrome.bookmark')} title={t('reader.chrome.bookmark')} disabled={!bookmarkEnabled} onClick={toggleBookmark}>
+              {/* Filled while a bookmark is on screen. */}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill={bookmarkHere ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
+              </svg>
+            </button>
+          )}
           <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
           <button className="reader-top-bar__btn" onClick={() => setSettingsOpen(true)} aria-label={t('v2Reader.settings')} title={t('v2Reader.settings')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -1128,6 +1171,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         onGo={goToc}
         onClose={() => setTocOpen(false)}
         highlights={offersHighlights ? { items: highlightList, noteOf: noteFor, onGo: goHighlight } : null}
+        bookmarks={bookmarksTab}
       />
       {/* Opened only from its button (a searchable book on screen); a new open closes it. */}
       <V2SearchDrawer key={searchBook} open={searchOpen} search={search} onQuery={askSearch} onGo={goHighlight} onClose={() => setSearchOpen(false)} />

@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { isOfflineError, plural, v2Offers } from '@textstack/shared'
 import { vocabularyApi } from '../../src/lib/vocabularyApi'
+import { nullIfRefused } from '../../src/lib/v2'
 import type { VocabularyWordDto, VocabularyStatsDto, PendingVocabWordDto, WordLookupDto } from '@textstack/shared'
 import { useAuth, useV2 } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
@@ -54,6 +55,7 @@ export default function VocabularyScreen() {
   // hold the skeleton instead of flashing the sign-in wall on a cold start.
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth()
   // V2 (#1025): no tutor, cluster rounds or review-style switch (V2_FEATURES); review runs as flashcards.
+  // M5 (#1031): no stats, settings, pending words or lookups either (no V2 storage).
   const v2 = useV2()
   const { colors } = useTheme()
   const { t } = useLanguage()
@@ -63,6 +65,9 @@ export default function VocabularyScreen() {
   const [words, setWords] = useState<VocabularyWordDto[]>([])
   const [stats, setStats] = useState<VocabularyStatsDto | null>(null)
   const [tab, setTab] = useState<TabKey>('all')
+  // V2 turned on while a now-hidden tab was open: back to All.
+  const hiddenTab = (tab === 'pending' && !v2Offers(v2, 'pendingWords')) || (tab === 'lookups' && !v2Offers(v2, 'wordLookups'))
+  useEffect(() => { if (hiddenTab) setTab('all') }, [hiddenTab])
   const [sort, setSort] = useState<SortKey>('recent')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -118,7 +123,8 @@ export default function VocabularyScreen() {
       const currentOffset = loadMore ? offsetRef.current : 0
       const [res, st] = await Promise.all([
         vocabularyApi.getWords({ stage: activeFilter, search: search || undefined, sort, limit: 50, offset: currentOffset }),
-        loadMore ? Promise.resolve(null) : vocabularyApi.getVocabularyStats(),
+        // M5 (#1031): no vocabulary stats on V2 (refused): the list loads without them.
+        loadMore ? Promise.resolve(null) : vocabularyApi.getVocabularyStats().catch(nullIfRefused),
       ])
       if (myGen !== loadGenRef.current) return
       if (loadMore) {
@@ -316,6 +322,8 @@ export default function VocabularyScreen() {
         stats={stats}
         dueCount={dueCount}
         onPractice={() => router.push(`/vocabulary/review?reviewMode=${reviewMode}`)}
+        // V2: no stats; Practice stays while the list has words or a filter or search may be hiding them.
+        statsHidden={!v2Offers(v2, 'vocabStats') && (total > 0 || !!activeFilter || !!search)}
         onSmartSession={v2Offers(v2, 'tutor') ? () => router.push('/tutor') : undefined}
         smartSessionLabel={t('tutor.entry.cta')}
       />
@@ -334,7 +342,7 @@ export default function VocabularyScreen() {
         stats={stats}
         onSelectReviewMode={v2.enabled ? undefined : selectReviewMode}
         onSelectSort={k => setSort(k as SortKey)}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={v2Offers(v2, 'vocabSettings') ? () => setSettingsOpen(true) : undefined}
         onClose={() => setViewSheetOpen(false)}
       />
 
@@ -360,7 +368,7 @@ export default function VocabularyScreen() {
       <View style={styles.tabsRow}>
         <View style={{ flex: 1 }}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
-        {TABS.map(t => (
+        {TABS.filter(t => (t.key !== 'pending' || v2Offers(v2, 'pendingWords')) && (t.key !== 'lookups' || v2Offers(v2, 'wordLookups'))).map(t => (
           <TouchableOpacity
             key={t.key}
             style={[styles.tab, { backgroundColor: colors.surface, borderColor: colors.border }, tab === t.key && { backgroundColor: colors.primary, borderColor: colors.primary }]}

@@ -24,10 +24,10 @@ import {
 import { ShareButtons } from '../components/ShareButtons'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
 import { AssistantMenu } from '../components/library/AssistantMenu'
-import { currentReviewChapter } from '@textstack/shared'
+import { currentReviewChapter, v2Offers } from '@textstack/shared'
 import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
 import { useBookReviews } from '../hooks/useBookReviews'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
 import { BookDetailHero } from '../components/BookDetailHero'
 import { AddToCollectionButton } from '../components/library/AddToCollectionButton'
 import { isNotFoundError } from '../lib/errorUtils'
@@ -73,6 +73,7 @@ export function BookDetailPage() {
   const { isDownloading, getProgress, startDownload } = useDownload()
   const { isInLibrary } = useLibrary()
   const { isAuthenticated } = useAuth()
+  const reviewOffered = v2Offers(useV2(), 'chapterReview')
   const { site } = useSite()
   const canonicalOrigin = getCanonicalOrigin(site?.primaryDomain)
   const [book, setBook] = useState<BookDetail | null>(null)
@@ -378,7 +379,8 @@ export function BookDetailPage() {
                   <span className="book-chapters__arrow material-icons-outlined">arrow_forward_ios</span>
                 </div>
               </LocalizedLink>
-              {isAuthenticated && (
+              {/* M5 (#1031): no chapter review on V2. */}
+              {isAuthenticated && reviewOffered && (
                 <ChapterReviewAction
                   book={{ title: book.title, author: book.authors.map(a => a.name).join(', ') || null, editionId: book.id, bookSlug: book.slug }}
                   chapter={{ slug: ch.slug, title: ch.title, wordCount: ch.wordCount }}

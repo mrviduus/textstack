@@ -470,8 +470,7 @@
   "userBook": {
     "enriching": "Generating book details…",
     "enrichFailed": "Couldn't generate details",
-    "enrichRetry": "Retry",
-    "readV2": "Open in the V2 reader"
+    "enrichRetry": "Retry"
   },
   "speakButton": {
     "title": "Listen",
