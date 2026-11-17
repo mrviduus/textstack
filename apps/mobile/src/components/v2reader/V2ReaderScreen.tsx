@@ -179,6 +179,9 @@ type Opening = { file: string; name: string }
 const isStaged = (file: string) => file.startsWith('staging/')
 
 /** Logs a failure; `show` also puts it on screen (the screen's `showError`: a full disk as a human message, hostErrors.ts). */
+/** The reader route's Back waits this long for the page's `book-closed` (its save in), then leaves anyway. */
+const LEAVE_FALLBACK_MS = 1500
+
 const fail = (what: string, show?: (e: unknown) => void) => (e: unknown) => {
   console.log(`[v2] ${what} failed: ${e}`)
   show?.(e)
@@ -591,6 +594,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }))
   // Leaving the screen ends the speech through the listener: a host-side end is never a failure toast elsewhere.
   useEffect(() => () => listener.stop(), [])
+  useEffect(() => () => { if (leaving.current) clearTimeout(leaving.current) }, [])
   // The word bar or selection toolbar that started a Listen closed (or another opened): its speech stops, its mark goes.
   useEffect(() => {
     listener.follow(spokenOf(popup))
@@ -647,11 +651,26 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   // The reader route (`/my-books/read/[bookId]/…`, M5 #1031) names its book `bookId`; the dev route's deep link `book`.
   const params = useLocalSearchParams<{ book?: string; bookId?: string; highlight?: string }>()
   const linkedBook = params.book ?? params.bookId
-  /** On the reader route the book is the screen: Back leaves the route (its unmount flushes the page); the dev route's list stays dev-only. */
+  /**
+   * On the reader route the book is the screen: Back flushes it (`CLOSE_BOOK_JS`) and leaves the route on its
+   * `book-closed`, or after LEAVE_FALLBACK_MS if that never comes. The dev route's list stays dev-only.
+   */
   const onRoute = !!params.bookId
-  const leave = () => (router.canGoBack() ? router.back() : router.replace('/'))
+  const leaving = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const leave = () => {
+    if (leaving.current) clearTimeout(leaving.current)
+    leaving.current = null
+    if (router.canGoBack()) router.back()
+    else router.replace('/')
+  }
   const closeBook = () => {
-    if (onRoute) return leave()
+    if (onRoute) {
+      if (leaving.current) return
+      if (!ready.current) return leave()
+      leaving.current = setTimeout(leave, LEAVE_FALLBACK_MS)
+      webView.current?.injectJavaScript(CLOSE_BOOK_JS)
+      return
+    }
     setBook(false)
     deadlines.answered()
     if (ready.current) webView.current?.injectJavaScript(CLOSE_BOOK_JS)
@@ -946,11 +965,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       upload: uploadRetained,
       guest: capabilitiesFor(user).isGuest,
     }).then(() => {
-      refreshBooks()
       // A pull may have brought another device's notes (#1312 review): the editor and the sheet read them again.
       refreshNotes()
       // And saved words (#1271): the marks too.
       refreshVocab()
+      // The pass counts once its books are on screen: a linked book it pulled is found first (#1361).
+      return refreshBooks()
     }, fail('sync')).finally(() => setSyncPasses((n) => n + 1))
   }
   /** Sync passes ended (either way): a linked book not in the library after one is not coming by itself. */
@@ -1230,6 +1250,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }, fail('store', showError(t('reader.v2.failed.store'))))
         return
       case BOOK_CLOSED:
+        // The reader route's Back (#1361): the save is in, now leave.
+        if (leaving.current) return leave()
         // The closed book's pending save came first (CLOSE_BOOK_JS); a reopen meanwhile keeps it.
         if (!inBookRef.current) endBook()
         return

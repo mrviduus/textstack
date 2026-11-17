@@ -101,7 +101,7 @@ describe('UserBookDetailPage on V2', () => {
   // M5 (#1031): one Read button, /read is the V2 reader when V2 is on; it opens the file, chapters or not.
   it.each([[false, 0], [true, 1]])('V2 %s: a book with no chapter yet offers Start Reading %i times, no separate V2 link', async (on, shown) => {
     v2On = on
-    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [] })
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [], hasFile: on })
     renderPage()
     await screen.findByText('Test Book')
     const links = screen.queryAllByRole('link', { name: 'Start Reading' })
@@ -111,12 +111,13 @@ describe('UserBookDetailPage on V2', () => {
     v2On = false
   })
 
-  it.each(['Failed', 'Processing'])('V2 on: a %s book (no file in yet) offers no Start Reading', async (status) => {
+  // Review #1361: V2 reads the raw file, so the extraction's state does not gate it; the file's bytes do.
+  it.each([['Processing', true, 1], ['Failed', true, 1], ['Ready', false, 0], ['Failed', false, 0]] as const)('V2 on: a %s book, file in %s, offers Start Reading %i times', async (status, hasFile, shown) => {
     v2On = true
-    getUserBook.mockResolvedValue({ ...baseBook, status, metadataEnrichmentStatus: undefined, chapters: [] })
+    getUserBook.mockResolvedValue({ ...baseBook, status, metadataEnrichmentStatus: undefined, chapters: [], hasFile })
     renderPage()
     await screen.findByText('Test Book')
-    expect(screen.queryAllByRole('link', { name: 'Start Reading' })).toHaveLength(0)
+    expect(screen.queryAllByRole('link', { name: 'Start Reading' })).toHaveLength(shown)
     v2On = false
   })
 

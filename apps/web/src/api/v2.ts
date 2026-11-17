@@ -87,6 +87,7 @@ export const v2Store = {
 export function resetV2ForTests() {
   probe = null
   known = V2_OFF
+  answered = false
   rearmV2Session()
   v2Store.reset()
 }
@@ -177,6 +178,7 @@ export async function getV2UserBook(id: string): Promise<UserBookDetail> {
     updatedAt: b.updatedAt,
     completedAt: state?.completedAt ?? null,
     pageCount: b.currentFile?.pageCount ?? null,
+    hasFile: !!b.currentFile?.hasContent,
   }
 }
 

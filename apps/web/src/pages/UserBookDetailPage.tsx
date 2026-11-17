@@ -233,8 +233,8 @@ export function UserBookDetailPage() {
   // of extraction status, so Processing/Failed must not block or scare.
   const hasOriginalPdf = !!book.hasOriginalPdf
   const pages = bookPages(book)
-  // M5 (#1031): on V2 the reader opens the file itself, chapters or not (a Ready book: its file is in).
-  const canRead = hasOriginalPdf || (isReady && (v2.enabled || book.chapters.length > 0))
+  // M5 (#1031): on V2 the reader opens the file itself (queued, processing or failed extraction alike) once its bytes are in.
+  const canRead = v2.enabled ? !!book.hasFile : hasOriginalPdf || (isReady && book.chapters.length > 0)
   const readerBase = `/${language}/library/my/${book.id}`
   const readHref = continueReadingSlug
     ? `${readerBase}/read/${continueReadingSlug}`
