@@ -51,8 +51,8 @@ export class ErrorBoundary extends Component<Props, State> {
           Something broke in this page
         </h1>
         <p style={{ color: '#666', marginBottom: '24px' }}>
-          The admin panel hit an unexpected render error. Other pages should still work —
-          use the navigation, or reload this one. The error is logged to the browser
+          The admin panel hit an unexpected render error. Reload the page;
+          the error is logged to the browser
           console so you can copy details if it's reproducible.
         </p>
         <details style={{
