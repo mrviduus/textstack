@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { reviewsBySlug, insightsApi, type BookInsight } from '@textstack/shared'
 
 /**
- * The book's insights and, from them, which chapters have a structured review. One `/me/insights`
+ * The book's insights and, from them, which chapters have a structured review. One `/me/v2/books/{id}/insights`
  * call — the same list `BookInsightsSection` renders (ADR-016: no separate read endpoint).
  * Pass null to skip (signed out, book not loaded yet).
  *
@@ -21,7 +21,7 @@ export function useBookReviews(target: { userBookId: string } | null) {
   useEffect(() => {
     if (!target) return
     let cancelled = false
-    insightsApi.getBookInsights(target, true)
+    insightsApi.getBookInsights(target.userBookId)
       .then(rows => { if (!cancelled) setState({ key, insights: rows, error: false }) })
       .catch(() => { if (!cancelled) setState({ key, insights: [], error: true }) })
     return () => { cancelled = true }

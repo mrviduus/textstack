@@ -58,6 +58,6 @@ Bug reports, ideas and PRs are welcome. Read [CONTRIBUTING.md](.github/CONTRIBUT
 
 A commercial license is available for organizations that cannot use AGPL (proprietary forks, hosted commercial services). Contact: mrviduus@gmail.com.
 
-- Standard Ebooks corpus in seed data: CC0 / public domain
+- Typography rules ported from the [Standard Ebooks tools](https://github.com/standardebooks/tools) (GPL v3)
 - Edge TTS: used under Microsoft's Edge Read Aloud terms
 - Third-party dependencies: their respective licenses
