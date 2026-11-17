@@ -34,8 +34,8 @@
  */
 import { createWriteQueue } from '../sessionWrites'
 import {
-  annotationHighlight, decideServerState, entryChanges, entryFor, isBookmark, isFractionOnly, isUuid, pageEntry, statePosition, syncableText,
-  type OpenReader, type PageHighlight, type PagePosition, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState, type V2Word,
+  annotationHighlight, annotationQuotation, decideServerState, entryChanges, entryFor, isBookmark, isFractionOnly, isQuotation, isUuid, pageEntry, statePosition, syncableText,
+  type OpenReader, type PageHighlight, type PagePosition, type PageQuotation, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState, type V2Word,
 } from '@textstack/shared'
 import type { LibraryBook } from './hostStorage'
 import type { LibraryEntry } from './library.mjs'
@@ -499,6 +499,7 @@ export function createLocalLibrary(db: Db) {
           importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
           notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : null),
           finished: finished.has(b.id),
+          format: (local ? b.format : b.server_format) ?? null,
         }
       })
     }),
@@ -550,10 +551,13 @@ export function createLocalLibrary(db: Db) {
       const st = await stateOf(book.id)
       const file = fileOf(book)
       const rows = await all<AnnotationRow>('SELECT highlight FROM annotations WHERE book_id = ? AND file_id = ? AND deleted_at IS NULL ORDER BY rowid', [book.id, file])
+      const kept = rows.map((r) => parse<PageHighlight | PageQuotation>(r.highlight))
       return JSON.stringify(pageEntry(
         { sha256, size: sizeOf(book)!, name: book.original_name },
         st && st.file_id === file ? parse<PagePosition>(st.position) : null,
-        rows.map((r) => parse<PageHighlight>(r.highlight)).filter((h): h is PageHighlight => !!h),
+        kept.filter((h): h is PageHighlight => !!h && !isQuotation(h)),
+        // #1195: the legacy anchor rows, listed by the page as quotations.
+        kept.filter(isQuotation),
       ))
     }),
 
@@ -669,9 +673,9 @@ export function createLocalLibrary(db: Db) {
       )
       return rows.flatMap((r) => {
         const h = parse<PageHighlight>(r.highlight)
-        // Not a bookmark (#1314: the same rows, colour `bookmark`).
+        // Not a bookmark (#1314: the same rows, colour `bookmark`), nor a quotation (#1195: nowhere to open it at).
         // ponytail: filtered after the LIMIT, so bookmarks among the newest rows shorten this dev-only list; filter in SQL if it ships.
-        return h && !isBookmark(h) ? [{ id: r.id, bookId: r.book_id, bookTitle: r.title, text: h.selectedText ?? h.quote, color: h.color ?? 'yellow', note: r.note }] : []
+        return h && !isBookmark(h) && !isQuotation(h) ? [{ id: r.id, bookId: r.book_id, bookTitle: r.title, text: h.selectedText ?? h.quote, color: h.color ?? 'yellow', note: r.note }] : []
       })
     }),
 
@@ -953,7 +957,7 @@ export function createLocalLibrary(db: Db) {
      * An annotations feed page (and its cursor, in the same transaction): a tombstone always wins
      * (deleted here, its queued edit dropped); a row with a queued local edit is left for the push to
      * resolve (`stale_revision`); otherwise the server's row replaces the local copy. One the page
-     * cannot draw (no `epub-cfi`) is not kept.
+     * cannot draw (no `epub-cfi`) is not kept, except a legacy anchor one: kept as a quotation (#1195).
      */
     applyAnnotations: (items: V2Annotation[], cursor?: string | null) => tx(async () => {
       for (const a of items) {
@@ -969,7 +973,9 @@ export function createLocalLibrary(db: Db) {
           if (row && !row.note_known) await run('UPDATE annotations SET note = ?, note_known = 1 WHERE id = ? AND note_dirty = 0', [a.noteText ?? null, a.id])
           continue
         }
-        const h = annotationHighlight(a)
+        // #1195: a legacy anchor annotation is kept as a quotation (listed, never drawn; syncableText refuses it, so it is
+        // never queued nor written back).
+        const h = annotationHighlight(a) ?? annotationQuotation(a)
         if (!h) continue
         if (row) await run('UPDATE annotations SET highlight = ?, file_id = ?, revision = ?, note = ?, note_dirty = 0, note_known = 1 WHERE id = ?', [JSON.stringify(h), a.fileId, a.revision, a.noteText ?? null, a.id])
         else await run('INSERT INTO annotations (id, book_id, file_id, highlight, revision, note) VALUES (?, ?, ?, ?, ?, ?)', [a.id, a.bookId, a.fileId, JSON.stringify(h), a.revision, a.noteText ?? null])

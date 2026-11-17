@@ -154,11 +154,13 @@ export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
         return (
           <TouchableOpacity
             style={[styles.row, styles.hlRow, { borderBottomColor: colors.border }]}
+            // #1195: a quotation (the earlier reader's highlight) is listed, never drawn: nowhere to go.
+            disabled={item.quotation}
             onPress={() => {
               onGo(item)
               onClose()
             }}
-            accessibilityRole="button"
+            accessibilityRole={item.quotation ? 'text' : 'button'}
           >
             <View style={[styles.swatch, { backgroundColor: HIGHLIGHT_BG[item.color] }]} />
             <View style={styles.hlBody}>
