@@ -157,6 +157,14 @@ export const KNOWN = {
       'The fix is 0.5.1, three minors past what query-string accepts, so reaching it means an ' +
       'override inside Expo — the same trade this list already refused once.',
   },
+  'GHSA-fc5q-39xc-vjpf': {
+    since: '2026-11-17',
+    module: 'picomatch',
+    needs: '>4.0.7',
+    why:
+      'No patched release exists (every version <=4.0.7 affected, latest is 4.0.7). Build/dev tooling ' +
+      'only (vite, vitest, tinyglobby, Expo CLI, Metro), matching our own globs, never in a bundle. Revisit when a fix ships.',
+  },
 }
 
 /**
