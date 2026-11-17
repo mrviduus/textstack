@@ -244,7 +244,7 @@ make backup-list      # List existing backups
 ### Restore
 
 ```bash
-make restore FILE=~/backups/textstack/db_2026-01-23_120000.sql.gz
+make restore FILE=~/backups/textstack/textstack_v2-db_2026-11-18_120000.sql.gz   # V2, into an absent database
 ```
 
 ### Automated Backups

@@ -79,7 +79,7 @@ First-response:
    `docker compose logs db | tail -50` for `PANIC` / `FATAL`.
 3. **Restart DB**: `docker compose restart db`. Wait 30s, verify healthcheck.
 4. **Restore from backup** (last resort, data loss):
-   `make restore FILE=~/backups/textstack/db_<latest>.sql.gz`.
+   `make restore FILE=~/backups/textstack/textstack_v2-db_<latest>.sql.gz` (into an absent V2 database).
    See [backup.md](backup.md).
 
 ---
