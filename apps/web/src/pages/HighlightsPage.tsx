@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { getAllHighlights, type HighlightListItem } from '../api/userData'
@@ -23,6 +24,8 @@ interface BookGroup {
 
 export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   const { isAuthenticated } = useAuth()
+  // M5 (#1031): highlight review has no V2 storage: no Review button on V2.
+  const reviewOffered = v2Offers(useV2(), 'highlightReview')
   const { t } = useTranslation()
   const { language, getLocalizedPath } = useLanguage()
   const navigate = useNavigate()
@@ -135,7 +138,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
 
         <div className="highlights-page__header">
           {!embedded && <h1>{t('highlights.title')}</h1>}
-          <div className="vocab-review-actions">
+          {reviewOffered && <div className="vocab-review-actions">
             <button
               className="vocab-review-btn"
               onClick={() => navigate(getLocalizedPath('/highlights/review'))}
@@ -143,7 +146,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
             >
               {t('highlights.reviewButton')}
             </button>
-          </div>
+          </div>}
         </div>
 
         <div className="highlights-page__filters">

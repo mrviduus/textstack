@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { Suspense } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { ApiError } from '@textstack/shared'
 
-// #1225: /:lang/library/my/:id/read-v2 — gated on the V2 probe, the current file's bytes into the host.
+// #1225, M5 #1031: /:lang/library/my/:id/read[/:chapterSlug] and /read-v2 — gated on the V2 probe, the current file's bytes into the host.
 const v2Status = vi.fn()
 const v2Book = vi.fn()
 const fetchV2FileBytes = vi.fn()
@@ -19,6 +20,7 @@ vi.mock('../../components/reader/V2ReaderHost', () => ({
   V2ReaderHost: (p: { book: unknown; children?: React.ReactNode }) => { hostProps(p); return <div data-testid="host">{p.children}</div> },
 }))
 vi.mock('../../components/SeoHead', () => ({ SeoHead: () => null }))
+vi.mock('../ReaderPage', () => ({ ReaderPage: () => <div data-testid="legacy" /> }))
 
 import { STALL_GRACE_MS, V2ReaderPage } from '../V2ReaderPage'
 import { DOWNLOAD_STALL_MS } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
@@ -26,13 +28,17 @@ import { DOWNLOAD_STALL_MS } from '../../../../mobile/src/lib/v2reader/deadlines
 const BYTES = new ArrayBuffer(4)
 const FILE = { id: 'f1', originalName: 'walden.epub', hasContent: true, format: 'epub', sha256: 'ab'.repeat(32), byteSize: 4 }
 
-function renderPage() {
+// The app's routes (App.tsx): every reader path is this page; it decides V2 or legacy.
+function renderPage(path = '/en/library/my/bk-1/read-v2') {
   return render(
-    <MemoryRouter initialEntries={['/en/library/my/bk-1/read-v2']}>
-      <Routes>
-        <Route path="/:lang/library/my/:id/read-v2" element={<V2ReaderPage />} />
-        <Route path="/:lang/library/my/:id/read" element={<div data-testid="legacy" />} />
-      </Routes>
+    <MemoryRouter initialEntries={[path]}>
+      <Suspense fallback={null}>
+        <Routes>
+          <Route path="/:lang/library/my/:id/read" element={<V2ReaderPage />} />
+          <Route path="/:lang/library/my/:id/read/:chapterSlug" element={<V2ReaderPage />} />
+          <Route path="/:lang/library/my/:id/read-v2" element={<V2ReaderPage />} />
+        </Routes>
+      </Suspense>
     </MemoryRouter>,
   )
 }
@@ -47,12 +53,19 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('V2ReaderPage', () => {
-  it('v2Off_RedirectsToTheLegacyReader_FetchesNothing', async () => {
+  it.each(['/en/library/my/bk-1/read', '/en/library/my/bk-1/read/ch-3', '/en/library/my/bk-1/read-v2'])('v2Off_%s_RendersTheLegacyReader_FetchesNothing', async (path) => {
     v2Status.mockResolvedValue({ enabled: false, maxPartBytes: 0 })
-    renderPage()
+    renderPage(path)
     expect(await screen.findByTestId('legacy')).toBeInTheDocument()
     expect(v2Book).not.toHaveBeenCalled()
     expect(fetchV2FileBytes).not.toHaveBeenCalled()
+  })
+
+  it.each(['/en/library/my/bk-1/read', '/en/library/my/bk-1/read/ch-3'])('v2On_%s_TheDefaultRoute_OpensTheBookInTheV2Reader_NotTheLegacy', async (path) => {
+    renderPage(path)
+    await vi.waitFor(() => expect(fetchV2FileBytes).toHaveBeenCalledWith('bk-1', 'f1', expect.any(Function), expect.any(AbortSignal)))
+    expect(screen.getByTestId('host')).toBeInTheDocument()
+    expect(screen.queryByTestId('legacy')).toBeNull()
   })
 
   it('beforeTheProbe_RendersNothing', () => {

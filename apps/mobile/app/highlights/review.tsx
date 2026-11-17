@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native'
 import { Stack, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { highlightsApi, isOfflineError, plural } from '@textstack/shared'
+import { isOfflineError, plural } from '@textstack/shared'
+import { highlightsApi } from '../../src/lib/highlightsApi'
 import type { HighlightReviewItem } from '@textstack/shared'
+import { OffV2 } from '../../src/components/OffV2'
 import { useReconnectCount } from '../../src/hooks/useOnline'
 import { useTheme } from '../../src/context/ThemeContext'
 import { fonts } from '../../src/theme/typography'
@@ -26,7 +28,12 @@ const HIGHLIGHT_COLORS: Record<string, string> = {
  * Rather than dress a page-turner as spaced repetition, it now says what it is. Real recall for
  * highlights is recorded as deliberately-not-done in docs/STATUS.md.
  */
-export default function HighlightReviewScreen() {
+/** M5 (#1031): no highlight review on V2: back to the highlights. */
+export default function HighlightReviewRoute() {
+  return <OffV2 feature="highlightReview" href="/highlights"><HighlightReviewScreen /></OffV2>
+}
+
+function HighlightReviewScreen() {
   const router = useRouter()
   const { colors } = useTheme()
   const [items, setItems] = useState<HighlightReviewItem[]>([])

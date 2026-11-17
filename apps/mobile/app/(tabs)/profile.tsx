@@ -11,7 +11,7 @@ type IoniconsName = React.ComponentProps<typeof Ionicons>['name']
 // Lazy-loaded — requires native build
 let ImagePicker: typeof import('expo-image-picker') | null = null
 try { ImagePicker = require('expo-image-picker') } catch {}
-import { useAuth } from '../../src/context/AuthContext'
+import { useAuth, useV2 } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useOnline } from '../../src/hooks/useOnline'
@@ -25,7 +25,7 @@ import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
 import { VocabReminderSettingsRow } from '../../src/components/profile/VocabReminderSettingsRow'
 import { StorageQuotaRow } from '../../src/components/library/StorageQuotaRow'
 import { DeviceStorageRow } from '../../src/components/library/DeviceStorageRow'
-import { authApi, getStorageUrl } from '@textstack/shared'
+import { authApi, getStorageUrl, v2Offers } from '@textstack/shared'
 import { deleteAccount, freshAccessToken } from '../../src/lib/api'
 import { versionLine, updateLine } from '../../src/lib/buildInfo'
 import { fonts } from '../../src/theme/typography'
@@ -78,6 +78,8 @@ const MENU_ITEMS = [
 
 export default function ProfileScreen() {
   const { user, isAuthenticated, signOut, updateUser, getAccessToken } = useAuth()
+  // M5 (#1031): no reading stats on V2.
+  const statsOffered = v2Offers(useV2(), 'readingStats')
   const { colors, themeMode, setThemeMode } = useTheme()
   const { t } = useLanguage()
   const { nativeLanguage, setNativeLanguage } = useNativeLanguage()
@@ -421,7 +423,7 @@ export default function ProfileScreen() {
             nothing — it reads the filesystem, so it cannot 401. */}
         <DeviceStorageRow />
 
-        {MENU_ITEMS.map(item => (
+        {MENU_ITEMS.filter(item => statsOffered || item.route !== '/stats/').map(item => (
           <TouchableOpacity
             key={item.route}
             style={[styles.menuItem, { borderBottomColor: colors.border }]}

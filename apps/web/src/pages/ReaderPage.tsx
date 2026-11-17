@@ -340,7 +340,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                 onEngineOpened={setEngineOpenedFor}
                 onRetry={retryChapter}
                 discuss={reviewTarget && {
-                  reviewed: chapterReviews.has(chapter.identifier),
+                  // M5 (#1031): no saved chapter review on V2 (V2_FEATURES.chapterReview): the Discuss launcher only.
+                  reviewed: !v2On && chapterReviews.has(chapter.identifier),
                   reviewPath: reviewedMarks.reviewPath(chapter.identifier),
                   bookTitle: book?.title ?? '',
                   author: publicBook?.authors.map(a => a.name).join(', ') || null,

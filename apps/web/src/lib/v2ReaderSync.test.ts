@@ -925,6 +925,34 @@ describe('createV2ReaderSync', () => {
       expect(last()).toBe('saved')
     })
 
+    it('remove_ThenMadeAgainAtTheSamePlace_TheRemovalPending_TheNewOneIsWritten (#1314 review)', async () => {
+      // Its DELETE not sent yet (offline), the reader makes it again: the same CFI and words, a new id. Not the removed
+      // one's twin: written, so a tab closed now sends both the DELETE and the PUT.
+      const U3 = '33333333-3333-4333-8333-333333333333'
+      const s = await withServerRow({ color: 'bookmark' })
+      api.deleteAnnotation.mockRejectedValue(offline())
+      s.remove(H1)
+      await stored(s, entry(null, [hl(U3, 'bookmark')]))
+      expect(api.putAnnotation.mock.calls.map((c) => [c[0], (c[1] as V2AnnotationWrite).color])).toEqual([[U3, 'bookmark']])
+      s.flushKeepalive()
+      expect(api.keepaliveDeleteAnnotation.mock.calls.map((c) => c[0])).toEqual([H1])
+    })
+
+    it('twin_APageIdSkippedAsAHeldRowsTwin_IsThatRowFromNowOn_ItsRemovalTombstonesIt (#1314 review)', async () => {
+      // The server holds U2; the page holds the same place and words under its own id U3 (made before U2 reached it).
+      const U2 = '22222222-2222-4222-8222-222222222222'
+      const U3 = '33333333-3333-4333-8333-333333333333'
+      api.annotations.mockResolvedValue([annotation({ id: U2, color: 'bookmark', revision: 4 })])
+      const s = await opened()
+      await stored(s, entry(null, [hl(U3, 'bookmark')]))
+      expect(api.putAnnotation.mock.calls.map((c) => c[0])).not.toContain(U3)
+      expect(s.real(U3)).toBe(U2)
+      s.remove(U3)
+      await s.flush()
+      expect(api.deleteAnnotation.mock.calls.map((c) => c[0])).toEqual([U2])
+      expect(s.deleted(U3)).toBe(true)
+    })
+
     it('remove_AHighlightTheServerHoldsAsDeleted_NoDeleteSent_DeletedSaid', async () => {
       const s = await withServerRow({ deletedAt: '2026-11-02T00:00:00Z' })
       expect(s.deleted(H1)).toBe(true)

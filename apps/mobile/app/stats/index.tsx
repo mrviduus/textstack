@@ -5,11 +5,14 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
-import { readingTrackingApi, vocabularyApi, isOfflineError, plural } from '@textstack/shared'
+import { isOfflineError, plural } from '@textstack/shared'
+import { readingTrackingApi } from '../../src/lib/readingTrackingApi'
+import { vocabularyApi } from '../../src/lib/vocabularyApi'
 import type { ReadingStatsDto, DailyStatDto, AchievementDto, GoalDto, VocabularyStatsDto, VocabDailyStatDto } from '@textstack/shared'
 import type { BookStatsResponse } from '@textstack/shared'
 import { ACHIEVEMENTS, ALL_ACHIEVEMENT_CODES } from '@textstack/shared'
 import { useAuth } from '../../src/context/AuthContext'
+import { OffV2 } from '../../src/components/OffV2'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useToast } from '../../src/context/ToastContext'
@@ -24,7 +27,12 @@ import { resolveListScreenState } from '../../src/lib/listScreenState'
 
 type StatsTab = 'overview' | 'books' | 'time' | 'achievements'
 
-export default function StatsScreen() {
+/** M5 (#1031): no reading stats on V2: back to Profile, where the row is hidden too. */
+export default function StatsRoute() {
+  return <OffV2 feature="readingStats" href="/(tabs)/profile"><StatsScreen /></OffV2>
+}
+
+function StatsScreen() {
   // See `listScreenState.ts`: `isLoading` is the stored-session read, and
   // `isAuthenticated` is false throughout it. Without passing it through, every
   // cold start opens on "Sign in to track your reading…" and then replaces it.

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { libraryApi, type LibraryShelves } from '@textstack/shared'
 import { useDataChange } from '../lib/dataEvents'
+import { refuseOnV2 } from '../api/v2'
 
 const CACHE_TTL_MS = 60_000
 
@@ -33,7 +34,8 @@ export function useLibraryShelves(): UseLibraryShelves {
     let cancelled = false
     setLoading(true)
     setError(null)
-    libraryApi.getLibraryShelves()
+    // M5 (#1031): no shelves on V2 (the route answers 410 there): refused before any request.
+    refuseOnV2('shelves').then(() => libraryApi.getLibraryShelves())
       .then((value) => {
         if (cancelled) return
         cache = { value, at: Date.now() }

@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { router } from 'expo-router'
-import { buildChapterDiscussBrief, buildHandoffBrief, type Assistant, type HandoffBook } from '@textstack/shared'
+import { buildChapterDiscussBrief, buildHandoffBrief, v2Offers, type Assistant, type HandoffBook } from '@textstack/shared'
+import { useV2 } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
@@ -27,6 +28,8 @@ interface Props {
 
 export function AssistantMenu({ book, current, children }: Props) {
   const { colors } = useTheme()
+  // M5 (#1031): no chapter review on V2: no link to one.
+  const reviewOffered = v2Offers(useV2(), 'chapterReview')
   const { t } = useLanguage()
   const launcher = useAssistantLauncher({ eager: false })
   const [open, setOpen] = useState(false)
@@ -70,7 +73,7 @@ export function AssistantMenu({ book, current, children }: Props) {
           {current
             ? <Item label={t('library.assistant.reviewCurrent')} sub={current.title} onPress={() => run(chapterBrief(current))} />
             : <Item label={t('library.assistant.discuss')} onPress={() => run(() => buildHandoffBrief(book))} />}
-          {current?.reviewed && (
+          {current?.reviewed && reviewOffered && (
             <Item label={t('library.assistant.openCurrentReview')} sub={current.title} onPress={() => openReview(current.slug)} />
           )}
           {launcher.canSwitch && (

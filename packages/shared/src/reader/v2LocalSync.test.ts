@@ -4,7 +4,7 @@ import {
   annotationHighlight, codePoints, decideServerState, pageNameRefusal, highlightWrite, isUuid, ownAnnotationWrite, ownStateWrite,
   positionWrite, sameJson, spineIndexOf, statePosition, syncableText, type PageHighlight,
 } from './v2LocalSync'
-import { isPosition } from './v2PageStore'
+import { BOOKMARK_COLOR, isBookmark, isPosition } from './v2PageStore'
 
 const CFI = 'epubcfi(/6/14!/4/2/1:0)'
 const pos = { cfi: CFI, quote: 'It was a bright cold day', index: 6, fraction: 0.41, at: Date.parse('2026-11-10T10:00:00Z') }
@@ -326,6 +326,23 @@ describe('v2LocalSync', () => {
     }
     expect(annotationHighlight(a)).toMatchObject({ id: 'a', cfi: CFI, index: 6, quote: 'bright', selectedText: 'bright cold' })
     expect(annotationHighlight({ ...a, locator: { version: 1, scheme: 'textstack-anchor-v1', value: {} } })).toBeNull()
+  })
+
+  it('bookmark_WrittenAndPulledAsAnAnnotationOfColourBookmark_SamePageFormBack', () => {
+    // #1314: the page's bookmark (bookmarks.mjs: no context, colour `bookmark`) through the highlight mapping, both ways.
+    const at = Date.parse('2026-11-15T10:00:00Z')
+    const page: PageHighlight = { id: 'a', cfi: CFI, index: 6, quote: 'It was a bright cold day', selectedText: 'It was a bright cold day in April', prefix: '', suffix: '', color: 'bookmark', at }
+    const w = highlightWrite(page, 'b', 'f', null)!
+    expect(w).toEqual({
+      expectedRevision: null, bookId: 'b', fileId: 'f', selectedText: 'It was a bright cold day in April', noteText: null, color: 'bookmark',
+      locator: { version: 1, scheme: 'epub-cfi', value: CFI, quote: 'It was a bright cold day' },
+    })
+    const stored: V2Annotation = { id: 'a', bookId: 'b', fileId: 'f', selectedText: w.selectedText, noteText: null, locator: w.locator!, color: w.color!, createdAt: '2026-11-15T10:00:00Z', updatedAt: '2026-11-15T10:00:00Z', deletedAt: null, revision: 1 }
+    // The same form back: a host that holds the server's row never takes the page's as a change (no write per store).
+    expect(annotationHighlight(stored)).toEqual(page)
+    expect(isBookmark(annotationHighlight(stored))).toBe(true)
+    expect(isBookmark(annotationHighlight({ ...stored, color: 'yellow' }))).toBe(false)
+    expect(BOOKMARK_COLOR).toBe('bookmark')
   })
 
   it('ownWrite_KeyOrderAndTimeZoneDiffer_StillOwn', () => {
