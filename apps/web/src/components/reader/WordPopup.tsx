@@ -427,7 +427,6 @@ export function WordPopup({
             className="word-popup__btn word-popup__btn--remove"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onRemove}
-            aria-label={t('reader.wordPopup.ignore')}
           >
             <span className="material-icons-outlined word-popup__btn-icon" aria-hidden="true">delete_outline</span>
             {t('reader.wordPopup.ignore')}
