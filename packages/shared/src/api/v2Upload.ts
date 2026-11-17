@@ -147,7 +147,7 @@ export async function uploadV2File(file: { name: string; size: number; format?: 
 }
 
 /** A `data:image/jpeg;base64,` URL's bytes. */
-const jpegBytes = (dataUrl: string) => Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(',') + 1)), (c) => c.charCodeAt(0))
+export const jpegBytes = (dataUrl: string) => Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(',') + 1)), (c) => c.charCodeAt(0))
 
 /** The parts, then the complete, with the retries `uploadV2File` names. */
 async function sendBytes(size: number, sha256: string, bookId: string, fileId: string, maxPartBytes: number, io: V2UploadIo): Promise<void> {
