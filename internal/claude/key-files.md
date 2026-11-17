@@ -15,7 +15,7 @@ Read when the task touches this area. Rewritten for one database at M6 (2026-11-
 | Worker | `backend/src/Worker/Services/` (`V2IngestionWorker.cs`, `RetentionCleanupWorker.cs`) |
 | Extraction | `backend/src/Extraction/TextStack.Extraction/` |
 | Storage | `backend/src/Infrastructure/Services/LocalFileStorageService.cs` (`/storage`), `LibraryFileStore.cs` (`/library`) |
-| Vocabulary SRS | `backend/src/Vocabulary/TextStack.Vocabulary/` (`SrsEngine.cs`, `ReviewCardBuilder.cs`, `DistractorGenerator.cs`) |
+| Vocabulary SRS | `backend/src/Vocabulary/TextStack.Vocabulary/` (`SrsEngine.cs`) |
 | TTS | `backend/src/Tts/TextStack.Tts/`, `backend/src/Api/Endpoints/TtsEndpoints.cs`, web `apps/web/src/hooks/useTts.ts` |
 | Profile, account | `backend/src/Api/Endpoints/ProfileEndpoints.cs`, `AccountEndpoints.cs` |
 | Email | `backend/src/Infrastructure/Services/ResendEmailService.cs` |

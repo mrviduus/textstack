@@ -110,13 +110,12 @@ internal sealed class MeaiEvalRunner
         feature is "explain" or "translate" ? 3.5 : 3.0;
 
     /// <summary>The facet's parity rubric evaluator, plus — when
-    /// <paramref name="quality"/> is on (EVAL_QUALITY=1) and the facet is explain or
-    /// vocab — MEAI's built-in Coherence + Relevance evaluators for extra signal.
+    /// <paramref name="quality"/> is on (EVAL_QUALITY=1) and the facet is explain — MEAI's built-in Coherence + Relevance evaluators for extra signal.
     /// These are additive report metrics; only the rubric overall gates the floor.</summary>
     private static IEvaluator[] BuildEvaluators(FacetEval facet, bool quality)
     {
         var rubric = new RubricEvaluator(facet.Feature, facet.Rubric, Floor(facet.Feature));
-        if (quality && (facet.Feature == "explain" || facet.Feature.StartsWith("vocab", StringComparison.Ordinal)))
+        if (quality && facet.Feature == "explain")
             return [rubric, new CoherenceEvaluator(), new RelevanceEvaluator()];
         return [rubric];
     }

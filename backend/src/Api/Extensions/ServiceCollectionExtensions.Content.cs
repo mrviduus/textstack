@@ -18,12 +18,7 @@ public static partial class ServiceCollectionExtensions
         this IServiceCollection services, IConfiguration configuration)
     {
         // Vocabulary SRS library
-        services.AddTextStackVocabulary(options =>
-        {
-            options.OllamaBaseUrl = configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
-            options.OllamaModel = configuration["Ollama:Model"] ?? "gemma4:e2b";
-            options.OllamaTimeoutSeconds = configuration.GetValue("Ollama:TimeoutSeconds", 30);
-        });
+        services.AddTextStackVocabulary();
 
         // Image optimization
         services.AddSingleton<IImageOptimizer, ImageOptimizer>();

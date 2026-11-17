@@ -48,10 +48,6 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.10.0" />
-    <!-- HDBSCAN density clustering (AI-058 concept clusterer). Real HDBSCAN* in pure
-         .NET (targets netstandard2.0 → runs on net10); cosine distance over OpenAI
-         word embeddings. Replaces the hand-rolled cosine-threshold union-find. MIT. -->
-    <PackageVersion Include="HdbscanSharp" Version="3.0.1" />
     <!-- Dapper: data access (ADR-028) -->
     <PackageVersion Include="Dapper" Version="2.1.86" />
     <!-- Hosting -->

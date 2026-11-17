@@ -2,7 +2,6 @@ using System.Text.RegularExpressions;
 using Application.Ai;
 using Domain.Utilities;
 using TextStack.Ai.Llm;
-using TextStack.Vocabulary;
 
 namespace TextStack.UnitTests;
 
@@ -42,26 +41,6 @@ public class LlmLanguageNameTests
         Assert.True(entries.Count > 80, $"parsed only {entries.Count} entries from languages.ts");
         foreach (Match m in entries)
             Assert.Equal(m.Groups[2].Value, LanguageNames.ToEnglishName(m.Groups[1].Value));
-    }
-
-    [Fact]
-    public void DistractorPromptBuild_LanguageCodes_NamesBothLanguages()
-    {
-        var (_, user) = DistractorPrompt.Build("вода", "uk", null, "Він випив воду.", "ru");
-
-        Assert.Contains("Language: Ukrainian", user);
-        Assert.Contains("Write 2-3 sentences in Russian explaining", user);
-        Assert.DoesNotContain("in ru ", user);
-    }
-
-    [Fact]
-    public void DistractorPromptBuild_Always_HasNoExampleWordsToCopy()
-    {
-        var (_, user) = DistractorPrompt.Build("latency", "en", null, null, "uk");
-
-        Assert.Contains("SINGLE WORD ONLY", user);
-        Assert.DoesNotContain("linearizability", user);
-        Assert.DoesNotContain("sharding", user);
     }
 
     [Fact]
