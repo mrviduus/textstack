@@ -10,7 +10,7 @@ using Api.V2;
 using Application.AdminAuth;
 using Application.Auth;
 using Application.Identity;
-using Infrastructure.Persistence.Legacy;
+using Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -24,9 +24,8 @@ using Microsoft.IdentityModel.Tokens;
 namespace TextStack.UnitTests.V2;
 
 /// <summary>
-/// #1053, in process: V2 that is off, unconfigured or unreachable answers on <c>/me/v2</c> only, and
-/// never changes <c>/health/ready</c>'s status code. A healthy stack cannot produce the 503, so it is
-/// pinned here rather than in the integration suite.
+/// #1053, in process: V2 that is unconfigured or unreachable answers <c>/me/v2</c> with 503 <c>v2_unavailable</c>.
+/// A healthy stack cannot produce the 503, so it is pinned here rather than in the integration suite.
 /// </summary>
 public class V2GateTests
 {
@@ -41,13 +40,12 @@ public class V2GateTests
     private static readonly string LibraryRoot =
         Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "textstack-v2-gate-library")).FullName;
 
-    private static WebApplicationFactory<Api.ApiMarker> Api(bool v2Api, string? v2ConnectionString) =>
+    private static WebApplicationFactory<Api.ApiMarker> Api(string? v2ConnectionString) =>
         new WebApplicationFactory<Api.ApiMarker>().WithWebHostBuilder(b =>
         {
             b.UseEnvironment("Test");
             b.UseSetting("Jwt:SecretKey", TestTokens.Secret);
             b.UseSetting("Jwt:Issuer", TestTokens.Issuer);
-            b.UseSetting("Features:V2Api", v2Api ? "true" : "false");
             b.UseSetting("ConnectionStrings:V2", v2ConnectionString);
             b.UseSetting("Storage:RootPath", Path.Combine(Path.GetTempPath(), "textstack-v2-gate"));
             b.UseSetting("Storage:LibraryRoot", LibraryRoot);
@@ -74,88 +72,49 @@ public class V2GateTests
         return (response.StatusCode, body.GetProperty("components").GetProperty("v2"));
     }
 
-    [Fact]
-    public void ApiContainer_V2On_ResolvesOnlyTheLegacyAuthServices()
-    {
-        // M2.5b/#1100: the V2 auth services exist, and nothing at runtime resolves them until M5.1's Database:Mode.
-        using var api = Api(v2Api: true, Unreachable);
-        using var scope = api.Services.CreateScope();
-
-        foreach (var type in new[] { typeof(V2AuthService), typeof(V2AdminAuthService), typeof(JwtTokens), typeof(ProviderTokens) })
-            Assert.Null(scope.ServiceProvider.GetService(type));
-        Assert.IsType<AuthService>(scope.ServiceProvider.GetRequiredService<IAuthService>());
-        Assert.IsType<AdminAuthService>(scope.ServiceProvider.GetRequiredService<IAdminAuthService>());
-    }
-
     [Theory]
-    [InlineData(typeof(IUserRepository), typeof(EfUserRepository))]
-    [InlineData(typeof(ISessionTokenRepository), typeof(EfSessionTokenRepository))]
-    [InlineData(typeof(IOAuthRepository), typeof(EfOAuthRepository))]
-    [InlineData(typeof(IDeviceLoginRepository), typeof(EfDeviceLoginRepository))]
-    [InlineData(typeof(IMcpKeyRepository), typeof(EfMcpKeyRepository))]
-    public void ApiContainer_V2On_IdentityPortIsTheLegacyAdapter(Type port, Type adapter)
+    [InlineData(typeof(IUserRepository), typeof(UserRepository))]
+    [InlineData(typeof(ISessionTokenRepository), typeof(SessionTokenRepository))]
+    [InlineData(typeof(IOAuthRepository), typeof(OAuthRepository))]
+    [InlineData(typeof(IDeviceLoginRepository), typeof(DeviceLoginRepository))]
+    [InlineData(typeof(IMcpKeyRepository), typeof(McpKeyRepository))]
+    [InlineData(typeof(IAuthService), typeof(V2AuthService))]
+    [InlineData(typeof(IAdminAuthService), typeof(V2AdminAuthService))]
+    public void ApiContainer_IdentityPort_IsTheV2Implementation(Type port, Type implementation)
     {
-        // #1100: the owner's rule, no runtime switch before M5.1: production reaches identity through legacy.
-        using var api = Api(v2Api: true, Unreachable);
+        using var api = Api(Unreachable);
         using var scope = api.Services.CreateScope();
 
-        Assert.IsType(adapter, scope.ServiceProvider.GetRequiredService(port));
+        Assert.IsType(implementation, scope.ServiceProvider.GetRequiredService(port));
     }
 
     [Fact]
-    public async Task Status_FlagOff_IsNotFoundWithASession()
+    public async Task Status_WithoutASession_IsUnauthorized()
     {
-        await using var api = Api(v2Api: false, Unreachable);
-
-        Assert.Equal(HttpStatusCode.NotFound, (await GetStatusAsync(api)).StatusCode);
-        Assert.Equal("off", (await GetReadyAsync(api)).V2.GetProperty("status").GetString());
-    }
-
-    [Fact]
-    public async Task Status_FlagOnWithoutASession_IsUnauthorized()
-    {
-        await using var api = Api(v2Api: true, null);
+        await using var api = Api(null);
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await GetStatusAsync(api, withSession: false)).StatusCode);
     }
 
-    [Theory]
-    [InlineData(null, V2State.Unconfigured)]
-    [InlineData(Unreachable, V2State.Unreachable)]
-    public async Task Status_FlagOnAndV2NotThere_IsV2UnavailableWithRetryAfter(string? v2ConnectionString, string expected)
+    [Fact]
+    public async Task Status_V2Unreachable_IsV2UnavailableWithRetryAfter()
     {
-        await using var api = Api(v2Api: true, v2ConnectionString);
+        await using var api = Api(Unreachable);
 
         using var response = await GetStatusAsync(api);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal("v2_unavailable", (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("code").GetString());
         Assert.Equal(TimeSpan.FromSeconds(30), response.Headers.RetryAfter!.Delta);
-        Assert.Equal(expected, (await GetReadyAsync(api)).V2.GetProperty("status").GetString());
+        Assert.Equal(V2State.Unreachable, (await GetReadyAsync(api)).V2.GetProperty("status").GetString());
     }
 
     [Fact]
-    public async Task Import_FlagOnWithoutV2_IsV2UnavailableNotAServerError()
+    public async Task Import_V2Unreachable_IsV2UnavailableNotAServerError()
     {
-        await using var api = Api(v2Api: true, null);
+        await using var api = Api(Unreachable);
         var request = new HttpRequestMessage(HttpMethod.Put, $"/me/v2/books/{Guid.NewGuid()}") { Content = JsonContent.Create(new { title = "A book" }) };
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await SendAsync(api, request)).StatusCode);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData(Unreachable)]
-    public async Task HealthReady_V2NotThere_HasTheStatusCodeOfAStackWithoutV2(string? v2ConnectionString)
-    {
-        await using var without = Api(v2Api: false, null);
-        await using var broken = Api(v2Api: true, v2ConnectionString);
-        var expected = (await GetReadyAsync(without)).Status;
-
-        var watch = Stopwatch.StartNew();
-        var (status, _) = await GetReadyAsync(broken);
-
-        Assert.Equal(expected, status);
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"the probe took {watch.Elapsed}");
     }
 }

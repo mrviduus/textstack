@@ -1,5 +1,4 @@
 using Application.Common;
-using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace TextStack.UnitTests;
@@ -10,8 +9,8 @@ namespace TextStack.UnitTests;
 /// </summary>
 public class PostgresExceptionExtensionsTests
 {
-    private static DbUpdateException Postgres(string sqlState) =>
-        new("save failed", new PostgresException("constraint failed", "ERROR", "ERROR", sqlState));
+    private static Exception Postgres(string sqlState) =>
+        new InvalidOperationException("save failed", new PostgresException("constraint failed", "ERROR", "ERROR", sqlState));
 
     [Fact]
     public void IsUniqueViolation_UniqueViolation_True() =>
@@ -44,7 +43,7 @@ public class PostgresExceptionExtensionsTests
     [Fact]
     public void NonPostgresInner_NeitherViolation()
     {
-        var ex = new DbUpdateException("save failed", new InvalidOperationException("boom"));
+        var ex = new InvalidOperationException("save failed", new InvalidOperationException("boom"));
 
         Assert.False(ex.IsUniqueViolation());
         Assert.False(ex.IsForeignKeyViolation());

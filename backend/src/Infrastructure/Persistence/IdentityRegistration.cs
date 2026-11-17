@@ -12,46 +12,26 @@ namespace Infrastructure.Persistence;
 
 public static class IdentityRegistration
 {
-    /// <summary>Shared by Api and Worker: every identity port selects the same database.</summary>
-    public static IServiceCollection AddSelectedIdentityPorts(this IServiceCollection services, DatabaseMode mode)
+    /// <summary>Shared by Api and Worker: the identity ports and the AI trace writers on V2.</summary>
+    public static IServiceCollection AddIdentityPorts(this IServiceCollection services) =>
+        services
+            .AddSingleton<V2AccountDeletion>()
+            .AddSingleton<ISessionTokenRepository, SessionTokenRepository>()
+            .AddSingleton<IOAuthRepository, OAuthRepository>()
+            .AddSingleton<IDeviceLoginRepository, DeviceLoginRepository>()
+            .AddSingleton<IMcpKeyRepository, McpKeyRepository>()
+            .AddSingleton<ILlmTraceWriter>(sp => sp.GetRequiredService<V2LlmTraceWriter>())
+            // The daily AI budgets seed from the traces where they are written (RollingSpendTracker).
+            .AddSingleton<Application.Ai.ILlmSpendSource>(sp => sp.GetRequiredService<V2LlmTraceWriter>())
+            .AddSingleton<IAgentRunWriter>(sp => sp.GetRequiredService<V2AgentRunWriter>());
+
+    /// <summary>The Api's auth services.</summary>
+    public static IServiceCollection AddTextStackAuthentication(this IServiceCollection services)
     {
-        services.AddSingleton(mode);
-        if (!mode.IsV2) return services.AddLegacyIdentityPorts();
-
-        services.RemoveAll<IUserRepository>();
-        services.RemoveAll<ISessionTokenRepository>();
-        services.RemoveAll<IOAuthRepository>();
-        services.RemoveAll<IDeviceLoginRepository>();
-        services.RemoveAll<IMcpKeyRepository>();
-        // Worker has no HTTP auth surface. Api adds the selected auth services explicitly below;
-        // a new Worker consumer must not accidentally resolve a legacy session service in V2 mode.
-        services.RemoveAll<IAuthService>();
-        services.RemoveAll<IAdminAuthService>();
-        services.AddSingleton<IUserRepository>(sp => sp.GetRequiredService<UserRepository>());
-        services.AddSingleton<ISessionTokenRepository, SessionTokenRepository>();
-        services.AddSingleton<IOAuthRepository, OAuthRepository>();
-        services.AddSingleton<IDeviceLoginRepository, DeviceLoginRepository>();
-        services.AddSingleton<IMcpKeyRepository, McpKeyRepository>();
-        services.RemoveAll<ILlmTraceWriter>();
-        services.RemoveAll<IAgentRunWriter>();
-        services.AddSingleton<ILlmTraceWriter>(sp => sp.GetRequiredService<V2LlmTraceWriter>());
-        // The daily AI budgets seed from the traces where they are written (RollingSpendTracker).
-        services.AddSingleton<Application.Ai.ILlmSpendSource>(sp => sp.GetRequiredService<V2LlmTraceWriter>());
-        services.AddSingleton<IAgentRunWriter>(sp => sp.GetRequiredService<V2AgentRunWriter>());
-        return services;
-    }
-
-    /// <summary>The Api's existing auth contracts, selected together after application registration.</summary>
-    public static IServiceCollection AddSelectedAuthentication(this IServiceCollection services, DatabaseMode mode)
-    {
-        if (!mode.IsV2) return services;
-
         services.TryAddSingleton(sp => new JwtTokens(sp.GetRequiredService<IOptions<JwtSettings>>().Value,
             sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton(sp => new ProviderTokens(sp.GetRequiredService<IOptions<GoogleSettings>>().Value,
             sp.GetRequiredService<IOptions<AppleSettings>>().Value, logger: sp.GetService<ILogger<ProviderTokens>>()));
-        services.RemoveAll<IAuthService>();
-        services.RemoveAll<IAdminAuthService>();
         services.AddScoped<IAuthService, V2AuthService>();
         services.AddScoped<IAdminAuthService, V2AdminAuthService>();
         return services;

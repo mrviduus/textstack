@@ -25,8 +25,7 @@ public static class ExplainEndpoints
     private const int RetryOutputTokens = 1000;
 
     /// <summary>
-    /// The explanation, with the book's genre from <paramref name="resolveGenre"/> (V2CompatEndpoints). A null
-    /// <paramref name="toolRegistry"/> offers no tools (they read legacy's catalog).
+    /// The explanation, with the book's genre from <paramref name="resolveGenre"/> (V2CompatEndpoints). No tools.
     /// </summary>
     internal static async Task<IResult> ExplainAsync(
         ExplainRequest request,
@@ -36,7 +35,6 @@ public static class ExplainEndpoints
         ILlmService llm,
         Func<CancellationToken, Task<string?>> resolveGenre,
         Guid? userId,
-        IToolRegistry? toolRegistry,
         ToolCallingSession toolSession,
         ILogger logger,
         CancellationToken ct)
@@ -58,20 +56,14 @@ public static class ExplainEndpoints
         var cache = new FileJsonCache<ExplainResponse>(
             config.GetValue<string>("Explain:CachePath") ?? "/tmp/explain-cache", config.GetValue("Explain:CacheTtlDays", 30), logger);
         // ponytail: the configured model (the one the openai-explain provider is built with), not the one the gateway
-        // routes to at call time — an admin route promote does not invalidate the cache; bump ExplainPrompt.Version.
+        // routes to at call time — a route change in Ai:Routes does not invalidate the cache; bump ExplainPrompt.Version.
         var cacheKey = ComputeCacheKey(
             request.Word, request.Sentence, genre, targetLang, openAi.Value.Explain.Model, ExplainPrompt.Version);
 
-        // Function-calling (AI-031b): which tools this request may use. Book tools need an edition in
-        // context; the highlights tool additionally needs a signed-in user. Kill switch:
-        // Explain:ToolsEnabled.
-        Guid? editionId = !string.IsNullOrWhiteSpace(request.BookId) && Guid.TryParse(request.BookId, out var parsed)
-            ? parsed
-            : null;
-        IReadOnlyList<ToolSchema> tools = toolRegistry is null ? [] : ResolveTools(toolRegistry, config, request.Sentence, editionId, userId);
-        var toolCtx = new ToolContext(userId, editionId, AgentRunId: Guid.NewGuid(), httpContext.RequestServices);
+        IReadOnlyList<ToolSchema> tools = [];
+        var toolCtx = new ToolContext(userId, null, AgentRunId: Guid.NewGuid(), httpContext.RequestServices);
 
-        var systemPrompt = ExplainPrompt.BuildSystemPrompt(genre, targetLang, withTools: tools.Count > 0);
+        var systemPrompt = ExplainPrompt.BuildSystemPrompt(genre, targetLang, withTools: false);
         var userPrompt = ExplainPrompt.BuildUserPrompt(request.Word, request.Sentence);
 
         var wantsSse = httpContext.Request.Headers.Accept.Any(v =>
@@ -80,24 +72,6 @@ public static class ExplainEndpoints
         return wantsSse
             ? ExplainSse(request.Word, systemPrompt, userPrompt, cache, cacheKey, llm, toolSession, tools, toolCtx, httpContext, logger)
             : await ExplainJson(request.Word, systemPrompt, userPrompt, cache, cacheKey, llm, toolSession, tools, toolCtx, logger, ct);
-    }
-
-    /// <summary>The tool schemas this request is allowed to call (empty = plain completion).</summary>
-    private static IReadOnlyList<ToolSchema> ResolveTools(
-        IToolRegistry registry, IConfiguration config, string sentence, Guid? editionId, Guid? userId)
-    {
-        if (!config.GetValue("Explain:ToolsEnabled", true))
-            return [];
-
-        // Deterministic pre-routing (AI-033): tools are offered ONLY when the sentence's wording
-        // contains a matching lexical signal (chapter number / "my highlights").
-        // The eval showed nano can't hold both sides of this decision in-prompt — code decides IF,
-        // the prompt steers WHICH. No book in context → no book to fetch from → no tools at all.
-        if (editionId is null)
-            return [];
-
-        var names = ExplainToolTriggers.TriggeredTools(sentence, hasUser: userId is not null);
-        return names.Count == 0 ? [] : registry.SchemasFor(names);
     }
 
     // ---- JSON path (original contract; mobile + non-streaming clients) ----

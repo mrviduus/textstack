@@ -16,10 +16,9 @@ namespace Api.Extensions;
 ///   - .Hosting.cs        upload limits, OpenTelemetry/logging
 ///   - .Cors.cs           CORS default policy
 ///   - .Ai.cs             AI eval runners, agents, tools, crews
-///   - .Persistence.cs    ICurrentSite, DbContext, file storage
-///   - .Search.cs         search providers, similar/hybrid catalog, reindex
+///   - .Persistence.cs    V2 data source, identity, file storage
+///   - .V2.cs             /me/v2 use cases
 ///   - .Content.cs        vocabulary, images, sites, user books, email, TTS
-///   - .HostedServices.cs background workers
 ///   - .RateLimiting.cs   rate-limiter policies
 /// </summary>
 public static partial class ServiceCollectionExtensions

@@ -9,7 +9,7 @@ namespace TextStack.Ai.Agents;
 /// <typeparamref name="TState"/>: a single-task stage runs sequentially, a multi-task stage fans out in
 /// parallel bounded by <see cref="CrewOptions.MaxParallelism"/> (a <see cref="SemaphoreSlim"/>, mirroring
 /// <c>ToolDispatcher.DispatchAllAsync</c>). Each task gets its own DI scope (via <c>CrewTasks.Of</c>) so
-/// parallel sub-agents never share an EF DbContext.
+/// parallel sub-agents never share scoped services.
 ///
 /// Determinism &amp; budgets: each task hands back a <see cref="CrewTaskOutcome"/> (its transcript result +
 /// a deferred fold); after <c>Task.WhenAll</c> the orchestrator runs the folds single-threaded in task

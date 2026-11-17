@@ -11,7 +11,7 @@ public static partial class ServiceCollectionExtensions
     public static IServiceCollection AddTextStackAgents(this IServiceCollection services)
     {
         // Tool catalogue (AI-029/030): scans Application for ITool impls; dispatch is schema-validated.
-        services.AddAiTools(typeof(Application.Tools.GetChapterTool).Assembly);
+        services.AddAiTools(typeof(Application.Tools.OpenLibrarySearchTool).Assembly);
         // Agent loop engine (Phase 6, AI-034). Concrete agents build on it.
         TextStack.Ai.Agents.ServiceCollectionExtensions.AddAiAgents(services);
         return services;

@@ -1,4 +1,3 @@
-using Application.AdminAuth;
 using Application.Auth;
 using Application.LLM;
 using Application.Vocabulary;
@@ -17,25 +16,12 @@ public static class DependencyInjection
         // Testable clock for time-sensitive flows (device-grant expiry, AI-050a).
         services.TryAddSingleton(TimeProvider.System);
 
-        services.AddScoped<AuthService>();
-        services.AddScoped<AdminAuthService>();
-        // The legacy services behind the interfaces M5.1's Database:Mode re-binds to V2's.
-        services.AddScoped<IAuthService>(sp => sp.GetRequiredService<AuthService>());
-        services.AddScoped<IAdminAuthService>(sp => sp.GetRequiredService<AdminAuthService>());
-        services.AddScoped<AdminSettings.AdminSettingsService>();
-
         services.AddSingleton<IFrequencyFilter, FrequencyFilter>();
 
         // Legacy ILlmServiceFactory — now backed by LegacyLlmAdapter over the new
         // stack (AI-005). The old keyed Domain.LLM providers are gone; callers
         // keep this factory until they move to Core.ILlmService directly.
         services.AddSingleton<Domain.LLM.ILlmServiceFactory, LlmServiceFactory>();
-
-        // AI platform (Ai.* libs) — new ILlmService stack (the factory routes here).
-        // Trace writer: scoped (per-request DbContext); the singleton
-        // TracingDecorator resolves it per-write via a fresh scope.
-        services.AddScoped<global::TextStack.Ai.Core.ILlmTraceWriter, Ai.DbLlmTraceWriter>();
-        services.AddScoped<global::TextStack.Ai.Core.IAgentRunWriter, Ai.DbAgentRunWriter>();
 
         // Sampling policy (Ai:Tracing:Sampling). Errors always sampled regardless.
         services.AddSingleton(sp =>
@@ -88,7 +74,6 @@ public static class DependencyInjection
 
             return new Entitlements.EntitlementOptions(def, tiers, staff, maxSingle, maxStorage);
         });
-        services.AddSingleton<Entitlements.IEntitlementResolver, Entitlements.EntitlementResolver>();
 
         // Per-provider circuit breaker. Registered BEFORE the keyed providers so OllamaLlmClient's
         // optional IProviderHealth resolves. It never routes — it only decides whether a call to an
@@ -159,16 +144,9 @@ public static class DependencyInjection
                     (string)key!));
         }
 
-        // RegistryModelRouteProvider (below) + RollingSpendTracker depend on IMemoryCache.
-        // The API host calls AddMemoryCache(), but the Worker host does NOT — so without this
-        // the Worker crash-loops on startup ("Unable to resolve IMemoryCache") and processes
-        // ZERO ingestion jobs (uploads + clips stuck Queued forever). Idempotent (TryAdd).
+        // RollingSpendTracker depends on IMemoryCache. The API host calls AddMemoryCache(), but the
+        // Worker host does NOT — so without this the Worker crash-loops on startup. Idempotent (TryAdd).
         services.AddMemoryCache();
-
-        // Table-driven primary routing (Phase 12 RLOps): the gateway consults this BEFORE
-        // its config route, so an admin promote/rollback flips traffic without a redeploy.
-        // Singleton (caches one snapshot of the `models` registry); hot-path safe + never throws.
-        services.AddSingleton<global::TextStack.Ai.Core.IModelRouteProvider, Ai.RegistryModelRouteProvider>();
 
         // Cost-aware routing policy (Ai:Budgets, Phase 12 RLOps slice 4). OFF by default
         // (empty Features + Default mode Off → no enforcement). A budgeted feature can hard-stop
@@ -215,13 +193,11 @@ public static class DependencyInjection
             return new global::TextStack.Ai.Llm.SentryRouteAlarm(c);
         });
 
-        // Default Core.ILlmService = the gateway (routes FeatureTag → decorated provider;
-        // registry-first primary routing).
+        // Default Core.ILlmService = the gateway (routes FeatureTag → decorated provider by Ai:Routes).
         services.AddSingleton<global::TextStack.Ai.Core.ILlmService>(sp =>
             new global::TextStack.Ai.Llm.ModelGateway(
                 sp,
                 sp.GetRequiredService<IConfiguration>(),
-                sp.GetRequiredService<global::TextStack.Ai.Core.IModelRouteProvider>(),
                 sp.GetRequiredService<global::TextStack.Ai.Core.ISpendTracker>(),
                 sp.GetRequiredService<global::TextStack.Ai.Llm.BudgetOptions>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.ModelGateway>>(),

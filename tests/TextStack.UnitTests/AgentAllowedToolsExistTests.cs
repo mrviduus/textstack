@@ -27,7 +27,7 @@ public class AgentAllowedToolsExistTests
 {
     private static HashSet<string> RegisteredToolNames()
     {
-        var assembly = typeof(GetChapterTool).Assembly;
+        var assembly = typeof(OpenLibrarySearchTool).Assembly;
         var names = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var type in assembly.GetTypes())
@@ -39,7 +39,7 @@ public class AgentAllowedToolsExistTests
             names.Add(instance.Name);
         }
 
-        Assert.True(names.Count > 5, $"tool discovery found only {names.Count} tools — the scan is broken, not the agents");
+        Assert.True(names.Count >= 2, $"tool discovery found only {names.Count} tools — the scan is broken, not the agents");
         return names;
     }
 
@@ -48,7 +48,7 @@ public class AgentAllowedToolsExistTests
     public static TheoryData<string, string[]> AgentToolLists()
     {
         var data = new TheoryData<string, string[]>();
-        var agents = typeof(TutorAgent).Assembly.GetTypes()
+        var agents = typeof(EnrichmentAgent).Assembly.GetTypes()
             .Where(t => t.Namespace == "Application.Agents" && !t.IsAbstract);
 
         foreach (var agent in agents)
@@ -102,7 +102,7 @@ public class AgentAllowedToolsExistTests
         var toolish = new Regex(@"\b(?:get|save|list|search|lookup|set)_[a-z][a-z_]{2,}\b", RegexOptions.Compiled);
         var offenders = new List<string>();
 
-        foreach (var agent in typeof(TutorAgent).Assembly.GetTypes()
+        foreach (var agent in typeof(EnrichmentAgent).Assembly.GetTypes()
                      .Where(t => t.Namespace == "Application.Agents" && !t.IsAbstract))
         {
             var field = agent.GetField("AllTools", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);

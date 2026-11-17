@@ -3,8 +3,7 @@ namespace Domain.Discussion;
 /// <summary>
 /// An assistant's conclusion about a book or one of its chapters, or a structured chapter review
 /// (V2 table <c>book_insight</c>; ADR-016, ADR-031). One per user, book and chapter: saving again
-/// replaces it. The V2 shape of <c>Domain.Entities.BookInsight</c>, which the legacy table keeps
-/// until its callers move (M2.4): one <see cref="BookId"/> instead of an edition or an upload.
+/// replaces it.
 /// </summary>
 public class BookInsight
 {

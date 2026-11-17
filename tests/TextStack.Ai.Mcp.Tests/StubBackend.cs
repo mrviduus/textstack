@@ -235,7 +235,7 @@ public sealed class StubBackend : IAsyncDisposable
         _app.MapGet("/me/v2/books/{bookId}/checkpoints", async ctx =>
         {
             await RecordAsync("v2_list_checkpoints", ctx);
-            // What a server with Features:V2Api off answers for every /me/v2 route: a 404, no body.
+            // What a server without the /me/v2 routes answers: a 404, no body.
             if ((string)ctx.Request.RouteValues["bookId"]! == V2OffBookId) { ctx.Response.StatusCode = StatusCodes.Status404NotFound; return; }
             if ((string)ctx.Request.RouteValues["bookId"]! != UserBookId) { await BookNotFoundAsync(ctx); return; }
             var firstPage = !ctx.Request.Query.ContainsKey("cursor");

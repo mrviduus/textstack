@@ -2,7 +2,6 @@ using System.Data;
 using System.Runtime.CompilerServices;
 using Application.Annotations;
 using Application.Common;
-using Application.Common.Interfaces;
 using Application.Discussion;
 using Application.Identity;
 using Application.Library;
@@ -11,17 +10,14 @@ using Application.Reading;
 using Application.Transitional;
 using Application.Vocabulary;
 using Dapper;
-using Infrastructure.Persistence.Legacy;
 using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using Pgvector.Npgsql;
 
 namespace Infrastructure.Persistence;
 
 /// <summary>
-/// The one <see cref="NpgsqlDataSource"/> a process talks to Postgres through — EF Core, Dapper
-/// repositories and search share its pool and its type mapping (ADR-028, docs/architecture/data-access.md).
+/// Dapper settings and the V2 repositories (ADR-028, docs/architecture/data-access.md).
 /// </summary>
 public static class DataSource
 {
@@ -56,23 +52,13 @@ public static class DataSource
             value is DateTime utc ? new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)) : (DateTimeOffset)value;
     }
 
-    public static NpgsqlDataSource Create(string connectionString)
-    {
-        var builder = new NpgsqlDataSourceBuilder(connectionString);
-        builder.UseVector();
-        return builder.Build();
-    }
-
     /// <summary>
-    /// The data sources as singletons (DI disposes them, and their pools, on shutdown) and the Dapper
-    /// repositories on them. Singletons: a repository holds nothing but its data source. The V2 side
-    /// is built on first use only (data-access.md rule 5).
+    /// The V2 data source as a singleton (DI disposes it, and its pool, on shutdown) and the Dapper
+    /// repositories on it. Singletons: a repository holds nothing but its data source. Nothing opens a
+    /// connection before first use (data-access.md rule 5).
     /// </summary>
-    public static IServiceCollection AddTextStackDataAccess(
-        this IServiceCollection services, string connectionString, string? v2ConnectionString) =>
+    public static IServiceCollection AddTextStackDataAccess(this IServiceCollection services, string? v2ConnectionString) =>
         services
-            .AddSingleton(_ => Create(connectionString))
-            .AddSingleton<IInsightRepository, InsightRepository>()
             .AddSingleton(_ => new V2DataSource(v2ConnectionString))
             .AddSingleton<IV2UnitOfWork>(sp => sp.GetRequiredService<V2DataSource>())
             .AddSingleton<ILibraryRepository, LibraryRepository>()
@@ -84,32 +70,12 @@ public static class DataSource
             .AddSingleton<ICheckpointRepository, CheckpointRepository>()
             .AddSingleton<IBookInsightRepository, BookInsightRepository>()
             .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>()
-            // Concrete as well: shadow/mirror helpers always use V2, even while identity is selected as legacy.
             .AddSingleton<UserRepository>()
-            .AddSingleton(sp => sp.WithV2Users<V2AccountDeletion>())
+            .AddSingleton<IUserRepository>(sp => sp.GetRequiredService<UserRepository>())
             .AddSingleton<IAccountMergeRepository, AccountMergeRepository>()
-            // Concrete, not as the Core writer interfaces: those stay bound to the EF writers until the cutover.
             .AddSingleton<V2LlmTraceWriter>()
             .AddSingleton<V2AgentRunWriter>()
-            .AddSingleton<IEvalRunRepository, EvalRunRepository>()
             .AddSingleton<IAdminSettingsRepository, AdminSettingsRepository>()
             .AddSingleton<IBookChapterRepository, BookChapterRepository>()
             .AddSingleton<IIngestionJobRepository, IngestionJobRepository>();
-
-    /// <summary>
-    /// The identity ports on the legacy database (#1100): what the endpoints, middleware and workers
-    /// reach identity through in <c>Database:Mode=legacy</c>. The selected V2 mode binds Dapper ports instead.
-    /// Scoped: they share the request's <see cref="IAppDbContext"/>, which the host registers.
-    /// </summary>
-    public static IServiceCollection AddLegacyIdentityPorts(this IServiceCollection services) =>
-        services
-            .AddScoped<IUserRepository, EfUserRepository>()
-            .AddScoped<ISessionTokenRepository, EfSessionTokenRepository>()
-            .AddScoped<IOAuthRepository, EfOAuthRepository>()
-            .AddScoped<IDeviceLoginRepository, EfDeviceLoginRepository>()
-            .AddScoped<IMcpKeyRepository, EfMcpKeyRepository>();
-
-    /// <summary>A V2 service built on V2's accounts, whatever <see cref="IUserRepository"/> is bound to.</summary>
-    public static T WithV2Users<T>(this IServiceProvider services) =>
-        ActivatorUtilities.CreateInstance<T>(services, services.GetRequiredService<UserRepository>());
 }

@@ -5,7 +5,7 @@ namespace TextStack.Ai.Llm;
 /// <summary>Why <see cref="ModelGateway"/> ended up on the provider it did.</summary>
 public enum RouteReason
 {
-    /// <summary>A registry Primary row or an <c>Ai:Routes:{feature}</c> entry named this provider.</summary>
+    /// <summary>An <c>Ai:Routes:{feature}</c> entry named this provider.</summary>
     RouteMatched,
 
     /// <summary>Nothing matched the feature — we fell through to <c>Ai:DefaultProvider</c>.</summary>

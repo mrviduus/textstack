@@ -1,110 +1,64 @@
 using Api.V2;
-using Application.Auth;
-using Application.Common.Interfaces;
 using Application.Identity;
-using Domain.Entities;
 using Domain.Identity;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Moq;
 using Npgsql;
-using TextStack.UnitTests.Fakes;
 
 namespace TextStack.UnitTests.V2;
 
 /// <summary>
-/// <see cref="V2Gate"/> on fakes: the outcomes a healthy stack cannot produce (V2 behind, an email held
-/// by another V2 account, a deleted legacy account with a warm shadow cache, a V2 error mid-request).
+/// <see cref="V2Gate"/> on fakes: the outcomes a healthy stack cannot produce (V2 behind, a deleted account
+/// whose token still validates, a V2 error mid-request).
 /// </summary>
 public class V2GateFilterTests
 {
-    private readonly List<User> _legacyUsers = [];
-    private readonly Mock<IAppDbContext> _legacy = new();
-    private readonly Mock<IUserRepository> _v2Users = new();
-    private readonly V2ShadowUsers _shadows;
-    private readonly AuthService _auth;
+    private readonly Mock<IUserRepository> _users = new();
     private int _checks;
     private readonly V2Readiness _ready;
 
-    public V2GateFilterTests()
-    {
-        _legacy.Setup(d => d.Users).Returns(() => new FakeDbSet<User>(_legacyUsers));
-        _shadows = new V2ShadowUsers(_v2Users.Object, new MemoryCache(new MemoryCacheOptions()), NullLogger<V2ShadowUsers>.Instance);
-        _auth = new AuthService(_legacy.Object, Options.Create(new JwtSettings { SecretKey = TestTokens.Secret, Issuer = TestTokens.Issuer }),
-            Options.Create(new GoogleSettings { ClientId = "unused.apps.googleusercontent.com" }));
+    public V2GateFilterTests() =>
         _ready = V2ReadinessTests.Readiness(_ => { _checks++; return Task.FromResult(new List<string>()); });
-    }
 
-    private User LegacyUser()
+    private Guid Account()
     {
-        var user = new User { Id = Guid.NewGuid(), Email = $"{Guid.NewGuid():N}@textstack.test" };
-        _legacyUsers.Add(user);
-        return user;
+        var id = Guid.NewGuid();
+        _users.Setup(u => u.GetAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync(new UserAccount { Id = id });
+        return id;
     }
-
-    private void V2RowsAreCreated() =>
-        _v2Users.Setup(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>())).ReturnsAsync(new UserAccount());
 
     /// <summary>Runs the gate for <paramref name="userId"/>'s session; the result, and whether the endpoint ran.</summary>
-    private async Task<(object? Result, bool ReachedEndpoint)> GateAsync(Guid userId, V2Readiness? readiness = null, Exception? endpointThrows = null, bool writeFreeze = false)
+    private async Task<(object? Result, bool ReachedEndpoint)> GateAsync(Guid userId, V2Readiness? readiness = null, Exception? endpointThrows = null)
     {
         var http = new DefaultHttpContext();
         http.Request.Headers.Authorization = "Bearer " + TestTokens.Token(userId);
         var reached = false;
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            [Api.Middleware.WriteFreezeMiddleware.ConfigurationKey] = writeFreeze.ToString(),
-        }).Build();
-        var result = await new V2Gate(readiness ?? _ready, _shadows, _legacy.Object, _auth, config,
-            _v2Users.Object, new Infrastructure.Persistence.DatabaseMode(false)).InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
-        {
-            reached = true;
-            return endpointThrows is null ? ValueTask.FromResult<object?>(Results.Ok()) : throw endpointThrows;
-        });
+        var result = await new V2Gate(readiness ?? _ready, TestTokens.ReadOnlyAuth(), _users.Object)
+            .InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
+            {
+                reached = true;
+                return endpointThrows is null ? ValueTask.FromResult<object?>(Results.Ok()) : throw endpointThrows;
+            });
         return (result, reached);
     }
 
     private static int? StatusOf(object? result) => (result as IStatusCodeHttpResult)?.StatusCode;
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task InvokeAsync_Frozen_ExistingAccountCanReadButNoShadowIsCreated(bool exists)
+    [Fact]
+    public async Task InvokeAsync_AccountExists_ReachesTheEndpoint()
     {
-        var user = LegacyUser();
-        _v2Users.Setup(u => u.GetAsync(user.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(exists ? new UserAccount { Id = user.Id } : null);
+        var (result, reached) = await GateAsync(Account());
 
-        var (result, reached) = await GateAsync(user.Id, writeFreeze: true);
-
-        Assert.Equal(exists, reached);
-        Assert.Equal(exists ? 200 : 503, StatusOf(result));
-        _v2Users.Verify(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()), Times.Never());
+        Assert.Equal((200, true), (StatusOf(result), reached));
     }
 
     [Fact]
-    public async Task InvokeAsync_LegacyAccountDeletedWithAWarmShadowCache_IsUnauthorized()
+    public async Task InvokeAsync_AccountDeletedButTokenValid_IsUnauthorized()
     {
-        var user = LegacyUser();
-        V2RowsAreCreated();
-        Assert.True((await GateAsync(user.Id)).ReachedEndpoint);
-
-        _legacyUsers.Remove(user); // DELETE /me/account answered 204; the access token still validates
-        var (result, reached) = await GateAsync(user.Id);
+        var (result, reached) = await GateAsync(Guid.NewGuid());
 
         Assert.Equal((401, false), (StatusOf(result), reached));
-    }
-
-    [Fact]
-    public async Task InvokeAsync_EmailHeldByAnotherV2Account_IsV2UnavailableAndTheEndpointNeverRuns()
-    {
-        var (result, reached) = await GateAsync(LegacyUser().Id);
-
-        Assert.Equal((503, false), (StatusOf(result), reached));
     }
 
     [Fact]
@@ -113,60 +67,26 @@ public class V2GateFilterTests
         var (result, reached) = await GateAsync(Guid.NewGuid(), V2ReadinessTests.Readiness(_ => Task.FromResult(new List<string> { "0002_next" })));
 
         Assert.Equal((503, false), (StatusOf(result), reached));
-        _v2Users.VerifyNoOtherCalls();
+        _users.VerifyNoOtherCalls();
     }
 
     [Fact]
     public async Task InvokeAsync_V2ErrorFromTheEndpoint_EmptiesTheReadinessCacheAndRethrows()
     {
-        var user = LegacyUser();
-        V2RowsAreCreated();
-
         await Assert.ThrowsAsync<PostgresException>(() =>
-            GateAsync(user.Id, endpointThrows: new PostgresException("connection lost", "FATAL", "FATAL", "57P01")));
+            GateAsync(Account(), endpointThrows: new PostgresException("connection lost", "FATAL", "FATAL", "57P01")));
         await _ready.GetAsync();
 
         Assert.Equal(2, _checks);
     }
 
     [Fact]
-    public async Task InvokeAsync_LegacyDatabaseError_RethrowsAndKeepsTheV2ReadinessCache()
+    public async Task InvokeAsync_UsersForeignKeyViolation_IsUnauthorized()
     {
-        _legacy.Setup(d => d.Users).Throws(new PostgresException("connection lost", "FATAL", "FATAL", "57P01"));
-
-        await Assert.ThrowsAsync<PostgresException>(() => GateAsync(Guid.NewGuid()));
-        await _ready.GetAsync();
-
-        Assert.Equal(1, _checks);
-    }
-
-    [Fact]
-    public async Task InvokeAsync_V2ErrorEnsuringTheShadowRow_EmptiesTheReadinessCacheAndRethrows()
-    {
-        var user = LegacyUser();
-        _v2Users.Setup(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new PostgresException("connection lost", "FATAL", "FATAL", "57P01"));
-
-        await Assert.ThrowsAsync<PostgresException>(() => GateAsync(user.Id));
-        await _ready.GetAsync();
-
-        Assert.Equal(2, _checks);
-    }
-
-    [Fact]
-    public async Task InvokeAsync_UsersForeignKeyViolation_UnauthorizedAndTheShadowRowEnsuredAgainNextTime()
-    {
-        var user = LegacyUser();
-        V2RowsAreCreated();
-        await GateAsync(user.Id);
-        var checks = _checks;
-
         // The user's V2 row vanished mid-request (a guest merged into an account): not a 500.
-        var (result, _) = await GateAsync(user.Id, endpointThrows: new PostgresException(
+        var (result, _) = await GateAsync(Account(), endpointThrows: new PostgresException(
             "violates foreign key", "ERROR", "ERROR", PostgresErrorCodes.ForeignKeyViolation, constraintName: "fk_books_users_user_id"));
-        await GateAsync(user.Id);
 
-        Assert.Equal((401, checks), (StatusOf(result), _checks));
-        _v2Users.Verify(u => u.CreateAsync(It.IsAny<UserAccount>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        Assert.Equal(401, StatusOf(result));
     }
 }

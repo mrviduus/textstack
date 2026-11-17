@@ -18,9 +18,8 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF → parse → SEO pages
 
 The project is mid-migration to **V2**: two databases, one cutover ([ADR-030](docs/architecture/adr/ADR-030-two-databases-one-cutover.md), plan [`docs/internal/v2/v2-plan.md`](docs/internal/v2/v2-plan.md), umbrella #1013). The public SEO catalog retires at the end (#992 decision; M6).
 
-- **`textstack_v2`** is a second Postgres DB beside the legacy one: own SQL ledger (`make migrate-v2`), Dapper repositories, `/me/v2/*` endpoints behind `Features:V2Api` — **off in production**, on in CI/dev. The legacy path must never depend on V2 being up.
-- **ETL** legacy → V2: `etl-v2` CLI, built, validated, rehearsed on real backups (M3 done). Cutover (M5) and legacy retirement (M6, drops EF Core + catalog) are not executed yet.
-- **V2 reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android dev route (`__DEV__`) and web `/dev/reader-v2` (dev server only) and `/:lang/library/my/:id/read-v2` (behind `Features:V2Api`). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script, asserted on build; nginx locations in `textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. The only reader (the old engine package was deleted at M6, ADR-025 superseded).
+- **`textstack_v2`** is the database Api and Worker read (`ConnectionStrings:V2`): own SQL ledger (`make migrate-v2`), Dapper repositories, `/me/v2/*` endpoints. The legacy database is read-only and archived until M6's drop; no code reads it (EF Core went at M6 B3).
+- **V2 reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android dev route (`__DEV__`) and web `/dev/reader-v2` (dev server only) and `/:lang/library/my/:id/read-v2` (always on). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script, asserted on build; nginx locations in `textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. The only reader (the old engine package was deleted at M6, ADR-025 superseded).
 - **Work runs in waves**: kickoff files `.claude/wave-<N>-prompt.md` (pipeline, quality bar, standing rules); current state in [`docs/STATUS.md`](docs/STATUS.md) and #1013 checkboxes. Locator schemes and roles: ADR-031.
 - **Keep the V2 status true, until M6 is done** (owner, 2026-11-14). Three places, one picture:
   - **#1013:** a PR that finishes a milestone ticks its box (`Fixes #N` on the milestone issue). A new owner decision or blocker that moves the timeline gets its own issue, linked from #1013.
@@ -90,8 +89,6 @@ dotnet format textstack.sln                  # Backend
 
 # CLI commands (via dotnet run --project backend/src/Api --)
 # create-admin <email> <password>            (always Admin: Editor/Moderator collapse to Admin on V2, ADR-031 decided 7)
-# etl-v2 [--dry-run] [--source <cs>] [--target <cs>] [--source-dump-sha <hex>]   (legacy -> textstack_v2 data, v2-plan §5.2, internal/ops/v2-etl.md; not the schema: that is `make migrate-v2`)
-#   credentials via env ConnectionStrings__Default / ConnectionStrings__V2 or Passfile=, never argv (refused): ConnectionStrings__Default=… make etl-v2 ARGS=--dry-run
 
 # Local dev (no Docker)
 # From the repo root; the defaults /storage and /library are container paths. Two siblings, never nested:
@@ -142,9 +139,9 @@ API → Application → Domain ← Infrastructure
 ```
 
 - **Domain**: Pure C#, no framework deps
-- **Application**: Business logic, interfaces (`IAppDbContext`, `IFileStorageService`)
+- **Application**: Business logic, interfaces (repositories, `IFileStorageService`)
 - **Contracts**: Shared DTOs (request/response models) used by API and Application
-- **Infrastructure**: EF Core (snake_case naming), storage implementations
+- **Infrastructure**: Dapper repositories on `textstack_v2` (snake_case), storage implementations
 - **API/Worker**: Orchestration, DI
 
 **Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Tts` (Edge TTS), `Vocabulary` (DistractorGenerator), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server). There is no EPUB *builder* any more — `TextStack.Epub` was deleted 2026-09-28 with the export it existed for.
@@ -158,7 +155,7 @@ Cross-platform TS code shared by **both** web and mobile, consumed via source pa
 
 User routes live under `/me`; `/internal` is local-only by middleware. Every other route is listed in `tests/TextStack.UnitTests/Routes/routes.public.txt` — a new public route fails `PublicRoutesSnapshotTests` until it is added there.
 
-**Site resolution**: Single-site permanent (ADR-007). The single site id is exposed process-wide via `ICurrentSite` (config `Site:Id`, default `SiteConstants.DefaultSiteId`); EF global query filters key on it (see `ISiteScoped`).
+**Site resolution**: Single-site permanent (ADR-007); there is no site id in code any more.
 
 **Patterns**:
 - Endpoints: `Map{Domain}Endpoints()` in `Api/Endpoints/`
@@ -221,8 +218,7 @@ CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=
 V2_API_TESTS=1 dotnet test tests/TextStack.IntegrationTests   # without V2_API_TESTS the V2 classes skip
 # DB-backed tests skip unless Postgres is reachable: start the stack with
 # `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
-# TEST_DB_CONNECTION="Host=localhost;Port=5432;Database=<db>;Username=<user>;Password=<pw>"   (legacy: SchemaDrift, HealthReadyLibrary)
-# TEST_V2_DB_CONNECTION="…;Database=textstack_v2;…"   (identity in V2 mode: DeviceAuth, RefreshTokenHardening)
+# TEST_V2_DB_CONNECTION="Host=localhost;Port=5432;Database=textstack_v2;Username=<user>;Password=<pw>"   (DeviceAuth, HealthReadyLibrary)
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```
 

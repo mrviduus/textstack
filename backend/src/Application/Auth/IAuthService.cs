@@ -4,9 +4,8 @@ using Domain.Identity;
 namespace Application.Auth;
 
 /// <summary>
-/// A reader's sign-in, as the auth, device and account endpoints use it: legacy <see cref="AuthService"/>
-/// and <see cref="Identity.V2AuthService"/> behind one contract, so M5.1's <c>Database:Mode</c> picks
-/// one at startup. Outcomes a user can cause are results, never exceptions.
+/// A reader's sign-in, as the auth, device and account endpoints use it (<see cref="Identity.V2AuthService"/>).
+/// Outcomes a user can cause are results, never exceptions.
 /// </summary>
 public interface IAuthService
 {

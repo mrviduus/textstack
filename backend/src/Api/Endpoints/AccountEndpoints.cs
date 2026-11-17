@@ -21,19 +21,15 @@ public static class AccountEndpoints
 
     /// <summary>
     /// Hard-deletes the authenticated user and ALL data linked to them
-    /// (<see cref="IAuthService.DeleteAccountAsync"/>); then V2 follows the committed delete when
-    /// Features:V2Api is on, never failing this request.
+    /// (<see cref="IAuthService.DeleteAccountAsync"/>).
     /// </summary>
     private static async Task<IResult> DeleteAccount(
         HttpContext httpContext,
         IAuthService authService,
-        V2IdentityMirror mirror,
         CancellationToken ct)
     {
         var userId = httpContext.GetUserId(authService);
         if (userId == null || !await authService.DeleteAccountAsync(userId.Value, ct)) return Results.Unauthorized();
-
-        await mirror.DeleteAsync(userId.Value);
         return Results.NoContent();
     }
 }

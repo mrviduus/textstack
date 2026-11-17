@@ -54,11 +54,7 @@ public static class TelemetryExtensions
                     .AddSource(TelemetryConstants.ApiActivitySourceName)
                     // AI-pipeline spans (agent runs, RAG indexing). TraceScope dual-writes them to
                     // Sentry as well; this registration is what keeps them flowing to OTLP/Aspire.
-                    .AddSource(TextStack.Ai.Core.AiActivitySource.Name)
-                    .AddEntityFrameworkCoreInstrumentation(opts =>
-                    {
-                        opts.SetDbStatementForText = true; // Include SQL in traces
-                    });
+                    .AddSource(TextStack.Ai.Core.AiActivitySource.Name);
 
                 // Allow additional instrumentation configuration
                 configureTracing?.Invoke(builder);

@@ -3,7 +3,6 @@ using Application.Auth;
 using Application.Identity;
 using Domain.Enums;
 using Domain.Identity;
-using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
@@ -35,7 +34,7 @@ public class AccountGuardTests
             auth.Setup(a => a.ValidateAccessTokenIdentity(It.IsAny<string>())).Returns((string value) => tokens.ValidateAccessToken(value));
             var reached = false;
 
-            await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }, new(true)).InvokeAsync(http, auth.Object, users.Object);
+            await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }).InvokeAsync(http, auth.Object, users.Object);
 
             Assert.Equal(millis == 700, reached);
             Assert.Equal(millis == 700 ? 200 : 401, http.Response.StatusCode);
@@ -56,22 +55,10 @@ public class AccountGuardTests
         var users = new Mock<IUserRepository>(); // every account is gone
         var reached = false;
 
-        await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }, new(true)).InvokeAsync(http, auth.Object, users.Object);
+        await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }).InvokeAsync(http, auth.Object, users.Object);
 
         Assert.Equal(expectedReached, reached);
         Assert.Equal(expectedReached ? 200 : 401, http.Response.StatusCode);
-    }
-
-    [Fact]
-    public async Task LegacyMode_DoesNotQueryV2()
-    {
-        var http = Request("/me/books", null);
-        var reached = false;
-        var users = new Mock<IUserRepository>(MockBehavior.Strict);
-        await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }, new(false))
-            .InvokeAsync(http, Mock.Of<IAuthService>(), users.Object);
-        Assert.True(reached);
-        users.VerifyNoOtherCalls();
     }
 
     private static DefaultHttpContext Request(string path, JwtTokens? tokens)

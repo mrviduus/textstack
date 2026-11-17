@@ -1,6 +1,4 @@
 using Application.Ai;
-using Application.Common.Interfaces;
-using Domain.Entities;
 using Microsoft.Extensions.Logging;
 using TextStack.Ai.Core;
 using TextStack.Ai.Tools;
@@ -18,8 +16,7 @@ public sealed record ToolCallEvalResult(double Accuracy, int N, IReadOnlyList<To
 /// production prompt (<see cref="ExplainPrompt"/> with tool guidance) + the registry's tool schemas —
 /// and score the model's tool choice with the pure <see cref="ToolCallMetrics"/> (right tool, right
 /// args, or correctly NO tool). Round 1 only: tools are never executed, so the eval needs no edition,
-/// no user, and costs one nano call per case. Persists an <c>explain.toolcall</c>
-/// <see cref="EvalRun"/> (score 0–1) so /ai-quality tracks it like every other feature.
+/// no user, and costs one nano call per case.
 /// </summary>
 public sealed class ToolCallEvalRunner(ILogger<ToolCallEvalRunner> logger)
 {
@@ -29,9 +26,6 @@ public sealed class ToolCallEvalRunner(ILogger<ToolCallEvalRunner> logger)
     public async Task<ToolCallEvalResult> RunAsync(
         ILlmService llm,
         IToolRegistry registry,
-        bool persist,
-        IAppDbContext? db,
-        string? gitSha,
         CancellationToken ct)
     {
         var goldens = ToolCallGoldenSet.Load();
@@ -65,24 +59,6 @@ public sealed class ToolCallEvalRunner(ILogger<ToolCallEvalRunner> logger)
 
         var accuracy = ToolCallMetrics.Accuracy(cases.Select(c => c.Hit).ToList());
         logger.LogInformation("Tool-call eval: accuracy={Accuracy:0.00} (N={N})", accuracy, cases.Count);
-
-        if (persist && db is not null)
-        {
-            db.EvalRuns.Add(new EvalRun
-            {
-                Id = Guid.NewGuid(),
-                Feature = Feature,
-                ModelId = modelId ?? "unknown",
-                JudgeModelId = "n/a", // deterministic comparison, no judge
-                Score = Math.Round((decimal)accuracy, 3),
-                N = cases.Count,
-                BreakdownJson =
-                    $"{{\"hits\":{cases.Count(c => c.Hit)},\"noToolCases\":{cases.Count(c => c.ExpectedTool is null)}}}",
-                GitSha = gitSha,
-                CreatedAt = DateTimeOffset.UtcNow,
-            });
-            await db.SaveChangesAsync(ct);
-        }
 
         return new ToolCallEvalResult(accuracy, cases.Count, cases);
     }

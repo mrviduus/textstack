@@ -95,6 +95,6 @@ public sealed class RubricEvaluator(string id, Rubric rubric, double? overallFlo
         _ => EvaluationRating.Inconclusive,
     };
 
-    // Same label rule as EvalSuiteRunner.Breakdown: text before the first ':'.
+    // Same label rule as EvalSuiteRunner.Label: text before the first ':'.
     private static string Label(string dim) => dim.Split(':')[0].Trim();
 }

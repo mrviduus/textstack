@@ -19,9 +19,7 @@ RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH"
     && dotnet restore backend/src/Api/Api.csproj -r "$RID"
 
 COPY backend/src/ backend/src/
-# Embedded in Api.dll: /health/ready compares them with the schema_migrations ledger (ADR-026).
-COPY database/migrations/ database/migrations/
-# The same for textstack_v2: V2Readiness gates /me/v2/* on its ledger (#1053).
+# Embedded in Api.dll: /health/ready and V2Readiness compare them with the textstack_v2 ledger (ADR-026, #1053).
 COPY database/v2/migrations/ database/v2/migrations/
 RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH") \
     && dotnet publish backend/src/Api/Api.csproj -c Release -r "$RID" --self-contained false -o /app/publish

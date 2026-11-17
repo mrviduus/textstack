@@ -1,4 +1,3 @@
-using Domain.Entities;
 using Domain.Enums;
 
 namespace Application.Entitlements;
@@ -22,21 +21,13 @@ public sealed record UserEntitlements(
     int? DailyEnrichmentCap,
     bool CanUseAi);
 
-public interface IEntitlementResolver
-{
-    UserEntitlements Resolve(User user);
-}
-
 /// <summary>
 /// The single place that answers "what is this user allowed to do". Before this existed the answer
 /// was a ternary on <c>IsGuest</c> duplicated at two call sites against two compiled-in constants;
 /// adding a third kind of user was not expressible at all.
 /// </summary>
-public sealed class EntitlementResolver(EntitlementOptions options) : IEntitlementResolver
+public sealed class EntitlementResolver(EntitlementOptions options)
 {
-    public UserEntitlements Resolve(User user) =>
-        Resolve(user.Tier, user.IsGuest, user.Email, user.StorageLimitOverrideBytes);
-
     /// <summary>
     /// The whole decision, as a pure function — no DB, no DI, no clock. This is what the tests
     /// exercise; the instance method above is just a projection of a <see cref="User"/> onto it.

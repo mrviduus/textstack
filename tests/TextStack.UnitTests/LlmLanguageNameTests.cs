@@ -3,7 +3,6 @@ using Application.Ai;
 using Domain.Utilities;
 using TextStack.Ai.Llm;
 using TextStack.Vocabulary;
-using Worker.Services;
 
 namespace TextStack.UnitTests;
 
@@ -72,24 +71,6 @@ public class LlmLanguageNameTests
     [Fact]
     public void TranslatePromptBuildSystemPrompt_LanguageCodes_UsesLanguageNames() =>
         Assert.Contains("Translate from English to Russian.", TranslatePrompt.BuildSystemPrompt("en", "ru", null, null));
-
-    [Theory]
-    [InlineData("[\"a\",\"b\"]\n[\"a\",\"b\"]")]                    // array repeated
-    [InlineData("Tags: [\"a\", \"b\"]. Hope that helps [1].")]      // trailing bracket in prose
-    [InlineData("```json\n[\"a\",\"b\"]\n```\n[\"c\"]")]
-    public void ParseAndValidate_MoreThanOneArray_TakesFirst(string raw) =>
-        Assert.Equal(["a", "b"], TagSuggestionGenerator.ParseAndValidate(raw));
-
-    [Fact]
-    public void ParseAndValidate_BracketsAndEscapedQuotesInStrings_AreNotStructure() =>
-        // Normalize then drops the punctuation: "a]b" → "ab", "c\"d" → "cd".
-        Assert.Equal(["ab", "cd"], TagSuggestionGenerator.ParseAndValidate("[\"a]b\", \"c\\\"d\"] [\"x\"]"));
-
-    [Theory]
-    [InlineData("[\"a\", \"b\"")]
-    [InlineData("no array here")]
-    public void ParseAndValidate_NoCompleteArray_ReturnsEmpty(string raw) =>
-        Assert.Empty(TagSuggestionGenerator.ParseAndValidate(raw));
 
     [Theory]
     [InlineData("<think>let me see\n[1]</think>\nHINT: x", "HINT: x")]

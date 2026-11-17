@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using Application.Auth;
-using Application.Common.Interfaces;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TextStack.Ai.Core;
@@ -22,7 +20,7 @@ namespace Application.Ai;
 /// for a fresh zeroed one before use, so a new day starts at 0.
 ///
 /// Lazy seed: the FIRST touch of a (feature, today) bucket queries <c>llm_traces</c> for today's
-/// summed cost on a fresh DI scope and scales it by <c>1/sampleRate</c> for that feature (traces are
+/// summed cost (<see cref="ILlmSpendSource"/>) and scales it by <c>1/sampleRate</c> for that feature (traces are
 /// sampled — e.g. explain at 0.1 → multiply by 10). This APPROXIMATELY recovers spend accrued before
 /// a process restart; it is an estimate, not exact (sampling variance + the in-flight window between
 /// the seed query and the first post-restart Record). Runs at most once per bucket and never throws.
@@ -123,19 +121,7 @@ public sealed class RollingSpendTracker(
         {
             var utcMidnight = new DateTimeOffset(bucket.Utc.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
 
-            decimal sampledCost;
-            if (spendSource is not null)
-            {
-                sampledCost = spendSource.SampledCostSince(featureTag, utcMidnight);
-            }
-            else
-            {
-                using var scope = scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
-                sampledCost = db.LlmTraces
-                    .Where(t => t.FeatureTag == featureTag && t.CreatedAt >= utcMidnight)
-                    .Sum(t => (decimal?)t.CostUsd) ?? 0m;
-            }
+            var sampledCost = spendSource?.SampledCostSince(featureTag, utcMidnight) ?? 0m;
 
             if (sampledCost <= 0m)
                 return;
@@ -212,10 +198,9 @@ public sealed class RollingSpendTracker(
 }
 
 /// <summary>
-/// Where <see cref="RollingSpendTracker"/> seeds today's spend from when the traces are not legacy's
-/// (<c>Database:Mode=v2</c> writes them to V2's <c>llm_traces</c>): the summed, sampled <c>cost_usd</c> of a
-/// feature's traces since a moment. Absent, the tracker reads legacy's table as before. May throw; the seed
-/// swallows it.
+/// Where <see cref="RollingSpendTracker"/> seeds today's spend from (V2's <c>llm_traces</c>): the summed,
+/// sampled <c>cost_usd</c> of a feature's traces since a moment. Absent, nothing is seeded. May throw; the
+/// seed swallows it.
 /// </summary>
 public interface ILlmSpendSource
 {

@@ -42,17 +42,6 @@ public class JwtTokensTests
     }
 
     [Fact]
-    public void MintAccessToken_LegacyAuthService_ValidatesWhatJwtTokensMints()
-    {
-        var id = Guid.NewGuid();
-        var legacy = new AuthService(null!, Options.Create(Settings()), Options.Create(new GoogleSettings { ClientId = "unused" }));
-
-        var identity = legacy.ValidateAccessTokenIdentity(Tokens.MintAccessToken(id, "guest@guest.local", "Guest", isGuest: true))!;
-
-        Assert.Equal((id, true), (identity.UserId, identity.IsGuest));
-    }
-
-    [Fact]
     public void ValidateAccessToken_Expired_Null()
     {
         var expired = new JwtTokens(Settings(accessMinutes: -1)).MintAccessToken(Guid.NewGuid(), "reader@example.test", null, false);

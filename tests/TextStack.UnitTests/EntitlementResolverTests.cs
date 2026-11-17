@@ -1,5 +1,4 @@
 using Application.Entitlements;
-using Domain.Entities;
 using Domain.Enums;
 
 namespace TextStack.UnitTests;
@@ -164,21 +163,5 @@ public class EntitlementResolverTests
 
         Assert.Equal(guest.MaxSingleUploadBytes, staff.MaxSingleUploadBytes);
         Assert.True(staff.MaxSingleUploadBytes <= EntitlementOptions.PlatformSingleRequestCeilingBytes);
-    }
-
-    [Fact]
-    public void Resolve_FromUserEntity_ProjectsOntoThePureOverload()
-    {
-        var user = new User
-        {
-            Email = "reader@example.com",
-            Tier = UserTier.Supporter,
-            StorageLimitOverrideBytes = 777 * Mb,
-        };
-
-        var result = Resolver().Resolve(user);
-
-        Assert.Equal(UserTier.Supporter, result.Tier);
-        Assert.Equal(777 * Mb, result.StorageLimitBytes);
     }
 }

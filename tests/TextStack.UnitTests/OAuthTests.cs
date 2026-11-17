@@ -164,36 +164,6 @@ public class OAuthTests
     public void LooksLikeAccessToken_PrefixOnly(string? token, bool expected) =>
         Assert.Equal(expected, OAuth.LooksLikeAccessToken(token));
 
-    private static readonly DateTimeOffset Now = new(2026, 9, 29, 12, 0, 0, TimeSpan.Zero);
-
-    private static Domain.Entities.OAuthGrant Grant(
-        string resource = "https://textstack.app/mcp", DateTimeOffset? expires = null, DateTimeOffset? revoked = null) => new()
-        {
-            AccessTokenHash = "h",
-            Resource = resource,
-            AccessTokenExpiresAt = expires ?? Now.AddMinutes(30),
-            RevokedAt = revoked,
-        };
-
-    private static bool Live(Domain.Entities.OAuthGrant g, string hash = "h") =>
-        OAuth.LiveAccessToken(hash, "https://textstack.app/mcp", Now).Compile()(g);
-
-    [Fact]
-    public void LiveAccessToken_FreshGrantForMcp_True() => Assert.True(Live(Grant()));
-
-    [Fact]
-    public void LiveAccessToken_OtherAudience_False() =>
-        Assert.False(Live(Grant(resource: "https://textstack.app/other")));
-
-    [Fact]
-    public void LiveAccessToken_Expired_False() => Assert.False(Live(Grant(expires: Now)));
-
-    [Fact]
-    public void LiveAccessToken_Revoked_False() => Assert.False(Live(Grant(revoked: Now.AddMinutes(-1))));
-
-    [Fact]
-    public void LiveAccessToken_OtherHash_False() => Assert.False(Live(Grant(), hash: "x"));
-
     [Fact]
     public void Lifetimes_MatchOwnerDecision()
     {

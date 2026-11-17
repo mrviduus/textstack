@@ -88,7 +88,7 @@ public static class V2CompatEndpoints
         var userId = http.GetUserId(auth);
         return ExplainEndpoints.ExplainAsync(request, http, config, openAi, llm,
             token => GenreAsync(request.Genre, request.BookId, userId, library, logger, token), userId,
-            toolRegistry: null, toolSession, logger, ct);
+            toolSession, logger, ct);
     }
 
     /// <summary>The legacy translate on V2: the genre from the caller's V2 book.</summary>

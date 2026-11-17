@@ -8,7 +8,7 @@ namespace TextStack.Ai.Agents;
 /// <see cref="CrewOrchestrator"/> can schedule (AI-040). Each task:
 /// <list type="bullet">
 /// <item>creates its OWN child DI scope from <c>ctx.Services</c> (the ToolDispatcher per-invocation-scope
-///   rule — two parallel sub-agents must not share one EF DbContext) and runs the agent under it;</item>
+///   rule — two parallel sub-agents must not share scoped services) and runs the agent under it;</item>
 /// <item>on success, returns its fold as a deferred <see cref="Action"/> on the <see cref="CrewTaskOutcome"/>
 ///   — it never mutates the shared state in the parallel body, so the orchestrator can apply folds
 ///   sequentially in declaration order after <c>Task.WhenAll</c>;</item>
@@ -33,7 +33,7 @@ public static class CrewTasks
     {
         return async (state, ctx, ct) =>
         {
-            // Own DI scope per task: scoped services (DbContext, etc.) must not be shared across the
+            // Own DI scope per task: scoped services must not be shared across the
             // parallel fan-out. Mirrors ToolDispatcher.DispatchAsync.
             using var scope = ctx.Services.CreateScope();
             var scopedCtx = ctx with { Services = scope.ServiceProvider };

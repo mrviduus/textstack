@@ -17,7 +17,7 @@ namespace TextStack.UnitTests;
 /// being read from <c>HttpContext.User</c>, which this API never populates. Reading it from the
 /// right place is a claim that should be pinned, not re-verified by hand each time.</para>
 ///
-/// <para>No database is touched by the method under test, so <c>IAppDbContext</c> is not supplied.</para>
+/// <para>No database is touched by the method under test, so no repository is supplied.</para>
 /// </summary>
 public class AccessTokenIdentityTests
 {
@@ -25,10 +25,7 @@ public class AccessTokenIdentityTests
     private const string OtherSecret = "a-DIFFERENT-signing-key-long-enough-for-hmac-sha256-xyz";
     private const string Issuer = TestTokens.Issuer;
 
-    private static AuthService Service() => new(
-        db: null!,
-        jwtSettings: Options.Create(new JwtSettings { SecretKey = Secret, Issuer = Issuer }),
-        googleSettings: Options.Create(new GoogleSettings { ClientId = "unused.apps.googleusercontent.com" }));
+    private static IAuthService Service() => TestTokens.ReadOnlyAuth(Secret, Issuer);
 
     private static string Token(
         Guid? userId, bool guestClaim, string? guestClaimValue = "true", string issuer = Issuer, string secret = Secret,
@@ -98,16 +95,13 @@ public class AccessTokenIdentityTests
     {
         // HS512 needs a 64-byte key, so both cases use one long enough for either.
         const string longSecret = Secret + Secret;
-        var service = new AuthService(
-            db: null!,
-            jwtSettings: Options.Create(new JwtSettings { SecretKey = longSecret, Issuer = Issuer }),
-            googleSettings: Options.Create(new GoogleSettings { ClientId = "unused.apps.googleusercontent.com" }));
+        var service = TestTokens.ReadOnlyAuth(longSecret, Issuer);
         var id = Guid.NewGuid();
 
         var userId = service.ValidateAccessTokenIdentity(
             Token(id, guestClaim: false, secret: longSecret, algorithm: algorithm))?.UserId;
 
-        Assert.Equal(accepted ? id : null, userId);
+        Assert.Equal(accepted ? id : (Guid?)null, userId);
     }
 
     [Fact]
@@ -142,21 +136,5 @@ public class AccessTokenIdentityTests
         // A connect key is an account-level credential and never a guest's; it must fall through
         // quietly rather than throw inside a middleware that runs on every request.
         Assert.Null(Service().ValidateAccessTokenIdentity(token));
-    }
-
-    [Fact]
-    public void ValidateAccessToken_AndTheIdentityOverload_CannotDisagree()
-    {
-        // One is defined in terms of the other precisely so the guest-activity path and every
-        // endpoint's GetUserId resolve the same user. Pinned so an optimisation cannot split them.
-        var service = Service();
-        var id = Guid.NewGuid();
-        var guest = Token(id, guestClaim: true);
-        var account = Token(id, guestClaim: false);
-        var dead = Token(id, guestClaim: true, expiresInMinutes: -1);
-
-        Assert.Equal(service.ValidateAccessToken(guest), service.ValidateAccessTokenIdentity(guest)?.UserId);
-        Assert.Equal(service.ValidateAccessToken(account), service.ValidateAccessTokenIdentity(account)?.UserId);
-        Assert.Equal(service.ValidateAccessToken(dead), service.ValidateAccessTokenIdentity(dead)?.UserId);
     }
 }

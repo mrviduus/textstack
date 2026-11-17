@@ -6,12 +6,7 @@ namespace Application.Common;
 /// Postgres constraint failures, matched on the SQLSTATE rather than the message so they survive
 /// locale and constraint renames.
 /// </summary>
-/// <remarks>
-/// Both shapes are checked. <c>SaveChangesAsync</c> wraps the driver error in a
-/// <c>DbUpdateException</c>, but <c>ExecuteUpdateAsync</c>/<c>ExecuteDeleteAsync</c> bypass the
-/// change tracker and let the bare <see cref="PostgresException"/> escape — the guest merge's bulk
-/// re-parents (<c>AuthService</c>) fail that way.
-/// </remarks>
+/// <remarks>Both shapes are checked: the bare <see cref="PostgresException"/>, and one wrapped as an inner exception.</remarks>
 public static class PostgresExceptionExtensions
 {
     /// <summary>SQLSTATE 23505: a unique index refused the row.</summary>

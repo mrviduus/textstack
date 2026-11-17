@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using Application.Identity;
-using Infrastructure.Persistence.Legacy;
+using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Worker.Services;
@@ -9,19 +9,18 @@ using Worker.Services;
 namespace TextStack.UnitTests;
 
 /// <summary>
-/// The Worker's container as its <c>Program</c> builds it, what <c>V2GateTests</c> is for the Api: no
-/// runtime database switch before M5.1 (#1100), so every identity port is its legacy EF adapter and no
-/// V2 auth type resolves.
+/// The Worker's container as its <c>Program</c> builds it, what <c>V2GateTests</c> is for the Api: every
+/// identity port is its V2 repository, and no auth service resolves (the Worker signs nobody in).
 /// </summary>
 public class WorkerContainerTests
 {
     [Theory]
-    [InlineData(typeof(IUserRepository), typeof(EfUserRepository))]
-    [InlineData(typeof(ISessionTokenRepository), typeof(EfSessionTokenRepository))]
-    [InlineData(typeof(IOAuthRepository), typeof(EfOAuthRepository))]
-    [InlineData(typeof(IDeviceLoginRepository), typeof(EfDeviceLoginRepository))]
-    [InlineData(typeof(IMcpKeyRepository), typeof(EfMcpKeyRepository))]
-    public void WorkerContainer_V2On_IdentityPortIsTheLegacyAdapter(Type port, Type adapter)
+    [InlineData(typeof(IUserRepository), typeof(UserRepository))]
+    [InlineData(typeof(ISessionTokenRepository), typeof(SessionTokenRepository))]
+    [InlineData(typeof(IOAuthRepository), typeof(OAuthRepository))]
+    [InlineData(typeof(IDeviceLoginRepository), typeof(DeviceLoginRepository))]
+    [InlineData(typeof(IMcpKeyRepository), typeof(McpKeyRepository))]
+    public void WorkerContainer_IdentityPort_IsTheV2Repository(Type port, Type adapter)
     {
         using var scope = WorkerServices().CreateScope();
 
@@ -29,7 +28,7 @@ public class WorkerContainerTests
     }
 
     [Fact]
-    public void WorkerContainer_V2On_ResolvesNoV2AuthService()
+    public void WorkerContainer_ResolvesNoAuthService()
     {
         using var scope = WorkerServices().CreateScope();
 
@@ -38,15 +37,12 @@ public class WorkerContainerTests
             Assert.Null(scope.ServiceProvider.GetService(type));
     }
 
-    // Production's default is V2 off; both settings must build.
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void WorkerHost_Development_PassesDiValidation(bool v2Api)
+    [Fact]
+    public void WorkerHost_Development_PassesDiValidation()
     {
         // Development turns on ValidateOnBuild + ValidateScopes: Build() throws if any registration
         // cannot resolve (#1108), so reaching the built host is the assertion.
-        var services = WorkerServices("Development", v2Api);
+        var services = WorkerServices("Development");
 
         Assert.True(services.GetRequiredService<IHostEnvironment>().IsDevelopment());
     }
@@ -63,7 +59,7 @@ public class WorkerContainerTests
     /// hosting diagnostics event <c>HostBuilt</c>, as the test host factories do). Only the Worker's own
     /// host is stopped: other tests build hosts in parallel.
     /// </summary>
-    private static IServiceProvider WorkerServices(string environment = "Production", bool v2Api = true)
+    private static IServiceProvider WorkerServices(string environment = "Production")
     {
         IHost? worker = null;
         using var listeners = DiagnosticListener.AllListeners.Subscribe(new Observer<DiagnosticListener>(listener =>
@@ -83,9 +79,8 @@ public class WorkerContainerTests
         {
             typeof(HeartbeatWorker).Assembly.EntryPoint!.Invoke(null, [new[]
             {
-                $"--environment={environment}", $"--applicationName={ApplicationName}", $"--Features:V2Api={v2Api}", $"--Storage:RootPath={StorageRoot}",
+                $"--environment={environment}", $"--applicationName={ApplicationName}", $"--Storage:RootPath={StorageRoot}",
                 // Port 1: should the host ever run, nothing it opens reaches a real database.
-                "--ConnectionStrings:Default=Host=127.0.0.1;Port=1;Database=none;Timeout=1",
                 "--ConnectionStrings:V2=Host=127.0.0.1;Port=1;Database=none;Timeout=1",
             }]);
         }

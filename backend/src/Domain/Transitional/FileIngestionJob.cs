@@ -1,8 +1,7 @@
 namespace Domain.Transitional;
 
 /// <summary>
-/// A server extraction job for one uploaded file version (V2 table <c>ingestion_jobs</c>). Named apart
-/// from the legacy catalog <c>Domain.Entities.IngestionJob</c>. Transitional: dropped at M6.4 (ADR-031).
+/// A server extraction job for one uploaded file version (V2 table <c>ingestion_jobs</c>; kept at M6, D8).
 /// </summary>
 public class FileIngestionJob
 {

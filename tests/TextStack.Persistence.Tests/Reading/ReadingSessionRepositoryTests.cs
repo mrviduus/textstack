@@ -87,26 +87,4 @@ public class ReadingSessionRepositoryTests(V2PostgresFixture db)
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
         Assert.Equal(0L, await db.CountAsync("reading_sessions", bob));
     }
-
-    [Fact]
-    public async Task NativePaceTotalsAsync_OwnSessionsWithWordsAndTime_CountedNotEtlCarriedOnesNorAnotherUsers()
-    {
-        var mine = await db.NewReaderWithBookAsync();
-        var bobs = await db.NewReaderWithBookAsync();
-        await _repo.SaveAsync(mine.UserId, Session(mine.Id, wordsRead: 100), Ct);
-        await _repo.SaveAsync(mine.UserId, Session(mine.Id, wordsRead: 200), Ct);
-        await _repo.SaveAsync(mine.UserId, Session(mine.Id, wordsRead: 0), Ct);
-        var noTime = Session(mine.Id, wordsRead: 50);
-        noTime.DurationSeconds = 0;
-        await _repo.SaveAsync(mine.UserId, noTime, Ct);
-        await _repo.SaveAsync(bobs.UserId, Session(bobs.Id, wordsRead: 500), Ct);
-        // As EtlV2Sessions carries a legacy session: its id is both ids, and legacy's pace already counts it.
-        var carried = Guid.NewGuid();
-        await db.ExecAsync("""
-            INSERT INTO reading_sessions (id, user_id, client_session_id, book_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
-            VALUES (@carried, @userId, @carried, NULL, now(), now(), 300, 900, 0, 0, now())
-            """, new { carried, userId = mine.UserId });
-
-        Assert.Equal(new PaceTotals(2, 300, 600), await _repo.NativePaceTotalsAsync(mine.UserId, Ct));
-    }
 }

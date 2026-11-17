@@ -1,6 +1,3 @@
-using System.Text.Json;
-using Application.Common.Interfaces;
-using Domain.Entities;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using Microsoft.Extensions.Logging;
@@ -17,7 +14,6 @@ namespace TextStack.Ai.EvalSuite;
 /// Microsoft.Extensions.AI.Evaluation <see cref="RubricEvaluator"/> (the same evaluator
 /// the eval test suite uses), talking to <paramref name="judgeClient"/> via the
 /// <see cref="LlmServiceChatClient"/> adapter — one scoring path shared by app + tests.
-/// Persists one <see cref="EvalRun"/> per feature when <c>persist</c> + a db are supplied.
 /// </summary>
 public sealed class EvalSuiteRunner(ILogger<EvalSuiteRunner> logger)
 {
@@ -26,13 +22,8 @@ public sealed class EvalSuiteRunner(ILogger<EvalSuiteRunner> logger)
     public async Task<IReadOnlyList<EvalRunResult>> RunAsync(
         Func<string, ILlmService> generatorFor,
         ILlmService judgeClient,
-        string judgeModelId,
         IEnumerable<string>? keys,
-        bool persist,
-        IAppDbContext? db,
-        string? gitSha,
-        CancellationToken ct,
-        string runType = "manual")
+        CancellationToken ct)
     {
         var defs = EvalDefinitions.Build(keys);
         var chatConfig = new ChatConfiguration(new LlmServiceChatClient(judgeClient, defaultFeatureTag: "eval.judge"));
@@ -73,27 +64,7 @@ public sealed class EvalSuiteRunner(ILogger<EvalSuiteRunner> logger)
                 var summary = JudgeRunner.Aggregate(entry.Scores);
                 results.Add(new EvalRunResult(feature, entry.ModelId, summary));
                 logger.LogInformation("Eval {Feature}: N={N} overall={Score:0.00}", feature, summary.N, summary.MeanOverall);
-
-                if (persist && db is not null)
-                {
-                    db.EvalRuns.Add(new EvalRun
-                    {
-                        Id = Guid.NewGuid(),
-                        Feature = feature,
-                        ModelId = entry.ModelId,
-                        JudgeModelId = judgeModelId,
-                        Score = Math.Round((decimal)summary.MeanOverall, 3),
-                        N = summary.N,
-                        BreakdownJson = Breakdown(entry.Rubric, summary),
-                        GitSha = gitSha,
-                        RunType = runType,
-                        CreatedAt = DateTimeOffset.UtcNow,
-                    });
-                }
             }
-
-            if (persist && db is not null)
-                await db.SaveChangesAsync(ct);
         }
 
         return results;
@@ -102,13 +73,6 @@ public sealed class EvalSuiteRunner(ILogger<EvalSuiteRunner> logger)
     // RubricEvaluator names each axis "{feature}.{label}" (label = text before ':').
     private static int ReadAxis(EvaluationResult result, string feature, string dim) =>
         (int)Math.Round(result.Get<NumericMetric>($"{feature}.{Label(dim)}").Value ?? 0);
-
-    private static string Breakdown(Rubric r, EvalSummary s) => JsonSerializer.Serialize(new Dictionary<string, double>
-    {
-        [Label(r.Dim1)] = Math.Round(s.Mean1, 2),
-        [Label(r.Dim2)] = Math.Round(s.Mean2, 2),
-        [Label(r.Dim3)] = Math.Round(s.Mean3, 2),
-    });
 
     private static string Label(string dim) => dim.Split(':')[0].Trim();
 }

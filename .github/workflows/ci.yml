@@ -309,37 +309,17 @@ jobs:
       - name: Lint (format check)
         run: dotnet format --no-restore --verify-no-changes
 
-      # database/migrate.sh and every migration on scratch databases: up, down one version deeper
-      # per pass then up again, the EF-history bootstrap, edited files (database/README.md).
-      # Run in the postgres image, so psql/pg_dump match the server and `sh` is a strict POSIX
-      # shell (dash), as close to the migrator's busybox as ubuntu gets.
-      - name: Migrations round trip
-        run: >-
-          docker run --rm --network host -v "$PWD/database:/database:ro"
-          -e PGHOST=localhost -e PGUSER=app -e PGPASSWORD=changeme -e PGDATABASE=books
-          pgvector/pgvector:pg16 sh /database/tests/roundtrip.sh
-
-      # The same for textstack_v2's runner and migrations (database/v2/README.md).
+      # textstack_v2's runner and every migration on scratch databases: up, down one version deeper
+      # per pass then up again (database/v2/README.md). Run in the postgres image, so psql/pg_dump
+      # match the server and `sh` is a strict POSIX shell (dash), as close to the migrator's busybox as ubuntu gets.
       - name: V2 migrations round trip
         run: >-
           docker run --rm --network host -v "$PWD/database:/database:ro"
           -e PGHOST=localhost -e PGUSER=app -e PGPASSWORD=changeme -e PGDATABASE=books
           pgvector/pgvector:pg16 sh /database/v2/tests/roundtrip.sh
 
-      - name: Run migrations
-        run: >-
-          docker run --rm --network host -v "$PWD/database:/database:ro"
-          -e PGHOST=localhost -e PGUSER=app -e PGPASSWORD=changeme -e PGDATABASE=books
-          pgvector/pgvector:pg16 sh /database/migrate.sh up
-
-      # The EF Core model against the database migrate.sh just built (SchemaDriftTests).
-      - name: Schema drift (EF model vs database/migrations)
-        run: dotnet test tests/TextStack.IntegrationTests --no-build --filter "FullyQualifiedName~SchemaDriftTests"
-        env:
-          TEST_DB_CONNECTION: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
-
       # Dapper repositories against real Postgres (ADR-028): Testcontainers starts its own
-      # pgvector:pg16 and builds the schema with database/migrate.sh. Uses the runner's Docker.
+      # pgvector:pg16 and builds the schema with database/v2/run.sh. Uses the runner's Docker.
       - name: Persistence tests
         run: dotnet test tests/TextStack.Persistence.Tests --no-build
 
@@ -712,9 +692,6 @@ jobs:
           ACCOUNT_DELETE_PERMIT_LIMIT=50
           DEVICE_CODE_PERMIT_LIMIT=50
           MCP_KEYS_PERMIT_LIMIT=100
-          # What production runs (M5 cutover): V2 mode, against the textstack_v2 migrated below.
-          DATABASE_MODE=v2
-          FEATURES_V2API=true
           EOF
 
       - name: Create volume dirs for non-root containers
@@ -731,7 +708,7 @@ jobs:
       - name: Build containers
         run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
 
-      # Before `up -d`: in V2 mode the api's readiness reads textstack_v2. migrator-v2 sits behind
+      # Before `up -d`: the api's readiness reads textstack_v2. migrator-v2 sits behind
       # profile `v2` (#1053); `compose run` enables it. Also the only check of its compose wiring.
       - name: V2 migrator runs through compose
         run: |
@@ -769,11 +746,9 @@ jobs:
         run: dotnet test tests/TextStack.IntegrationTests --filter "FullyQualifiedName!~RateLimitEnforcement"
         env:
           API_URL: http://localhost:8080
-          # The V2 classes fail (not skip) if /me/v2 is not mapped: FEATURES_V2API is on above.
+          # The V2 classes fail (not skip) if /me/v2 does not answer.
           V2_API_TESTS: "1"
-          # DB-backed tests skip without these: the legacy database (SchemaDrift, HealthReadyLibrary)
-          # and textstack_v2, where V2 mode keeps identity (DeviceAuth, RefreshTokenHardening).
-          TEST_DB_CONNECTION: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
+          # DB-backed tests skip without it: textstack_v2 (DeviceAuth, HealthReadyLibrary).
           TEST_V2_DB_CONNECTION: "Host=localhost;Port=5432;Database=textstack_v2;Username=app;Password=changeme"
 
       # Restarting the API drops the in-memory limiter partitions, so this starts from a full
@@ -829,8 +804,6 @@ jobs:
           ACCOUNT_DELETE_PERMIT_LIMIT=50
           ADMIN_EMAIL=admin@textstack.app
           ADMIN_PASSWORD=admin
-          DATABASE_MODE=v2
-          FEATURES_V2API=true
           EOF
 
       - name: Create volume dirs for non-root containers
@@ -846,7 +819,7 @@ jobs:
       - name: Build containers
         run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
 
-      # Before `up -d`, as in `docker`: V2 mode reads textstack_v2.
+      # Before `up -d`, as in `docker`: the api reads textstack_v2.
       - name: Migrate textstack_v2
         run: docker compose run --rm migrator-v2 up
 
@@ -931,7 +904,7 @@ jobs:
       - name: Build web app
         run: pnpm -C apps/web build
 
-      # One pass, in V2 mode (what production runs). V2_E2E=1: a /me/v2 404 fails the V2 specs
+      # One pass (what production runs). V2_E2E=1: a /me/v2 404 fails the V2 specs
       # instead of skipping them.
       - name: E2E — gates the PR
         working-directory: apps/web
