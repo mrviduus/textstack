@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { readingTrackingApi, vocabularyApi } from '@textstack/shared'
+import { readingTrackingApi } from '../lib/readingTrackingApi'
+import { vocabularyApi } from '../lib/vocabularyApi'
 
 interface QuickStats {
   todaySeconds: number
@@ -22,6 +23,7 @@ export function useQuickStats(isAuthenticated: boolean) {
       return
     }
     let cancelled = false
+    // M5 (#1031): on V2 each read is refused before any request (lib wrappers): no figures shown.
     Promise.all([
       readingTrackingApi.getStats(),
       readingTrackingApi.getGoals(),

@@ -8,7 +8,7 @@ const authFetch = vi.fn(async (path: string) => {
   return { todaySeconds: 0, todayVocabReviews: 0, dailyGoal: null, currentStreak: 0 }
 })
 vi.mock('../api/client', () => ({ authFetch: (p: string) => authFetch(p) }))
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true }) }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true }), useV2: () => ({ enabled: false, maxPartBytes: 0 }) }))
 
 import { useReadingPace } from './useReadingPace'
 import { useQuickStats } from './useQuickStats'

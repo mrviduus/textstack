@@ -3,10 +3,10 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share } from 'rea
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
+import { createBooksApi, currentReviewChapter, v2Offers, formatBookPercent, getStorageUrl, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
 import type { BookDetail } from '@textstack/shared'
 import { useDownload } from '../../src/context/DownloadContext'
-import { useAuth } from '../../src/context/AuthContext'
+import { useAuth, useV2 } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useToast } from '../../src/context/ToastContext'
@@ -34,6 +34,7 @@ export default function BookDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const router = useRouter()
   const { isAuthenticated, ensureSession, getAccessToken } = useAuth()
+  const reviewOffered = v2Offers(useV2(), 'chapterReview')
   const { colors } = useTheme()
   const { language, t } = useLanguage()
   const toast = useToast()
@@ -550,7 +551,8 @@ export default function BookDetailScreen() {
                 </Text>
               )}
             </View>
-            {isAuthenticated && !offlineMode && (
+            {/* M5 (#1031): no chapter review on V2. */}
+            {isAuthenticated && !offlineMode && reviewOffered && (
               <ChapterReviewAction
                 book={{ title: book.title, author: book.authors.map(a => a.name).join(', ') || null, editionId: book.id, slug: book.slug }}
                 chapter={{ slug: ch.slug, title: ch.title, wordCount: ch.wordCount }}

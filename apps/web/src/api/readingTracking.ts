@@ -1,4 +1,5 @@
 import { authFetch } from './client'
+import { refuseOnV2 } from './v2'
 
 // --- Types ---
 
@@ -94,12 +95,14 @@ export async function getSessions(from?: string, to?: string): Promise<SessionDt
 }
 
 export async function getStats(tz?: number): Promise<ReadingStats> {
+  await refuseOnV2('readingStats')
   const params = new URLSearchParams()
   if (tz != null) params.set('tz', String(tz))
   return authFetch<ReadingStats>(`/me/reading/stats?${params}`)
 }
 
 export async function getDailyStats(from?: string, to?: string, tz?: number): Promise<DailyStatDto[]> {
+  await refuseOnV2('readingStats')
   const params = new URLSearchParams()
   if (from) params.set('from', from)
   if (to) params.set('to', to)
@@ -108,6 +111,7 @@ export async function getDailyStats(from?: string, to?: string, tz?: number): Pr
 }
 
 export async function getGoals(): Promise<GoalDto[]> {
+  await refuseOnV2('goals')
   return authFetch<GoalDto[]>('/me/reading/goals')
 }
 
@@ -124,6 +128,7 @@ export async function deleteGoal(id: string): Promise<void> {
 }
 
 export async function getAchievements(): Promise<AchievementDto[]> {
+  await refuseOnV2('achievements')
   return authFetch<AchievementDto[]>('/me/reading/achievements')
 }
 
@@ -159,6 +164,7 @@ export interface ReadingPaceDto {
 }
 
 export async function getReadingPace(): Promise<ReadingPaceDto> {
+  await refuseOnV2('readingStats')
   return authFetch<ReadingPaceDto>('/me/reading/pace')
 }
 
@@ -173,6 +179,7 @@ export interface LibrarySummaryDto {
 }
 
 export async function getLibrarySummary(tz?: number): Promise<LibrarySummaryDto> {
+  await refuseOnV2('readingStats')
   const params = new URLSearchParams()
   if (tz != null) params.set('tz', String(tz))
   const qs = params.toString()
@@ -180,6 +187,7 @@ export async function getLibrarySummary(tz?: number): Promise<LibrarySummaryDto>
 }
 
 export async function getBookStats(year?: number): Promise<BookStatsResponse> {
+  await refuseOnV2('bookStats')
   const params = new URLSearchParams()
   if (year) params.set('year', String(year))
   const qs = params.toString()

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useV2 } from '../context/AuthContext'
+import { v2Offers } from '@textstack/shared'
 import { getStats } from '../api/readingTracking'
 import { getVocabStats } from '../api/vocabulary'
 
@@ -34,10 +35,14 @@ const EMPTY: QuickStats = {
  */
 export function useQuickStats({ includeReading = true }: { includeReading?: boolean } = {}): QuickStats | null {
   const { isAuthenticated } = useAuth()
+  // M5 (#1031): quick stats are reading figures and vocabulary figures, neither on V2: no call, and the
+  // cached legacy figures are not shown.
+  const v2 = useV2()
+  const offered = v2Offers(v2, 'readingStats') && v2Offers(v2, 'vocabStats')
   const [data, setData] = useState<QuickStats | null>(getCached)
 
   useEffect(() => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !offered) return
 
     if (!includeReading) {
       let cancelled = false
@@ -77,10 +82,11 @@ export function useQuickStats({ includeReading = true }: { includeReading?: bool
         try { localStorage.setItem(CACHE_KEY, JSON.stringify(qs)) } catch {}
       })
       .catch(() => {})
-  }, [isAuthenticated, includeReading])
+  }, [isAuthenticated, includeReading, offered])
 
-  // Optimistically update when a review is submitted
+  // Optimistically update when a review is submitted (not on V2: the legacy cache is left alone)
   useEffect(() => {
+    if (!offered) return
     const handler = () => {
       setData(prev => {
         if (!prev) return prev
@@ -95,7 +101,7 @@ export function useQuickStats({ includeReading = true }: { includeReading?: bool
     }
     window.addEventListener('vocab-review-submitted', handler)
     return () => window.removeEventListener('vocab-review-submitted', handler)
-  }, [])
+  }, [offered])
 
-  return data
+  return offered ? data : null
 }
