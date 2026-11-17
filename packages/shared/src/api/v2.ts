@@ -354,8 +354,13 @@ export interface V2Chapter extends V2ChapterHeading {
 // ---- The uploads shelf (transitional, #1118) ----------------------------------------------------
 
 /** An extraction's status as the legacy book status: queued and processing are one state to a reader. */
-export function ingestionStatus(ingestion: V2Ingestion | undefined): 'Processing' | 'Ready' | 'Failed' {
+/**
+ * A file's status. No extraction job (MOBI, AZW3, FB2, CBZ: the server never extracts them, ADR-033) is
+ * not a failure: the reader parses the file itself, so a file with its bytes is ready.
+ */
+export function ingestionStatus(ingestion: V2Ingestion | null | undefined, hasContent: boolean): 'Processing' | 'Ready' | 'Failed' {
   if (ingestion === 'queued' || ingestion === 'processing') return 'Processing'
+  if (ingestion == null) return hasContent ? 'Ready' : 'Failed'
   return ingestion === 'succeeded' ? 'Ready' : 'Failed'
 }
 
@@ -368,7 +373,7 @@ export const isShelfBook = (b: V2Book) => !b.removedAt && b.currentFile !== null
 
 /** A shelf row's status and counts, from the library feed's file alone: a shelf never calls `/chapters`. */
 export const shelfFileSummary = (file: V2BookFile | null | undefined) => ({
-  status: ingestionStatus(file?.ingestion),
+  status: ingestionStatus(file?.ingestion, !!file?.hasContent),
   chapterCount: file?.chapterCount ?? 0,
   totalWordCount: file?.wordCount ?? null,
 })

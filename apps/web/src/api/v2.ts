@@ -162,7 +162,7 @@ export async function getV2UserBook(id: string): Promise<UserBookDetail> {
   const [toc, state] = await Promise.all([v2Chapters(b), v2Api.getReadingState(id).catch(() => null)])
   return {
     ...baseBook(b),
-    status: ingestionStatus(toc.ingestion),
+    status: ingestionStatus(toc.ingestion, !!b.currentFile?.hasContent),
     totalWordCount: totalWords(toc),
     publishedYear: b.publishedYear,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.
