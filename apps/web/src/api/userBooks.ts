@@ -340,8 +340,9 @@ export async function updateUserBookMetadata(
 
 export function getUserBookCoverUrl(coverPath: string | null | undefined): string | undefined {
   if (!coverPath) return undefined
-  // A V2 cover is already an absolute URL (the API's cover route), not a storage path.
-  if (/^https?:\/\//.test(coverPath)) return coverPath
+  // A V2 cover is already a URL (the API's cover route), not a storage path: absolute in dev,
+  // `/api/...` in production where the API base is relative. Legacy storage paths never start with '/'.
+  if (/^https?:\/\//.test(coverPath) || coverPath.startsWith('/')) return coverPath
   return `${API_BASE}/storage/${coverPath}`
 }
 
