@@ -414,6 +414,13 @@ export function ingestionStatus(ingestion: V2Ingestion | undefined): 'Processing
   return ingestion === 'succeeded' ? 'Ready' : 'Failed'
 }
 
+/**
+ * A book the shelf lists: live, with a file. A book with no file is a legacy catalog save the ETL
+ * carried (origin `catalog`; the feed has no origin): the owner reads only uploads, so it stays in the
+ * DB and off the shelf. Every upload, clip and import has a file from its first write.
+ */
+export const isShelfBook = (b: V2Book) => !b.removedAt && b.currentFile !== null
+
 /** A shelf row's status and counts, from the library feed's file alone: a shelf never calls `/chapters`. */
 export const shelfFileSummary = (file: V2BookFile | null | undefined) => ({
   status: ingestionStatus(file?.ingestion),

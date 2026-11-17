@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
 import {
   v2Api, ApiError, isOfflineError, V2_OFF, v2Offers, placeToV2Locator, createSha256, parsePdfPageLocator,
-  ingestionStatus, shelfFileSummary, resumeChapterOf, createV2Books, uploadV2File, V2UploadError,
+  ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, createV2Books, uploadV2File, V2UploadError,
   type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch, type V2Feature,
   type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse, type V2ClientFormat,
 } from '@textstack/shared'
@@ -310,7 +310,7 @@ export async function getV2UserBooks(): Promise<UserBookDto[]> {
   if (!pulled) throw new ApiError(503, 'Library pull interrupted, retry')
   const [list] = pulled
   const stateOf = v2Store.states
-  return list.filter((b) => !b.removedAt).map((b): UserBookDto => {
+  return list.filter(isShelfBook).map((b): UserBookDto => {
     const file = b.currentFile
     const state = stateOf.get(b.id)
     return {

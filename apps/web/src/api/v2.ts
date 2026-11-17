@@ -7,7 +7,7 @@
  * (`createV2Books`, `uploadV2File`, #1121); this file caches, maps and gives them its IO.
  */
 import {
-  v2Api, ApiError, V2_OFF, v2Offers, ingestionStatus, shelfFileSummary, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
+  v2Api, ApiError, V2_OFF, v2Offers, ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation, type V2Word,
   type V2ReadingStateWrite, type V2Switch, type ProgressWrite, type V2Feature,
 } from '@textstack/shared'
@@ -155,7 +155,7 @@ function baseBook(b: V2Book) {
 export async function getV2UserBooks(): Promise<UserBook[]> {
   const [list, reading] = await Promise.all([pullV2Books(), pullFeed<V2ReadingState>('reading')])
   const stateOf = new Map(reading.items.map((s) => [s.bookId, s]))
-  return list.filter((b) => !b.removedAt).map((b): UserBook => {
+  return list.filter(isShelfBook).map((b): UserBook => {
     const file = b.currentFile
     const state = stateOf.get(b.id)
     return {
