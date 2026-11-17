@@ -60,8 +60,9 @@ import { HighlightNoteModal } from '../HighlightNoteModal'
 import { colorOf, noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightColor, type V2HighlightItem } from '../../lib/v2reader/highlights.mjs'
 import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
+import { readBookmarkList, type V2BookmarkList } from '../../lib/v2reader/bookmarks.mjs'
 import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
-import { V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
+import { V2BookmarksSheet, V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { V2SearchSheet } from './V2SearchSheet'
 import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
 import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
@@ -524,6 +525,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The page listed a changed highlight set: the notes are read again once its `store` is written (#1312 review). */
   const notesStale = useRef(false)
   const [highlightsOpen, setHighlightsOpen] = useState(false)
+  /**
+   * #1314: the open book's bookmarks, the one on screen and whether one can be made here (the page's `bookmark-list`,
+   * for the bytes `openShaRef` names; null until it comes), and their sheet. A bookmark is the local library's
+   * annotation row of colour `bookmark`: stored, queued and tombstoned by the highlights' own path.
+   */
+  const [bookmarks, setBookmarks] = useState<V2BookmarkList | null>(null)
+  const [bookmarksOpen, setBookmarksOpen] = useState(false)
+  /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (false: an image book, a PDF, a pre-paginated EPUB). */
+  const [bookmarkable, setBookmarkable] = useState(false)
   const [highlightColor, setHighlightColor] = useState<V2HighlightColor>('yellow')
   useEffect(() => { AsyncStorage.getItem(HIGHLIGHT_COLOR_KEY).then((c) => setHighlightColor(colorOf(c)), () => {}) }, [])
   const chooseColor = (c: V2HighlightColor) => {
@@ -545,10 +555,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
   /** A page message for the open book (its `key`, the page's lower-case sha256). */
   const isOpenKey = (key: string) => openShaRef.current !== null && key.toLowerCase() === openShaRef.current
-  /** The reader's choice (the highlights sheet, a deep link, a search result): saved where it lands. */
+  /** The reader's choice (a highlight or bookmark in its sheet, a deep link, a search result): saved where it lands. */
   const goHighlight = (h: { cfi: string }) => {
     hostMoves.start()
     call(`window.__fol.goTo(${JSON.stringify(h.cfi)}, true)`)
+  }
+  /** #1314: the bookmark on screen removed, else one added at the place on screen: the page stores it (`store`) or answers `highlight-removed`. */
+  const toggleBookmark = () => {
+    const here = bookmarks?.here
+    call(here ? `window.__fol.removeBookmark(${JSON.stringify(here)})` : 'window.__fol.addBookmark()')
   }
   const [bookLang, setBookLang] = useState<string | null>(null)
   /**
@@ -655,6 +670,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     pendingHighlight.current = null
     setHighlightList([])
     setHighlightsOpen(false)
+    setBookmarks(null)
+    setBookmarksOpen(false)
   }
 
   /**
@@ -1010,6 +1027,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     saveSession(sessions.open(Date.now()))
     setOpenSha(null)
     setHighlightList([])
+    setBookmarks(null)
     setNotes(null)
     notesRead.current = false
     place.open()
@@ -1041,10 +1059,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // Not `atEnd`: it was cleared where the open started; the book's first relocate (its end, for a book one
     // screen long) comes before this `opened` and must stand.
     setAnnotatable(t.opened.annotatable !== false)
+    setBookmarkable(t.opened.bookmarkable === true)
     // #1315: strictly true where the page can search the book (not a CBZ or a PDF).
     setSearch(searchOpened(searchRef.current, t.opened))
-    // The previous book's highlights go; this one's list follows its `restored`.
+    // The previous book's highlights and bookmarks go; this one's lists follow its `restored`.
     setHighlightList([])
+    setBookmarks(null)
     setBookLang(readLang(t.opened))
     // #1316 review: the page's book is this open now (it may not be the one started last): no run of another holds on.
     forgetDiscussRuns()
@@ -1264,6 +1284,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         }
         return
       }
+      case 'bookmark-list': {
+        // #1314, untrusted: only what readBookmarkList takes; a previous book's is dropped.
+        const l = readBookmarkList(m)
+        if (l && isOpenKey(l.key)) setBookmarks(l)
+        return
+      }
       case 'search-results': {
         // #1315, untrusted: only what readSearchResults takes; a previous book's or an older search's is dropped.
         const r = readSearchResults(m)
@@ -1435,20 +1461,26 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       call(`window.__fol.removeHighlight(${JSON.stringify(h.id)})`)
       if (popupRef.current?.kind === 'highlight' && popupRef.current.id === h.id) setPopup(null)
     }
-  }, [notes, highlightList])
+    // #1314: a bookmark too (the same rows).
+    for (const b of bookmarks?.bookmarks ?? []) if (notes?.deleted.has(b.id)) call(`window.__fol.removeBookmark(${JSON.stringify(b.id)})`)
+  }, [notes, highlightList, bookmarks])
 
-  // #1312: the dev route's deep link (the highlights screen): the book on this device, opened once, then the highlight.
-  const params = useLocalSearchParams<{ book?: string; highlight?: string }>()
+  // #1312: the dev route's deep link (the highlights screen): the book, opened once, then the highlight.
+  // M5 (#1031): the reader route (`/my-books/read/[bookId]/…`) names it `bookId`; a book only the server has is
+  // downloaded first (its highlight link is then dropped by that open).
+  const params = useLocalSearchParams<{ book?: string; bookId?: string; highlight?: string }>()
+  const linkedBook = params.book ?? params.bookId
   const linked = useRef(false)
   useEffect(() => {
-    if (linked.current || !params.book) return
-    const b = books.find((x) => x.id === params.book && x.local)
+    if (linked.current || !linkedBook) return
+    const b = books.find((x) => x.id === linkedBook)
     if (!b) return
     linked.current = true
+    if (!b.local) return download(b)
     open({ file: bookFile(b.sha256), name: b.originalName })
     // After `open`, which clears any earlier one.
     pendingHighlight.current = typeof params.highlight === 'string' ? params.highlight : null
-  }, [books, params.book])
+  }, [books, linkedBook])
 
   /** What translate and explain read the book as: its own language, else the app's (the legacy reader's rule). */
   const textLang = readerTextLanguage(bookLang, language)
@@ -1553,15 +1585,19 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             bookTitle={heading}
             chapterTitle=""
             sessionWordCount={0}
-            // Gates only the bookmarks and highlights buttons: the highlights list needs no account (the reading path
-            // never does, #1312 review); V2 has no bookmarks.
+            // Gates only the bookmarks and highlights buttons: neither list needs an account (the reading path never
+            // does, #1312 review).
             isAuthenticated
             hasChapters={toc.length > 0}
             onTocPress={() => setTocOpen(true)}
             onHighlightsPress={annotatable ? () => setHighlightsOpen(true) : undefined}
+            // #1314: where a bookmark can be made in this book (the page's `bookmarkable`), or it holds some already
+            // (made elsewhere): never an empty sheet that invites what cannot be done. Filled while the place being
+            // read has one.
+            onBookmarksPress={bookmarkable || bookmarks?.bookmarks.length ? () => setBookmarksOpen(true) : undefined}
             onSearchPress={search.searchable ? () => setSearchOpen(true) : undefined}
             tocLabel={t('reader.chrome.contents')}
-            isCurrentBookmarked={false}
+            isCurrentBookmarked={!!bookmarks?.here}
             onExit={closeBook}
             backLabel={t('reader.chrome.back')}
           />
@@ -1664,6 +1700,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
             glosses={annotatable ? { on: legacySettings.showInlineTranslations, onChange: (on) => updateLegacySettings({ showInlineTranslations: on }) } : undefined} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
+          <V2BookmarksSheet
+            visible={bookmarksOpen}
+            items={bookmarks?.bookmarks ?? []}
+            here={bookmarks?.here ?? null}
+            can={bookmarks?.can ?? false}
+            placing={!bookmarks || bookmarks.placing}
+            onToggle={toggleBookmark}
+            onGo={goHighlight}
+            onRemove={(id) => call(`window.__fol.removeBookmark(${JSON.stringify(id)})`)}
+            onClose={() => setBookmarksOpen(false)}
+          />
           <V2SearchSheet key={searchBook} visible={searchOpen} search={search} onQuery={askSearch} onGo={goHighlight} onClose={() => setSearchOpen(false)} />
           <V2HighlightsSheet visible={highlightsOpen} items={highlightList} noteOf={(id) => notes?.known.get(id) ?? null} onGo={goHighlight} onClose={() => setHighlightsOpen(false)} />
           {popup?.kind === 'highlight' && tapped && (

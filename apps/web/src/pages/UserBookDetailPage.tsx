@@ -233,7 +233,8 @@ export function UserBookDetailPage() {
   // of extraction status, so Processing/Failed must not block or scare.
   const hasOriginalPdf = !!book.hasOriginalPdf
   const pages = bookPages(book)
-  const canRead = hasOriginalPdf || (isReady && book.chapters.length > 0)
+  // M5 (#1031): on V2 the reader opens the file itself, chapters or not.
+  const canRead = v2.enabled || hasOriginalPdf || (isReady && book.chapters.length > 0)
   const readerBase = `/${language}/library/my/${book.id}`
   const readHref = continueReadingSlug
     ? `${readerBase}/read/${continueReadingSlug}`
@@ -399,13 +400,6 @@ export function UserBookDetailPage() {
               </Link>
             )}
 
-            {/* The V2 reader page (#1225), beside the legacy reader until it replaces it (R8). */}
-            {v2.enabled && (
-              <Link to={`${readerBase}/read-v2`} className="user-book-detail__mark-btn">
-                {t('userBook.readV2')}
-              </Link>
-            )}
-
             {isReady && (
               <AssistantMenu
                 book={{
@@ -550,8 +544,8 @@ export function UserBookDetailPage() {
                     </span>
                   )}
                 </Link>
-                {/* A review is keyed by slug; a slugless legacy chapter cannot be reviewed. */}
-                {chapter.slug && (
+                {/* A review is keyed by slug; a slugless legacy chapter cannot be reviewed. M5 (#1031): none on V2. */}
+                {chapter.slug && v2Offers(v2, 'chapterReview') && (
                   <ChapterReviewAction
                     book={{ title: book.title, author: book.author, userBookId: book.id }}
                     chapter={{ slug: chapter.slug, title: chapter.title, wordCount: chapter.wordCount }}

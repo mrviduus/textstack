@@ -2,10 +2,11 @@
  * `@textstack/shared`'s `vocabularyApi`, switched per call to V2 (#1025 M2.7) for the card list,
  * saves, edits, deletes and the review queue — the shared V2 vocabulary, as on web. Stats, settings,
  * clusters, lookups and pending words stay legacy whatever the flag (ADR-031 D6).
+ * M5 (#1031): stats, settings, lookups and pending words are refused on V2 (`refuseOnV2`; their routes answer 410).
  */
 import { uuid } from 'expo-modules-core'
 import { vocabularyApi as legacy, createV2Vocabulary, type V2SaveWord } from '@textstack/shared'
-import { switched, v2Book, v2Store, v2Epoch } from './v2'
+import { switched, v2Book, v2Store, v2Epoch, refusedOnV2 } from './v2'
 
 const v2 = createV2Vocabulary({
   newId: () => uuid.v4(),
@@ -53,6 +54,12 @@ export const vocabularyApi = {
   deleteWord: switched(v2.deleteV2Word, legacy.deleteWord),
   getReviewQueue: switched(v2.getV2ReviewQueue, legacy.getReviewQueue),
   submitReview: switched(v2.submitV2Review, legacy.submitReview),
+  getVocabularyStats: refusedOnV2('vocabStats', legacy.getVocabularyStats),
+  getVocabularyDailyStats: refusedOnV2('vocabStats', legacy.getVocabularyDailyStats),
+  getVocabSettings: refusedOnV2('vocabSettings', legacy.getVocabSettings),
+  getPendingWords: refusedOnV2('pendingWords', legacy.getPendingWords),
+  getLookups: refusedOnV2('wordLookups', legacy.getLookups),
+  markAsKnown: refusedOnV2('markAsKnown', legacy.markAsKnown),
   /** V2 only: a save answered `deleted` (the reader deleted the word earlier) offers this (#1270). */
   restoreWord: (id: string) => v2.restoreV2Word(id).then(via('v2')),
 }

@@ -3,7 +3,8 @@ import { View, Text, SectionList, StyleSheet, TouchableOpacity, TextInput, Activ
 import { useRouter, Stack } from 'expo-router'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
-import { highlightsApi, getStorageUrl, isOfflineError } from '@textstack/shared'
+import { highlightsApi, getStorageUrl, isOfflineError, v2Offers } from '@textstack/shared'
+import { useV2 } from '../../src/context/AuthContext'
 import type { HighlightListItem } from '@textstack/shared'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
@@ -50,6 +51,7 @@ interface BookSection {
 
 export default function HighlightsScreen() {
   const router = useRouter()
+  const reviewOffered = v2Offers(useV2(), 'highlightReview')
   const { colors } = useTheme()
   const { t } = useLanguage()
   const [highlights, setHighlights] = useState<HighlightListItem[]>([])
@@ -224,7 +226,8 @@ export default function HighlightsScreen() {
         headerTintColor: colors.text,
         headerTitleStyle: { fontFamily: fonts.sansMedium, fontSize: 16 },
         headerShadowVisible: false,
-        headerRight: () => (
+        // M5 (#1031): no highlight review on V2.
+        headerRight: !reviewOffered ? undefined : () => (
           <TouchableOpacity
             onPress={() => router.push('/highlights/review')}
             style={{ marginRight: 8 }}

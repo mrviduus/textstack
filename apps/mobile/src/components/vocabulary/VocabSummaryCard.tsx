@@ -27,10 +27,20 @@ interface Props {
   /** Absent: no tutor here (V2, V2_FEATURES). */
   onSmartSession?: () => void
   smartSessionLabel: string
+  /** V2 (M5, #1031): no vocabulary stats to read; the card is the Practice button alone (the session finds what is due). */
+  statsHidden?: boolean
 }
 
-export function VocabSummaryCard({ stats, dueCount, onPractice, onSmartSession, smartSessionLabel }: Props) {
+export function VocabSummaryCard({ stats, dueCount, onPractice, onSmartSession, smartSessionLabel, statsHidden }: Props) {
   const { colors } = useTheme()
+  if (statsHidden) return (
+    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <TouchableOpacity style={[styles.primary, { backgroundColor: colors.primary }]} onPress={onPractice} accessibilityRole="button">
+        <Ionicons name="school-outline" size={17} color="#fff" />
+        <Text style={styles.primaryText}>Practice</Text>
+      </TouchableOpacity>
+    </View>
+  )
   if (!stats || stats.totalWords === 0) return null
 
   const mastered = stats.byStage.mastered || 0
