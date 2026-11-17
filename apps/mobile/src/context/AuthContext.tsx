@@ -16,7 +16,7 @@ import { clearAllLocalProgress } from '../lib/progressStorage'
 import { clearPendingSessions, flushPendingSessions } from '../lib/pendingSessions'
 import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
-import { reprobeV2AfterReconnect, v2Store } from '../lib/v2'
+import { forgetV2Answer, reprobeV2AfterReconnect, v2Known, v2Store } from '../lib/v2'
 import { applyV2MergeMap } from '../lib/v2Merge'
 import { adoptV2LocalAccount, claimV2LibraryFor } from '../lib/v2reader/sync'
 import { wipeDeviceV2Library } from '../lib/v2reader/deviceLibrary'
@@ -279,6 +279,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Another account's V2 cache must not answer this one; a merged guest's ids move first.
         const previous = userRef.current
         v2Store.reset()
+        // The V2 switch was the previous account's (M5 #1031): asked again for this one (the userId effect).
+        if (previous?.id !== userData.id) {
+          forgetV2Answer()
+          setV2(V2_OFF)
+        }
         if (merge) await applyV2MergeMap(merge)
         // A V2 local library another real account owns is wiped here, where the identity is
         // authoritative (#1070 rule B; bounded like the sign-out wipe; a failure leaves every pass refused).
@@ -341,6 +346,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearPendingSessions().catch(() => {})
       clearReaderCache().catch(() => {})
       v2Store.reset()
+      forgetV2Answer()
+      setV2(V2_OFF)
       // V2 books belong to the account (#1070): rows, then files. After the epoch bump, so no sync pass
       // of this session lands after it (one still waiting is dropped unrun: sync.ts). Awaited, with a
       // deadline: a hung database open must not hold the auth queue (sign-in waits on it). A failed or
@@ -374,6 +381,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearPendingSessions().catch(() => {})
         clearReaderCache().catch(() => {})
         v2Store.reset()
+        forgetV2Answer()
+        setV2(V2_OFF)
         setUser(null)
       }
     })
@@ -388,7 +397,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // a reconnect when it never reached the server (the usual cold start offline). The queued sessions
   // flush after it answers: whether one goes to V2 is decided at send time. A call that needs the
   // answer before this runs starts the probe itself (`onV2`).
-  const [v2, setV2] = useState<V2Switch>(V2_OFF)
+  // The one switch (lib/v2 `known`): the stored answer from the first render, this start's once the probe answers.
+  const [v2, setV2] = useState<V2Switch>(v2Known)
   useEffect(() => {
     if (!userId) return
     void reprobeV2AfterReconnect()

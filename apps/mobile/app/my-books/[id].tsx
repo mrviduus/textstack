@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native'
-import { v2KnownOrLast } from '../../src/lib/v2'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -386,7 +385,7 @@ export default function UserBookDetailScreen() {
   const isProcessing = book && !isReady && !isFailed
   // M5 (#1031): the read route opens the V2 reader (its rule): it opens the file itself, chapters or not, at the synced
   // place, so a chapter row cannot open at its chapter there.
-  const v2Reader = Platform.OS === 'android' && v2KnownOrLast()
+  const v2Reader = Platform.OS === 'android' && v2.enabled
 
   // A PDF read in Original layout is chapterless: its position is a `page:<N>`
   // locator with chapterSlug null. Looking only at the slug meant every
@@ -700,7 +699,8 @@ export default function UserBookDetailScreen() {
         )}
 
         {/* Action buttons */}
-        {isReady && (v2Reader || book.chapters.length > 0) && (
+        {/* V2 reads the raw file (queued, processing or failed extraction alike) once its bytes are in. */}
+        {(v2Reader ? !!book.hasFile : isReady && book.chapters.length > 0) && (
           <View style={styles.actions}>
             <AssistantMenu
               book={{

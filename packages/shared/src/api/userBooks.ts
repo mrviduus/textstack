@@ -34,6 +34,8 @@ export interface UserBookDetailResponse {
   /** True when the original upload is a PDF that can be rendered in the opt-in
    *  "Original layout" view. Absent on older payloads → false. */
   hasOriginalPdf?: boolean
+  /** V2 (M5 #1031): the book's current file has its bytes in, so the V2 reader can open it. Absent on legacy. */
+  hasFile?: boolean
   /** Size of the original file the device would download. The download button
    *  shows it, and the ask-before-mobile-data rule reads it. Null when the book
    *  has no stored original; absent on older payloads. */

@@ -75,6 +75,8 @@ export interface UserBookDetail {
   /** True when the original upload is a PDF that can be rendered pixel-perfect
    *  in the opt-in "Original layout" view. Absent on older payloads → false. */
   hasOriginalPdf?: boolean
+  /** V2 (M5 #1031): the book's current file has its bytes in, so the V2 reader can open it. Absent on legacy. */
+  hasFile?: boolean
   /** LLM metadata enrichment lifecycle (genre/year/description generation).
    *  "NotStarted" | "Pending" | "Running" | "Completed" | "Failed".
    *  Absent on older payloads → treat as no enrichment in flight. */
