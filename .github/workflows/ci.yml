@@ -39,7 +39,7 @@ on:
 # question whose answer cannot change by merging (`node-version`,
 # `advisories`).
 #
-# So `scope: merged-tree` runs those two. `e2e` is the deliberate omission and
+# So `scope: merged-tree` runs those two (and `v2-reader`, split out of `frontend`, in parallel). `e2e` is the deliberate omission and
 # the one with a real cost: a regression only it catches would reach production
 # without it having run on the exact merged tree. It ran on the pull request's
 # head, and with one merge at a time the difference between the two is the
@@ -76,7 +76,8 @@ jobs:
   # so those paths behave exactly as before, and so does a PR whose diff this
   # step fails to read (fail open: a broken filter costs time, never coverage).
   #
-  # Required checks: backend, frontend, docker and e2e are required, and a job
+  # Required checks: backend, frontend, docker and e2e are required (v2-reader should be too: it holds
+  # the V2 reader gates that were in frontend), and a job
   # skipped by its own `if:` reports success to branch protection. That is also
   # true of a job skipped because a job it `needs` FAILED — which is why every
   # `if:` below starts with `!cancelled()` and the fail-open clause: without them
@@ -118,9 +119,12 @@ jobs:
           everything() { backend=true web=true mobile=true extension=true v2reader=true docs=true; }
           [ -n "$files" ] || everything
           while IFS= read -r f; do
-            # Not an area of its own: what the V2 sandbox check in `frontend` reads.
+            # Not an area of its own: the `v2-reader` gates' inputs inside an area (everything() covers the
+            # runtime: .nvmrc, root package files, scripts/, unknown paths). The committed page, its frame and pin
+            # live in v2reader/; a packages/ change to the page lands there regenerated, or the drift check in
+            # `frontend` fails. Plus the nginx CSP, the fixtures the checks read, and the Playwright version.
             case "$f" in
-              apps/mobile/src/lib/v2reader/*|packages/reader-engine/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) v2reader=true ;;
+              apps/mobile/src/lib/v2reader/*|apps/mobile/assets/fonts/*|apps/web/e2e/fixtures/v2-sync.epub|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) v2reader=true ;;
             esac
             case "$f" in
               '') ;;
@@ -437,59 +441,6 @@ jobs:
         working-directory: apps/web
         run: pnpm check:v2-reader
 
-      # Chromium for the sandbox check below, installed exactly as the e2e job does (same cache key).
-      # All these steps run only when the check's inputs changed (v2reader), or on push to main.
-      - name: Get Playwright version
-        id: pw-version
-        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
-        working-directory: apps/web
-        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> $GITHUB_OUTPUT
-
-      - name: Cache Playwright browsers
-        id: pw-cache
-        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
-
-      # See the e2e job: install-deps' apt-get update fails hard on these unneeded repositories.
-      - name: Drop apt repositories Playwright does not need
-        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
-        run: sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/azure-cli.list
-
-      - name: Install Playwright Chromium
-        if: ${{ (needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true') && steps.pw-cache.outputs.cache-hit != 'true' }}
-        working-directory: apps/web
-        run: pnpm exec playwright install chromium
-
-      # See the e2e job: best-effort, an apt/DNS outage must not turn the job red by itself.
-      - name: Install Playwright system deps (best-effort)
-        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
-        continue-on-error: true
-        timeout-minutes: 1
-        run: pnpm -C apps/web exec playwright install-deps chromium
-
-      # ADR-029 Decision 6: the V2 reader page's CSP holds against the hostile EPUB, MOBI and FB2, and
-      # the check fails when any directive is removed. Needs only Chromium (no API); ~60s.
-      - name: V2 reader sandbox — gates the PR
-        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
-        working-directory: apps/web
-        run: pnpm check:v2-reader-sandbox
-
-      # #1128: one small book per format opens as README "Formats" says (lazy readers, CBZ, DRM, flow). ~5s.
-      - name: V2 reader formats — gates the PR
-        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
-        working-directory: apps/web
-        run: pnpm check:v2-reader-formats
-
-      # #1219: the web host's frame document (frame.mjs) works under the app CSP read from
-      # infra/nginx/textstack.conf (a change there runs every job, so this too); srcdoc, header-less, foreign-framed and unfilled stay refused. ~10s.
-      - name: V2 reader prod CSP — gates the PR
-        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
-        working-directory: apps/web
-        run: pnpm check:v2-reader-prod-csp
-
       # The PDF bundle had no such guard. engineEntry.ts (+ readerEnginePdfPage.ts) is the source
       # of the page that owns the reader's position in a PDF, and an edit shipped without a
       # rebuild changes nothing at runtime — silently, past a green CI.
@@ -523,6 +474,76 @@ jobs:
       # pull request nobody can review. Free here: the workspace is installed.
       - name: Drift report
         run: node scripts/report-drift.mjs js
+
+  # The V2 reader page's gates, beside `frontend` rather than inside it: they need only the workspace and Chromium
+  # (no build), and run only when what they read changed (v2reader), or on push to main.
+  v2-reader:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # No version here — pnpm/action-setup reads `packageManager` from the
+      # root package.json, so CI, Docker and developers use the same one.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # One install for the whole workspace. Each app used to install from its
+      # own lockfile; there is one lockfile now, and `catalog:` only resolves
+      # with pnpm-workspace.yaml in scope.
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+
+      # Chromium for the checks below, installed exactly as the e2e job does (same cache key).
+      - name: Get Playwright version
+        id: pw-version
+        working-directory: apps/web
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
+      # See the e2e job: install-deps' apt-get update fails hard on these unneeded repositories.
+      - name: Drop apt repositories Playwright does not need
+        run: sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/azure-cli.list
+
+      - name: Install Playwright Chromium
+        if: ${{ steps.pw-cache.outputs.cache-hit != 'true' }}
+        working-directory: apps/web
+        run: pnpm exec playwright install chromium
+
+      # See the e2e job: best-effort, an apt/DNS outage must not turn the job red by itself.
+      - name: Install Playwright system deps (best-effort)
+        continue-on-error: true
+        timeout-minutes: 1
+        run: pnpm -C apps/web exec playwright install-deps chromium
+
+      # ADR-029 Decision 6: the V2 reader page's CSP holds against the hostile EPUB, MOBI and FB2, and
+      # the check fails when any directive is removed. Needs only Chromium (no API); ~90s (CI and locally).
+      - name: V2 reader sandbox — gates the PR
+        working-directory: apps/web
+        run: pnpm check:v2-reader-sandbox
+
+      # #1128: one small book per format opens as README "Formats" says (lazy readers, CBZ, PDF, refusals, hostile PDF). ~10s locally (was 280–580s in CI at 771 rows).
+      - name: V2 reader formats — gates the PR
+        working-directory: apps/web
+        run: pnpm check:v2-reader-formats
+
+      # #1219: the web host's frame document (frame.mjs) works under the app CSP read from
+      # infra/nginx/textstack.conf (a change there runs this job); srcdoc, header-less, foreign-framed and unfilled stay refused. ~10s.
+      - name: V2 reader prod CSP — gates the PR
+        working-directory: apps/web
+        run: pnpm check:v2-reader-prod-csp
 
   # apps/mobile gets its own job rather than another step in `frontend` because it
   # installs and checks a different app, not because it uses a different package

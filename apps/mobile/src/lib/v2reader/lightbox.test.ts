@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_LABELS, MAX_LABEL, MAX_SCALE, clampPan, clampScale, createLightbox, imageAt, readLabels, zoomAt } from './lightbox.mjs'
 
-// #1265: the real gestures (pinch, drag, double tap) run in Chromium in formats.check.mjs; here the DOM rules.
+// #1265: the DOM rules; the real gestures (pinch, drag, double tap) are not run in Chromium by any check.
 
 const SVG = 'http://www.w3.org/2000/svg'
 const XLINK = 'http://www.w3.org/1999/xlink'
