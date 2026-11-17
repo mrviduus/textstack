@@ -312,7 +312,7 @@ export async function getV2UserBook(id: string): Promise<UserBookDetailResponse>
     genre: b.genre,
     publishedYear: b.publishedYear,
     totalWordCount: totalWords(toc),
-    status: ingestionStatus(toc.ingestion),
+    status: ingestionStatus(toc.ingestion, !!b.currentFile?.hasContent),
     errorMessage: null,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.
     chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: c.wordCount })),

@@ -66,14 +66,15 @@ describe('the V2 library', () => {
       'GET /me/v2/library/changes': feed(
         book('ready', 'f1', { currentFile: file('f1', { ingestion: 'succeeded', chapterCount: 3, wordCount: 1200 }) }),
         book('running', 'f2', { currentFile: file('f2', { ingestion: 'processing' }) }),
-        book('no-bytes', 'f3'),
+        book('no-bytes', 'f3', { currentFile: file('f3', { hasContent: false }) }),
+        book('mobi', 'f5', { currentFile: file('f5', { format: 'mobi' }) }),
         book('no-words', 'f4', { currentFile: file('f4', { ingestion: 'succeeded', chapterCount: 2 }) }),
       ),
       'GET /me/v2/reading/changes': feed(),
     })
     const shelf = await getV2UserBooks()
     expect(shelf.map((b) => [b.id, b.status, b.chapterCount, b.totalWordCount])).toEqual([
-      ['ready', 'Ready', 3, 1200], ['running', 'Processing', 0, null], ['no-bytes', 'Failed', 0, null], ['no-words', 'Ready', 2, null],
+      ['ready', 'Ready', 3, 1200], ['running', 'Processing', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null], ['no-words', 'Ready', 2, null],
     ])
     expect(calls.map((c) => c.path.split('?')[0])).toEqual(['/me/v2/library/changes', '/me/v2/reading/changes'])
   })
