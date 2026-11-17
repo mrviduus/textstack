@@ -84,7 +84,7 @@ export function LibraryPage() {
   const [bulkBusy, setBulkBusy] = useState(false)
 
   useEffect(() => {
-    if (!activeCollectionId) {
+    if (!activeCollectionId || !v2Offers(v2, 'collections')) {
       setCollectionSavedIds(null)
       setCollectionUploadIds(null)
       return
@@ -99,7 +99,7 @@ export function LibraryPage() {
       setCollectionUploadIds(new Set(uploads))
     })
     return () => { cancelled = true }
-  }, [activeCollectionId])
+  }, [activeCollectionId, v2])
 
   const onCollectionChange = (id: string | null) => {
     setActiveCollectionId(id)

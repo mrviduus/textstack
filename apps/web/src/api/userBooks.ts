@@ -3,7 +3,7 @@ import { authFetch, API_BASE, ApiError } from './client'
 import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
-  onV2, v2Status, v2Enabled, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
+  onV2, v2Status, v2Enabled, pullV2Books, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
   readV2Progress, saveV2Progress, uploadV2Book, V2UploadError, completeV2Book, uncompleteV2Book, type V2WriteOutcome, type V2MarkOutcome,
 } from './v2'
 
@@ -369,6 +369,12 @@ export async function setUserBookTags(bookId: string, tags: string[]): Promise<s
 }
 
 export async function getUserTags(): Promise<TagCount[]> {
+  // V2 has no `/me/library/tags`: the uploads keep their tags, counted from the library feed.
+  if (await onV2()) {
+    const counts = new Map<string, number>()
+    for (const b of await pullV2Books()) if (!b.removedAt) for (const t of b.tags) counts.set(t, (counts.get(t) ?? 0) + 1)
+    return [...counts].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+  }
   return authFetch<TagCount[]>('/me/library/tags')
 }
 

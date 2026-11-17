@@ -2,6 +2,7 @@ import { useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { upsertProgress } from '../api/auth'
 import { markProgressSynced } from '../lib/progressSync'
+import { v2Enabled } from '../api/v2'
 import { PERCENT_UNIT_BOOK } from '@textstack/shared'
 
 const STORAGE_KEY = 'reading.progress.'
@@ -122,7 +123,8 @@ export function useReadingProgress(
   // Flush pending sync immediately via keepalive fetch (bypasses debounce).
   const flushSave = useCallback(() => {
     const payload = pendingSyncRef.current
-    if (!payload || !isAuthenticated) return
+    // On V2 `/me/progress` answers 410 (the catalog retires).
+    if (!payload || !isAuthenticated || v2Enabled()) return
 
     if (serverSyncRef.current) {
       clearTimeout(serverSyncRef.current)
