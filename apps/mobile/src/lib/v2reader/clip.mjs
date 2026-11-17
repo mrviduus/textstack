@@ -44,24 +44,14 @@ function unwrap(el) {
   el.remove()
 }
 
-/** The clip's bytes as text: by its BOM, else a `<meta charset>` in the first KiB, else (or for an unknown label) UTF-8. */
-export function clipText(bytes) {
-  const [a, b, c] = bytes
-  const bom = a === 0xef && b === 0xbb && c === 0xbf ? 'utf-8' : a === 0xff && b === 0xfe ? 'utf-16le' : a === 0xfe && b === 0xff ? 'utf-16be' : null
-  const meta = /<meta[^>]*charset\s*=\s*["']?\s*([\w-]+)/i.exec(String.fromCharCode(...bytes.subarray(0, 1024)))?.[1]
-  for (const label of [bom, meta]) {
-    if (label) try { return new TextDecoder(label).decode(bytes) } catch { /* unknown label: next */ }
-  }
-  return new TextDecoder().decode(bytes)
-}
-
 /**
- * The clip's bytes (HTML, a whole page or a fragment) as a sanitized HTML document string: a fresh
+ * The clip's bytes (UTF-8 HTML, a whole page or a fragment) as a sanitized HTML document string: a fresh
  * document (charset declared, the source's `lang`) holding the sanitized body. `title`: the source's <title>
  * or first <h1> ('' when none: the host falls back to its own).
  */
 export function clipDocument(bytes, parser = new DOMParser()) {
-  const src = parser.parseFromString(clipText(bytes), 'text/html')
+  // Every clip is stored as UTF-8 (UserBookService.ClipAsync); TextDecoder drops a UTF-8 BOM.
+  const src = parser.parseFromString(new TextDecoder().decode(bytes), 'text/html')
   const title = (src.querySelector('title')?.textContent || src.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200)
   const lang = src.documentElement.getAttribute('lang') ?? ''
   sanitizeClip(src.body)

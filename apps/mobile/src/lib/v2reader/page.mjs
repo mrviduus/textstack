@@ -1677,11 +1677,12 @@ const openFailed = (name, error) => post({ type: 'open-failed', name, error })
  * One `opened` or one `open-failed` per call — unless a newer openUrl took over first: then neither, except a
  * book already swapped in, which answers `opened` while it is still the view on screen (the newer open may yet fail).
  */
-function openFor(bytes, name, mine) {
+function openFor(bytes, name, mine, fileFormat) {
   // Refused before anything is touched: a DRM book, a damaged KF8 or an unknown file leaves
   // the open book reading, reporting and saving, like a failed read (#1168). No view swap, no session end.
+  // An HTML clip is only what the host says is one (the server's file format): never guessed from bytes.
   let kind
-  try { kind = sniffFormat(bytes) } catch (e) { return openFailed(name, String(e?.message ?? e).slice(0, 200)) }
+  try { kind = fileFormat === 'html' ? 'html' : sniffFormat(bytes) } catch (e) { return openFailed(name, String(e?.message ?? e).slice(0, 200)) }
   return open(bytes, name, kind, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
     // Failed before the swap: the book on screen never stopped reading (its view is still `viewSeq`).
@@ -1698,8 +1699,9 @@ window.__fol = {
   // latest `store` (#1286: the web host takes it synchronously; untrusted there, read as a `store` message).
   flush: () => saves.flush(),
   // Read by the page itself (Android: the host's interceptor, bookOrigin.mjs; web: a blob: URL): no book bytes
-  // cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected.
-  openUrl: (url, name) => {
+  // cross the bridge. `open-failed`: unreadable, not a book this page reads, DRM- or password-protected. `fileFormat`:
+  // the server's for the file, when the host knows it; only 'html' (a clip) is acted on, every other is sniffed.
+  openUrl: (url, name, fileFormat = null) => {
     // Order requests before reading: an older XHR may finish after the latest book has opened (#1069).
     // viewSeq changes only at the swap, so a failed read still leaves the current book reading and saving.
     const mine = ++openSeq
@@ -1708,7 +1710,7 @@ window.__fol = {
     x.onload = () => {
       if (mine !== openSeq) return
       return x.status === 200 && x.response
-        ? openFor(new Uint8Array(x.response), name, mine)
+        ? openFor(new Uint8Array(x.response), name, mine, fileFormat)
         : openFailed(name, `cannot read the file (status ${x.status})`)
     }
     x.onerror = () => { if (mine === openSeq) openFailed(name, 'cannot read the file') }

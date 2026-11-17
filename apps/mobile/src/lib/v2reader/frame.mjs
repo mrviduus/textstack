@@ -65,7 +65,7 @@ addEventListener('message', (e) => {
   if (call !== 'openBytes') return Object.hasOwn(window.__fol, call) && window.__fol[call](...args);
   if (bookUrl) URL.revokeObjectURL(bookUrl);
   bookUrl = URL.createObjectURL(new Blob([args[0]]));
-  window.__fol.openUrl(bookUrl, args[1]);
+  window.__fol.openUrl(bookUrl, args[1], args[2]);
 });`
 
 const PAGE_TAIL = '</script></body></html>'

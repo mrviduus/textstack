@@ -60,9 +60,9 @@ try {
   const call = (js) => page.evaluate(js)
   const loaded = () => call('Object.keys(window.__tsFormats).sort().join(",")')
   /** Opens `file`; resolves with `opened` or `open-failed`, after `restored` for an opened book. */
-  const open = async (file, stored = null) => {
+  const open = async (file, stored = null, format = null) => {
     const from = messages.length
-    await call(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)})`)
+    await call(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)}, ${JSON.stringify(format)})`)
     const m = await waitFor(from, (x) => (x.type === 'opened' || x.type === 'open-failed') && (x.book?.name ?? x.name) === file, `${file} to open`)
     if (m.type === 'opened') {
       await call(`window.__fol.restore(${JSON.stringify(stored)})`)
@@ -2014,7 +2014,10 @@ try {
   const clipText = Array.from({ length: 30 }, (_, i) => `<p>Paragraph ${i + 1}. ${'Sphinx of black quartz, judge my vow. The quick brown fox jumps over the lazy dog. '.repeat(3)}</p>`).join('')
   writeFileSync(resolve(dir, 'tsclip.html'), `<!doctype html><title>TS CLIP</title><div id="readability-page-1"><h1>Chapter One</h1>${clipText}<script>${pw}</script><img src="x" onerror="${pw}">`
     + `<a href="javascript:${pw}">j</a><svg onload="${pw}"></svg><iframe srcdoc="<script>${pw}</script>"></iframe><form action="https://evil.tst"><input name="p"></form></div>`)
+  // Never guessed from bytes: without the host's format a clip is refused, as any markup is.
   m = await open('tsclip.html')
+  check(m.type === 'open-failed' && /not a book this reader opens/.test(m.error), `a clip without the host's format is refused (${m.error})`)
+  m = await open('tsclip.html', null, 'html')
   check(m.type === 'opened' && m.format === 'html' && m.textual && m.annotatable && m.searchable && m.sections === 1 && m.title === 'TS CLIP',
     `opened as html: one section, textual, annotatable, searchable (${m.format}, ${m.sections}, ${m.title}${m.error ? `, ${m.error}` : ''})`)
   check(await showsText(), 'its text is rendered')
@@ -2030,7 +2033,7 @@ try {
   check(!(await Promise.all(page.frames().map((fr) => fr.evaluate(() => !!top.__pwned).catch(() => false)))).some(Boolean), 'no clip script ran')
   // #1195: quotations (legacy anchor annotations): listed after the drawn highlights, never drawn, never in a store.
   const quoted = (x) => x.type === 'highlight-list' && x.highlights.some((h) => h.quotation)
-  m = await open('tsclip.html', JSON.stringify({ v: 1, book: m.book, position: null, highlights: [], quotations: [{ id: 'q1', quotation: true, selectedText: 'an older one', at: 1 }] }))
+  m = await open('tsclip.html', JSON.stringify({ v: 1, book: m.book, position: null, highlights: [], quotations: [{ id: 'q1', quotation: true, selectedText: 'an older one', at: 1 }] }), 'html')
   let ql = await waitFor(m.from, quoted, 'a list with the restored quotation').catch(() => null)
   check(JSON.stringify(ql?.highlights) === JSON.stringify([{ id: 'q1', cfi: '', color: 'yellow', text: 'an older one', at: 1, quotation: true }]), `a restored quotation is listed (${JSON.stringify(ql?.highlights)})`)
   from = messages.length

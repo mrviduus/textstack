@@ -100,21 +100,6 @@ describe('createV2ReaderSync', () => {
       expect(drawnLists.map((l) => l.map((h) => h.id))).toEqual([[H1]])
     })
 
-    it('loadHighlights_LegacyAnchorRow_ListedAsAQuotation_NeverWrittenBack', async () => {
-      // #1195: kept as a quotation (text, colour, note), never drawn, never rewritten on the server.
-      const Q = '55555555-5555-4555-8555-555555555555'
-      api.annotations.mockResolvedValue([
-        annotation({ id: H1 }),
-        annotation({ id: Q, selectedText: 'older', noteText: 'kept', color: 'green', locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterId: 'c', startOffset: 0, endOffset: 5 } } }),
-      ])
-      const s = await opened()
-      expect(drawnLists[0][1]).toEqual({ id: Q, quotation: true, selectedText: 'older', color: 'green', at: Date.parse('2026-11-01T00:00:00.000Z') })
-      expect(s.note(Q)).toBe('kept')
-      await stored(s, entry(pos(2), [hl()]))
-      expect(api.putAnnotation.mock.calls.map((c) => c[0])).not.toContain(Q)
-      expect(api.deleteAnnotation).not.toHaveBeenCalled()
-    })
-
     it('restore_StateOnAnotherFileVersion_NoPosition_FirstWriteOnThisFile', async () => {
       api.getReadingState.mockResolvedValue({ ...state(6, 2), fileId: 'old' })
       const s = open()

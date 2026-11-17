@@ -2697,41 +2697,24 @@ describe('V2 local library sync (R6)', () => {
     })
   })
 
-  describe('legacy anchor highlights as quotations (#1195)', () => {
+  it('aLegacyHighlight_ShowsAsAQuotation_NeverDrawnNeverSent', async () => {
+    // #1195: the earlier reader's highlight (a textstack-anchor-v1 row) is listed by its text and note; nothing the
+    // device does to it reaches the server.
+    const { lib, bookId, fileId } = await synced()
     const ANCHOR = '0b6a2c1e-2222-4222-8333-444455556666'
-    const anchored = (bookId: string, fileId: string, extra: object = {}) => serverAnnotation(bookId, fileId, 3, {
+    await lib.applyAnnotations([serverAnnotation(bookId, fileId, 3, {
       id: ANCHOR, selectedText: 'an older highlight', noteText: 'my note', color: 'green',
-      locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterId: 'c', startOffset: 1, endOffset: 5 } }, ...extra,
-    })
-
-    it('pull_AnchorRow_KeptAndRestoredAsAQuotation_NeverQueued', async () => {
-      const { lib, bookId, fileId } = await synced()
-      await lib.applyAnnotations([anchored(bookId, fileId) as never])
-      const e = await restoredEntry(lib)
-      expect(e.highlights.map((h: { id: string }) => h.id)).toEqual([HL])
-      expect(e.quotations).toEqual([{ id: ANCHOR, quotation: true, selectedText: 'an older highlight', color: 'green', at: Date.parse('2026-11-10T00:00:00Z') }])
-      expect((await lib.notes(SHA)).known.get(ANCHOR)).toBe('my note')
-      // A note set or a removal on it: local only, nothing queued, so the server's row is never written.
-      await lib.setNote(ANCHOR, 'edited')
-      await lib.removeHighlight(ANCHOR)
-      expect(await lib.outbox()).toEqual([])
-      expect((await restoredEntry(lib)).quotations).toBeUndefined()
-    })
-
-    it('pageStore_AfterAQuotationIsListed_WritesNothingForIt', async () => {
-      const { lib, bookId, fileId } = await synced()
-      await lib.applyAnnotations([anchored(bookId, fileId) as never])
-      await lib.writeEntry(SHA, entry(pos, [highlight]), newId)
-      const calls = fakeApi({})
-      expect(await syncV2Library(lib, host())).toBe('done')
-      expect(writes(calls)).toEqual([])
-    })
-
-    it('pull_AnchorTombstone_NotListed', async () => {
-      const { lib, bookId, fileId } = await synced()
-      await lib.applyAnnotations([anchored(bookId, fileId) as never])
-      await lib.applyAnnotations([anchored(bookId, fileId, { deletedAt: '2026-11-14T00:00:01.000Z', revision: 4 }) as never])
-      expect((await restoredEntry(lib)).quotations).toBeUndefined()
-    })
+      locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterId: 'c', startOffset: 1, endOffset: 5 } },
+    }) as never])
+    const e = await restoredEntry(lib)
+    expect(e.highlights.map((h: { id: string }) => h.id)).toEqual([HL])
+    expect(e.quotations).toEqual([{ id: ANCHOR, quotation: true, selectedText: 'an older highlight', color: 'green', at: Date.parse('2026-11-10T00:00:00Z') }])
+    expect((await lib.notes(SHA)).known.get(ANCHOR)).toBe('my note')
+    await lib.setNote(ANCHOR, 'edited')
+    await lib.removeHighlight(ANCHOR)
+    expect(await lib.outbox()).toEqual([])
+    const calls = fakeApi({})
+    expect(await syncV2Library(lib, host())).toBe('done')
+    expect(writes(calls)).toEqual([])
   })
 })

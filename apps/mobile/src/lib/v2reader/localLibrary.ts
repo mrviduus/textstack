@@ -499,6 +499,7 @@ export function createLocalLibrary(db: Db) {
           importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
           notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : null),
           finished: finished.has(b.id),
+          format: (local ? b.format : b.server_format) ?? null,
         }
       })
     }),

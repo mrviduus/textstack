@@ -470,7 +470,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     if (!ready.current || !o?.bytes) return
     openedBytes.current = o.bytes.byteLength
     deadlines.waitOpened(o.bytes.byteLength)
-    call('openBytes', [o.bytes, o.name], [o.bytes])
+    // The server's format for the file (a clip is 'html', which the page never guesses from bytes); none: the page sniffs.
+    call('openBytes', [o.bytes, o.name, o.sync?.format ?? null], [o.bytes])
     o.bytes = undefined
   }
 
@@ -685,12 +686,12 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (!l || l.key !== openedSha.current) return
           setHighlightList(l.highlights)
           // By the id the server holds (a page id re-keyed this open is still the old one on the page).
-          // #1195: a quotation has no place to go: never the jump's target.
-          const want = pendingHighlight.current && l.highlights.find((h) => !h.quotation && (sync.current?.real(h.id) ?? h.id) === pendingHighlight.current)
+          const want = pendingHighlight.current && l.highlights.find((h) => (sync.current?.real(h.id) ?? h.id) === pendingHighlight.current)
           if (want) {
             pendingHighlight.current = null
-            // The reader's own choice (they followed the link): saved where it lands (README, `goTo`).
-            hostMove('goTo', [want.cfi, true])
+            // The reader's own choice (they followed the link): saved where it lands (README, `goTo`). #1195: a
+            // quotation has no place: the link is done with, nothing moves.
+            if (!want.quotation) hostMove('goTo', [want.cfi, true])
             onHighlightShownRef.current?.()
           }
           return
