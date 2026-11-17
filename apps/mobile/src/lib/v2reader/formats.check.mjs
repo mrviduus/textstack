@@ -43,7 +43,7 @@ try {
   writeFileSync(resolve(dir, 'page.html'), v2ReaderPageHtml(randomBytes(18).toString('base64')))
 
   /**
-   * An older WebView (S5 review), on pages of their own, run beside the main page: the APIs pdf.js 5.5 calls that
+   * An older WebView (S5 review), on pages of their own, after the main page: the APIs pdf.js 5.5 calls that
    * pdfPolyfills.mjs stands in for are deleted before the page runs, and a PDF still opens and draws; without
    * structuredClone too (not polyfillable) the open is refused with a clear message, never left hanging.
    */
@@ -69,7 +69,6 @@ try {
       ? () => check(answer?.type === 'open-failed' && /too old to read PDF/.test(answer.error), `old WebView: without structuredClone a PDF is refused with a clear message (${answer?.type ?? 'no answer'}: ${answer?.error})`)
       : () => check(answer?.type === 'opened' && drawn, `old WebView: without the polyfilled APIs a PDF still opens and draws (${answer?.type ?? 'no answer'}${answer?.error ? `, ${answer.error}` : ''})`)
   }
-  const oldRuns = Promise.all([oldWebView(false), oldWebView(true)])
 
   const messages = []
   const page = await hostPage(messages, { viewport: { width: 420, height: 760 } })
@@ -92,22 +91,24 @@ try {
   /** Opens `file`; resolves with `opened` or `open-failed`, after `restored` for an opened book. */
   const open = async (file, stored = null) => {
     const from = messages.length
+    const stale = new Set(page.frames())
     await call(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)})`)
     const m = await waitFor(from, (x) => (x.type === 'opened' || x.type === 'open-failed') && (x.book?.name ?? x.name) === file, `${file} to open`)
     if (m.type === 'opened') {
       await call(`window.__fol.restore(${JSON.stringify(stored)})`)
       m.restored = await waitFor(from, (x) => x.type === 'restored', `${file} restored`)
     }
-    return { ...m, from }
+    return { ...m, from, stale }
   }
-  /** Polls the section frames (blob:) until one passes `probe`, run inside it. */
-  const shown = async (probe) => {
+  /** Polls the section frames (blob:), but those in `stale` (an earlier book's), until one passes `probe`, run inside it. */
+  const shown = async (probe, stale = new Set()) => {
     for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(100)) {
-      for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) if (await f.evaluate(probe).catch(() => false)) return true
+      for (const f of page.frames().filter((f) => f.url().startsWith('blob:') && !stale.has(f))) if (await f.evaluate(probe).catch(() => false)) return true
     }
     return false
   }
-  const showsText = () => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'))
+  /** The text of the book `m` opened, in a frame made after its open (a stale one from the previous book never passes). */
+  const showsText = (m) => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'), m.stale)
   const turnSaves = async (what) => { const from = messages.length; call('window.__fol.next()'); return storeFrom(from, what) }
 
   await waitFor(0, (m) => m.type === 'ready', 'ready')
@@ -126,14 +127,14 @@ try {
   check(tel?.event === 'reader-flow' && tel.format === 'epub' && tel.mode === 'scrolled' && tel.switchedInFirst5Min === true, `the next open ends the EPUB's flow telemetry session, its switch counted: ${JSON.stringify(tel)}`)
   check(m.type === 'opened' && m.format === 'mobi' && m.textual && m.title === 'TS MOBI' && m.sections === 2, `opened as mobi, 2 sections (${m.format}, ${m.title}, ${m.sections}${m.error ? `, ${m.error}` : ''})`)
   check(await loaded() === 'mobi', 'the MOBI reader ran on the first MOBI, and only it')
-  check(await showsText(), 'its text is rendered')
+  check(await showsText(m), 'its text is rendered')
   call('window.__fol.flow("paginated")')
 
   console.log('fb2')
   for (const file of ['tsformat.fbz', 'tsutf16.fb2', 'tsformat.fb2']) {
     m = await open(file)
     check(m.type === 'opened' && m.format === 'fb2' && m.textual && m.title === 'TS FB2', `${file} opens as fb2 and draws (${m.format}, ${m.title}${m.error ? `, ${m.error}` : ''})`)
-    check(await showsText(), `${file}: its text is rendered`)
+    check(await showsText(m), `${file}: its text is rendered`)
   }
   check(await loaded() === 'fb2,mobi', 'the FB2 reader ran once, for FB2, FBZ and UTF-16 FB2')
 
@@ -167,7 +168,7 @@ try {
   check(m.type === 'opened' && m.sections === 3 && await shown(() => { const p = document.querySelector('p.mark'); return !!p && getComputedStyle(p).color === 'rgb(10, 120, 30)' }),
     `a MOBI/KF8 combo reads its KF8 half, with its CSS (${m.sections ?? m.error})`)
   m = await open('tscombo.mobi')
-  check(m.type === 'opened' && m.format === 'mobi' && m.title === 'TS COMBO' && await showsText(), `a combo whose KF8 boundary holds no MOBI header reads its MOBI6 half (${m.title ?? m.error})`)
+  check(m.type === 'opened' && m.format === 'mobi' && m.title === 'TS COMBO' && await showsText(m), `a combo whose KF8 boundary holds no MOBI header reads its MOBI6 half (${m.title ?? m.error})`)
 
   console.log('cbz')
   m = await open('tsformat.cbz')
@@ -279,7 +280,7 @@ try {
   const handed = messages.slice(from).filter((x) => x.type === 'openLink').map((x) => x.href)
   check(handed.length === 2 && handed[0].startsWith(`${evil}/gotor.pdf`) && handed[1] === `${evil}/uri`, `only the two http links are handed to the host, never followed (${handed.join(', ')})`)
 
-  for (const say of await oldRuns) say()
+  for (const alsoClone of [false, true]) (await oldWebView(alsoClone))()
 
   // Every page error, last so every block above is covered; refusals log theirs as `open: …`.
   for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg)) check(false, `page error: ${x.msg.split('\n')[0]}`)

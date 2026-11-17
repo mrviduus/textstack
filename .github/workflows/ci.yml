@@ -116,14 +116,15 @@ jobs:
           files=$(git diff --name-only HEAD^1 HEAD)
           echo "$files"
           backend=false web=false mobile=false extension=false v2reader=false docs=false
-          everything() { backend=true web=true mobile=true extension=true docs=true; }
-          [ -n "$files" ] || { everything; v2reader=true; }
+          everything() { backend=true web=true mobile=true extension=true v2reader=true docs=true; }
+          [ -n "$files" ] || everything
           while IFS= read -r f; do
-            # Not an area of its own, and not in everything(): exactly what the `v2-reader` gates read. The
-            # committed page, its frame and pin live in v2reader/ (a packages/ change to the page lands there
-            # regenerated, or the drift check in `frontend` fails); the nginx CSP; the Playwright version.
+            # Not an area of its own: the `v2-reader` gates' inputs inside an area (everything() covers the
+            # runtime: .nvmrc, root package files, scripts/, unknown paths). The committed page, its frame and pin
+            # live in v2reader/; a packages/ change to the page lands there regenerated, or the drift check in
+            # `frontend` fails. Plus the nginx CSP, the fixtures the checks read, and the Playwright version.
             case "$f" in
-              apps/mobile/src/lib/v2reader/*|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) v2reader=true ;;
+              apps/mobile/src/lib/v2reader/*|apps/mobile/assets/fonts/*|apps/web/e2e/fixtures/v2-sync.epub|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) v2reader=true ;;
             esac
             case "$f" in
               '') ;;
@@ -474,19 +475,6 @@ jobs:
       - name: Drift report
         run: node scripts/report-drift.mjs js
 
-  # apps/mobile gets its own job rather than another step in `frontend` because it
-  # installs and checks a different app, not because it uses a different package
-  # manager — it is a pnpm workspace member with eight `catalog:` specifiers and no
-  # lockfile of its own, which is why the steps below are `pnpm --filter mobile`.
-  # (This comment used to claim npm and a local lockfile; the job it introduces has
-  # contradicted that ever since #514 moved mobile into the workspace.)
-  # @textstack/shared is
-  # consumed from source via Metro watchFolders + tsconfig paths, so the checkout
-  # already carries it and only the app's own deps need installing.
-  #
-  # Not covered here: e2e. apps/mobile/e2e is Playwright driving the Expo *web*
-  # build in a Pixel-sized viewport — it exercises no native code path, so running
-  # it in CI would buy confidence it cannot actually provide.
   # The V2 reader page's gates, beside `frontend` rather than inside it: they need only the workspace and Chromium
   # (no build), and run only when what they read changed (v2reader), or on push to main.
   v2-reader:
@@ -557,6 +545,19 @@ jobs:
         working-directory: apps/web
         run: pnpm check:v2-reader-prod-csp
 
+  # apps/mobile gets its own job rather than another step in `frontend` because it
+  # installs and checks a different app, not because it uses a different package
+  # manager — it is a pnpm workspace member with eight `catalog:` specifiers and no
+  # lockfile of its own, which is why the steps below are `pnpm --filter mobile`.
+  # (This comment used to claim npm and a local lockfile; the job it introduces has
+  # contradicted that ever since #514 moved mobile into the workspace.)
+  # @textstack/shared is
+  # consumed from source via Metro watchFolders + tsconfig paths, so the checkout
+  # already carries it and only the app's own deps need installing.
+  #
+  # Not covered here: e2e. apps/mobile/e2e is Playwright driving the Expo *web*
+  # build in a Pixel-sized viewport — it exercises no native code path, so running
+  # it in CI would buy confidence it cannot actually provide.
   mobile:
     needs: changes
     if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.mobile == 'true') }}
