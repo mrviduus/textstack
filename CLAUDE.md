@@ -10,7 +10,7 @@ Personal book library w/ a Kindle-like reader. Upload EPUB, MOBI, AZW3, FB2, CBZ
 
 **Stack**: ASP.NET Core (API + Worker) + PostgreSQL (one database, `textstack_v2`, Dapper) + React + React Native (Expo)
 
-**Prerequisites**: Docker, .NET 10 SDK, Node.js (`.nvmrc`), pnpm
+**Prerequisites**: Docker, .NET 11 SDK, Node.js (`.nvmrc`), pnpm
 
 **CI/CD**: Push to `main` → auto-deploy.
 
@@ -219,7 +219,7 @@ Server-side, for the transitional `book_chapters` (MCP chapter tools, clips). Fo
 
 ## Package Management
 
-Central versioning via `Directory.Packages.props` — don't add `<Version>` in individual csproj files. Target: `net10.0` (set in `Directory.Build.props`).
+Central versioning via `Directory.Packages.props` — don't add `<Version>` in individual csproj files. Target: `net11.0` (set in `Directory.Build.props`).
 
 ## Rules that bite (always on)
 
