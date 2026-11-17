@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
+import { OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -361,6 +361,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const [toc, setToc] = useState<V2TocEntry[]>([])
   const tocIndex = useRef<number | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
+  /** `?contents=1` (the book page's Contents): the sheet opens once the linked book is open, if it has contents. */
+  const contentsOnOpen = useRef(false)
   /** A new open or a closed book: the previous book's contents go. */
   const clearToc = () => {
     setToc([])
@@ -645,7 +647,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   useFlushOnLeave(flushPage)
 
   // The reader route (`/my-books/read/[bookId]/…`, M5 #1031) names its book `bookId`; the dev route's deep link `book`.
-  const params = useLocalSearchParams<{ book?: string; bookId?: string; highlight?: string }>()
+  const params = useLocalSearchParams<{ book?: string; bookId?: string; highlight?: string; contents?: string }>()
   const linkedBook = params.book ?? params.bookId
   /**
    * On the reader route the book is the screen: Back flushes it (`CLOSE_BOOK_JS`) and leaves the route on its
@@ -1220,7 +1222,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           strikes.clear()
           pageDir.current = readDir(m) ?? 'ltr'
           // Untrusted: only what readToc takes.
-          setToc(readToc(m))
+          const entries = readToc(m)
+          setToc(entries)
+          if (contentsOnOpen.current && entries.length) {
+            setTocOpen(true)
+            // Shown: a remount of the route opens at the book, not the sheet again.
+            router.setParams({ contents: undefined })
+          }
+          contentsOnOpen.current = false
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -1520,6 +1529,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     }
     linked.current = true
     setLinkFailed(false)
+    // Before the download path returns: its open takes it too.
+    contentsOnOpen.current = params.contents === '1'
+    // This device opened it: "Recently opened" sorts it first, with no server write (a reopen moves no place).
+    AsyncStorage.getItem(OPENED_AT_KEY).then((j) => AsyncStorage.setItem(OPENED_AT_KEY, withOpened(j, b.id))).catch(() => {})
     if (!b.local) {
       download(b).then((ok) => { if (!ok) setLinkFailed(true) })
       return

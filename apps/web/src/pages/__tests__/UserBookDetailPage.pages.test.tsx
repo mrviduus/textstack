@@ -121,13 +121,16 @@ describe('UserBookDetailPage on V2', () => {
     v2On = false
   })
 
-  // The V2 reader opens at the synced place: a chapter row that named a chapter would not open there.
-  it.each([[false, 1], [true, 0]])('V2 %s: a chapter row is a reader link %i times', async (on, links) => {
+  // V2: the server's chapter split is not the book's contents; one Contents link opens the reader's own.
+  it.each([false, true])('V2 %s: the server chapters, or one Contents link into the reader', async (on) => {
     v2On = on
-    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, chapters: [{ id: 'c1', chapterNumber: 1, slug: '', title: 'The Pond', wordCount: null }] })
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', metadataEnrichmentStatus: undefined, hasFile: on, chapters: [{ id: 'c1', chapterNumber: 1, slug: '', title: 'The Pond', wordCount: null }] })
     renderPage()
-    await screen.findByText('The Pond')
-    expect(screen.queryAllByRole('link', { name: /The Pond/ })).toHaveLength(links)
+    await screen.findAllByRole('link', { name: /Reading/ })
+    expect(screen.queryAllByRole('link', { name: /The Pond/ })).toHaveLength(on ? 0 : 1)
+    const contents = screen.queryByRole('link', { name: 'Contents' })
+    if (on) expect(contents?.getAttribute('href')).toMatch(/\/read\?contents=1$/)
+    else expect(contents).toBeNull()
     v2On = false
   })
 })

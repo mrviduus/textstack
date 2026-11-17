@@ -384,7 +384,7 @@ export default function UserBookDetailScreen() {
   const isFailed = book?.status.toLowerCase() === 'failed'
   const isProcessing = book && !isReady && !isFailed
   // M5 (#1031): the read route opens the V2 reader (its rule): it opens the file itself, chapters or not, at the synced
-  // place, so a chapter row cannot open at its chapter there.
+  // place; the book's own contents are its Contents sheet, not the server's chapter rows.
   const v2Reader = Platform.OS === 'android' && v2.enabled
 
   // A PDF read in Original layout is chapterless: its position is a `page:<N>`
@@ -579,7 +579,8 @@ export default function UserBookDetailScreen() {
 
             {/* Metadata chips */}
             <View style={styles.chipRow}>
-              {isReady && <Chip icon="book-outline" text={`${book.chapters.length} ch`} colors={colors} />}
+              {/* V2: the server's split is not the book's contents (the reader's Contents is). */}
+              {isReady && !v2Reader && <Chip icon="book-outline" text={`${book.chapters.length} ch`} colors={colors} />}
               {pages && <Chip icon="document-text-outline" text={`${pages.exact ? '' : '~'}${plural(pages.pages, 'page', 'pages')}`} colors={colors} />}
               {book.genre && <Chip icon="pricetag-outline" text={book.genre} colors={colors} />}
               {book.publishedYear && <Chip icon="calendar-outline" text={String(book.publishedYear)} colors={colors} />}
@@ -726,6 +727,17 @@ export default function UserBookDetailScreen() {
                 <Text style={styles.readBtnText}>{continueSlug ? 'Continue Reading' : 'Start Reading'}</Text>
               </TouchableOpacity>
             </AssistantMenu>
+            {/* V2: the book's own contents, in the reader (its Contents sheet opens with the book). */}
+            {v2Reader && (
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { borderColor: colors.border }]}
+                onPress={() => router.push(`/my-books/read/${id}/start?contents=1`)}
+                accessibilityRole="button"
+              >
+                <Ionicons name="list-outline" size={18} color={colors.text} />
+                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>{t('reader.chrome.contents')}</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -831,7 +843,8 @@ export default function UserBookDetailScreen() {
         {isReady && v2Offers(v2, 'insights') && <BookInsightsSection insights={insights} onRemoved={removeInsight} userBookId={book.id} />}
 
         {/* Chapter list */}
-        {isReady && book.chapters.length > 0 && (
+        {/* V2 (M5): the server's chapter split is not the book's table of contents: the Contents button opens the book's own. */}
+        {isReady && !v2Reader && book.chapters.length > 0 && (
           <View style={[styles.chaptersSection, { borderTopColor: colors.border }]}>
             <Text style={[styles.chaptersTitle, { color: colors.text }]}>Chapters</Text>
             {book.chapters.map((ch, i) => {
@@ -840,7 +853,6 @@ export default function UserBookDetailScreen() {
                 <TouchableOpacity
                   key={ch.id}
                   style={[styles.chapterRow, { borderBottomColor: colors.border }]}
-                  disabled={v2Reader}
                   onPress={() => router.push(`/my-books/read/${id}/${userBookChapterSlug(ch)}?pick=1`)}
                 >
                   <Text style={[styles.chapterNumber, { color: isCurrentChapter ? colors.primary : colors.textSecondary }]}>{i + 1}</Text>

@@ -181,9 +181,13 @@ interface Props {
   highlightId?: string | null
   /** The jump to `highlightId` was made: the route drops the parameter, so a reload does not jump (and save) again. */
   onHighlightShown?: () => void
+  /** `?contents=1` (the book page's Contents): the Contents panel opens once the first book is open, if it has contents. */
+  openContents?: boolean
+  /** The panel opened for `openContents`: the route drops the parameter, so a reload opens at the book. */
+  onContentsShown?: () => void
 }
 
-export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl, highlightId, onHighlightShown }: Props) {
+export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = '', readyDeadlineMs = READY_DEADLINE_MS, onReload, dev = false, backUrl, highlightId, onHighlightShown, openContents = false, onContentsShown }: Props) {
   const { t } = useTranslation()
   /** The latest `t`, for the message handler (made once). */
   const tRef = useRef(t)
@@ -287,6 +291,10 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const [toc, setToc] = useState<V2TocEntry[]>([])
   const [tocIndex, setTocIndex] = useState<number | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
+  /** `openContents`, taken once per mount by the first book opened. */
+  const contentsOnOpen = useRef(openContents)
+  const onContentsShownRef = useRef(onContentsShown)
+  onContentsShownRef.current = onContentsShown
   /**
    * #1315: in-book search (search.mjs, one rule for both hosts): the search the page was last asked and whether the open
    * book can be searched (the ref for the message handler, set with the state: an answer may come before the
@@ -622,7 +630,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
       setReflowable(m.reflowable !== false)
       setSearch(searchOpened(searchRef.current, m))
       // Untrusted: only what readToc takes. Its place came with the relocate before this message.
-      setToc(readToc(m))
+      const entries = readToc(m)
+      setToc(entries)
+      if (contentsOnOpen.current && entries.length) {
+        setTocOpen(true)
+        onContentsShownRef.current?.()
+      }
+      contentsOnOpen.current = false
       setBookLanguage(readLang(m) ?? 'en')
       setMarksLanguage(savesWords(m) ? readLang(m) ?? 'en' : null)
       setTtsLanguage(ttsLang(m.lang, 'en'))

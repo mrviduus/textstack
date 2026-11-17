@@ -106,15 +106,37 @@ export function entryProgress(
 }
 
 /** Last activity, falling back to when the book entered the library so a
- *  never-opened book still sorts sensibly instead of sinking to the bottom. */
+ *  never-opened book still sorts sensibly instead of sinking to the bottom.
+ *  `openedAt`: this device's own opens of uploads (book id → ms), never sent:
+ *  a reopen without a page turn writes nothing, yet is the latest activity. */
 export function entryUpdatedAt(
   e: LibraryEntry,
   progressMap: Record<string, ReadingProgressDto>,
+  openedAt: Record<string, number> = {},
 ): number {
   if (e.kind === 'saved') {
     return timeOf(progressMap[e.item.editionId]?.updatedAt) || timeOf(e.item.createdAt)
   }
-  return timeOf(e.book.progressUpdatedAt) || timeOf(e.book.createdAt)
+  return Math.max(timeOf(e.book.progressUpdatedAt) || timeOf(e.book.createdAt), openedAt[e.book.id] ?? 0)
+}
+
+/** Where each client keeps its device's opened marks (JSON: book id → ms): web localStorage, mobile AsyncStorage. */
+export const OPENED_AT_KEY = 'v2.openedAt'
+
+/** The stored opened marks; anything malformed reads as none. */
+export function parseOpenedAt(json: string | null): Record<string, number> {
+  try {
+    const o: unknown = JSON.parse(json ?? '{}')
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return {}
+    return Object.fromEntries(Object.entries(o).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)))
+  } catch {
+    return {}
+  }
+}
+
+/** The stored marks with `bookId` opened at `now`, as JSON to store. ponytail: one entry per book ever opened, never pruned. */
+export function withOpened(json: string | null, bookId: string, now = Date.now()): string {
+  return JSON.stringify({ ...parseOpenedAt(json), [bookId]: now })
 }
 
 /** True while an upload is still being parsed, or failed. Catalog books are
@@ -209,6 +231,7 @@ export function sortEntries<E extends LibraryEntry>(
   entries: E[],
   sort: LibraryEntrySort,
   progressMap: Record<string, ReadingProgressDto>,
+  openedAt: Record<string, number> = {},
 ): E[] {
   const rank = (e: LibraryEntry) => (entryNeedsAttention(e) ? 0 : 1)
 
@@ -235,7 +258,7 @@ export function sortEntries<E extends LibraryEntry>(
         return entryProgress(b, progressMap) - entryProgress(a, progressMap)
       case 'recent':
       default:
-        return entryUpdatedAt(b, progressMap) - entryUpdatedAt(a, progressMap)
+        return entryUpdatedAt(b, progressMap, openedAt) - entryUpdatedAt(a, progressMap, openedAt)
     }
   })
 }

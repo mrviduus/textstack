@@ -9,7 +9,7 @@ import { loadLibraryTab } from '../../src/lib/catalogApi'
 import { v2Enabled, v2Epoch } from '../../src/lib/v2'
 import { logLoadError } from '../../src/lib/logLoadError'
 import {
-  collectionsApi, buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor,
+  collectionsApi, buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor, OPENED_AT_KEY, parseOpenedAt,
   type UserLibraryItem, type UserBookDto, type ReadingProgressDto,
 } from '@textstack/shared'
 import { useAuth } from '../../src/context/AuthContext'
@@ -228,6 +228,9 @@ export default function LibraryScreen() {
   // `loading` dep here loaded twice per open: the flag flipping false re-created
   // this callback while focused, which re-ran it (6 requests instead of 3).
   useFocusEffect(useCallback(() => { loadData() }, [loadData]))
+  /** This device's opens of uploads (the V2 reader marks them): "Recently opened" without a server write. Read on focus. */
+  const [openedAt, setOpenedAt] = useState<Record<string, number>>({})
+  useFocusEffect(useCallback(() => { AsyncStorage.getItem(OPENED_AT_KEY).then((j) => setOpenedAt(parseOpenedAt(j))).catch(() => {}) }, []))
 
   useEffect(() => {
     if (!activeCollectionId) {
@@ -342,7 +345,7 @@ export default function LibraryScreen() {
         e.kind === 'saved' ? e.item.editionId : e.book.id,
       ) ?? false)
     : searched
-  const entries = sortEntries(collectionFiltered, sort, progressMap)
+  const entries = sortEntries(collectionFiltered, sort, progressMap, openedAt)
 
   // Everything above the first book row. Two blocks: search, filters. Continue lives on the rows.
   // It used to be thirteen — roughly 2.4 screens of chrome a reader scrolled
