@@ -37,23 +37,6 @@ public class SrsEngineTests
         Assert.Equal(expectedConsecutive, newConsecutive);
     }
 
-    [Theory]
-    [InlineData(0, false, "multiple_choice")]
-    [InlineData(0, true, "multiple_choice")]
-    [InlineData(1, false, "multiple_choice")]
-    [InlineData(1, true, "multiple_choice")]
-    [InlineData(2, false, "multiple_choice")]
-    [InlineData(2, true, "multiple_choice")]
-    [InlineData(3, false, "multiple_choice")]
-    [InlineData(3, true, "context")]              // Context stage with a sentence
-    [InlineData(4, false, "multiple_choice")]
-    [InlineData(4, true, "context")]              // Mastered with a sentence
-    [InlineData(99, false, "multiple_choice")]    // invalid stage → default
-    public void GetReviewMode_ReturnsExpected(int stage, bool hasSentence, string expected)
-    {
-        Assert.Equal(expected, _srs.GetReviewMode(stage, hasSentence));
-    }
-
     // F4 anti-spiral: retire only Mastered (stage 4) with ≥3 consecutive correct
     // AND interval ≥ 14 days.
     [Theory]

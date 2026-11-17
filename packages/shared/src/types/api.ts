@@ -374,11 +374,8 @@ export interface ReviewCardDto {
    * test now checks `options` / `blankSentence`, which is what the card is drawn
    * from.
    *
-   * `'context'` also cannot arrive over the wire. `SrsEngine.GetReviewMode` can
-   * return it for stages 3-4 with a sentence, but `ReviewCardBuilder` builds MC
-   * options for those cards and rewrites the mode to `'multiple_choice'` on the
-   * way out ("Context cloze uses MC UI"). Typed recall was removed; the branch
-   * that would have used the distinction went with it. Both clients still *write*
+   * The server code that chose a mode (`ReviewCardBuilder`, `GetReviewMode`) is
+   * deleted. Both clients still *write*
    * `'context'` locally when the tutor synthesizes a flashcard from a plan item
    * (`buildPlanCard`), purely because the field is required.
    *

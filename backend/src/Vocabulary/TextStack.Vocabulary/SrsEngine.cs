@@ -42,16 +42,6 @@ public sealed class SrsEngine : ISrsEngine
         return (demotedStage, 1, 0);
     }
 
-    public string GetReviewMode(int stage, bool hasSentence)
-    {
-        return stage switch
-        {
-            0 or 1 or 2 => "multiple_choice",
-            3 or MaxStage => hasSentence ? "context" : "multiple_choice",
-            _ => "multiple_choice",
-        };
-    }
-
     // Anti-spiral: Mastered words otherwise loop forever at 60-day cap.
     // 2000 mastered = ~33 reviews/day silently — the real queue-balloon driver.
     // Three consecutive correct at Stage 4 with interval ≥14d means the
