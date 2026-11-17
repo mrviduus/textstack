@@ -33,7 +33,6 @@ Moved verbatim from `CLAUDE.md` (2026-10-12) to keep the always-loaded context s
 | Vocab Review | `apps/web/src/pages/VocabularyReviewPage.tsx` |
 | Vocab Components | `apps/web/src/components/vocabulary/` |
 | Vocab Hooks | `apps/web/src/hooks/useVocabulary.ts`, `useVocabularyReview.ts` |
-| Vocab E2E | `apps/web/e2e/tests/vocabulary.spec.ts` |
 | TTS Library | `backend/src/Tts/TextStack.Tts/` (EdgeTtsClient, EdgeTtsService, ITtsService) |
 | TTS API | `backend/src/Api/Endpoints/TtsEndpoints.cs` |
 | TTS Hook | `apps/web/src/hooks/useTts.ts` |

@@ -6,9 +6,8 @@ End-to-end tests verify real user flows in a browser. We use [Playwright](https:
 
 ## Prerequisites
 
-1. **Docker services running** — `make up` (API, DB, Worker)
-2. **Books in the database** — at least one EN book with chapters (global setup auto-discovers them)
-3. **Node deps installed** — `pnpm install` in repo root
+1. **Docker services running** — `make migrate-v2`, then `make up` (API, DB, Worker; V2 mode)
+2. **Node deps installed** — `pnpm install` in repo root
 
 > Web dev server starts automatically via Playwright config (`reuseExistingServer: true` locally).
 
@@ -49,7 +48,6 @@ pnpm -C apps/web test:e2e:ui
 | Run all tests | Click "Run all" button (top) |
 | Run single test | Click the play icon next to a test name |
 | Filter by file | Click a file in the sidebar to show only its tests |
-| Filter by project | Use the project dropdown (chromium / mobile) |
 | Watch mode | Toggle the eye icon — tests auto-rerun on file change |
 | Re-run failed | Click the red test → "Retry" |
 
@@ -73,10 +71,6 @@ pnpm -C apps/web test:e2e -- e2e/tests/smoke.spec.ts
 
 # Single test by name
 pnpm -C apps/web test:e2e -- -g "loads homepage"
-
-# Specific project only
-pnpm -C apps/web test:e2e -- --project=chromium
-pnpm -C apps/web test:e2e -- --project=mobile
 ```
 
 ---
@@ -106,34 +100,24 @@ Shows: timeline of actions, DOM snapshots before/after each step, network reques
 
 ```
 apps/web/e2e/
-├── playwright.config.ts          # Config, projects, webServer
-├── global-setup.ts               # Auth + test data discovery
+├── playwright.config.ts          # Config, one chromium project, webServer
+├── global-setup.ts               # Auth
 ├── global-teardown.ts            # Cleanup
 ├── fixtures/
 │   ├── auth.fixture.ts           # Auth fixture (logged-in context)
-│   └── test-data.ts              # Test data helpers
+│   └── v2-*.epub                 # Books the V2 specs import
 ├── helpers/
-│   ├── api.ts                    # API login helpers
-│   └── reader.ts                 # waitForReaderLoad
-└── tests/                        # 10 specs (2026-10-15)
-    ├── smoke.spec.ts             # @smoke gate: pages render, API health
-    ├── reader-smoke.spec.ts      # @reader-smoke gate: position, Next/Prev, highlights, TOC, auto-add to library
-    ├── reader-pdf.spec.ts        # @reader-pdf gate: Original-layout PDF
+│   └── api.ts                    # API login helpers
+└── tests/
+    ├── smoke.spec.ts             # Pages render, API health
     ├── auth.spec.ts              # Login, user session
-    ├── search.spec.ts            # Search query → results
-    ├── bookmarks.spec.ts         # Add/remove bookmark round trip to the server
-    ├── reader-mobile.spec.ts     # Mobile reader smoke (iPhone viewport)
-    ├── guest-landing.spec.ts     # No POST /auth/guest on landing pages
-    ├── vocabulary.spec.ts        # SRS word list + review
-    └── delete-account.spec.ts    # Account deletion
+    ├── delete-account.spec.ts    # Account deletion
+    ├── v2-reader.spec.ts         # The V2 reader page
+    ├── v2-sync.spec.ts           # V2 sync
+    └── v2-reader-dev.spec.ts     # The dev route (dev server only)
 ```
 
-### Projects
-
-| Project | Viewport | Runs tests matching |
-|---------|----------|---------------------|
-| `chromium` | Desktop Chrome | All except `*mobile*` |
-| `mobile` | iPhone 13 (Chromium) | Only `*mobile*` |
+CI runs the whole suite once, in V2 mode, as the PR gate (`.github/workflows/ci.yml`, job `e2e`).
 
 There is no `admin` project and no admin spec any more.
 
@@ -144,9 +128,8 @@ There is no `admin` project and no admin spec any more.
 | Problem | Fix |
 |---------|-----|
 | `ERR_CONNECTION_REFUSED` | Services not running. Run `make up` and wait for API to be healthy. |
-| `.test-data.json not found` or empty | Global setup failed. Check API is reachable at `localhost:8080` and has books. |
 | Auth failures | Ensure `ENABLE_TEST_AUTH=true` in `.env` or API is in dev mode. |
-| Stale test data | Delete `apps/web/e2e/.test-data.json` and `apps/web/e2e/.auth/`, then re-run. |
+| Stale auth state | Delete `apps/web/e2e/.auth/`, then re-run. |
 | Browser not installed | `pnpm exec playwright install chromium` |
 | Tests timeout | Increase timeout in config or check if web server started (look at terminal output). |
 

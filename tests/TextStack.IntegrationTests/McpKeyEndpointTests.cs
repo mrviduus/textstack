@@ -52,7 +52,7 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         Assert.StartsWith(created.GetProperty("prefix").GetString()!, rawKey, StringComparison.Ordinal);
 
         // --- it authenticates (on the library — account routes refuse it, see below) ---------
-        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/books", rawKey!, ct));
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/v2/library/changes", rawKey!, ct));
 
         // --- and it is never echoed back ---------------------------------------------------
         var listed = await ListKeysAsync(owner!, ct);
@@ -76,7 +76,7 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         var revokeResp = await _fixture.Client.SendAsync(revokeReq, ct);
         Assert.Equal(HttpStatusCode.NoContent, revokeResp.StatusCode);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(HttpMethod.Get, "/me/books", rawKey!, ct));
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(HttpMethod.Get, "/me/v2/library/changes", rawKey!, ct));
     }
 
     // The suite's rule: a throttled run skips rather than reads a 429 as a failure. Raise
@@ -177,14 +177,13 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
             (HttpMethod.Get, "/me/oauth/grants"),
             (HttpMethod.Get, "/me/profile"),
             (HttpMethod.Get, "/auth/me"),
-            (HttpMethod.Delete, "/me/vocabulary/words"),
         })
         {
             Assert.Equal(HttpStatusCode.Forbidden, await StatusAsync(method, path, key, ct));
         }
 
-        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/books", key, ct));
-        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/library/shelves", key, ct));
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/v2/library/changes", key, ct));
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/v2/vocabulary/changes", key, ct));
     }
 
     private async Task<HttpStatusCode> StatusAsync(HttpMethod method, string path, string bearer, CancellationToken ct)
