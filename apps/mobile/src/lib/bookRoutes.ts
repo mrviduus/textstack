@@ -13,12 +13,11 @@ import { withDeadline } from './deadline'
  * Falls back to the detail screen when there is no chapter to resume into — a
  * book saved but never opened. Note the user-book segment order:
  * `/my-books/read/{bookId}/{chapterSlug}`. Getting those two backwards once made
- * Continue Reading look broken for every uploaded book.
+ * Continue Reading look broken for every uploaded book. A catalog pick (none since
+ * the catalog retired at M6) goes to the front door.
  */
 export function resumeRoute(pick: ContinueReadingPick): string {
-  if (pick.type === 'edition') {
-    return pick.chapterSlug ? `/reader/${pick.slug}/${pick.chapterSlug}` : `/book/${pick.slug}`
-  }
+  if (pick.type === 'edition') return '/'
   return pick.chapterSlug ? `/my-books/read/${pick.id}/${pick.chapterSlug}` : `/my-books/${pick.id}`
 }
 

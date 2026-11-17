@@ -82,7 +82,7 @@ describe('appVersionHeaders', () => {
 /**
  * Wiring guard. The headers only reach the server if every request path carries
  * them; the shared client does once `setupApi` hands them over, the raw fetches
- * in api.ts and the upload XHR have to do it themselves.
+ * in api.ts have to do it themselves.
  */
 describe('X-App-Version wiring', () => {
   const read = (f: string) => readFileSync(resolve(__dirname, '../..', f), 'utf8')
@@ -103,9 +103,5 @@ describe('X-App-Version wiring', () => {
   it('the update gate compares the build number, never the version name', () => {
     const gate = read('src/components/ForceUpdateGate.tsx')
     expect(gate).toContain('Application.nativeBuildVersion')
-  })
-
-  it('the upload XHR sets them', () => {
-    expect(read('app/my-books/upload.tsx')).toMatch(/APP_HEADERS[^\n]*setRequestHeader/)
   })
 })

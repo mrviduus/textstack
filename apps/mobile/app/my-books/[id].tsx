@@ -1,16 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import NetInfo from '@react-native-community/netinfo'
 import { ApiError, currentReviewChapter, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural, bookPages } from '@textstack/shared'
-import { v2Offers } from '@textstack/shared'
-import { useV2 } from '../../src/context/AuthContext'
 import { userBooksApi } from '../../src/lib/userBooksApi'
 import { logLoadError } from '../../src/lib/logLoadError'
 import type { UserBookDetailResponse } from '@textstack/shared'
-import { enrichUserBook } from '../../src/lib/api'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useToast } from '../../src/context/ToastContext'
 import { useLanguage } from '../../src/context/LanguageContext'
@@ -30,14 +27,11 @@ import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached, o
 import { markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, failedLoadView } from '../../src/lib/deletedOnServer'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
-import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
 import { DownloadButton } from '../../src/components/library/DownloadButton'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
 import { AssistantMenu } from '../../src/components/library/AssistantMenu'
-import { ChapterReviewAction } from '../../src/components/library/ReviewChapterButton'
 import { useBookReviews } from '../../src/hooks/useBookReviews'
 import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
-import { useSheetMount } from '../../src/hooks/useSheetMount'
 import { useCoverSource } from '../../src/hooks/useCoverSource'
 
 /**
@@ -134,8 +128,6 @@ export default function UserBookDetailScreen() {
   const { colors } = useTheme()
   const { show: showToast } = useToast()
   const { t } = useLanguage()
-  // V2 (#1025): no retry, collections, insights or chapter reviews on a V2 book (V2_FEATURES).
-  const v2 = useV2()
   const [book, setBook] = useState<UserBookDetailResponse | null>(null)
   const [coverSource, onCoverError] = useCoverSource(book?.coverPath)
   const [loading, setLoading] = useState(true)
@@ -144,10 +136,6 @@ export default function UserBookDetailScreen() {
   const reconnects = useReconnectCount()
   const [savedProgress, setSavedProgress] = useState<{ chapterSlug: string | null; percent: number | null; locator: string | null } | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [enriching, setEnriching] = useState(false)
-  const [collectionSheetOpen, setCollectionSheetOpen] = useState(false)
-  // Same reason as everywhere else this sheet appears — see useSheetMount.
-  const collectionSheetMounted = useSheetMount(collectionSheetOpen)
   const { downloads, startUserBookDownload, cancelDownload, removeUserBookDownload, retryFailed } = useDownload()
   // Is the whole book on the device? Answered from SQLite rather than from the
   // download map, which is in-memory and empty after an app restart.
@@ -287,24 +275,19 @@ export default function UserBookDetailScreen() {
     return () => { cancelled = true }
   })
 
-  // Auto-refresh while processing OR while metadata enrichment is in flight —
-  // one poll on GET /me/books/{id} serving both (there used to be two on the
-  // same URL). Enrichment runs after 'ready' and the worker can't reach the
-  // device, so we poll until a terminal state (Completed/Failed). Mirrors the
-  // web detail page.
+  // Auto-refresh while processing.
   //
   // Recursive setTimeout (not setInterval) for exponential backoff on repeated
   // failures, so an outage isn't hammered (P1-2). Guards against `id` going
   // undefined mid-flight (P0-1).
   const pollProcessing = book?.status.toLowerCase() === 'processing'
-  const pollEnriching = book?.metadataEnrichmentStatus === 'Pending' || book?.metadataEnrichmentStatus === 'Running'
   useEffect(() => {
     if (pollTimeoutRef.current) {
       clearTimeout(pollTimeoutRef.current)
       pollTimeoutRef.current = null
     }
     if (!id) return
-    if (!pollProcessing && !pollEnriching) return
+    if (!pollProcessing) return
 
     let cancelled = false
     let consecutiveFailures = 0
@@ -328,12 +311,8 @@ export default function UserBookDetailScreen() {
         consecutiveFailures = 0
         delayMs = 5000
         setBook(b)
-        // A phase change (processing → ready, Pending → Running → done) re-runs
-        // this effect via its deps, which restarts or tears down the loop. Only
-        // keep ticking ourselves when nothing changed.
-        const stillProcessing = b.status.toLowerCase() === 'processing'
-        const stillEnriching = b.metadataEnrichmentStatus === 'Pending' || b.metadataEnrichmentStatus === 'Running'
-        if (stillProcessing === pollProcessing && stillEnriching === pollEnriching) scheduleNext()
+        // A phase change (processing → ready) re-runs this effect via its deps, which tears down the loop.
+        if (b.status.toLowerCase() === 'processing') scheduleNext()
       } catch (err) {
         if (cancelled || unmountedRef.current) return
         // Deleted on the server mid-poll (#1164): stop polling a book that is gone.
@@ -369,7 +348,7 @@ export default function UserBookDetailScreen() {
         pollTimeoutRef.current = null
       }
     }
-  }, [pollProcessing, pollEnriching, id, showToast])
+  }, [pollProcessing, id, showToast])
 
   // Download state for this book, if one has been started this session.
   const dl = book ? downloads.get(book.id) : undefined
@@ -382,12 +361,9 @@ export default function UserBookDetailScreen() {
     : null
 
   const isReady = book?.status.toLowerCase() === 'ready'
-  const { insights, reviews, removeInsight } = useBookReviews(isReady && book && v2Offers(v2, 'insights') ? { userBookId: book.id } : null)
+  const { insights, reviews } = useBookReviews(isReady && book ? book.id : null)
   const isFailed = book?.status.toLowerCase() === 'failed'
   const isProcessing = book && !isReady && !isFailed
-  // M5 (#1031): the read route opens the V2 reader (its rule): it opens the file itself, chapters or not, at the synced
-  // place; the book's own contents are its Contents sheet, not the server's chapter rows.
-  const v2Reader = Platform.OS === 'android' && v2.enabled
 
   // A PDF read in Original layout is chapterless: its position is a `page:<N>`
   // locator with chapterSlug null. Looking only at the slug meant every
@@ -582,8 +558,6 @@ export default function UserBookDetailScreen() {
 
             {/* Metadata chips */}
             <View style={styles.chipRow}>
-              {/* V2: the server's split is not the book's contents (the reader's Contents is). */}
-              {isReady && !v2Reader && <Chip icon="book-outline" text={`${book.chapters.length} ch`} colors={colors} />}
               {pages && <Chip icon="document-text-outline" text={`${pages.exact ? '' : '~'}${plural(pages.pages, 'page', 'pages')}`} colors={colors} />}
               {book.genre && <Chip icon="pricetag-outline" text={book.genre} colors={colors} />}
               {book.publishedYear && <Chip icon="calendar-outline" text={String(book.publishedYear)} colors={colors} />}
@@ -618,47 +592,6 @@ export default function UserBookDetailScreen() {
         {book.description && (
           <View style={styles.descSection}>
             <Text style={[styles.descText, { color: colors.textSecondary }]}>{book.description}</Text>
-          </View>
-        )}
-
-        {/* Metadata-enrichment status. Only surfaced while work is in flight
-            (Pending/Running) or after a failure — Completed/NotStarted/undefined
-            render nothing so we don't nag on old rows. Mirrors the web badge. */}
-        {(book.metadataEnrichmentStatus === 'Pending' || book.metadataEnrichmentStatus === 'Running') && (
-          <View style={styles.enrichRow}>
-            <ActivityIndicator size="small" color={colors.textSecondary} />
-            <Text style={[styles.enrichText, { color: colors.textSecondary }]}>Generating book details…</Text>
-          </View>
-        )}
-
-        {book.metadataEnrichmentStatus === 'Failed' && (
-          <View style={styles.enrichRow}>
-            <Text style={[styles.enrichText, { color: colors.textSecondary }]}>Couldn't generate details</Text>
-            <TouchableOpacity
-              disabled={enriching}
-              onPress={async () => {
-                if (!id || enriching) return
-                setEnriching(true)
-                const prevStatus = book.metadataEnrichmentStatus
-                // Optimistic: flip to Pending so the spinner shows immediately
-                // and the enrichment poll effect starts refetching.
-                setBook(prev => (prev ? { ...prev, metadataEnrichmentStatus: 'Pending' } : prev))
-                try {
-                  await enrichUserBook(id)
-                } catch (err) {
-                  console.warn('enrichUserBook failed:', err)
-                  // Roll back to Failed so the user can retry again.
-                  setBook(prev => (prev ? { ...prev, metadataEnrichmentStatus: prevStatus } : prev))
-                  showToast({ message: "Couldn't generate details", variant: 'error', duration: 2400 })
-                } finally {
-                  setEnriching(false)
-                }
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Retry generating book details"
-            >
-              <Text style={[styles.enrichRetry, { color: colors.primary }]}>Retry</Text>
-            </TouchableOpacity>
           </View>
         )}
 
@@ -705,7 +638,7 @@ export default function UserBookDetailScreen() {
         {/* Action buttons */}
         {/* V2 reads the raw file (queued, processing or failed extraction alike) once its bytes are in. Unknown (an
             offline copy cached before `hasFile`): chapters on the device mean the book was readable. No network. */}
-        {(v2Reader ? (book.hasFile ?? book.chapters.length > 0) : isReady && book.chapters.length > 0) && (
+        {(book.hasFile ?? book.chapters.length > 0) && (
           <View style={styles.actions}>
             <AssistantMenu
               book={{
@@ -730,32 +663,14 @@ export default function UserBookDetailScreen() {
                 <Text style={styles.readBtnText}>{continueSlug ? 'Continue Reading' : 'Start Reading'}</Text>
               </TouchableOpacity>
             </AssistantMenu>
-            {/* V2: the book's own contents, in the reader (its Contents sheet opens with the book). */}
-            {v2Reader && (
-              <TouchableOpacity
-                style={[styles.secondaryBtn, { borderColor: colors.border }]}
-                onPress={() => router.push(`/my-books/read/${id}/start?contents=1`)}
-                accessibilityRole="button"
-              >
-                <Ionicons name="list-outline" size={18} color={colors.text} />
-                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>{t('reader.chrome.contents')}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* Retry */}
-        {isFailed && v2Offers(v2, 'retry') && (
-          <View style={styles.actions}>
+            {/* The book's own contents, in the reader (its Contents sheet opens with the book). */}
             <TouchableOpacity
-              style={[styles.retryBtn, { backgroundColor: colors.warning + '22' }]}
-              onPress={async () => {
-                await userBooksApi.retryUserBook(id!).catch(() => {})
-                setBook({ ...book, status: 'Processing' })
-              }}
+              style={[styles.secondaryBtn, { borderColor: colors.border }]}
+              onPress={() => router.push(`/my-books/read/${id}/start?contents=1`)}
+              accessibilityRole="button"
             >
-              <Ionicons name="refresh" size={16} color={colors.warning} />
-              <Text style={[styles.retryBtnText, { color: colors.warning }]}>Retry Processing</Text>
+              <Ionicons name="list-outline" size={18} color={colors.text} />
+              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>{t('reader.chrome.contents')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -821,71 +736,12 @@ export default function UserBookDetailScreen() {
                 {fileBusy ? 'Preparing…' : 'Share'}
               </Text>
             </TouchableOpacity>
-            {v2Offers(v2, 'collections') && <TouchableOpacity
-              style={[styles.secondaryBtn, { borderColor: colors.border }]}
-              onPress={() => setCollectionSheetOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel={t('library.actions.addToCollection')}
-            >
-              <Ionicons name="folder-outline" size={18} color={colors.text} />
-              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>{t('library.actions.addToCollection')}</Text>
-            </TouchableOpacity>}
           </View>
         )}
-
-        {collectionSheetMounted && <AddToCollectionSheet
-          visible={collectionSheetOpen}
-          bookId={isReady ? book.id : null}
-          bookType="userbook"
-          onClose={() => setCollectionSheetOpen(false)}
-          onAdded={(name) => showToast({ message: t('library.actions.addedToCollection').replace('{{name}}', name), variant: 'success' })}
-        />}
 
         {/* Above the chapter list on purpose: coming back to a book, what you
             already worked out is more use than the table of contents. */}
-        {isReady && v2Offers(v2, 'insights') && <BookInsightsSection insights={insights} onRemoved={removeInsight} userBookId={book.id} />}
-
-        {/* Chapter list */}
-        {/* V2 (M5): the server's chapter split is not the book's table of contents: the Contents button opens the book's own. */}
-        {isReady && !v2Reader && book.chapters.length > 0 && (
-          <View style={[styles.chaptersSection, { borderTopColor: colors.border }]}>
-            <Text style={[styles.chaptersTitle, { color: colors.text }]}>Chapters</Text>
-            {book.chapters.map((ch, i) => {
-              const isCurrentChapter = continueSlug === ch.slug
-              return (
-                <TouchableOpacity
-                  key={ch.id}
-                  style={[styles.chapterRow, { borderBottomColor: colors.border }]}
-                  onPress={() => router.push(`/my-books/read/${id}/${userBookChapterSlug(ch)}?pick=1`)}
-                >
-                  <Text style={[styles.chapterNumber, { color: isCurrentChapter ? colors.primary : colors.textSecondary }]}>{i + 1}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={[styles.chapterTitle, { color: isCurrentChapter ? colors.primary : colors.text }, isCurrentChapter && { fontFamily: fonts.sansMedium }]}
-                      numberOfLines={1}
-                    >
-                      {ch.title}
-                    </Text>
-                    {ch.wordCount && (
-                      <Text style={{ fontSize: 11, color: colors.textSecondary, fontFamily: fonts.sans, marginTop: 2 }}>
-                        {ch.wordCount.toLocaleString()} {plural(ch.wordCount, 'word', 'words', '{noun}')}
-                      </Text>
-                    )}
-                  </View>
-                  {isCurrentChapter && <Ionicons name="play-circle" size={18} color={colors.primary} />}
-                  {/* A review is keyed by the real slug; a slugless legacy chapter cannot be reviewed. */}
-                  {!!ch.slug?.trim() && v2Offers(v2, 'chapterReview') && (
-                    <ChapterReviewAction
-                      book={{ title: book.title, author: book.author, userBookId: book.id }}
-                      chapter={{ slug: ch.slug, title: ch.title, wordCount: ch.wordCount }}
-                      reviewed={reviews.has(ch.slug)}
-                    />
-                  )}
-                </TouchableOpacity>
-              )
-            })}
-          </View>
-        )}
+        {isReady && <BookInsightsSection insights={insights} />}
 
         {/* Delete */}
         <View style={styles.dangerSection}>
@@ -934,9 +790,6 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   descSection: { paddingHorizontal: 16, marginBottom: 12 },
   descText: { fontSize: 13, fontFamily: fonts.sans, lineHeight: 20 },
-  enrichRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 12 },
-  enrichText: { fontSize: 13, fontFamily: fonts.sans },
-  enrichRetry: { fontSize: 13, fontFamily: fonts.sansMedium },
   progressSection: { paddingHorizontal: 16, marginBottom: 12 },
   progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 3 },
@@ -952,15 +805,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   readBtnText: { color: '#fff', fontSize: 16, fontFamily: fonts.sansMedium },
-  retryBtn: {
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  retryBtnText: { fontSize: 14, fontFamily: fonts.sansMedium },
   secondaryActions: { paddingHorizontal: 16, marginTop: 12, gap: 8 },
   secondaryBtn: {
     paddingVertical: 10,
@@ -975,11 +819,6 @@ const styles = StyleSheet.create({
   secondaryBtnText: { fontSize: 14, fontFamily: fonts.sansMedium },
   statusFail: { fontSize: 12, marginTop: 6, fontFamily: fonts.sansMedium },
   statusPending: { fontSize: 12, marginTop: 6, fontFamily: fonts.sansMedium },
-  chaptersSection: { paddingHorizontal: 16, marginTop: 20, borderTopWidth: 1, paddingTop: 16 },
-  chaptersTitle: { fontSize: 16, fontFamily: fonts.serifBold, marginBottom: 12 },
-  chapterRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, gap: 4 },
-  chapterNumber: { width: 28, fontSize: 13, fontFamily: fonts.sansMedium },
-  chapterTitle: { fontSize: 14, fontFamily: fonts.sans },
   dangerSection: { paddingHorizontal: 16, marginTop: 24 },
   deleteBtn: {
     paddingVertical: 12,

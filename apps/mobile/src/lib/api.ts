@@ -179,39 +179,4 @@ export async function deleteAccount(accessToken: string): Promise<void> {
   }
 }
 
-/**
- * Re-fire LLM metadata enrichment (genre/year/description) for a user book
- * (`POST /me/books/{id}/enrich` → 202). Bearer auth, no body. A 202 with an
- * empty response is success — we never parse the body on the happy path.
- * Mirrors the web `enrichUserBook` helper; used by the detail screen's "Retry"
- * on a Failed enrichment badge.
- */
-export async function enrichUserBook(id: string): Promise<void> {
-  const token = await getAccessToken()
-  const res = await fetch(`${API_URL}/me/books/${id}/enrich`, {
-    method: 'POST',
-    headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => null)
-    throw Object.assign(
-      new Error(data?.error || `Failed to enrich book: ${res.status}`),
-      { status: res.status },
-    )
-  }
-}
-
-// AI agent endpoints (Tutor "Smart session"). Implemented in ./agents on top of
-// the shared `authFetch` (Bearer auth, base URL, error/status handling) — re-exported here so callers reach them
-// through the consolidated api module, alongside the request types.
-export {
-  startTutorSession,
-  sendTutorFeedback,
-} from './agents'
-export type {
-  TutorPlanItem,
-  TutorSessionResponse,
-  TutorFeedbackResult,
-} from './agents'
-
 export { API_URL }

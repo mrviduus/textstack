@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, listDeletedOnServer, failedLoadView, forgetDeletedOnServer,
-  deletedStillOnDevice, chooseNewlyDeleted, listingSource,
+  deletedStillOnDevice, chooseNewlyDeleted,
 } from './deletedOnServer'
 import { listDeclinedDownloads, declineDownload, updateIdSet, forgetDeclinedDownloads } from './declinedDownloads'
 import { applyV2MergeMap } from './v2Merge'
@@ -29,18 +29,6 @@ describe('deletedStillOnDevice (#1193)', () => {
 
   it('deletedStillOnDevice_MarkedButListedByLibrary_Excluded', () => {
     expect(deletedStillOnDevice(new Set(['a', 'b']), ['a', 'b'], new Set(['a']))).toEqual(['b'])
-  })
-})
-
-describe('listingSource (#1193)', () => {
-  it('listingSource_ProbeUnchanged_NamesTheStore', () => {
-    expect(listingSource(true, true)).toBe('v2')
-    expect(listingSource(false, false)).toBe('legacy')
-  })
-
-  it('listingSource_ProbeMovedDuringListing_Null', () => {
-    expect(listingSource(false, true)).toBeNull()
-    expect(listingSource(true, false)).toBeNull()
   })
 })
 
@@ -178,7 +166,7 @@ describe('#1174 wiring', () => {
 
   it('library: offline, a tombstoned book is not listed (prev included); an online list clears marks', () => {
     const lib = read('app/(tabs)/library.tsx')
-    expect(lib).toMatch(/const \[cached, cachedUploads, localProgress, deleted\] = await Promise\.all\(\[[\s\S]*?listDeletedOnServer\(\),\s*\]\)/)
+    expect(lib).toMatch(/const \[cachedUploads, localProgress, deleted\] = await Promise\.all\(\[[\s\S]*?listDeletedOnServer\(\),\s*\]\)/)
     // On the whole ternary, so a list loaded online earlier this session (`prev`) loses it too.
     expect(lib).toContain('}))).filter(b => !deleted.has(b.id)))')
     expect(lib).not.toContain("'Failed'")
@@ -197,22 +185,20 @@ describe('#1174 wiring', () => {
     const start = ctx.indexOf('const gone = await markUnlistedLeftovers(')
     expect(start).toBeGreaterThan(-1)
     const block = ctx.slice(start, ctx.indexOf('// A book the server has not finished with yet', start))
-    expect(block).toContain('listingSource(v2Before, v2Enabled()), resetSince)')
+    expect(block).toContain("'v2', resetSince)")
     expect(block).toMatch(/for \(const id of gone\) \{\s*cancelledRef\.current\.add\(id\)\s*forgetDownload\(id\)\s*\}/)
     expect(block).toContain('if (resetSince()) { autoRerunRef.current = true; continue }')
     expect(block).toContain('if (gone.length > 0) await refreshCachedBooks()')
     for (const freed of ['deleteCachedUserBook', 'deleteOriginal', 'undeclineDownload', 'clearDeletedOnServer']) {
       expect(block).not.toContain(freed)
     }
-    expect(ctx).toMatch(/listDeclinedDownloads\(\),[\s\S]{0,120}onV2\(\),\s*\]\)/)
   })
 
   it('library: a successful load marks what it lacks, guarded by the epoch and the generation', () => {
     const lib = read('app/(tabs)/library.tsx')
-    expect(lib).toContain('const [lib, progress, books, v2Before] = await loadLibraryTab()')
-    expect(read('src/lib/catalogApi.ts')).toMatch(/userBooksApi\.getUserBooks\(\),\s*onV2\(\),\s*\]\)/)
+    expect(lib).toContain('const books = await userBooksApi.getUserBooks()')
     expect(lib).toContain('const stale = () => v2Epoch() !== epoch || myGen !== loadGenRef.current')
-    expect(lib).toContain('markUnlistedLeftovers(new Set(books.map(b => b.id)), listingSource(v2Before, v2Enabled()), stale)')
+    expect(lib).toContain("markUnlistedLeftovers(new Set(books.map(b => b.id)), 'v2', stale)")
     expect(lib).toContain('if (ids.length > 0 && !stale()) setMarksVersion(v => v + 1)')
   })
 

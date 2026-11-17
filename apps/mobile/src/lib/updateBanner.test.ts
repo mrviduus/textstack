@@ -8,7 +8,7 @@ const idle = {
   pathname: '/library',
   restarting: false,
 }
-const READER = '/reader/dracula/chapter-1'
+const READER = '/my-books/read/b1/chapter-1'
 
 describe('updateBannerState', () => {
   it('shows nothing when idle or in development', () => {

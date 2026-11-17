@@ -8,7 +8,7 @@
 // something away — and then it waits, because the next check will offer it again.
 
 /** Routes where a restart would interrupt reading rather than refresh a screen. */
-const READING_ROUTES = ['/reader', '/my-books/read']
+const READING_ROUTES = ['/my-books/read']
 
 export type ApplyInput = {
   /** An update is downloaded and will be used on the next launch. */

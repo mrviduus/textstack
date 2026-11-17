@@ -23,10 +23,7 @@ function walk(dir: string): string[] {
 describe('one open = one fetch per resource', () => {
   it('Library: focus owns the load — no mount effect, no `loading` dep re-firing it', () => {
     const src = read('app/(tabs)/library.tsx')
-    expect(count(src, 'loadLibraryTab(')).toBe(1)
-    const tab = read('src/lib/catalogApi.ts')
-    expect(count(tab, 'libraryApi.getLibrary(')).toBe(1)
-    expect(count(tab, 'readingProgressApi.getAllProgress(')).toBe(1)
+    expect(count(src, 'userBooksApi.getUserBooks(')).toBe(2) // load + the processing poll
     expect(src).not.toMatch(/useEffect\(\(\) => \{ loadData\(\) \}/)
     expect(src).toMatch(/useFocusEffect\(useCallback\(\(\) => \{ loadData\(\) \}, \[loadData\]\)\)/)
   })
@@ -38,12 +35,10 @@ describe('one open = one fetch per resource', () => {
     expect(src).not.toContain('useFocusEffect(')
   })
 
-  it('Stats + Vocabulary: mount effect loads; focus refresh is re-focus only', () => {
-    for (const f of ['app/stats/index.tsx', 'app/(tabs)/vocabulary.tsx']) {
-      const src = read(f)
-      expect(src, f).toContain('useRefocusEffect(')
-      expect(src, f).not.toContain('[loading, loadData]')
-    }
+  it('Vocabulary: mount effect loads; focus refresh is re-focus only', () => {
+    const src = read('app/(tabs)/vocabulary.tsx')
+    expect(src).toContain('useRefocusEffect(')
+    expect(src).not.toContain('[loading, loadData]')
   })
 
   it('useRefocusEffect skips the first focus and never re-fires on identity change', () => {
@@ -52,7 +47,7 @@ describe('one open = one fetch per resource', () => {
     expect(src).toMatch(/useFocusEffect\(useCallback\([\s\S]*?\}, \[\]\)\)/)
   })
 
-  it('my-books detail: one poll on GET /me/books/{id} serves status and enrichment', () => {
+  it('my-books detail: one poll on GET /me/books/{id} while processing', () => {
     const src = read('app/my-books/[id].tsx')
     expect(count(src, 'userBooksApi.getUserBook(')).toBe(2) // load + the single poll
     expect(src).not.toContain('setInterval(')

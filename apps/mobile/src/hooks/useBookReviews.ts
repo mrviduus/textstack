@@ -1,37 +1,30 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { insightsApi, reviewsBySlug, type BookInsight } from '@textstack/shared'
-import { onV2 } from '../lib/v2'
 
 /**
- * The book's insights and which chapters have a structured review (ADR-016: one `/me/insights`
- * call per screen — the screen passes `insights` + `removeInsight` down to `BookInsightsSection`
- * rather than letting it fetch the same rows again). Pass null to skip (signed out, book not loaded).
+ * The book's insights (`/me/v2/books/{id}/insights`) and which chapters have a structured review (ADR-016: one
+ * call per screen — the screen passes `insights` down to `BookInsightsSection` rather than letting it fetch the
+ * same rows again). Pass null to skip (book not loaded).
  *
- * `loading` is derived from which target the data belongs to — a flag set in the effect is still
- * false on the render where the target first appears, which flashed "not reviewed yet".
+ * `loading` is derived from which book the data belongs to — a flag set in the effect is still
+ * false on the render where the book first appears, which flashed "not reviewed yet".
  */
-export function useBookReviews(target: { userBookId: string } | { editionId: string } | null) {
-  const key = target ? ('userBookId' in target ? `u:${target.userBookId}` : `e:${target.editionId}`) : null
+export function useBookReviews(userBookId: string | null) {
   const [state, setState] = useState<{ key: string | null; insights: BookInsight[]; error: boolean }>(
     { key: null, insights: [], error: false })
 
   useEffect(() => {
-    if (!target) return
+    if (!userBookId) return
     let cancelled = false
-    onV2().then(v2 => insightsApi.getBookInsights(target, v2))
-      .then(rows => { if (!cancelled) setState({ key, insights: rows, error: false }) })
-      .catch(() => { if (!cancelled) setState({ key, insights: [], error: true }) })
+    insightsApi.getBookInsights({ userBookId }, true)
+      .then(rows => { if (!cancelled) setState({ key: userBookId, insights: rows, error: false }) })
+      .catch(() => { if (!cancelled) setState({ key: userBookId, insights: [], error: true }) })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by id, not object identity
-  }, [key])
+  }, [userBookId])
 
-  const removeInsight = useCallback((id: string) => {
-    setState(prev => ({ ...prev, insights: prev.insights.filter(i => i.id !== id) }))
-  }, [])
-
-  const current = key !== null && state.key === key
+  const current = userBookId !== null && state.key === userBookId
   const insights = current ? state.insights : []
   return {
-    insights, reviews: reviewsBySlug(insights), loading: key !== null && !current, error: current && state.error, removeInsight,
+    insights, reviews: reviewsBySlug(insights), loading: userBookId !== null && !current, error: current && state.error,
   }
 }

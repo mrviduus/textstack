@@ -6,10 +6,7 @@ import { colors } from '../src/theme/colors'
 /**
  * Handles deep links from textstack.app web URLs.
  * Maps web URL patterns to mobile routes:
- *   /en/books/{slug}                → /book/{slug}
- *   /en/books/{slug}/{chapterSlug}  → /reader/{slug}/{chapterSlug}
  *   /{lang}/vocabulary              → /vocabulary
- *   /{lang}/stats                   → /stats
  */
 export default function NotFoundScreen() {
   const router = useRouter()
@@ -24,28 +21,7 @@ export default function NotFoundScreen() {
     // into the reader (the "app opens on random screens" symptom).
     if (!/^\/(en|uk)\//.test(pathname)) return
 
-    const match = pathname.match(/^\/(en|uk)\/books\/([^/]+)(?:\/([^/]+))?/)
-    if (match) {
-      const [, , slug, chapter] = match
-      if (chapter) {
-        router.replace(`/reader/${slug}/${chapter}`)
-      } else {
-        router.replace(`/book/${slug}`)
-      }
-      return
-    }
-
-    const vocabMatch = pathname.match(/^\/(en|uk)\/vocabulary/)
-    if (vocabMatch) {
-      router.replace('/vocabulary')
-      return
-    }
-
-    const statsMatch = pathname.match(/^\/(en|uk)\/stats/)
-    if (statsMatch) {
-      router.replace('/stats')
-      return
-    }
+    if (/^\/(en|uk)\/vocabulary/.test(pathname)) router.replace('/vocabulary')
   }, [pathname, router])
 
   return (

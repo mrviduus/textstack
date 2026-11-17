@@ -3,37 +3,29 @@ import { View, Text, StyleSheet, SafeAreaView, KeyboardAvoidingView, Platform } 
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter, Stack, useLocalSearchParams } from 'expo-router'
 import { REVIEW_BATCH_SIZES, DEFAULT_BATCH_SIZE } from '@textstack/shared'
-import { vocabularyApi } from '../../src/lib/vocabularyApi'
 import type { SelfAssessment, ReviewMode } from '@textstack/shared'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useTts } from '../../src/hooks/useTts'
 import { useHaptics } from '../../src/hooks/useHaptics'
 import { useVocabularyReview } from '../../src/hooks/useVocabularyReview'
-import { reviewModeFromParam } from '../../src/lib/reviewMode'
-import { V2_FEATURES } from '@textstack/shared'
-import { v2Enabled } from '../../src/lib/v2'
 import { LoadingScreen } from '../../src/components/ui/LoadingScreen'
 import { PressableScale } from '../../src/components/ui/PressableScale'
-import { MultipleChoiceCard } from '../../src/components/vocabulary/MultipleChoiceCard'
 import { FlashCard } from '../../src/components/vocabulary/FlashCard'
 import { NewWordCard } from '../../src/components/vocabulary/NewWordCard'
 import { ReviewFeedback } from '../../src/components/vocabulary/ReviewFeedback'
 import { SessionSummary } from '../../src/components/vocabulary/SessionSummary'
 import { WeeklyBudgetBar } from '../../src/components/vocabulary/WeeklyBudgetBar'
 
+/** V2 cards are flashcards only (no distractors on V2, ADR-031 D6). */
+const REVIEW_MODE: ReviewMode = 'classic'
+
 export default function VocabularyReviewScreen() {
   const { colors } = useTheme()
   const { language, t } = useLanguage()
   const router = useRouter()
-  const params = useLocalSearchParams<{ limit?: string; reviewMode?: string; cluster?: string; practice?: string }>()
-  const clusterId = typeof params.cluster === 'string' ? params.cluster : null
+  const params = useLocalSearchParams<{ limit?: string; practice?: string }>()
   const practiceMode = params.practice === '1' || params.practice === 'true'
-  // The mode this session starts in, as a plain value — the point being that it
-  // is NOT hook state. See `reviewModeFromParam` for the failure that made this
-  // necessary (#558); web derives it the same way and for the same reason.
-  // V2 cards are flashcards only (no distractors on V2, ADR-031 D6).
-  const initialReviewMode = v2Enabled() ? V2_FEATURES.reviewModes[0] : reviewModeFromParam(params.reviewMode)
 
   const [batchSize, setBatchSize] = useState(() => {
     const v = parseInt(params.limit || String(DEFAULT_BATCH_SIZE), 10)
@@ -42,41 +34,15 @@ export default function VocabularyReviewScreen() {
 
   const review = useVocabularyReview()
   const { speak: speakTts, toggle: toggleTts } = useTts()
-  // The setting lives with the account now, beside the other vocabulary settings, because it
-  // governs these cards and not the reader. Defaults to speaking while the fetch is in flight —
-  // the same value a new account gets, so the first card of a session is not silent by accident.
-  const [autoSpeak, setAutoSpeak] = useState(true)
-  useEffect(() => {
-    let cancelled = false
-    vocabularyApi.getVocabSettings()
-      .then(s => { if (!cancelled) setAutoSpeak(s.autoSpeakCards ?? true) })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [])
   const haptics = useHaptics()
   const sessionStartRef = useRef(Date.now())
 
   // Start session.
-  //
-  // There used to be a second mount effect above this one that dispatched
-  // `review.setReviewMode(params.reviewMode)`. It is gone, and its removal is
-  // the fix: `startSession`/`startClusterSession` already call `setReviewMode`
-  // with whatever they are handed, so there is now exactly one writer of the
-  // mode during startup and nothing for React's batching to resolve in the
-  // wrong order. What is passed is `initialReviewMode`, a value derived from
-  // the params above — deliberately not `review.reviewMode`, which at mount is
-  // the closure's copy of the hook default and never the param.
   useEffect(() => {
     sessionStartRef.current = Date.now()
-    if (clusterId) {
-      review.startClusterSession(clusterId, initialReviewMode)
-    } else {
-      review.startSession(batchSize, initialReviewMode, practiceMode)
-    }
-    // `review` is stable per-hook; `initialReviewMode` is a plain string, so
-    // listing it is a value comparison and cannot loop.
+    review.startSession(batchSize, REVIEW_MODE, practiceMode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batchSize, clusterId, practiceMode, initialReviewMode])
+  }, [batchSize, practiceMode])
 
   // Say the word when its card appears.
   //
@@ -92,7 +58,6 @@ export default function VocabularyReviewScreen() {
   const currentWord = review.currentCard?.word
   const currentWordId = review.currentCard?.wordId
   useEffect(() => {
-    if (!autoSpeak) return
     if (!currentWord || !currentWordId) return
     if (spokenCardRef.current === currentWordId) return
     spokenCardRef.current = currentWordId
@@ -100,18 +65,13 @@ export default function VocabularyReviewScreen() {
     // playback happened to still be running, which is silence where the reader
     // asked for sound.
     void speakTts(currentWord, { lang: language })
-  }, [currentWord, currentWordId, autoSpeak, speakTts, language])
+  }, [currentWord, currentWordId, speakTts, language])
 
   // Haptic on session-complete — must be in an effect, not render, or
   // it re-fires on every re-render while the summary is visible.
   const sessionComplete = review.isSessionComplete || !review.hasCards
   useEffect(() => {
-    if (sessionComplete && !review.loading) {
-      haptics.play('complete')
-      if (review.activeClusterId) {
-        vocabularyApi.completeCluster(review.activeClusterId).catch(() => {})
-      }
-    }
+    if (sessionComplete && !review.loading) haptics.play('complete')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionComplete, review.loading])
 
@@ -124,7 +84,7 @@ export default function VocabularyReviewScreen() {
 
   const handleAgain = () => {
     sessionStartRef.current = Date.now()
-    review.startSession(batchSize, v2Enabled() ? V2_FEATURES.reviewModes[0] : review.reviewMode, practiceMode)
+    review.startSession(batchSize, REVIEW_MODE, practiceMode)
   }
 
   const handlePracticeAnyway = () => {
@@ -240,10 +200,8 @@ export default function VocabularyReviewScreen() {
           {/* Mode badge */}
           <View style={styles.badgeRow}>
             <View style={[styles.modeBadge, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}>
-              <Ionicons name={review.reviewMode === 'blitz' ? 'flash' : 'layers'} size={12} color={colors.textSecondary} />
-              <Text style={[styles.modeBadgeText, { color: colors.textSecondary }]}>
-                {review.reviewMode === 'blitz' ? 'Blitz' : 'Flashcards'}
-              </Text>
+              <Ionicons name="layers" size={12} color={colors.textSecondary} />
+              <Text style={[styles.modeBadgeText, { color: colors.textSecondary }]}>Flashcards</Text>
             </View>
             {practiceMode && (
               <View style={[styles.modeBadge, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary }]}>
@@ -272,7 +230,7 @@ export default function VocabularyReviewScreen() {
                 onSpeak={(t) => toggleTts(t, { lang: language })}
                 onNext={review.nextCard}
               />
-            ) : review.reviewMode === 'classic' ? (
+            ) : (
               <FlashCard
                 card={card}
                 onAnswer={(isCorrect, responseTimeMs, selfAssessment) =>
@@ -280,13 +238,6 @@ export default function VocabularyReviewScreen() {
                 }
                 onSpeak={(t) => toggleTts(t, { lang: language })}
                 onFlip={handleFlip}
-                disabled={review.submitting}
-              />
-            ) : (
-              <MultipleChoiceCard
-                card={card}
-                onAnswer={(isCorrect, responseTimeMs) => handleAnswer(isCorrect, responseTimeMs)}
-                onSpeak={(t) => toggleTts(t, { lang: language })}
                 disabled={review.submitting}
               />
             )}

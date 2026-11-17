@@ -25,9 +25,7 @@
     "submit:closed": "eas submit --platform android --profile closed",
     "submit:production": "eas submit --platform android --profile production",
     "typecheck": "tsc --noEmit",
-    "check:permissions": "node scripts/check-android-permissions.mjs",
-    "build:dyslexic-font": "node scripts/build-dyslexic-font.mjs",
-    "build:reader-fonts": "node scripts/build-reader-fonts.mjs"
+    "check:permissions": "node scripts/check-android-permissions.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

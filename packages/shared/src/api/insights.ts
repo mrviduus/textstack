@@ -66,8 +66,3 @@ function inFlight(key: string, load: () => Promise<BookInsight[]>): Promise<Book
   }
   return p
 }
-
-/** Remove one insight — the reader's own only. No assistant-side counterpart, by design. Legacy only (`V2_FEATURES.insightDelete`). */
-export function deleteBookInsight(id: string): Promise<void> {
-  return authFetch<void>(`/me/insights/${encodeURIComponent(id)}`, { method: 'DELETE' })
-}

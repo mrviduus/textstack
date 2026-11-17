@@ -1,14 +1,9 @@
-import { useState } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
-import { insightsApi, insightChapterLabel, insightDateLabel, v2Offers, type BookInsight } from '@textstack/shared'
-import { useV2 } from '../../context/AuthContext'
+import { View, Text, StyleSheet } from 'react-native'
+import { insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
-import { Ionicons } from '@expo/vector-icons'
 import { fonts } from '../../theme/typography'
 import { Markdown } from '../Markdown'
-import { router } from 'expo-router'
-import { chapterReviewRoute } from '../../lib/chapterReviewLaunch'
 
 /**
  * "What you've worked out" — the conclusions an outside assistant wrote back into
@@ -31,39 +26,12 @@ interface Props {
   /** Fetched once by the screen's `useBookReviews` — the same rows feed the
    *  chapter list's "reviewed" marks, so this section does not fetch its own. */
   insights: BookInsight[]
-  /** Drop a row the reader removed from the screen's state. */
-  onRemoved: (id: string) => void
-  /** Exactly one of these. */
-  userBookId?: string
-  editionId?: string
-  /** A catalog book's slug — the review screen fetches the book by it. */
-  bookSlug?: string
 }
 
-export function BookInsightsSection({ insights, onRemoved, userBookId, editionId, bookSlug }: Props) {
+/** Read-only on V2: no insight delete route, no chapter review screen. */
+export function BookInsightsSection({ insights }: Props) {
   const { colors } = useTheme()
-  // M5 (#1031): no chapter review on V2: no link to one.
-  const reviewOffered = v2Offers(useV2(), 'chapterReview')
-  // No delete route on V2: no remove button.
-  const removable = v2Offers(useV2(), 'insightDelete')
   const { t } = useLanguage()
-  // The id being removed, so the row cannot be double-tapped into two requests.
-  const [removing, setRemoving] = useState<string | null>(null)
-
-  // A conclusion filed against the WRONG chapter is never revisited by the assistant — it only ever
-  // replaces its own row for the chapter it meant. Removing it is the reader's, and only the
-  // reader's: there is no assistant-side delete, by design.
-  const remove = async (id: string) => {
-    setRemoving(id)
-    try {
-      await insightsApi.deleteBookInsight(id)
-      onRemoved(id)
-    } catch {
-      // The row stays, which is the honest outcome — it is still on the server.
-    } finally {
-      setRemoving(null)
-    }
-  }
 
   if (insights.length === 0) return null
 
@@ -85,37 +53,10 @@ export function BookInsightsSection({ insights, onRemoved, userBookId, editionId
             {insightDateLabel(insight) ? (
               <Text style={[styles.date, { color: colors.textSecondary }]}>{insightDateLabel(insight)}</Text>
             ) : null}
-            {removable && <TouchableOpacity
-              onPress={() => remove(insight.id)}
-              disabled={removing === insight.id}
-              accessibilityRole="button"
-              accessibilityLabel={t('library.insights.remove')}
-              // The tap target the text alone would not give it.
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons
-                name="close"
-                size={16}
-                color={removing === insight.id ? colors.border : colors.textSecondary}
-              />
-            </TouchableOpacity>}
           </View>
 
           {insight.question ? (
             <Text style={[styles.question, { color: colors.text }]}>{insight.question}</Text>
-          ) : null}
-
-          {/* A structured review has its own screen; the Markdown below is its fallback. */}
-          {reviewOffered && insight.review && insight.chapterSlug && (userBookId || (editionId && bookSlug)) ? (
-            <TouchableOpacity
-              accessibilityRole="link"
-              onPress={() => router.push(chapterReviewRoute(
-                userBookId ? { userBookId } : { editionId: editionId!, slug: bookSlug! },
-                insight.chapterSlug!,
-              ))}
-            >
-              <Text style={[styles.question, { color: colors.primary }]}>{t('chapterReview.openReview')}</Text>
-            </TouchableOpacity>
           ) : null}
 
           <View style={styles.body}>

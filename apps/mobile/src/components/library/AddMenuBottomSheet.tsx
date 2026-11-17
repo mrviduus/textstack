@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Animated, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { useRouter } from 'expo-router'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
@@ -24,7 +23,6 @@ const SHEET_MAX_HEIGHT = 420
 export function AddMenuBottomSheet({ visible, onClose, onUpload }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
-  const router = useRouter()
   const slide = useRef(new Animated.Value(SHEET_MAX_HEIGHT)).current
 
   useEffect(() => {
@@ -54,13 +52,6 @@ export function AddMenuBottomSheet({ visible, onClose, onUpload }: Props) {
   // email-a-book when the endpoints exist, the extension when the listing does.
   const items: Array<Item | { divider: true; key: string }> = [
     { key: 'upload', icon: 'cloud-upload-outline', labelKey: 'addMenu.uploadFile', onPress: onUpload },
-    { key: 'd1', divider: true },
-    {
-      key: 'browse',
-      icon: 'book-outline',
-      labelKey: 'addMenu.browseAll',
-      onPress: () => router.push('/(tabs)/search'),
-    },
   ]
 
   return (

@@ -5,29 +5,26 @@ import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { isOfflineError, plural } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
-import { loadLibraryTab } from '../../src/lib/catalogApi'
-import { v2Enabled, v2Epoch } from '../../src/lib/v2'
+import { v2Epoch } from '../../src/lib/v2'
 import { logLoadError } from '../../src/lib/logLoadError'
 import {
-  collectionsApi, buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor, OPENED_AT_KEY, parseOpenedAt,
+  buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor, OPENED_AT_KEY, parseOpenedAt,
   type UserLibraryItem, type UserBookDto, type ReadingProgressDto,
 } from '@textstack/shared'
 import { useAuth } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
-import { useCollectionsVersion } from '../../src/hooks/useCollections'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
-import { getAllCachedBooks, getAllCachedUserBooks } from '../../src/lib/offlineDb'
+import { getAllCachedUserBooks } from '../../src/lib/offlineDb'
 import { getAllUserBookLocalProgress, type UserBookProgressWithPercent } from '../../src/lib/progressStorage'
-import { clearDeletedOnServer, listDeletedOnServer, listingSource } from '../../src/lib/deletedOnServer'
+import { clearDeletedOnServer, listDeletedOnServer } from '../../src/lib/deletedOnServer'
 import { markUnlistedLeftovers } from '../../src/lib/localLeftovers'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
-import { LibraryViewSheet, type LibrarySource } from '../../src/components/library/LibraryViewSheet'
+import { LibraryViewSheet } from '../../src/components/library/LibraryViewSheet'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
 import { LibrarySearch } from '../../src/components/library/LibrarySearch'
-import { StorageQuotaRow } from '../../src/components/library/StorageQuotaRow'
 import { DeletedDownloadsRow } from '../../src/components/library/DeletedDownloadsRow'
 import { LibraryStatusTabs } from '../../src/components/library/LibraryStatusTabs'
 import { useLibrarySort } from '../../src/hooks/useLibrarySort'
@@ -41,10 +38,10 @@ import { fonts } from '../../src/theme/typography'
 
 const VIEW_MODE_KEY = 'textstack_library_view'
 
-// Module-level so the identity is stable — a fresh [] each render would
-// invalidate useContinueReadingList's memo on every keystroke.
-const EMPTY_LIBRARY: UserLibraryItem[] = []
-const EMPTY_UPLOADS: UserBookDto[] = []
+// The catalog shelf and its progress: none since the catalog retired (M6). Module-level so the identity is
+// stable — a fresh [] each render would invalidate useContinueReadingList's memo on every keystroke.
+const NO_CATALOG: UserLibraryItem[] = []
+const NO_CATALOG_PROGRESS: Record<string, ReadingProgressDto> = {}
 
 export default function LibraryScreen() {
   const { isAuthenticated } = useAuth()
@@ -52,24 +49,15 @@ export default function LibraryScreen() {
   const { t } = useLanguage()
   const router = useRouter()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [source, setSource] = useState<LibrarySource>('all')
   const [sheetOpen, setSheetOpen] = useState(false)
-  // The sheet's `useCollections` fired `GET /me/library/collections` on every
-  // tab open just by being in the tree. See useSheetMount.
   const sheetMounted = useSheetMount(sheetOpen)
-  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null)
-  const [collectionSavedIds, setCollectionSavedIds] = useState<Set<string> | null>(null)
-  const [collectionUploadIds, setCollectionUploadIds] = useState<Set<string> | null>(null)
-  const collectionsVersion = useCollectionsVersion()
   // One library means one of each control. These used to be duplicated per tab
   // — two sort keys, two status filters, two search boxes — because there were
   // two lists.
   const { sort, setSort } = useLibrarySort('library')
   const { status, setStatus } = useLibraryStatus()
   const { query, debouncedQuery, setQuery, clear: clearQuery } = useLibrarySearch('library')
-  const [library, setLibrary] = useState<UserLibraryItem[]>([])
   const [userBooks, setUserBooks] = useState<UserBookDto[]>([])
-  const [progressMap, setProgressMap] = useState<Record<string, ReadingProgressDto>>({})
   const [loading, setLoading] = useState(true)
   // Bumped when a load marks books deleted, so the deleted-books row re-reads (#1193).
   const [marksVersion, setMarksVersion] = useState(0)
@@ -87,15 +75,7 @@ export default function LibraryScreen() {
   // Set to -1 on unmount so trailing resolutions are dropped (B-10).
   // Must sit above the early returns below — it is a hook, and `loading` /
   // `!isAuthenticated` both bail out before the render body.
-  // The resume card is a lens over the same books, so it obeys the same source
-  // filter. It used to be computed from the unfiltered data and rendered ABOVE
-  // the filter row, so switching to "My uploads" left a catalog book sitting on
-  // top of a list that had just excluded it — the screen contradicting itself.
-  const resumeList = useContinueReadingList(
-    source === 'uploads' ? EMPTY_LIBRARY : library,
-    progressMap,
-    source === 'catalog' ? EMPTY_UPLOADS : userBooks,
-  )
+  const resumeList = useContinueReadingList(NO_CATALOG, NO_CATALOG_PROGRESS, userBooks)
 
   const loadGenRef = useRef(0)
   useEffect(() => () => { loadGenRef.current = -1 }, [])
@@ -106,10 +86,8 @@ export default function LibraryScreen() {
     if (!isAuthenticated) { setLoading(false); return }
     const epoch = v2Epoch()
     try {
-      // The catalog half is none on V2 (refused, #1374); any other catalog failure fails the load, as legacy always did.
-      const [lib, progress, books, v2Before] = await loadLibraryTab()
+      const books = await userBooksApi.getUserBooks()
       if (myGen !== loadGenRef.current) return // superseded or unmounted
-      setLibrary(lib)
       setUserBooks(books)
       setLoadError(null)
       // Listed by the server, so not deleted: a false mark (V2 store reset, legacy fallback) heals on
@@ -120,12 +98,9 @@ export default function LibraryScreen() {
       // And what it lacks is deleted (#1193 item 3), on any network: only copies from the store that
       // listed, never after a V2 reset (#1191) or a superseding load. Bytes stay (#1164).
       const stale = () => v2Epoch() !== epoch || myGen !== loadGenRef.current
-      markUnlistedLeftovers(new Set(books.map(b => b.id)), listingSource(v2Before, v2Enabled()), stale)
+      markUnlistedLeftovers(new Set(books.map(b => b.id)), 'v2', stale)
         .then(ids => { if (ids.length > 0 && !stale()) setMarksVersion(v => v + 1) })
         .catch(e => console.warn('Marking deleted books failed:', e))
-      const map: Record<string, ReadingProgressDto> = {}
-      for (const p of progress) map[p.editionId] = p
-      setProgressMap(map)
     } catch (e) {
       if (myGen !== loadGenRef.current) return
       // The V2 store was reset mid-load (account switch, guest → account): the list is the new
@@ -134,18 +109,12 @@ export default function LibraryScreen() {
       logLoadError('Library load error:', e)
       const offline = isOfflineError(e)
       setLoadError(offline ? 'offline' : 'failed')
-      // Offline: fall back to what is genuinely on the device. A downloaded book
-      // — catalog or upload — carries its title and cover in SQLite, the same
-      // rehydration app/book/[slug].tsx has always done. Books that were saved
-      // but never downloaded are not on the device at all, so the banner still
-      // says the list is partial rather than pretending it is whole.
+      // Offline: fall back to what is genuinely on the device. A downloaded book carries its title and
+      // cover in SQLite; books never downloaded are not on the device at all, so the banner still says
+      // the list is partial rather than pretending it is whole.
       if (offline) {
         try {
-          // Both libraries, from the device. Uploads could not be cached at all
-          // until they became downloadable, so an offline reader's own books —
-          // the ones this product is mostly about — were the half missing here.
-          const [cached, cachedUploads, localProgress, deleted] = await Promise.all([
-            getAllCachedBooks(),
+          const [cachedUploads, localProgress, deleted] = await Promise.all([
             getAllCachedUserBooks(),
             getAllUserBookLocalProgress().catch(() => new Map<string, UserBookProgressWithPercent>()),
             listDeletedOnServer(),
@@ -177,21 +146,6 @@ export default function LibraryScreen() {
             // False whatever the upload was: offline it reads as text (ADR-012).
             hasOriginalPdf: false,
           }))).filter(b => !deleted.has(b.id)))
-          // No catalog shelf on V2 (V2_FEATURES.catalog): the cached catalog books are not listed. The
-          // settled answer (`v2Enabled()`, as the reader route since #1361): an unreached probe is off.
-          if (!v2Enabled()) setLibrary(prev => (prev.length > 0 ? prev : cached.map(c => ({
-            editionId: c.editionId,
-            slug: c.slug,
-            title: c.title,
-            // Not known offline: CachedBookMeta does not store it, and nothing on
-            // this screen reads it. Fabricated to satisfy the type, and wrong the
-            // day a second catalogue language ships — at which point the cache
-            // table needs the column rather than this line needing a better guess.
-            language: 'en',
-            coverPath: c.coverPath,
-            createdAt: new Date(c.cachedAt).toISOString(),
-            author: null,
-          }))))
         } catch { /* cache unavailable — the banner still explains the empty list */ }
       }
     } finally {
@@ -231,27 +185,6 @@ export default function LibraryScreen() {
   /** This device's opens of uploads (the V2 reader marks them): "Recently opened" without a server write. Read on focus. */
   const [openedAt, setOpenedAt] = useState<Record<string, number>>({})
   useFocusEffect(useCallback(() => { AsyncStorage.getItem(OPENED_AT_KEY).then((j) => setOpenedAt(parseOpenedAt(j))).catch(() => {}) }, []))
-
-  useEffect(() => {
-    if (!activeCollectionId) {
-      setCollectionSavedIds(null)
-      setCollectionUploadIds(null)
-      return
-    }
-    let cancelled = false
-    Promise.all([
-      collectionsApi.getCollectionBookIds(activeCollectionId, 'savedbook').catch(() => [] as string[]),
-      collectionsApi.getCollectionBookIds(activeCollectionId, 'userbook').catch(() => [] as string[]),
-    ]).then(([s, u]) => {
-      if (cancelled) return
-      setCollectionSavedIds(new Set(s))
-      setCollectionUploadIds(new Set(u))
-    })
-    return () => { cancelled = true }
-    // collectionsVersion bumps when caches invalidate (e.g. after add-to-
-    // collection) — refetch keeps the active filter in sync without the user
-    // having to leave & re-enter the collection.
-  }, [activeCollectionId, collectionsVersion])
 
   const onRefresh = async () => {
     setRefreshing(true)
@@ -302,7 +235,7 @@ export default function LibraryScreen() {
 
   // Nothing to show AND a reason for it — never the welcome screen. `loadError`
   // is what separates "no books" from "no answer"; conflating them was the bug.
-  if (library.length === 0 && userBooks.length === 0 && loadError) {
+  if (userBooks.length === 0 && loadError) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <EmptyState
@@ -321,7 +254,7 @@ export default function LibraryScreen() {
   // give the user a search box, status tabs, a sort row and a grid toggle for
   // zero books — and a generic "browse the catalog" CTA, which is the wrong
   // first step for a reader who came here to read their own file.
-  if (library.length === 0 && userBooks.length === 0) {
+  if (userBooks.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <FirstBookState />
@@ -330,30 +263,19 @@ export default function LibraryScreen() {
     )
   }
 
-  // One list. Source, status, search and sort are lenses over the same books —
-  // never separate destinations. `buildLibraryEntries` tags each record with the
-  // storage shape it came from so a row can show what only that shape has (an
-  // upload can be mid-parse) without splitting the list in two.
-  const sourceEntries = buildLibraryEntries(library, userBooks, source)
-  const counts = countEntries(sourceEntries, progressMap)
-  const statusFiltered = filterEntries(sourceEntries, status, progressMap)
+  // One list. Status, search and sort are lenses over the same books — never separate destinations.
+  const sourceEntries = buildLibraryEntries(NO_CATALOG, userBooks, 'uploads')
+  const counts = countEntries(sourceEntries, NO_CATALOG_PROGRESS)
+  const statusFiltered = filterEntries(sourceEntries, status, NO_CATALOG_PROGRESS)
   const searched = debouncedQuery
     ? statusFiltered.filter(e => matchesQuery({ title: entryTitle(e), author: entryAuthor(e) }, debouncedQuery))
     : statusFiltered
-  const collectionFiltered = activeCollectionId
-    ? searched.filter(e => (e.kind === 'saved' ? collectionSavedIds : collectionUploadIds)?.has(
-        e.kind === 'saved' ? e.item.editionId : e.book.id,
-      ) ?? false)
-    : searched
-  const entries = sortEntries(collectionFiltered, sort, progressMap, openedAt)
+  const entries = sortEntries(searched, sort, NO_CATALOG_PROGRESS, openedAt)
 
   // Everything above the first book row. Two blocks: search, filters. Continue lives on the rows.
   // It used to be thirteen — roughly 2.4 screens of chrome a reader scrolled
   // past to reach their own books.
-  const sourceFiltered = source !== 'all' || activeCollectionId != null
   const clearAllFilters = () => {
-    setSource('all')
-    setActiveCollectionId(null)
     setStatus('all')
     clearQuery()
   }
@@ -363,9 +285,6 @@ export default function LibraryScreen() {
       {/* Above everything, because it changes how the whole list should be read:
           uploads and saved-but-undownloaded books are not cached at all. */}
       {loadError === 'offline' && <OfflineBanner message={t('library.offline.partial')} />}
-      {/* Silent until the store is nearly full, so it appears exactly when it
-          changes what the reader would do next. The full figure is on Profile. */}
-      <StorageQuotaRow variant="warning" refreshKey={userBooks.length} />
       <LibrarySearch value={query} onChange={setQuery} onClear={clearQuery} />
       <View style={styles.controlRow}>
         <View style={{ flex: 1 }}>
@@ -376,19 +295,9 @@ export default function LibraryScreen() {
           hitSlop={10}
           style={styles.viewBtn}
           accessibilityRole="button"
-          accessibilityLabel={sourceFiltered ? t('library.view.openFiltered') : t('library.view.open')}
+          accessibilityLabel={t('library.view.open')}
         >
-          <Ionicons
-            name="options-outline"
-            size={20}
-            color={sourceFiltered ? colors.primary : colors.text}
-          />
-          {/* The only place the active source was ever shown was inside the
-              sheet — which is closed. Ten books vanishing with no visible cause
-              reads as data loss, not as a filter. */}
-          {sourceFiltered && (
-            <View style={[styles.filterDot, { backgroundColor: colors.primary, borderColor: colors.background }]} />
-          )}
+          <Ionicons name="options-outline" size={20} color={colors.text} />
         </TouchableOpacity>
       </View>
       {/* The count the tabs used to carry, in the one place with room for it.
@@ -415,7 +324,7 @@ export default function LibraryScreen() {
             accessibilityRole="button"
           >
             <Text style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: colors.text }}>
-              {debouncedQuery && !sourceFiltered && status === 'all'
+              {debouncedQuery && status === 'all'
                 ? t('library.search.clear')
                 : t('library.filter.clear')}
             </Text>
@@ -429,10 +338,6 @@ export default function LibraryScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <BookList
         entries={entries}
-        progressMap={progressMap}
-        library={library}
-        setLibrary={setLibrary}
-        setProgressMap={setProgressMap}
         refreshing={refreshing}
         onRefresh={onRefresh}
         viewMode={viewMode}
@@ -443,15 +348,10 @@ export default function LibraryScreen() {
       />
       {sheetMounted && <LibraryViewSheet
         visible={sheetOpen}
-        source={source}
-        counts={{ all: library.length + userBooks.length, uploads: userBooks.length, catalog: library.length }}
         sort={sort}
         viewMode={viewMode}
-        activeCollectionId={activeCollectionId}
-        onSelectSource={setSource}
         onSelectSort={setSort}
         onSelectViewMode={toggleView}
-        onCollectionSelect={setActiveCollectionId}
         onClose={() => setSheetOpen(false)}
       />}
     </View>

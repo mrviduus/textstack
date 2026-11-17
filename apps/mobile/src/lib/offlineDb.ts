@@ -1,31 +1,6 @@
 import { Platform } from 'react-native'
-import type { Chapter, ChapterNav, UserBookChapterDto } from '@textstack/shared'
+import type { ChapterNav, UserBookChapterDto } from '@textstack/shared'
 import { createWriteQueue } from './sessionWrites'
-
-export interface CachedChapter {
-  editionId: string
-  chapterSlug: string
-  /** The server's chapter id. Null on rows cached before 2026-09-28, when the
-   *  column did not exist — highlights, bookmarks, vocabulary and the server
-   *  progress write are all keyed by it, so a row without one can only be read. */
-  chapterId: string | null
-  html: string
-  title: string
-  wordCount: number | null
-  prev: ChapterNav | null
-  next: ChapterNav | null
-  cachedAt: number
-}
-
-export interface CachedBookMeta {
-  editionId: string
-  slug: string
-  title: string
-  coverPath: string | null
-  totalChapters: number
-  cachedChapters: number
-  cachedAt: number
-}
 
 /**
  * The open database, or the in-flight open.
@@ -46,29 +21,11 @@ async function getDb(): Promise<any> {
       // Every statement is CREATE TABLE IF NOT EXISTS and runs on every cold
       // start, so adding a table here is the whole migration for an install
       // that already has the first two. A new *column* is not — see the ALTER
-      // below it.
+      // below it. The catalog's `chapters` / `cached_books` retired at M6: dropped
+      // on the next start, so a downloaded classic gives its space back.
       await opened.execAsync(`
-        CREATE TABLE IF NOT EXISTS chapters (
-          edition_id TEXT NOT NULL,
-          chapter_slug TEXT NOT NULL,
-          chapter_id TEXT,
-          html TEXT NOT NULL,
-          title TEXT NOT NULL,
-          word_count INTEGER,
-          prev_json TEXT,
-          next_json TEXT,
-          cached_at INTEGER NOT NULL,
-          PRIMARY KEY (edition_id, chapter_slug)
-        );
-        CREATE TABLE IF NOT EXISTS cached_books (
-          edition_id TEXT PRIMARY KEY,
-          slug TEXT NOT NULL,
-          title TEXT NOT NULL,
-          cover_path TEXT,
-          total_chapters INTEGER NOT NULL,
-          cached_chapters INTEGER NOT NULL DEFAULT 0,
-          cached_at INTEGER NOT NULL
-        );
+        DROP TABLE IF EXISTS chapters;
+        DROP TABLE IF EXISTS cached_books;
         CREATE TABLE IF NOT EXISTS user_chapters (
           book_id TEXT NOT NULL,
           chapter_slug TEXT NOT NULL,
@@ -98,17 +55,13 @@ async function getDb(): Promise<any> {
           file_id TEXT
         );
       `)
-      // `chapters.chapter_id` is in the CREATE above for a fresh install and
-      // here for every install that already has the table — `CREATE TABLE IF
-      // NOT EXISTS` does nothing for those, and SQLite has no `ADD COLUMN IF
-      // NOT EXISTS`, so the duplicate-column error is the check. Rows written
-      // before the column existed keep a NULL id and stay readable; only the
-      // writes that follow one need it.
+      // A column added after a table shipped: `CREATE TABLE IF NOT EXISTS` does
+      // nothing for an install that already has the table, and SQLite has no
+      // `ADD COLUMN IF NOT EXISTS`, so the duplicate-column error is the check.
       // V2 (#1025): the file version an upload's rows were cached from (null on legacy rows). The
       // key stays (book_id, chapter_slug) — on V2 the slug is the chapter key — and a replaced file
       // drops its book's rows (`dropReplacedUserBookFiles`), so a key can never serve another file's text.
       for (const alter of [
-        'ALTER TABLE chapters ADD COLUMN chapter_id TEXT',
         'ALTER TABLE user_chapters ADD COLUMN file_id TEXT',
         'ALTER TABLE cached_user_books ADD COLUMN file_id TEXT',
       ]) {
@@ -158,206 +111,7 @@ function notifyCachedUserBooksChanged(bookIds: string[]) {
   if (bookIds.length > 0) for (const l of cachedUserBooksListeners) try { l(bookIds) } catch (e) { console.warn('[offlineDb] change listener failed:', e) }
 }
 
-// ============ CHAPTERS ============
-
-export async function getCachedChapter(
-  editionId: string,
-  chapterSlug: string,
-): Promise<CachedChapter | null> {
-  const d = await getDb()
-  if (!d) return null
-  const row = await d.getFirstAsync('SELECT * FROM chapters WHERE edition_id = ? AND chapter_slug = ?', [editionId, chapterSlug]) as {
-    edition_id: string
-    chapter_slug: string
-    chapter_id: string | null
-    html: string
-    title: string
-    word_count: number | null
-    prev_json: string | null
-    next_json: string | null
-    cached_at: number
-  } | null
-
-  if (!row) return null
-  return {
-    editionId: row.edition_id,
-    chapterSlug: row.chapter_slug,
-    chapterId: row.chapter_id ?? null,
-    html: row.html,
-    title: row.title,
-    wordCount: row.word_count,
-    prev: row.prev_json ? JSON.parse(row.prev_json) : null,
-    next: row.next_json ? JSON.parse(row.next_json) : null,
-    cachedAt: row.cached_at,
-  }
-}
-
-export async function cacheChapter(editionId: string, chapter: Chapter): Promise<void> {
-  const d = await getDb()
-  if (!d) return
-  await d.runAsync(
-    `INSERT OR REPLACE INTO chapters (edition_id, chapter_slug, chapter_id, html, title, word_count, prev_json, next_json, cached_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      editionId,
-      chapter.slug,
-      chapter.id || null,
-      chapter.html,
-      chapter.title,
-      chapter.wordCount,
-      chapter.prev ? JSON.stringify(chapter.prev) : null,
-      chapter.next ? JSON.stringify(chapter.next) : null,
-      Date.now(),
-    ],
-  )
-}
-
-/**
- * Update a cached chapter's content in place, leaving `cached_at` alone.
- *
- * An `UPDATE` rather than `INSERT OR REPLACE`, and that is the whole point of
- * having a second function: a refresh must not create a row (only a download
- * decides what this device keeps) and must not restamp `cached_at`, which
- * `listCachedChapters` uses as its ordering key for want of a chapter number.
- * Re-caching with the insert would have sent every chapter the reader visited to
- * the bottom of the offline table of contents.
- */
-export async function refreshCachedChapter(editionId: string, chapter: Chapter): Promise<void> {
-  const d = await getDb()
-  if (!d) return
-  await d.runAsync(
-    `UPDATE chapters
-        SET chapter_id = ?, html = ?, title = ?, word_count = ?, prev_json = ?, next_json = ?
-      WHERE edition_id = ? AND chapter_slug = ?`,
-    [
-      chapter.id || null,
-      chapter.html,
-      chapter.title,
-      chapter.wordCount,
-      chapter.prev ? JSON.stringify(chapter.prev) : null,
-      chapter.next ? JSON.stringify(chapter.next) : null,
-      editionId,
-      chapter.slug,
-    ],
-  )
-}
-
-/**
- * Minimal chapter listing for offline rendering. Cache only stores the
- * fields we had at download time — no chapterNumber, so we sort by
- * cachedAt to roughly preserve reading order (chapters are downloaded in
- * sequence in DownloadContext).
- */
-export interface CachedChapterSummary {
-  /** Null on rows cached before the column existed. */
-  chapterId: string | null
-  slug: string
-  title: string
-  wordCount: number | null
-}
-
-export async function listCachedChapters(editionId: string): Promise<CachedChapterSummary[]> {
-  const d = await getDb()
-  if (!d) return []
-  const rows = await d.getAllAsync(
-    'SELECT chapter_id, chapter_slug, title, word_count FROM chapters WHERE edition_id = ? ORDER BY cached_at ASC',
-    [editionId],
-  ) as { chapter_id: string | null; chapter_slug: string; title: string; word_count: number | null }[]
-  return rows.map(r => ({
-    chapterId: r.chapter_id,
-    slug: r.chapter_slug,
-    title: r.title,
-    wordCount: r.word_count,
-  }))
-}
-
-// ============ BOOK META ============
-
-export async function getCachedBookMeta(editionId: string): Promise<CachedBookMeta | null> {
-  const d = await getDb()
-  if (!d) return null
-  const row = await d.getFirstAsync('SELECT * FROM cached_books WHERE edition_id = ?', [editionId]) as {
-    edition_id: string
-    slug: string
-    title: string
-    cover_path: string | null
-    total_chapters: number
-    cached_chapters: number
-    cached_at: number
-  } | null
-
-  if (!row) return null
-  return {
-    editionId: row.edition_id,
-    slug: row.slug,
-    title: row.title,
-    coverPath: row.cover_path,
-    totalChapters: row.total_chapters,
-    cachedChapters: row.cached_chapters,
-    cachedAt: row.cached_at,
-  }
-}
-
-export async function setCachedBookMeta(meta: CachedBookMeta): Promise<void> {
-  const d = await getDb()
-  if (!d) return
-  await d.runAsync(
-    `INSERT OR REPLACE INTO cached_books (edition_id, slug, title, cover_path, total_chapters, cached_chapters, cached_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [meta.editionId, meta.slug, meta.title, meta.coverPath, meta.totalChapters, meta.cachedChapters, meta.cachedAt],
-  )
-}
-
-export async function updateCachedChapterCount(editionId: string, cachedChapters: number): Promise<void> {
-  const d = await getDb()
-  if (!d) return
-  await d.runAsync('UPDATE cached_books SET cached_chapters = ? WHERE edition_id = ?', [cachedChapters, editionId])
-}
-
-export async function deleteCachedBook(editionId: string): Promise<void> {
-  const d = await getDb()
-  if (!d) return
-  await d.runAsync('DELETE FROM chapters WHERE edition_id = ?', [editionId])
-  await d.runAsync('DELETE FROM cached_books WHERE edition_id = ?', [editionId])
-}
-
-export async function getAllCachedBooks(): Promise<CachedBookMeta[]> {
-  const d = await getDb()
-  if (!d) return []
-  const rows = await d.getAllAsync('SELECT * FROM cached_books ORDER BY cached_at DESC') as {
-    edition_id: string
-    slug: string
-    title: string
-    cover_path: string | null
-    total_chapters: number
-    cached_chapters: number
-    cached_at: number
-  }[]
-
-  return rows.map((row: any) => ({
-    editionId: row.edition_id,
-    slug: row.slug,
-    title: row.title,
-    coverPath: row.cover_path,
-    totalChapters: row.total_chapters,
-    cachedChapters: row.cached_chapters,
-    cachedAt: row.cached_at,
-  }))
-}
-
-export async function isBookFullyCached(editionId: string): Promise<boolean> {
-  const meta = await getCachedBookMeta(editionId)
-  if (!meta) return false
-  return meta.cachedChapters >= meta.totalChapters
-}
-
 // ============ USER-UPLOADED BOOKS ============
-//
-// A parallel pair of tables rather than a `kind` column on the two above. The
-// keys are different things — an edition id is public and shared, a user-book id
-// is private to one account — and the catalog rows carry a slug the reader
-// routes on, which a user book has no use for (its route key IS the id). Mixing
-// them would mean a nullable slug and a discriminator on every query.
 //
 // What is NOT cached: the original PDF of a PDF upload. The Original-layout
 // viewer streams it with Range requests and a Bearer token (ADR-012), which

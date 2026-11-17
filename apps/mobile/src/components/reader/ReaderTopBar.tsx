@@ -17,7 +17,7 @@ type Props = {
   hasChapters: boolean
   isCurrentBookmarked: boolean
   onExit: () => void
-  /** Absent: no bookmarks here (a V2 upload, V2_FEATURES). */
+  /** Absent: no bookmarks here. */
   onBookmarksPress?: () => void
   /** Absent: not offered (the V2 reader, for now). */
   onHighlightsPress?: () => void

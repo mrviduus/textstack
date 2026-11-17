@@ -4,7 +4,7 @@ import { readFileSync } from 'fs'
 import { test, expect, type APIRequestContext } from '@playwright/test'
 
 // @v2 — the Expo app on the V2 sync API (#1025 M2.7), driven as its web build: with Features:V2Api
-// on, the library, the book, the reader's chapter, its resume place and the vocabulary list all go
+// on, the library, the book, its resume place and the vocabulary list all go
 // through /me/v2. Skips when /me/v2/status answers 404 (the flag is off) unless
 // V2_E2E=1. Not run by CI (README §State): run it against a stack with the flag on.
 //
@@ -12,8 +12,8 @@ import { test, expect, type APIRequestContext } from '@playwright/test'
 // - the upload's bytes: the web build has no expo-file-system FileHandle, so the book is uploaded
 //   here through the API by the same protocol; the app's sequencer is `src/lib/v2.test.ts`, and the
 //   device byte path (`readBytes` + fetch) was checked on the Android emulator.
-// - selection and highlights live in the reader WebView, which Playwright cannot drive
-//   (reader-smoke.spec.ts); the V2 mapping is `src/lib/v2Highlights.test.ts`.
+// - selection and highlights live in the reader WebView, which Playwright cannot drive; the V2
+//   reader's page is tested in `src/lib/v2reader/`.
 // - delete confirms through `Alert.alert`, a no-op on react-native-web; the switch is one line
 //   (`userBooksApi.deleteUserBook` → `DELETE /me/v2/books/{id}`).
 //
@@ -99,12 +99,8 @@ test.describe('V2 sync @v2', () => {
     await page.goto(`/my-books/${bookId}`)
     expect((await state).status()).toBe(200)
     await expect(page.getByText('50%').first()).toBeVisible({ timeout: 15_000 })
-    // V2_FEATURES: finish is offered on V2, collections are not (the row they share is on screen).
     await expect(page.getByText('Mark as read')).toBeVisible()
-    await expect(page.getByText('Add to collection')).toHaveCount(0)
-    const nextChapter = page.waitForResponse((r) => r.url().includes(`/me/v2/books/${bookId}/files/${fileId}/chapters/${keys[1]}`) && r.ok())
     await page.getByText('Continue Reading').click()
-    await nextChapter
     await expect(page).toHaveURL(new RegExp(`/my-books/read/${bookId}/${keys[1]}`))
 
     // A word saved on V2 is in the vocabulary list (the list is the V2 feed).

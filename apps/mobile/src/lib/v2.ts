@@ -1,18 +1,18 @@
 /**
- * The mobile app on V2 (`Features:V2Api`, #1025 M2.7): the probe, and the V2 side of the user-book
- * API — library, upload, the transitional chapter reader, reading state — mapped onto the shared
- * legacy shapes, so `userBooksApi` (./userBooksApi) switches per call and no screen changes. The
- * twin of apps/web/src/api/v2.ts; wire calls are `v2Api`, the place and anchor mappings are
- * `@textstack/shared` reader/v2Locators, the book client and the upload sequence are shared too
- * (`createV2Books`, `uploadV2File`, #1121): this file keeps the probe, the DTOs and the device IO.
+ * The mobile app's user-book API on V2 (#1025 M2.7; the only store since M6): the status probe, and
+ * library, upload, the transitional chapter reader, reading state mapped onto the shared shapes
+ * (`userBooksApi`, ./userBooksApi). The twin of apps/web/src/api/v2.ts; wire calls are `v2Api`, the
+ * place and anchor mappings are `@textstack/shared` reader/v2Locators, the book client and the upload
+ * sequence are shared too (`createV2Books`, `uploadV2File`, #1121): this file keeps the probe, the
+ * DTOs and the device IO.
  */
 import { uuid } from 'expo-modules-core'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
 import {
-  v2Api, ApiError, isOfflineError, V2_OFF, v2Offers, placeToV2Locator, createSha256, parsePdfPageLocator,
+  v2Api, ApiError, isOfflineError, V2_OFF, placeToV2Locator, createSha256, parsePdfPageLocator,
   ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, createV2Books, uploadV2File, V2UploadError,
-  type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch, type V2Feature,
+  type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
   type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse, type V2ClientFormat,
 } from '@textstack/shared'
 
@@ -23,28 +23,19 @@ import { createSingleFlight } from './singleFlight'
 import { deleteOriginal } from './originalFileCache'
 import { getUserBookV2State, setUserBookV2State, saveUserBookLocalProgress } from './progressStorage'
 
-// ---- The switch ---------------------------------------------------------------------------------
+// ---- The probe ----------------------------------------------------------------------------------
 
 let probe: Promise<V2Switch> | null = null
 /**
- * THE switch (M5 #1031): the server's last answer for this account. Every V2-or-legacy decision reads it — `v2Enabled`,
- * `onV2`/`switched`, `useV2`, the reader route — so they never disagree. Hydrated from the device before the first
- * route renders (`v2Hydrated`, app/_layout.tsx): an offline cold start or a 503 pause keeps the last answer and its
- * reader; only the server's 200/404 changes it; sign-out and an account change forget it (`forgetV2Answer`).
+ * The server's last status answer for this account (M5 #1031): whether the V2 sync may run now (`onV2`, the
+ * library sync) and the part size an upload takes. Every client call is V2 since M6; this only says whether the
+ * server answered for this session. An offline cold start or a 503 pause keeps the last stored answer; only the
+ * server's 200/404 changes it; sign-out and an account change forget it (`forgetV2Answer`).
  */
 let known: V2Switch = V2_OFF
 /** Bumped by `forgetV2Answer`: a probe started before it answers for the previous account, and is dropped. */
 let generation = 0
-const listeners = new Set<(s: V2Switch) => void>()
-const setKnown = (s: V2Switch) => {
-  known = s
-  for (const l of listeners) l(s)
-}
-/** Called with the switch whenever it changes (hydrated, answered, forgotten): AuthContext's `useV2`. Returns the unsubscribe. */
-export function onV2Change(l: (s: V2Switch) => void): () => void {
-  listeners.add(l)
-  return () => { listeners.delete(l) }
-}
+const setKnown = (s: V2Switch) => { known = s }
 /** `known` is newer than the device's copy (the server answered, or the answer was forgotten): a late read keeps out. */
 let settled = false
 const LAST_ANSWER_KEY = 'v2.lastStatus'
@@ -52,8 +43,8 @@ const hydrate = () => AsyncStorage.getItem(LAST_ANSWER_KEY).then((v) => {
   const s = v ? (JSON.parse(v) as V2Switch) : null
   if (!settled && s && typeof s.enabled === 'boolean') setKnown({ enabled: s.enabled, maxPartBytes: Number(s.maxPartBytes) || 0 })
 }, () => {})
-/** The stored answer is in `known` (a local read, never the network): the root layout waits for it. */
-export let v2Hydrated: Promise<void> = hydrate()
+// The stored answer into `known` (a local read, never the network).
+void hydrate()
 const answer = (s: V2Switch, gen: number) => {
   if (gen !== generation) return known // the previous account's probe
   settled = true
@@ -71,7 +62,7 @@ export function forgetV2Answer() {
   AsyncStorage.removeItem(LAST_ANSWER_KEY).catch(() => {})
 }
 /** Tests only: a new app start reads the stored answer again. */
-export const reloadLastV2AnswerForTests = () => (v2Hydrated = hydrate())
+export const reloadLastV2AnswerForTests = () => hydrate()
 /** The last probe never reached the server: the last answer stands until the network is back, then asked again. */
 let unreached = false
 
@@ -136,35 +127,8 @@ export function reprobeV2AfterReconnect(): Promise<V2Switch> {
   return startV2Probe()
 }
 
-/** The switch now (the stored answer until this start's probe answers): for the synchronous paths, the reader route. */
-export const v2Enabled = () => known.enabled
-/** The whole switch now: AuthContext's first `useV2` value. */
-export const v2Known = () => known
-
-/** Every call site checks one thing: `if (await onV2()) …`. */
+/** Whether the server answered the status probe for this session (the sync's gate): `if (await onV2()) …`. */
 export const onV2 = async () => (await startV2Probe()).enabled
-
-/**
- * M5 (#1031): a feature V2 holds no data for (`V2_FEATURES`) never reaches its legacy route on V2
- * (it answers 410 there): the call fails as that 410 would, before any request. The UI hides the entry too.
- */
-export async function refuseOnV2(feature: V2Feature): Promise<void> {
-  if (!v2Offers(await startV2Probe(), feature)) throw new ApiError(410, `${feature}: not on V2`)
-}
-
-/** `call` behind `refuseOnV2(feature)`. */
-export const refusedOnV2 = <A extends unknown[], R>(feature: V2Feature, call: (...args: A) => Promise<R>) =>
-  async (...args: A): Promise<R> => { await refuseOnV2(feature); return call(...args) }
-
-/** `.catch(nullIfRefused)`: a refused read (`refuseOnV2`) is null; any other failure stays one. */
-export function nullIfRefused(e: unknown): null {
-  if (e instanceof ApiError && e.status === 410) return null
-  throw e
-}
-
-/** A call that is `legacy` with V2 off and `v2` with it on, decided per call (after the probe answers); it takes legacy's arguments. */
-export const switched = <A extends unknown[], V, L>(v2: (...args: NoInfer<A>) => Promise<V> | V, legacy: (...args: A) => Promise<L> | L) =>
-  async (...args: A): Promise<V | L> => ((await onV2()) ? v2(...args) : legacy(...args))
 
 /**
  * Everything this app caches from V2, per signed-in account: `reset()` on sign-out and on an
@@ -196,7 +160,6 @@ export function resetV2ForTests() {
   probe = null
   known = V2_OFF
   generation++
-  listeners.clear()
   settled = false
   unreached = false
   unwatch?.()

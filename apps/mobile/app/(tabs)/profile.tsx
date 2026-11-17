@@ -11,7 +11,7 @@ type IoniconsName = React.ComponentProps<typeof Ionicons>['name']
 // Lazy-loaded — requires native build
 let ImagePicker: typeof import('expo-image-picker') | null = null
 try { ImagePicker = require('expo-image-picker') } catch {}
-import { useAuth, useV2 } from '../../src/context/AuthContext'
+import { useAuth } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useOnline } from '../../src/hooks/useOnline'
@@ -23,9 +23,8 @@ import { deviceV2SignOutLoss } from '../../src/lib/v2reader/deviceLibrary'
 import { getLanguage } from '@textstack/shared'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
 import { VocabReminderSettingsRow } from '../../src/components/profile/VocabReminderSettingsRow'
-import { StorageQuotaRow } from '../../src/components/library/StorageQuotaRow'
 import { DeviceStorageRow } from '../../src/components/library/DeviceStorageRow'
-import { authApi, getStorageUrl, v2Offers } from '@textstack/shared'
+import { authApi, getStorageUrl } from '@textstack/shared'
 import { deleteAccount, freshAccessToken } from '../../src/lib/api'
 import { versionLine, updateLine } from '../../src/lib/buildInfo'
 import { fonts } from '../../src/theme/typography'
@@ -68,7 +67,6 @@ function BuildFooter() {
 }
 
 const MENU_ITEMS = [
-  { label: 'Reading Stats', icon: 'stats-chart-outline' as const, route: '/stats/' },
   { label: 'Highlights', icon: 'color-wand-outline' as const, route: '/highlights/' },
   // The key is account-only, and the screen says so itself rather than being hidden — a guest who
   // never sees the row never learns the capability exists.
@@ -78,8 +76,6 @@ const MENU_ITEMS = [
 
 export default function ProfileScreen() {
   const { user, isAuthenticated, signOut, updateUser, getAccessToken } = useAuth()
-  // M5 (#1031): no reading stats on V2.
-  const statsOffered = v2Offers(useV2(), 'readingStats')
   const { colors, themeMode, setThemeMode } = useTheme()
   const { t } = useLanguage()
   const { nativeLanguage, setNativeLanguage } = useNativeLanguage()
@@ -97,7 +93,7 @@ export default function ProfileScreen() {
   // controls under them, `startEdit` and `pickAvatar`, stayed open to a guest.
   // (Named rather than quoted above: `capabilityLiterals.test.ts` greps source
   // text and cannot tell a comment from a branch. Correct — it stays dumb.)
-  const { isGuest, canUpload, canEditIdentity, canDeleteAccount, canSyncAcrossDevices } = capabilitiesFor(user)
+  const { isGuest, canEditIdentity, canDeleteAccount, canSyncAcrossDevices } = capabilitiesFor(user)
   // A guest gets no name and no face. The generated animal ("Quiet Heron") read
   // as an identity they had been given and could not change; a guest is shown as
   // "Guest", in the card below that replaces the header.
@@ -402,28 +398,13 @@ export default function ProfileScreen() {
       )}
 
       <View style={styles.menu}>
-        {/* Upload space lives here rather than mid-list on Library, where it
-            was an unlabelled bar between the upload button and the search box.
-
-            Still behind `canUpload`, but the reason has inverted. It used to be
-            "don't show a guest 0 B of 50 MB used, it is an allowance they are not
-            permitted to spend". Since 2026-09-06 they are (ADR-014 §3), so the row
-            is now shown to them on purpose: it is their real figure, on the tier
-            that meters their real upload, and hiding it would understate what the
-            app already lets them do.
-
-            The gate is not redundant. `canUpload` is false with no session, and
-            `StorageQuotaRow` fetches `/me/books/quota` on mount — unconditional,
-            this fires a token-less request that can only 401. */}
-        {canUpload && <StorageQuotaRow />}
-
-        {/* The device figure, next to the server one. Not gated on `canUpload`:
+        {/* The device figure. Not gated on a session:
             what is already on this phone is worth showing to anyone who has
             something on it, and the component renders nothing when there is
             nothing — it reads the filesystem, so it cannot 401. */}
         <DeviceStorageRow />
 
-        {MENU_ITEMS.filter(item => statsOffered || item.route !== '/stats/').map(item => (
+        {MENU_ITEMS.map(item => (
           <TouchableOpacity
             key={item.route}
             style={[styles.menuItem, { borderBottomColor: colors.border }]}

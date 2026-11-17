@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { vi } from 'vitest'
 import {
-  GRANTS_TTL_MS, chapterReviewRoute, loadGrantsCached, loadReviewAssistant, resetGrantsCache, saveReviewAssistant,
+  GRANTS_TTL_MS, loadGrantsCached, loadReviewAssistant, resetGrantsCache, saveReviewAssistant,
 } from './chapterReviewLaunch'
 
 beforeEach(() => { (AsyncStorage as unknown as { __reset(): void }).__reset(); resetGrantsCache() })
@@ -14,15 +14,6 @@ describe('chapterReviewLaunch', () => {
     expect(await loadReviewAssistant()).toBe('chatgpt')
     await AsyncStorage.setItem('chapterReview.assistant', 'gemini')
     expect(await loadReviewAssistant()).toBeNull()
-  })
-
-  it('routes an upload by id and a catalog book by edition id + slug', () => {
-    expect(chapterReviewRoute({ userBookId: 'b1' }, 'ch')).toEqual({
-      pathname: '/chapter-review', params: { userBookId: 'b1', chapterSlug: 'ch' },
-    })
-    expect(chapterReviewRoute({ editionId: 'e1', slug: 'dracula' }, 'ch')).toEqual({
-      pathname: '/chapter-review', params: { editionId: 'e1', slug: 'dracula', chapterSlug: 'ch' },
-    })
   })
 
   it('grants: one request shared by every button, refetched after the TTL or a reset', async () => {

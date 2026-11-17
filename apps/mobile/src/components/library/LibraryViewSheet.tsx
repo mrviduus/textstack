@@ -3,11 +3,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
-import { useCollections } from '../../hooks/useCollections'
 import type { LibrarySortKey } from '../../hooks/useLibrarySort'
 import { SORT_KEYS, type ViewMode } from './shared'
-
-export type LibrarySource = 'all' | 'uploads' | 'catalog'
 
 /**
  * Every control that shapes the book list, behind one entry.
@@ -26,15 +23,10 @@ export type LibrarySource = 'all' | 'uploads' | 'catalog'
 
 interface Props {
   visible: boolean
-  source: LibrarySource
-  counts: { all: number; uploads: number; catalog: number }
   sort: LibrarySortKey
   viewMode: ViewMode
-  activeCollectionId: string | null
-  onSelectSource: (next: LibrarySource) => void
   onSelectSort: (next: LibrarySortKey) => void
   onSelectViewMode: (next: ViewMode) => void
-  onCollectionSelect: (id: string | null) => void
   onClose: () => void
 }
 
@@ -43,13 +35,12 @@ function SectionHeading({ children }: { children: string }) {
   return <Text style={[styles.heading, { color: colors.textSecondary }]}>{children.toUpperCase()}</Text>
 }
 
-/** One tappable row with an optional trailing count and a check when active. */
+/** One tappable row with a check when active. */
 function Row({
-  icon, label, count, active, onPress,
+  icon, label, active, onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap
   label: string
-  count?: number
   active: boolean
   onPress: () => void
 }) {
@@ -65,27 +56,16 @@ function Row({
       <Text style={[styles.label, { color: active ? colors.primary : colors.text }]} numberOfLines={1}>
         {label}
       </Text>
-      {count != null && (
-        <Text style={[styles.count, { color: colors.textSecondary }]}>{count}</Text>
-      )}
       {active && <Ionicons name="checkmark" size={18} color={colors.primary} />}
     </TouchableOpacity>
   )
 }
 
 export function LibraryViewSheet({
-  visible, source, counts, sort, viewMode, activeCollectionId,
-  onSelectSource, onSelectSort, onSelectViewMode, onCollectionSelect, onClose,
+  visible, sort, viewMode, onSelectSort, onSelectViewMode, onClose,
 }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
-  const { collections } = useCollections()
-
-  const sources: Array<{ key: LibrarySource; icon: keyof typeof Ionicons.glyphMap; label: string; count: number }> = [
-    { key: 'all', icon: 'book-outline', label: t('library.sidebar.all'), count: counts.all },
-    { key: 'uploads', icon: 'cloud-upload-outline', label: t('library.sidebar.uploads'), count: counts.uploads },
-    { key: 'catalog', icon: 'bookmark-outline', label: t('library.sidebar.catalog'), count: counts.catalog },
-  ]
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -100,18 +80,6 @@ export function LibraryViewSheet({
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
-          <SectionHeading>{t('library.view.source')}</SectionHeading>
-          {sources.map(s => (
-            <Row
-              key={s.key}
-              icon={s.icon}
-              label={s.label}
-              count={s.count}
-              active={source === s.key && !activeCollectionId}
-              onPress={() => { onSelectSource(s.key); onCollectionSelect(null) }}
-            />
-          ))}
-
           <SectionHeading>{t('library.view.sort')}</SectionHeading>
           {SORT_KEYS.map(key => (
             <Row
@@ -126,22 +94,6 @@ export function LibraryViewSheet({
           <SectionHeading>{t('library.view.layout')}</SectionHeading>
           <Row icon="list-outline" label={t('library.view.list')} active={viewMode === 'list'} onPress={() => onSelectViewMode('list')} />
           <Row icon="grid-outline" label={t('library.view.grid')} active={viewMode === 'grid'} onPress={() => onSelectViewMode('grid')} />
-
-          {collections.length > 0 && (
-            <>
-              <SectionHeading>{t('library.sidebar.collections')}</SectionHeading>
-              {collections.map(c => (
-                <Row
-                  key={c.id}
-                  icon="folder-outline"
-                  label={c.name}
-                  count={c.count}
-                  active={activeCollectionId === c.id}
-                  onPress={() => onCollectionSelect(activeCollectionId === c.id ? null : c.id)}
-                />
-              ))}
-            </>
-          )}
         </ScrollView>
       </View>
     </Modal>
@@ -166,5 +118,4 @@ const styles = StyleSheet.create({
   heading: { fontFamily: fonts.sansMedium, fontSize: 11, letterSpacing: 0.6, paddingHorizontal: 12, paddingTop: 14, paddingBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 8 },
   label: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 15 },
-  count: { fontFamily: fonts.sans, fontSize: 13 },
 })

@@ -47,13 +47,9 @@ export function FirstBookState() {
 
   const { canUpload } = capabilitiesFor(user)
 
-  const primary = canUpload
-    ? { label: t('library.firstBook.upload'), icon: 'add' as const, go: () => router.push('/my-books/upload') }
-    : { label: t('library.firstBook.guestBrowse'), icon: 'search' as const, go: () => router.push('/(tabs)/search') }
-
-  const secondary = canUpload
-    ? { label: t('library.firstBook.browse'), go: () => router.push('/(tabs)/search') }
-    : { label: t('library.firstBook.guestUpload'), go: () => router.push('/(auth)/login') }
+  // No session: the upload route mints one (SessionGate). The catalog to browse retired at M6.
+  const primary = { label: t('library.firstBook.upload'), icon: 'add' as const, go: () => router.push('/my-books/upload') }
+  const secondary = canUpload ? null : { label: t('library.firstBook.guestUpload'), go: () => router.push('/(auth)/login') }
 
   return (
     <View style={styles.wrap}>
@@ -72,15 +68,17 @@ export function FirstBookState() {
         <Text style={styles.ctaText}>{primary.label}</Text>
       </PressableScale>
 
-      <PressableScale
-        accessibilityRole="button"
-        onPress={secondary.go}
-        style={styles.secondary}
-      >
-        <Text style={[styles.secondaryText, { color: colors.textSecondary }]}>
-          {secondary.label}
-        </Text>
-      </PressableScale>
+      {secondary && (
+        <PressableScale
+          accessibilityRole="button"
+          onPress={secondary.go}
+          style={styles.secondary}
+        >
+          <Text style={[styles.secondaryText, { color: colors.textSecondary }]}>
+            {secondary.label}
+          </Text>
+        </PressableScale>
+      )}
     </View>
   )
 }

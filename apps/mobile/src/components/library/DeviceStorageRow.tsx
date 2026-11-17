@@ -9,7 +9,7 @@ import { clearTtsCache, measureDeviceStorage, type DeviceStorageReport } from '.
 /**
  * What the app is holding on THIS phone, as opposed to on the server.
  *
- * `StorageQuotaRow` above it answers a different question — how much of the
+ * The server quota answers a different question — how much of the
  * upload allowance is spent — and the two were easy to confuse while only one
  * existed. Downloaded books now take real space on the device, so the device
  * figure needs saying out loud. Kindle and Play Books both show it.

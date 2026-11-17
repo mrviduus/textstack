@@ -37,7 +37,6 @@ function AnimatedTabIcon({ name, size, color, focused }: {
 }
 
 const TAB_ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
-  Discover:   { active: 'compass', inactive: 'compass-outline' },
   Library:    { active: 'library', inactive: 'library-outline' },
   Vocabulary: { active: 'school', inactive: 'school-outline' },
   Profile:    { active: 'person', inactive: 'person-outline' },
@@ -143,15 +142,6 @@ export default function TabLayout() {
           title: t('nav.library'),
           tabBarIcon: ({ focused, color }) => (
             <AnimatedTabIcon name={focused ? TAB_ICONS.Library.active : TAB_ICONS.Library.inactive} size={22} color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="search"
-        options={{
-          title: t('nav.discover'),
-          tabBarIcon: ({ focused, color }) => (
-            <AnimatedTabIcon name={focused ? TAB_ICONS.Discover.active : TAB_ICONS.Discover.inactive} size={22} color={color} focused={focused} />
           ),
         }}
       />

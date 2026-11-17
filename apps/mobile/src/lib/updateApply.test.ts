@@ -11,7 +11,7 @@ describe('shouldApplyUpdate', () => {
   it('waits while the user is reading', () => {
     // The one interruption this product cannot justify. The next check offers
     // the same update again, so waiting costs nothing.
-    expect(shouldApplyUpdate({ ...ready, pathname: '/reader/dracula/chapter-1' })).toBe(false)
+    expect(shouldApplyUpdate({ ...ready, pathname: '/my-books/read/b1/chapter-1' })).toBe(false)
     expect(shouldApplyUpdate({ ...ready, pathname: '/my-books/read/12/ch-3' })).toBe(false)
   })
 
@@ -24,13 +24,12 @@ describe('shouldApplyUpdate', () => {
 
 describe('isReading', () => {
   it('matches a reader route and its children, not its neighbours', () => {
-    expect(isReading('/reader')).toBe(true)
-    expect(isReading('/reader/dracula/ch-1')).toBe(true)
+    expect(isReading('/my-books/read')).toBe(true)
     expect(isReading('/my-books/read/9')).toBe(true)
     // Not reading: the book's detail screen, and a route that merely starts
     // with the same letters.
     expect(isReading('/my-books/9')).toBe(false)
-    expect(isReading('/readers-club')).toBe(false)
+    expect(isReading('/my-books/reader-club')).toBe(false)
     expect(isReading('/library')).toBe(false)
   })
 })
