@@ -3,7 +3,7 @@
 // story per row and bullet: each format reader runs only when its first book opens; EPUB, MOBI, FB2/FBZ (UTF-16 too),
 // AZW3 and a combo (its KF8 half) open and draw; CBZ has no text features and saves and restores its page by name;
 // a fraction-only position (#1187) restores without saving; an HTML clip opens only with the host's format, sanitized; PDF opens, pages, saves and resumes by `pdf-page` and
-// never takes a CFI; a DRM, damaged, entity-declaring or unknown file is refused, leaving the open book reading;
+// never takes a CFI; `describe` reads every format's details and cover beside the open book; a DRM, damaged, entity-declaring or unknown file is refused, leaving the open book reading;
 // a hostile PDF neither runs script nor leaves the file; an older WebView still reads a PDF or says why not.
 // The reader's features (selection, search, highlights, bookmarks, chrome) are not this check's: their modules'
 // unit tests and the web e2e cover them.
@@ -232,6 +232,28 @@ try {
   check((await loaded()).split(',').includes('pdfcmaps'), 'the cMap chunk ran for it')
   const seen = (await violations()).slice(before)
   check(seen.length === 0, `no CSP violation while reading a PDF (${seen.join('; ')})`)
+
+  // #1426: `describe` reads each format's details and cover from a file of its own while a book is open, and never
+  // touches that book; then the book on screen.
+  console.log('describe')
+  const described = async (id, url) => {
+    const at = messages.length
+    await call(`window.__fol.describe(${JSON.stringify(id)}, ${JSON.stringify(url)})`)
+    const d = await waitFor(at, (x) => x.type === 'described' && x.id === id, `${id} described`)
+    return { ...d, disturbed: messages.slice(at).some((x) => ['opened', 'open-failed', 'selection-cleared', 'lightbox'].includes(x.type)) }
+  }
+  const jpeg = (c) => typeof c === 'string' && c.startsWith('data:image/jpeg;base64,') && c.length <= 1.5 * 1024 * 1024
+  for (const [file, title, author, cover] of [['tsformat.epub', 'TS EPUB', 'Ada Writer, Bo Second', true], ['tsformat.mobi', 'TS MOBI', '', false],
+    ['tsformat.fb2', 'TS FB2', 'Test Author', false], ['tsformat.cbz', '', '', true], ['tsformat.pdf', 'TS PDF', null, true]]) {
+    const d = await described(file, bookAt(file))
+    check(!d.error && d.meta?.title === title && (author === null || d.meta.author === author) && (cover ? jpeg(d.cover) : d.cover === null) && !d.disturbed,
+      `${file} is described: "${d.meta?.title}" by "${d.meta?.author}", cover ${d.cover ? `${d.cover.slice(0, 23)}… ${d.cover.length} chars` : 'none'}${d.error ? `, ${d.error}` : ''}`)
+    if (file === 'tsformat.epub') check(d.meta?.lang === 'en' && d.meta.description === 'A small book.', `its language is the primary subtag, its HTML description text (${d.meta?.lang}, ${d.meta?.description})`)
+  }
+  const bad = await described('bad', bookAt('tsplain.txt'))
+  check(bad.meta === null && bad.cover === null && /not a book this reader opens/.test(bad.error) && !bad.disturbed, `a file that is no book is described with an error (${bad.error})`)
+  const onScreen = await described('screen', null)
+  check(!onScreen.error && onScreen.meta?.title === 'TS CJK' && jpeg(onScreen.cover) && !onScreen.disturbed, `without a url the book on screen is described, its first page the cover (${onScreen.meta?.title ?? onScreen.error})`)
 
   // A refusal is decided before the open book is torn down: it keeps reading, saving and its telemetry session.
   console.log('refused')

@@ -238,6 +238,12 @@ async function openHostile(page, evil, dir, file, scope) {
   const opened = await waitFor((m) => m.type === 'opened' || m.type === 'open-failed', 'opened')
   if (opened.type === 'open-failed') throw new Error(`open-failed: ${opened.error}`)
   if (scope) await scopeRows(page, bookUrl(servedName(file)), evil)
+  // #1426: the book's details as `describe` hands them over. The hostile EPUB's description is HTML with script in it:
+  // it must arrive as text (its script, had it run, marks `description-html`, read with every frame below).
+  await bounded(page.evaluate(() => window.__fol.describe('hostile', null)), 'describe')
+  const described = await waitFor((m) => m.type === 'described', 'described')
+  if (!described.meta || /[<>]/.test(described.meta.description)) errors.add(`describe: the description is not plain text (${JSON.stringify(described.meta?.description ?? described.error)})`)
+  if (file === BOOKS.epub && !described.meta?.description.startsWith('Hostile')) errors.add(`describe: the hostile description was not read (${JSON.stringify(described.meta?.description)})`)
 
   const probed = vectors.filter(([, observe]) => observe === 'probe').map(([name]) => name)
   /** Reads every frame into the run; true if one still shows the book. */
