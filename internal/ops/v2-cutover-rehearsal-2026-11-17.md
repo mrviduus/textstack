@@ -121,9 +121,8 @@ through `adb reverse`. App data cleared first. Signed in with email + password, 
 | Legacy mode after the rollback: Library | pass | readiness `mode legacy`, `v2 off`; app restarted: `2 books`, no error |
 
 Observations, not failures:
-- The PDF's book page offers **Start Reading** at 50 % (the EPUB's shows Continue Reading). That matches #1377's
-  Read button rule if the label follows "opened in this app" rather than the percent. Worth a look, not a cutover
-  risk.
+- The PDF's book page offers **Start Reading** at 50 % (the EPUB's shows Continue Reading). Not checked against
+  #1377's Read button rules. Not a cutover risk.
 - The dev client installed on this emulator image (2026-10-30) predates the webview patch (#1228, 2026-11-11). With
   it, the V2 reader showed "The reader failed to load." A dev client built from current `main` fixed it. Any device
-  checked during the cutover must run a build made after #1228. The owner's store build is.
+  checked during the cutover must run a build made after #1228.
