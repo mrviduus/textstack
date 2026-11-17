@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { bookTitle as titleOf, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState } from '@textstack/shared'
+import { bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState, type V2FileDetails } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -27,6 +27,8 @@ import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue 
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { fill } from '../../lib/fill'
 import { readSelection } from '../../lib/v2reader/selection.mjs'
+import { readDescribed } from '../../lib/v2reader/describe.mjs'
+import NetInfo from '@react-native-community/netinfo'
 import {
   BOOK_CLOSED, CLOSE_BOOK_JS, backAction, createHostMoves, hidesBarsOnRelocate, keyAction, readDir, readKey, readLightbox, readRelocate, readTap,
   reopensOnReady, takenWithoutBook,
@@ -175,6 +177,8 @@ const freshNonce = () => nonceFromUuid(uuid.v4())
  * is recognised instead of being paired with this one's file.
  */
 type Opening = { file: string; name: string; format?: string | null }
+/** #1426: how long the page may take to describe the open book (its cover drawn on a canvas). */
+const DESCRIBE_MS = 20_000
 const isStaged = (file: string) => file.startsWith('staging/')
 
 /** The reader route's Back waits this long for the page's `book-closed` (its save in), then leaves anyway. */
@@ -370,6 +374,18 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
+  /** #1426: the page's `describe` answers awaited, by request id. */
+  const described = useRef(new Map<string, (d: V2FileDetails | null) => void>())
+  /** The open book's details and cover from the page, or null (another open since, no answer in time, an error). */
+  const describeOpen = (o: Opening | null) => new Promise<V2FileDetails | null>((done) => {
+    // Calls run in order in the page: with no open started since `o`, the book it reads is `o`'s.
+    if (!o || opening.current !== o || !ready.current) return done(null)
+    const id = uuid.v4()
+    const finish = (d: V2FileDetails | null) => { clearTimeout(timer); described.current.delete(id); done(d) }
+    const timer = setTimeout(() => finish(null), DESCRIBE_MS)
+    described.current.set(id, finish)
+    call(`window.__fol.describe(${JSON.stringify(id)})`)
+  })
 
   /**
    * Discuss this chapter (#1316): the chapter whose end is on screen (`relocate.chapterEnd`, the page's own test),
@@ -1160,6 +1176,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (superseded()) return
     opening.current = { ...current, file: retained }
     sync.current()
+    // #1426: a book uploaded before the page read files gets its details, once; beside the open, never in its way. A book
+    // picked here is not on the server yet: it is filled on an open after it synced.
+    const mine = opening.current
+    if (discussUser.current) NetInfo.fetch().then((n) => { if (n.isConnected) void fillBookMeta(m.book.sha256, () => describeOpen(mine)) }, () => {})
   }
 
   /** An open that ends without a book: dropped with its staged file, the reader told why. */
@@ -1225,6 +1245,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           contentsOnOpen.current = false
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
+        return
+      }
+      case 'described': {
+        const d = readDescribed(m)
+        if (d) described.current.get(d.id)?.(d.meta ? d : null)
         return
       }
       case 'open-failed': {

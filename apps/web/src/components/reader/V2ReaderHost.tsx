@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CHAPTER_TEXT_MS, createDiscussLocks, createV2Discuss, runDiscuss, v2Api, type PagePosition } from '@textstack/shared'
+import { CHAPTER_TEXT_MS, createDiscussLocks, createV2Discuss, fillBookMeta, runDiscuss, v2Api, type PagePosition, type V2FileDetails } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../mobile/src/lib/v2reader/openTracker.mjs'
 import { V2_READER_FRAME_PATH } from '../../../../mobile/src/lib/v2reader/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
 import { readSelection } from '../../../../mobile/src/lib/v2reader/selection.mjs'
+import { readDescribed } from '../../../../mobile/src/lib/v2reader/describe.mjs'
+import { DESCRIBE_MS } from '../../lib/describeBook'
 import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readLightbox, readRelocate, readTap, takenWithoutBook, type V2NavKey } from '../../../../mobile/src/lib/v2reader/chrome.mjs'
 import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
 import { savesWords } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
@@ -207,6 +209,18 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   const authenticated = useRef(isAuthenticated)
   authenticated.current = isAuthenticated
   const endSession = (e: EndedSession | null) => sendSession(e, authenticated.current)
+  /** #1426: the page's `describe` answers awaited, by request id. */
+  const described = useRef(new Map<string, (d: V2FileDetails | null) => void>())
+  /** The open book's details and cover from the page, or null (another open since, no answer in time, an error). */
+  const describeOpen = (o: Opening) => new Promise<V2FileDetails | null>((done) => {
+    // Calls run in order in the page: with no open posted since `o`'s, the book it reads is `o`'s.
+    if (opening.current !== o || !ready.current) return done(null)
+    const id = crypto.randomUUID()
+    const finish = (d: V2FileDetails | null) => { clearTimeout(timer); described.current.delete(id); done(d) }
+    const timer = setTimeout(() => finish(null), DESCRIBE_MS)
+    described.current.set(id, finish)
+    call('describe', [id])
+  })
   const opens = useRef(0)
   const lastBook = useRef<V2HostBook | null>(null)
   const onOpenedRef = useRef(onOpened)
@@ -635,6 +649,8 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
         }
         retryRead.current = read
         read()
+        // #1426: a book uploaded before the page read files gets its details, once; beside the open, never in its way.
+        if (authenticated.current && navigator.onLine) void fillBookMeta(m.book.sha256, () => describeOpen(current))
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
@@ -747,6 +763,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
           if (!r || r.key !== openedSha.current) return
           searchRef.current = searchTake(searchRef.current, r)
           renderSearch(searchRef.current.done)
+          return
+        }
+        case 'described': {
+          const d = readDescribed(m)
+          if (d) described.current.get(d.id)?.(d.meta ? d : null)
           return
         }
         case 'restored':
