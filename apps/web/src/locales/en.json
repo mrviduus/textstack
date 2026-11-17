@@ -36,23 +36,7 @@
       "brandLine": "TextStack — a reader for developers, students, and curious minds.",
       "seoTitle": "TextStack — A reader that helps you finish dense books",
       "seoDescription": "Finish the tech book, paper, or classic you keep quitting. Contextual word explanations tied to the book's domain. Capped weekly SRS, offline reading. EPUB, PDF.",
-      "ctaPrimary": "Start reading",
-      "ctaReturning": "Continue where you left off",
-      "searchPlaceholder": "Search by title, author, or genre...",
       "yourLanguage": "your language"
-    },
-    "stats": {
-      "books": "books",
-      "authors": "authors",
-      "genres": "genres"
-    },
-    "recommended": {
-      "title": "Classic literature",
-      "subtitle": "Free, public-domain books — thousands ready to read.",
-      "viewAll": "View all books"
-    },
-    "continueReading": {
-      "label": "Continue Reading"
     },
     "features": {
       "heading": "Tools that keep you reading",
@@ -176,19 +160,11 @@
     "badgeAction": "Google Play"
   },
   "reader": {
-    "openError": {
-      "message": "This chapter could not be opened",
-      "book": "This book could not be opened",
-      "retry": "Try again",
-      "opening": "Opening…",
-      "stillFailing": "Still could not open it. Check your connection."
-    },
     "wordPopup": {
       "ignore": "Ignore",
       "savedStatus": "Saved to vocabulary",
       "savedAs": "Saved as: {{saved}}",
       "useThisTranslation": "Use this translation",
-      "useTranslationFailed": "Couldn't update the translation — please try again",
       "loading": "...",
       "translatingTo": "Translating to",
       "change": "Change",
@@ -218,22 +194,6 @@
       "copy": "Copy selected text",
       "tooLong": "Too long to listen, translate or explain"
     },
-    "originalLayout": {
-      "loading": "Loading original pages…",
-      "error": "Could not load the original PDF. Switch off \"Original layout\" to keep reading.",
-      "fit": "Fit",
-      "fitWidth": "Fit width",
-      "zoomIn": "Zoom in",
-      "zoomOut": "Zoom out",
-      "goToPage": "Go to page",
-      "dim": "Dim",
-      "dimToggle": "Invert / dim page",
-      "sessionExpired": "Your session expired. Reload to keep reading the original pages.",
-      "reload": "Reload",
-      "cantOpenTitle": "Couldn't open this PDF",
-      "cantOpenBody": "We couldn't display the original file, and there's no extracted text to fall back to. Try re-uploading the book, or re-run processing.",
-      "cantOpenCta": "Back to book"
-    },
     "explanationPopup": {
       "loading": "Thinking…",
       "title": "Explanation",
@@ -254,18 +214,7 @@
       "highlightsTab": "Highlights",
       "highlightsEmpty": "No highlights yet. Select text while reading to highlight it."
     },
-    "finishBook": "Finish book",
-    "bookmarkFailed": "Couldn't save the bookmark. Check your connection and try again.",
-    "image": {
-      "close": "Close image",
-      "zoomIn": "Zoom in",
-      "zoomOut": "Zoom out",
-      "reset": "Reset zoom"
-    },
-    "idbUnavailable": "Can't save offline here. Tap to create a free account and keep your words.",
-    "vocab": {
-      "tapAgainToStudy": "Tap again to study ({{n}} left)"
-    }
+    "idbUnavailable": "Can't save offline here. Tap to create a free account and keep your words."
   },
   "auth": {
     "progressSavedToast": "Your reading progress and saved words were kept."
@@ -343,30 +292,15 @@
     "errorNotSignedIn": "Please sign in first."
   },
   "nav": {
-    "search": "Search",
     "highlights": "Highlights",
     "brandTitle": "TextStack Reader - Learn languages through reading",
-    "genres": "Genres",
-    "aboutTextStack": "About TextStack Reader",
-    "discoverMenu": {
-      "trendingGenres": "Trending Genres",
-      "quickLinks": "Quick Links",
-      "latestAuthors": "Latest Authors",
-      "allBooks": "All Books",
-      "topFreeBooks": "Top Free Books",
-      "allGenres": "All genres",
-      "browseAuthors": "Browse Latest Books",
-      "browseAuthorsDesc": "Read classic literature with built-in translation and vocabulary tools."
-    }
+    "aboutTextStack": "About TextStack Reader"
   },
   "footer": {
     "description": "TextStack Reader is a language learning platform built around reading. Read classic literature, build vocabulary with spaced repetition, track your progress, and grow your fluency — all in a calm, distraction-free environment.",
     "dmca": "DMCA",
     "deleteAccount": "Delete Account",
-    "authors": "Authors",
-    "sitemap": "Sitemap",
     "changelog": "What's new",
-    "colRead": "Read",
     "colApp": "App",
     "colProject": "Project",
     "colLegal": "Legal",
@@ -374,20 +308,6 @@
     "ai": "AI assistants",
     "about": "About",
     "developers": "Developers"
-  },
-  "sitemap": {
-    "title": "Sitemap",
-    "seoTitle": "Sitemap — All Books, Authors, Genres",
-    "seoDesc": "Browse the full TextStack Reader catalogue: every book, author, and genre in one place.",
-    "navigation": "Navigation",
-    "books": "Books",
-    "authors": "Authors",
-    "genres": "Genres",
-    "help": "Help & About",
-    "loading": "Loading sitemap…",
-    "totalBooks": "{count} books",
-    "totalAuthors": "{count} authors",
-    "totalGenres": "{count} genres"
   },
   "mcp": {
     "seoTitle": "Connect TextStack to your AI assistant (MCP)",
@@ -466,11 +386,6 @@
     "seoTitle": "Contact Us - TextStack Reader",
     "seoDesc": "Get in touch with TextStack Reader. We'd love to hear your feedback, questions, or content requests.",
     "responseBody": "TextStack Reader is a passion project maintained by a small team. We read every message and will do our best to respond promptly, but please allow a few days for a reply."
-  },
-  "userBook": {
-    "enriching": "Generating book details…",
-    "enrichFailed": "Couldn't generate details",
-    "enrichRetry": "Retry"
   },
   "speakButton": {
     "title": "Listen",
@@ -583,18 +498,6 @@
         "shortcut": "or press ⌘U from anywhere"
       }
     },
-    "readLater": {
-      "tab": "Read later",
-      "tabBooks": "Books",
-      "unread": "Unread",
-      "min": "min",
-      "processing": "Processing…",
-      "markRead": "Mark as read",
-      "delete": "Delete",
-      "deleteConfirm": "Delete this clip?",
-      "openOriginal": "Open original article",
-      "empty": "Nothing saved yet — install the Send to TextStack extension to clip articles."
-    },
     "badge": {
       "indexing": "Indexing…",
       "indexingHint": "Indexing text for search, contents and chat — you can read the original now."
@@ -607,75 +510,10 @@
     "search": {
       "contentToggle": "Search inside books"
     },
-    "actions": {
-      "addToCollectionEmpty": "Create a collection in the sidebar first"
-    },
-    "editMetadata": {
-      "title": "Edit book metadata",
-      "fieldTitle": "Title",
-      "fieldAuthor": "Author",
-      "fieldLanguage": "Language",
-      "fieldGenre": "Genre",
-      "fieldDescription": "Description",
-      "save": "Save",
-      "saving": "Saving…",
-      "cancel": "Cancel",
-      "errorTitleRequired": "Title is required",
-      "errorTitleTooLong": "Title is too long (max 200)",
-      "errorAuthorTooLong": "Author is too long (max 200)",
-      "errorGenreTooLong": "Genre is too long (max 100)",
-      "errorDescriptionTooLong": "Description is too long (max 2000)"
-    },
-    "tags": {
-      "add": "Tags",
-      "placeholder": "Add tag…",
-      "limit": "Tag limit reached (20)"
-    },
-    "suggestedTags": {
-      "title": "AI-suggested tags",
-      "subtitle": "Pick the ones you want to keep.",
-      "add": "Add selected",
-      "dismiss": "Dismiss",
-      "empty": "No suggestions"
-    },
     "estimate": {
       "left": "{{time}} left",
       "fromYourPace": "Based on your reading pace",
       "fallback": "Based on average reader (200 wpm)"
-    },
-    "statsHeader": {
-      "title": "Your stats",
-      "expand": "Show stats",
-      "collapse": "Hide stats",
-      "pagesThisMonth": "Pages this month",
-      "streak": "Streak",
-      "daysCount": "{{n}} days",
-      "goal": "Goal",
-      "dailyGoal": "Today's goal",
-      "yearlyGoal": "Year's goal",
-      "minSuffix": "min",
-      "booksSuffix": "books",
-      "booksYtd": "Books finished YTD",
-      "empty": {
-        "pages": "Read your first pages",
-        "streak": "Start a streak",
-        "goal": "Set a reading goal →",
-        "books": "Finish your first book"
-      }
-    },
-    "collections": {
-      "new": "New collection"
-    },
-    "bookStats": {
-      "title": "Your stats",
-      "empty": "Start reading to see stats",
-      "readingTime": "Reading time",
-      "sessions": "Sessions",
-      "wordsRead": "Words read",
-      "vocabSaved": "Vocab saved",
-      "highlights": "Highlights",
-      "pace": "Pace",
-      "timeLeft": "Time left"
     },
     "bulk": {
       "select": "Select",
@@ -683,10 +521,7 @@
       "selectedCount": "{n} selected",
       "selectAll": "Select all",
       "markFinished": "Mark finished",
-      "addToCollection": "Add to collection",
-      "addTag": "Add tag",
-      "delete": "Delete",
-      "tagPlaceholder": "Tag name…"
+      "delete": "Delete"
     }
   },
   "upload": {
@@ -725,35 +560,6 @@
       "quotaExceeded": "Your storage is full: {{used}} of {{limit}} used. Remove a book to make room."
     }
   },
-  "books": {
-    "seoDesc": "Read books online for free | TextStack Reader",
-    "sortPopular": "Popular"
-  },
-  "authors": {
-    "seoDesc": "Browse our list of authors | TextStack Reader"
-  },
-  "bookDetail": {
-    "moreByAuthor": "More by this author",
-    "faqFreeAnswer": "Yes, {title} is available to read for free on TextStack Reader.",
-    "faqLanguagesYes": "Yes, {title} is available in {count} language(s) on TextStack Reader.",
-    "faqLanguagesNo": "Currently {title} is only available in {lang} on TextStack Reader."
-  },
-  "stats": {
-    "empty": {
-      "title": "Your reading stats will appear here",
-      "subtitle": "Start reading to track streaks, time, and achievements.",
-      "cta": "Open a book"
-    },
-    "overview": "Overview",
-    "time": "Time",
-    "today": "Today",
-    "words": "words",
-    "concepts": {
-      "title": "Concepts you're learning",
-      "empty": "Save 20+ words across a few topics to see your concept map.",
-      "more": "+{count} more"
-    }
-  },
   "dmca": {
     "seoTitle": "DMCA Takedown Policy - TextStack Reader",
     "seoDesc": "How to submit a DMCA takedown notice for content hosted on TextStack Reader. Full process, requirements, and contact.",
@@ -788,20 +594,9 @@
       "subtitle": "Select text in any book to save a highlight.",
       "cta": "Browse library"
     },
-    "signInPrompt": "Sign in to view your highlights.",
-    "all": "All",
-    "libraryBooks": "Library",
-    "myBooks": "My Books",
     "search": "Search highlights...",
     "note": "Note",
     "highlightCount": "{count} highlights",
-    "reviewButton": "Revisit Highlights",
-    "reviewEmpty": "Nothing new to revisit — each of these comes back a day after you last saw it.",
-    "reviewComplete": "That's the set",
-    "reviewedCount": "You revisited {count} highlights",
-    "nextCard": "Next",
-    "flipCard": "Show details",
-    "backToHighlights": "Back to Highlights",
     "filterByColor": "Filter by color",
     "loadMore": "Load more"
   },
@@ -843,53 +638,13 @@
       "nextDue": "Next due"
     },
     "fromBook": "from {title}",
-    "banner": {
-      "emptyTitle": "Start building your vocabulary",
-      "emptySubtitle": "Save words while reading to practice them here.",
-      "todayTitle": "You've reviewed {n} words today!",
-      "todayStrong": "Great accuracy!",
-      "todayEveryReview": "Every review counts!",
-      "todayMore": "Practice more to strengthen memory.",
-      "dueWaiting": "{n} words waiting for review",
-      "keepStreak": "Keep your streak going!",
-      "readyTitle": "Ready to practice!",
-      "readySubtitle": "Strengthen your vocabulary by reviewing words.",
-      "dayStreak": "day streak"
-    },
     "practice": {
-      "mode": "Mode",
       "length": "Length",
-      "flashcards": "Flashcards",
-      "blitz": "Blitz",
       "wordsUnit": "words"
-    },
-    "chart": {
-      "title": "Practice every day",
-      "reviewed": "Reviewed",
-      "added": "Added"
     },
     "filters": {
       "pending": "Pending",
       "lookups": "Reference"
-    },
-    "pending": {
-      "emptyTitle": "No words waiting",
-      "emptySubtitle": "Words you tap after your daily cap is reached will appear here.",
-      "dailyStatus": "Today: {used}/{cap} new words in SRS",
-      "promote": "Add now",
-      "dismiss": "Dismiss",
-      "promoteFailed": "Could not promote this word. Try again.",
-      "dismissFailed": "Could not remove this word. Try again."
-    },
-    "lookups": {
-      "emptyTitle": "No lookups yet",
-      "emptySubtitle": "Rare words you tap in the reader land here as reference — they never clog your SRS queue.",
-      "intro": "Rare words saved for reference. Tap \"Add to SRS\" to promote any of them into your study queue.",
-      "taps": "{n} taps",
-      "promote": "Add to SRS",
-      "dismiss": "Dismiss",
-      "promoteFailed": "Could not promote this word. Try again.",
-      "dismissFailed": "Could not remove this word. Try again."
     },
     "review": {
       "practiceMode": "Practice Mode",
@@ -917,27 +672,7 @@
       "nextReview": "Next review",
       "wordsReviewed": "words",
       "startAgain": "Start Again"
-    },
-    "stats": {
-      "practicedToday": "Practiced today"
     }
-  },
-  "tutor": {
-    "signIn": {
-      "ctaBrowse": "Browse books"
-    }
-  },
-  "breadcrumbs": {
-    "home": "Home",
-    "books": "Books",
-    "authors": "Authors",
-    "genres": "Genres"
-  },
-  "share": {
-    "share": "Share",
-    "shareOn": "Share on",
-    "copyLink": "Copy link",
-    "linkCopied": "Link copied!"
   },
   "guest": {
     "uploadBook": "Upload your book",

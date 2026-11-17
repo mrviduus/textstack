@@ -6,7 +6,6 @@ import type { StoredHighlight, TextAnchor } from '../offlineDb'
 const db = new Map<string, StoredHighlight>()
 let duringDelete: (() => void) | undefined
 vi.mock('../offlineDb', () => ({
-  getHighlightsForEdition: async () => [],
   getHighlightsForUserBook: async (bookId: string) => [...db.values()].filter((h) => h.userBookId === bookId),
   getAllStoredHighlights: async () => [...db.values()],
   saveHighlight: async (h: StoredHighlight) => { db.set(h.id, h) },
@@ -78,7 +77,7 @@ describe('the V2 highlight sync', () => {
       edited: [{ status: 200, body: annotation('edited', { revision: 5, color: 'blue' }) }],
     })
 
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
 
     const puts = calls.filter((c) => c.method === 'PUT')
     expect(puts.map((c) => [c.path.split('/').pop(), c.body.expectedRevision])).toEqual([['new', null], ['edited', 3]])
@@ -95,7 +94,7 @@ describe('the V2 highlight sync', () => {
       'gone-id': [conflict('not_found', {}, 404)],
     })
 
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
 
     expect(db.get('stale')).toMatchObject({ syncStatus: 'synced', color: 'green', version: 7 })
     expect(db.has('gone-chapter')).toBe(false)
@@ -108,10 +107,10 @@ describe('the V2 highlight sync', () => {
       'GET /me/v2/annotations/changes': feed(annotation('n')),
       'PUT /me/v2/annotations/n': [{ status: 200, body: annotation('n', { revision: 4, noteText: 'note' }) }],
     } as never)
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
     db.set('n', { ...db.get('n')!, noteText: 'note', syncStatus: 'pending' })
 
-    await syncBookHighlights('b1', true, undefined, undefined, true)
+    await syncBookHighlights('b1', undefined, true)
 
     expect(calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ noteText: 'note', fileId: 'f1', locator: annotation('n').locator })
     expect(db.get('n')).toMatchObject({ syncStatus: 'synced', noteText: 'note' })
@@ -120,11 +119,11 @@ describe('the V2 highlight sync', () => {
   it('an edit V2 refuses as invalid_payload reverts to the server copy and is not retried (#1139)', async () => {
     const migrated = annotation('m', { locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: '2-the-woods', prefix: 'before ', exact: 'the quote', suffix: ' after' } } })
     const calls = routes([migrated], { m: [conflict('invalid_payload', {}, 400)] })
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
     db.set('m', { ...db.get('m')!, color: 'blue', syncStatus: 'pending' })
 
-    await syncBookHighlights('b1', true, undefined, undefined, true)
-    await syncBookHighlights('b1', true, undefined, undefined, true)
+    await syncBookHighlights('b1', undefined, true)
+    await syncBookHighlights('b1', undefined, true)
 
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1)
     expect(db.get('m')).toMatchObject({ syncStatus: 'synced', color: 'pink', version: 3 })
@@ -135,7 +134,7 @@ describe('the V2 highlight sync', () => {
     db.set('bad', local('bad', { anchor: bare }))
     const calls = routes([])
 
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
 
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
     expect(db.has('bad')).toBe(false)
@@ -144,10 +143,10 @@ describe('the V2 highlight sync', () => {
 
   it('pushes without pulling the feed again once the book was pulled', async () => {
     const calls = routes([], { h: [{ status: 201, body: annotation('h', { revision: 1 }) }] })
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
     db.set('h', local('h'))
 
-    await syncBookHighlights('b1', true, undefined, undefined, true)
+    await syncBookHighlights('b1', undefined, true)
 
     expect(calls.filter((c) => c.path === '/me/v2/annotations/changes')).toHaveLength(1)
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1)
@@ -167,8 +166,8 @@ describe('a highlight sync that outlives a sign-out (v2Store.reset, #1155)', () 
   })
 
   const pulls = { 'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0], 'GET /me/v2/annotations/changes': feed(annotation('a1'))[0] }
-  const syncUnderReset = (routes: Record<string, Answer>, hold: string, ui?: Parameters<typeof syncBookHighlights>[2]) =>
-    resetMidCall(() => v2Store.reset(), routes, () => syncBookHighlights('b1', true, ui), hold)
+  const syncUnderReset = (routes: Record<string, Answer>, hold: string, ui?: Parameters<typeof syncBookHighlights>[1]) =>
+    resetMidCall(() => v2Store.reset(), routes, () => syncBookHighlights('b1', ui), hold)
   const library = feed(book('b1', 'f1'))[0]
 
   it('keeps no annotations from a feed answered after the reset', async () => {
@@ -185,7 +184,7 @@ describe('a highlight sync that outlives a sign-out (v2Store.reset, #1155)', () 
 
   it('hands the reader no highlights from a feed answered after the reset', async () => {
     const onVisible = vi.fn()
-    await syncUnderReset(pulls, '/annotations/changes', { isCancelled: () => false, onVisible, onReplaced: vi.fn() })
+    await syncUnderReset(pulls, '/annotations/changes', { isCancelled: () => false, onVisible })
     expect(onVisible).not.toHaveBeenCalled()
   })
 
@@ -199,7 +198,7 @@ describe('a highlight sync that outlives a sign-out (v2Store.reset, #1155)', () 
     db.set('r2', local('r2', { syncStatus: 'synced' }))
     asFake({ 'GET /me/v2/library/changes': library, 'GET /me/v2/annotations/changes': feed()[0] })
     duringDelete = () => v2Store.reset()
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
     expect([...db.keys()]).toEqual(['r2'])
   })
 
@@ -212,13 +211,13 @@ describe('a highlight sync that outlives a sign-out (v2Store.reset, #1155)', () 
       'PUT /me/v2/annotations/new': { status: 201, body: annotation('new', { revision: 1 }) },
     })
     duringDelete = () => v2Store.reset()
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
   })
 
   it('keeps the annotations of a feed answered with no reset', async () => {
     asFake(pulls)
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
     expect([...v2Store.annotations.keys()]).toEqual(['a1'])
   })
 
@@ -232,7 +231,7 @@ describe('a highlight sync that outlives a sign-out (v2Store.reset, #1155)', () 
   it('adopts a write answered with no reset', async () => {
     db.set('new', local('new'))
     asFake({ ...pulls, 'PUT /me/v2/annotations/new': { status: 201, body: annotation('new', { revision: 1 }) } })
-    await syncBookHighlights('b1', true)
+    await syncBookHighlights('b1')
     expect(v2Store.annotations.has('new')).toBe(true)
     expect(db.get('new')).toMatchObject({ syncStatus: 'synced' })
   })

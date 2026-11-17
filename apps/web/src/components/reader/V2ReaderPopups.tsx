@@ -5,7 +5,7 @@ import { saveOutcome } from '../../../../mobile/src/lib/v2reader/vocabSave.mjs'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useAuth } from '../../context/AuthContext'
 import { useV2ReaderVocabulary } from '../../hooks/useV2ReaderVocabulary'
-import { promoteLookup, restoreWord } from '../../api/vocabulary'
+import { restoreWord } from '../../api/vocabulary'
 import { emitDataChange } from '../../lib/dataEvents'
 import { normalizeVocabKey } from '../../lib/vocabKey'
 import { Toast } from '../Toast'
@@ -118,8 +118,6 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
   }, [vocabMap])
   const tried = useRef(new Set<string>())
   const [saving, setSaving] = useState<string | null>(null)
-  const [lookup, setLookup] = useState<{ word: string; id: string; kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null } | null>(null)
-  const [addAnywayBusy, setAddAnywayBusy] = useState(false)
   const [deleted, setDeleted] = useState<{ id: string; word: string } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   useEffect(() => {
@@ -144,8 +142,6 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
       if (resp === null) tried.current.delete(key)
       const o = saveOutcome(resp)
       if (o.kind === 'deleted') setDeleted({ id: o.id, word: word.word })
-      else if (o.kind === 'pending') setToast(t('reader.vocab.queuedForTomorrow'))
-      else if (o.kind === 'lookup') setLookup({ word: word.word, id: o.id, kind: o.lookup, tapsRemaining: o.tapsRemaining })
     }, () => { tried.current.delete(key) })
       .finally(() => setSaving((s) => (s === word.word ? null : s)))
   }, [word, bookId, hasConfirmedLanguage, loaded])
@@ -156,21 +152,6 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
   useEffect(() => {
     if (word && shown.translation && !shown.failed && targetLang === openedLang) updateTranslation(word.word, shown.translation)
   }, [word, shown.translation, vocabMap])
-  const addAnyway = async () => {
-    if (!lookup || addAnywayBusy) return
-    setAddAnywayBusy(true)
-    try {
-      const asked = vocab.identity()
-      recordSavedWord(await promoteLookup(lookup.id), asked)
-      setLookup(null)
-      setToast(t('reader.vocab.addedToSrs'))
-      onClose(false)
-    } catch {
-      setToast(t('reader.vocab.addAnywayFailed'))
-    } finally {
-      setAddAnywayBusy(false)
-    }
-  }
   const restore = async () => {
     if (!deleted) return
     setDeleted(null)
@@ -182,7 +163,6 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
       setToast(t('reader.vocab.restoreFailed'))
     }
   }
-  const lookupHere = word && lookup?.word === word.word ? lookup : null
   /** The tapped word's card id (this book's language), for the popup's Remove; none: no Remove. */
   const removable = word ? vocabMap.get(normalizeVocabKey(word.word))?.id : undefined
 
@@ -242,9 +222,6 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
             tried.current.delete(normalizeVocabKey(word.word))
             onClose(false)
           } : undefined}
-          lookupInfo={lookupHere && { kind: lookupHere.kind, tapsRemaining: lookupHere.tapsRemaining }}
-          onAddAnyway={lookupHere ? () => { void addAnyway() } : undefined}
-          addAnywayBusy={addAnywayBusy}
           saveInFlight={saving === word.word}
           nativeLanguage={nativeLanguage}
           onChangeNativeLanguage={setNativeLanguage}

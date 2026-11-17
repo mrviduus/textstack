@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-v2 migrate-v2-down migrate-v2-status migrate-v2-drop etl-v2 migrator-guard backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-v2 migrate-v2-down migrate-v2-status migrate-v2-drop etl-v2 migrator-guard backup restore backup-list backup-verify nginx-setup build rebuild fix-permissions test lint
 
 # ============================================================
 # Docker Services
@@ -97,30 +97,10 @@ etl-v2:
 fix-permissions:
 	@echo "Fixing volume permissions..."
 	@docker run --rm -v $$(pwd)/data:/data alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 sh -c '\
-		mkdir -p /data/library /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset && \
+		mkdir -p /data/library /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache && \
 		chown 1000:1000 /data/library && \
-		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset'
+		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache'
 	@echo "Done."
-
-# Queues a Full rebuild for ssg-worker and follows it to the end (the only rebuild besides admin, #992).
-rebuild-ssg:
-	@./infra/scripts/rebuild-ssg.sh
-
-clean-ssg:
-	rm -rf apps/web/dist/ssg apps/web/dist/ssg-new apps/web/dist/ssg-old
-	@echo "SSG cleaned"
-
-# Popular shelf. Run ON the server (api is bound to 127.0.0.1:8080). Replaces the whole
-# shelf in the given order and queues a Full SSG rebuild. Node builds the JSON (quoting).
-featured:
-	@test -n "$(SLUGS)" || { echo 'usage: make featured SLUGS="nineteen-eighty-four animal-farm ..."'; exit 1; }
-	@node -e 'console.log(JSON.stringify({slugs: process.argv.slice(1)}))' $(SLUGS) | \
-	curl -sS --fail-with-body -X PUT http://127.0.0.1:8080/internal/featured \
-		-H 'Host: textstack.app' -H 'Content-Type: application/json' --data-binary @-; echo
-
-featured-show:
-	@curl -sS --fail-with-body -H 'Host: textstack.app' 'http://127.0.0.1:8080/en/books?sort=popular&limit=100' | \
-	node -e 'let s=""; process.stdin.on("data", d => s += d).on("end", () => { for (const b of JSON.parse(s).items) if (b.featuredRank != null) console.log(b.featuredRank, b.slug) })'
 
 # ============================================================
 # Testing & Linting
@@ -203,78 +183,3 @@ backup-verify:
 	fi; \
 	echo "Verifying $$FILE ..."; \
 	./infra/scripts/backup-verify.sh "$$FILE"
-
-# ============================================================
-# SEO Auto-Publish
-# ============================================================
-
-seo-publish-setup:
-	@mkdir -p ~/.config/systemd/user
-	@cp infra/systemd/seo-publish-poller.service ~/.config/systemd/user/
-	@systemctl --user daemon-reload
-	@systemctl --user enable seo-publish-poller
-	@systemctl --user start seo-publish-poller
-	@loginctl enable-linger $$(whoami)
-	@echo "SEO Auto-Publish poller installed and started."
-
-seo-publish-status:
-	@systemctl --user status seo-publish-poller
-
-seo-publish-logs:
-	@journalctl --user -u seo-publish-poller -f
-
-seo-publish-restart:
-	@systemctl --user restart seo-publish-poller
-
-seo-publish-stop:
-	@systemctl --user stop seo-publish-poller
-
-# ============================================================
-# Book Quality Poller (Phase 1-2 structure fixes + Phase 3 content cleanup)
-# ============================================================
-
-quality-poll-setup:
-	@mkdir -p ~/.config/systemd/user
-	@cp infra/systemd/quality-poller.service ~/.config/systemd/user/
-	@systemctl --user daemon-reload
-	@systemctl --user enable quality-poller
-	@systemctl --user start quality-poller
-	@loginctl enable-linger $$(whoami)
-	@echo "Book Quality poller installed and started."
-
-quality-poll-status:
-	@systemctl --user status quality-poller
-
-quality-poll-logs:
-	@journalctl --user -u quality-poller -f
-
-quality-poll-restart:
-	@systemctl --user restart quality-poller
-
-quality-poll-stop:
-	@systemctl --user stop quality-poller
-
-# ============================================================
-# SEO Backfill (template-driven SEO generation for Authors/Editions/Genres/Blog)
-# ============================================================
-
-seo-backfill-setup:
-	@mkdir -p ~/.config/systemd/user
-	@cp infra/systemd/seo-backfill-poller.service ~/.config/systemd/user/
-	@systemctl --user daemon-reload
-	@systemctl --user enable seo-backfill-poller
-	@systemctl --user start seo-backfill-poller
-	@loginctl enable-linger $$(whoami)
-	@echo "SEO Backfill poller installed and started."
-
-seo-backfill-status:
-	@systemctl --user status seo-backfill-poller
-
-seo-backfill-logs:
-	@journalctl --user -u seo-backfill-poller -f
-
-seo-backfill-restart:
-	@systemctl --user restart seo-backfill-poller
-
-seo-backfill-stop:
-	@systemctl --user stop seo-backfill-poller

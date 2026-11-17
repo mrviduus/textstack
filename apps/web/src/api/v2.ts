@@ -1,15 +1,14 @@
 /**
- * The web app on V2 (`Features:V2Api`, #1025 M2.7): the probe, the session's V2 cache, and the V2
- * side of the user-book API — library, upload, the transitional chapter reader, reading state —
- * mapped onto the legacy shapes the pages already render, so `api/userBooks.ts` switches per call
- * and no consumer changes. Wire calls are `@textstack/shared`'s `v2Api`; the place and anchor
+ * The web app's V2 client (#1025 M2.7): the probe, the session's V2 cache, and the user-book API —
+ * library, upload, the transitional chapter reader, reading state — mapped onto the shapes the
+ * pages render (`api/userBooks.ts` is its front). Wire calls are `@textstack/shared`'s `v2Api`; the place and anchor
  * mappings are shared (`v2Locators`), and so are the book client and the upload sequence
  * (`createV2Books`, `uploadV2File`, #1121); this file caches, maps and gives them its IO.
  */
 import {
-  v2Api, ApiError, V2_OFF, v2Offers, ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
+  v2Api, ApiError, V2_OFF, ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, placeToV2Locator, createV2Books, uploadV2File, V2UploadError, mb,
   type V2Book, type V2FileChapters, type V2Chapter, type V2ReadingState, type V2Annotation, type V2Word,
-  type V2ReadingStateWrite, type V2Switch, type ProgressWrite, type V2Feature,
+  type V2ReadingStateWrite, type V2Switch, type ProgressWrite,
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import { settleV2Session, v2SessionSettled, rearmV2Session } from '../lib/v2Session'
@@ -23,8 +22,8 @@ let known: V2Switch = V2_OFF
 let answered = false
 /**
  * `GET /me/v2/status`, once per app start, started by the session (AuthContext, the moment a user
- * is set): 200 on, 404 (unmapped) / 503 / offline off for this start (sync stays legacy). Only a
- * 401 is asked again with the next session.
+ * is set): 200 on (with the part size uploads use), 404 / 503 / offline off for this start (an
+ * upload asks again). Only a 401 is asked again with the next session.
  */
 export function startV2Probe(): Promise<V2Switch> {
   settleV2Session()
@@ -46,22 +45,8 @@ export async function v2Status(): Promise<V2Switch> {
   return probe ?? V2_OFF
 }
 
-/** The probe's answer once it has settled (off before): for the synchronous paths. */
-export const v2Enabled = () => known.enabled
-
 /** The probe's answer if this start has one, else null (not asked yet, or in flight): the reader route picks at once. */
 export const v2Answer = (): boolean | null => (answered ? known.enabled : null)
-
-/** Every call site checks one thing: `if (await onV2()) …`. */
-export const onV2 = async () => (await v2Status()).enabled
-
-/**
- * M5 (#1031): a feature V2 holds no data for (`V2_FEATURES`) never reaches its legacy route on V2
- * (it answers 410 there): the call fails as that 410 would, before any request. The UI hides the entry too.
- */
-export async function refuseOnV2(feature: V2Feature): Promise<void> {
-  if (!v2Offers(await v2Status(), feature)) throw new ApiError(410, `${feature}: not on V2`)
-}
 
 // ---- The session's V2 cache ---------------------------------------------------------------------
 

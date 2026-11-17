@@ -1,26 +1,15 @@
 import { useState, useCallback, useRef } from 'react'
 import {
   getReviewQueue,
-  startClusterBonus,
   submitReview,
   type ReviewCardDto,
   type SelfAssessment,
   type SubmitReviewResponse,
-  type WeeklyProgressDto,
 } from '../api/vocabulary'
-import { type ReviewMode, V2_FEATURES } from '@textstack/shared'
-import { v2Enabled } from '../api/v2'
+import type { ReviewMode } from '@textstack/shared'
 
-/**
- * The mode a session runs in: the asked one, unless V2 does not offer it (`V2_FEATURES.reviewModes`:
- * flashcards — multiple choice needs distractors). The one place a mode is forced, whatever a link asked.
- */
-export function sessionMode(asked: ReviewMode | undefined): ReviewMode | undefined {
-  const offered: readonly ReviewMode[] | null = v2Enabled() ? V2_FEATURES.reviewModes : null
-  return offered && !(asked && offered.includes(asked)) ? offered[0] : asked
-}
-
-export type { ReviewMode }
+/** Sessions run as flashcards: multiple choice needs server-made distractors, which V2 has none of. */
+const REVIEW_MODE: ReviewMode = 'classic'
 
 interface SessionStats {
   total: number
@@ -37,15 +26,12 @@ export function useVocabularyReview() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [totalDue, setTotalDue] = useState(0)
-  const [weeklyProgress, setWeeklyProgress] = useState<WeeklyProgressDto | null>(null)
   const [sessionStats, setSessionStats] = useState<SessionStats>(EMPTY_STATS)
   const [lastResult, setLastResult] = useState<SubmitReviewResponse | null>(null)
   const [lastAnswerCorrect, setLastAnswerCorrect] = useState(false)
   const [answerRevealed, setAnswerRevealed] = useState(false)
-  const [reviewMode, setReviewMode] = useState<ReviewMode>('blitz')
   const [showingNewWord, setShowingNewWord] = useState(false)
   const [wrongCards, setWrongCards] = useState<ReviewCardDto[]>([])
-  const [activeClusterId, setActiveClusterId] = useState<string | null>(null)
   const [isPractice, setIsPractice] = useState(false)
 
   const resetAnswerState = useCallback(() => {
@@ -61,50 +47,22 @@ export function useVocabularyReview() {
     }
   }, [])
 
-  const startSession = useCallback(async (limit?: number, rMode?: ReviewMode, includeAll?: boolean, practice?: boolean) => {
-    const mode = sessionMode(rMode)
-    if (mode) setReviewMode(mode)
+  const startSession = useCallback(async (limit?: number, practice?: boolean) => {
     const practiceFlag = practice === true
     setIsPractice(practiceFlag)
     setLoading(true)
     setError(null)
     setCurrentIndex(0)
     setWrongCards([])
-    setActiveClusterId(null)
     resetAnswerState()
     try {
-      const queue = await getReviewQueue(limit, includeAll ?? true, practiceFlag)
+      const queue = await getReviewQueue(limit, true)
       setCards(queue.cards)
       setTotalDue(queue.totalDue)
-      setWeeklyProgress(queue.weeklyProgress ?? null)
       setSessionStats({ ...EMPTY_STATS, total: queue.cards.length })
       showNewWordIfNeeded(queue.cards, 0)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load review')
-    } finally {
-      setLoading(false)
-    }
-  }, [resetAnswerState, showNewWordIfNeeded])
-
-  const startClusterSession = useCallback(async (clusterId: string, rMode?: ReviewMode) => {
-    const mode = sessionMode(rMode)
-    if (mode) setReviewMode(mode)
-    setIsPractice(false)
-    setLoading(true)
-    setError(null)
-    setCurrentIndex(0)
-    setWrongCards([])
-    resetAnswerState()
-    try {
-      const bonus = await startClusterBonus(clusterId)
-      setCards(bonus.cards)
-      setTotalDue(bonus.cards.length)
-      setWeeklyProgress(null)
-      setSessionStats({ ...EMPTY_STATS, total: bonus.cards.length })
-      setActiveClusterId(clusterId)
-      showNewWordIfNeeded(bonus.cards, 0)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load bonus')
     } finally {
       setLoading(false)
     }
@@ -136,7 +94,7 @@ export function useVocabularyReview() {
         responseTimeMs,
         selfAssessment,
         isPractice,
-        reviewMode,
+        reviewMode: REVIEW_MODE,
       })
       setLastResult(result)
       setLastAnswerCorrect(isCorrect)
@@ -158,7 +116,7 @@ export function useVocabularyReview() {
     } finally {
       setSubmitting(false)
     }
-  }, [cards, currentIndex, submitting, isPractice, reviewMode])
+  }, [cards, currentIndex, submitting, isPractice])
 
   const nextCard = useCallback(() => {
     const nextIdx = currentIndex + 1
@@ -187,7 +145,6 @@ export function useVocabularyReview() {
     currentCard,
     currentIndex,
     totalDue,
-    weeklyProgress,
     loading,
     submitting,
     error,
@@ -197,17 +154,13 @@ export function useVocabularyReview() {
     answerRevealed,
     isSessionComplete,
     hasCards,
-    reviewMode,
     showingNewWord,
     wrongCards,
-    activeClusterId,
     isPractice,
     startSession,
-    startClusterSession,
     submitAnswer,
     nextCard,
     dismissNewWord,
-    setReviewMode,
     retryWrong,
   }
 }

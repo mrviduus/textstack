@@ -1,38 +1,23 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useDragFileTracker } from '../../hooks/useDragFileTracker'
-import { getStorageQuota, type StorageQuota } from '../../api/userBooks'
 import { ACCEPT_ATTR, partitionFiles } from '../../lib/uploadFileValidation'
 import { emit } from '../../lib/telemetry/myBooksV2'
 import { UploadModal } from './UploadModal'
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}
 
 export function UploadDropZone() {
   const { isAuthenticated } = useAuth()
   const { t } = useTranslation()
   const isMobile = useIsMobile()
   const inputRef = useRef<HTMLInputElement>(null)
-  const [quota, setQuota] = useState<StorageQuota | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [initialFile, setInitialFile] = useState<File | undefined>(undefined)
   const [queue, setQueue] = useState<File[]>([])
 
   // Highlight only — drops are handled by GlobalDropZone
   const { isDragging } = useDragFileTracker({ enabled: true, onDrop: () => {} })
-
-  useEffect(() => {
-    if (!isAuthenticated) return
-    getStorageQuota().then(setQuota).catch(() => {})
-  }, [isAuthenticated])
 
   const handleBrowse = useCallback(() => {
     inputRef.current?.click()
@@ -54,9 +39,7 @@ export function UploadDropZone() {
     setQueue([])
   }, [])
 
-  const subtitle = quota
-    ? `EPUB or PDF — ${formatBytes(quota.usedBytes)} of ${formatBytes(quota.limitBytes)} used`
-    : 'EPUB or PDF'
+  const subtitle = 'EPUB or PDF'
 
   return (
     <>

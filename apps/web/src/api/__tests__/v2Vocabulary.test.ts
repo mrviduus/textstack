@@ -32,19 +32,6 @@ describe('saveWord', () => {
     }
   })
 
-  it('sends the legacy body unchanged when V2 is off', async () => {
-    const calls = fakeApi({ 'GET /me/v2/status': [{ status: 404 }], 'POST /me/vocabulary/words': [{ status: 200, body: { outcome: 'srs', word: null } }] })
-    await startV2Probe()
-
-    await saveWord(queued)
-
-    const post = calls.find((c) => c.method === 'POST')!
-    expect(post.path).toBe('/me/vocabulary/words')
-    expect(post.body).not.toHaveProperty('id')
-    expect(post.body).not.toHaveProperty('operationId')
-    expect(post.body).toMatchObject({ word: 'quiver', userBookId: 'b1', chapterId: '2-the-woods' })
-  })
-
   it('answers deleted with the tombstone, and the restore names its revision', async () => {
     const tombstone = card('w1', { deletedAt: '2026-11-02T00:00:00Z', revision: 4 })
     const calls = fakeApi({

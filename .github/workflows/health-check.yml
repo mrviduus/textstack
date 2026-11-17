@@ -18,7 +18,7 @@ on:
 # Opt JS actions into Node 24 ahead of June 2026 forced cutover.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  # Shared retry policy: a deploy restarts the API container (and rebuilds SSG), so a scheduled
+  # Shared retry policy: a deploy restarts the API container, so a scheduled
   # check landing inside the ~25-min deploy window briefly sees connection-refused / 5xx. These
   # flags ride that out (up to 5 * 15s ≈ 75s) instead of false-alarming. --retry-all-errors retries
   # on any HTTP error, --retry-connrefused on a restarting container.
@@ -56,26 +56,7 @@ jobs:
           curl -sf $CURL_RETRY https://textstack.app/ -o /dev/null
           curl -sf $CURL_RETRY https://textstack.dev/ -o /dev/null
 
-      # Ask a crawler's question. Everything else here — /health, the book
-      # listing, search — passed throughout an incident where every prerendered
-      # page returned 404 to Googlebot, because humans get the SPA and it
-      # renders fine. Twice in two days the SSG was broken and nothing external
-      # noticed; both times it was found by curling with a bot UA by hand.
-      - name: Smoke — a crawler still gets prerendered HTML
-        run: |
-          UA='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
-          URL='https://textstack.app/en/books/dracula/'
-          hdr=$(curl -sf $CURL_RETRY -I -A "$UA" "$URL")
-          body=$(curl -sf $CURL_RETRY -A "$UA" "$URL")
-          size=$(printf '%s' "$body" | wc -c | tr -d ' ')
-          echo "$hdr" | grep -qi 'x-seo-render: ssg' || {
-            echo "crawler was not served SSG:"; echo "$hdr" | grep -i x-seo-render; exit 1; }
-          # A 404 page is ~170 bytes; a real prerendered book page is ~30KB.
-          # The header alone is not enough: it is set from the bot-detection
-          # map, so it says "you look like a bot", not "SSG was served".
-          [ "$size" -gt 5000 ] || { echo "SSG page is only $size bytes — probably a 404"; exit 1; }
-          printf '%s' "$body" | grep -q '<title>' || { echo "no <title> in the prerendered page"; exit 1; }
-      # Read /health/ready once; the schema and SSG steps below parse the same response.
+      # Read /health/ready once; the steps below parse the same response.
       # No -f: a 503 carries the body that says WHICH component is down, and a schema behind
       # the build answers 503 by design (ADR-021). curl still retries a 503 under CURL_RETRY,
       # which rides out a deploy. This step fails only on what neither step below can label:
@@ -185,35 +166,6 @@ jobs:
             echo "::error::FEATURES_V2API is on and the V2 library volume is not writable ($library). On the server: make fix-permissions (#1110)."; exit 1
           fi
 
-      # A failing rebuild is a malfunction, so it alarms at once. Age is not checked: since #992
-      # the SSG tree is frozen and rebuilt only by hand, so an old tree is the normal state.
-      - name: SSG freshness
-        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          ssg=$(jq -c '.components.ssg // empty' "$RUNNER_TEMP/ready.json")
-          # Missing field means the API predates this check, which is the
-          # normal state for the ~40 minutes between merging it and the deploy
-          # finishing. Not an SSG problem, so not an alarm.
-          if [ -z "$ssg" ]; then
-            echo "::warning::readiness probe has no ssg component yet — API not redeployed"
-            exit 0
-          fi
-          echo "$ssg"
-
-          status=$(printf '%s' "$ssg" | jq -r '.status')
-          failed=$(printf '%s' "$ssg" | jq -r '.lastRunFailed // false')
-
-          if [ "$failed" = "true" ]; then
-            echo "::error::The most recent SSG rebuild failed. Pages go stale from here."
-            exit 1
-          fi
-          if [ "$status" = "unknown" ]; then
-            echo "::warning::No completed SSG rebuild on record."
-            exit 0
-          fi
-          echo "SSG last rebuilt $(printf '%s' "$ssg" | jq -r '.ageHours')h ago"
-
       - name: Smoke — book listing
         run: |
           body=$(curl -sf $CURL_RETRY "https://textstack.app/api/books?lang=en&limit=1")
@@ -223,27 +175,6 @@ jobs:
         run: |
           body=$(curl -sf $CURL_RETRY "https://textstack.app/api/search?q=the&lang=en&limit=1")
           echo "$body" | grep -q '"' || { echo "search endpoint returned empty body"; echo "$body"; exit 1; }
-
-      # An author page that 404s to crawlers while working for people is invisible to Google
-      # and invisible to us — it happened in May 2026 and again in August, both times because
-      # `authors.indexable` was false on rows that have a published book, so SSG never
-      # prerendered them and nginx served bots a hard 404. Sampled from the books API because
-      # every public listing is generated from the same filtered query the bug lives in;
-      # a book's author is the one place a missing author still shows up.
-      - name: Smoke — author pages are crawlable
-        run: |
-          BOT='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
-          OFFSET=$(( RANDOM % 1300 ))
-          slugs=$(curl -sf $CURL_RETRY "https://textstack.app/api/books?lang=en&limit=10&offset=$OFFSET" \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);print('\n'.join(sorted({a['slug'] for b in (d['items'] if isinstance(d,dict) else d) for a in b.get('authors',[])})))")
-          [ -n "$slugs" ] || { echo "no author slugs returned at offset $OFFSET"; exit 1; }
-          bad=0
-          for s in $slugs; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' -A "$BOT" "https://textstack.app/en/authors/$s/" </dev/null)
-            [ "$code" = "200" ] || { echo "::error::author page $s returns $code to crawlers but works for people"; bad=$((bad+1)); }
-          done
-          echo "checked $(echo "$slugs" | wc -l | tr -d ' ') author pages from books at offset $OFFSET; $bad not crawlable"
-          [ "$bad" -eq 0 ]
 
       # Last on purpose: it runs even when a step above failed (!cancelled()), while the
       # smokes above default to success(), so placed earlier a TTS outage would skip them.

@@ -22,7 +22,6 @@ vi.mock('../../components/reader/V2ReaderHost', () => ({
   V2ReaderHost: (p: { book: unknown; children?: React.ReactNode }) => { hostProps(p); return <div data-testid="host">{p.children}</div> },
 }))
 vi.mock('../../components/SeoHead', () => ({ SeoHead: () => null }))
-vi.mock('../ReaderPage', () => ({ ReaderPage: () => <div data-testid="legacy" /> }))
 
 import { STALL_GRACE_MS, V2ReaderPage } from '../V2ReaderPage'
 import { DOWNLOAD_STALL_MS } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
@@ -30,7 +29,7 @@ import { DOWNLOAD_STALL_MS } from '../../../../mobile/src/lib/v2reader/deadlines
 const BYTES = new ArrayBuffer(4)
 const FILE = { id: 'f1', originalName: 'walden.epub', hasContent: true, format: 'epub', sha256: 'ab'.repeat(32), byteSize: 4 }
 
-// The app's routes (App.tsx): every reader path is this page; it decides V2 or legacy.
+// The app's routes (App.tsx): every reader path is this page.
 function renderPage(path = '/en/library/my/bk-1/read-v2') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -56,35 +55,24 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('V2ReaderPage', () => {
-  it.each(['/en/library/my/bk-1/read', '/en/library/my/bk-1/read/ch-3', '/en/library/my/bk-1/read-v2'])('v2Off_%s_RendersTheLegacyReader_FetchesNothing', async (path) => {
-    v2Status.mockResolvedValue({ enabled: false, maxPartBytes: 0 })
-    renderPage(path)
-    expect(await screen.findByTestId('legacy')).toBeInTheDocument()
-    expect(v2Book).not.toHaveBeenCalled()
-    expect(fetchV2FileBytes).not.toHaveBeenCalled()
-  })
-
-  it.each(['/en/library/my/bk-1/read', '/en/library/my/bk-1/read/ch-3'])('v2On_%s_TheDefaultRoute_OpensTheBookInTheV2Reader_NotTheLegacy', async (path) => {
+  it.each(['/en/library/my/bk-1/read', '/en/library/my/bk-1/read/ch-3', '/en/library/my/bk-1/read-v2'])('%s_OpensTheBookInTheV2Reader', async (path) => {
     renderPage(path)
     await vi.waitFor(() => expect(fetchV2FileBytes).toHaveBeenCalledWith('bk-1', 'f1', expect.any(Function), expect.any(AbortSignal)))
     expect(screen.getByTestId('host')).toBeInTheDocument()
-    expect(screen.queryByTestId('legacy')).toBeNull()
   })
 
-  // Review #1361: an in-app open after the probe answered picks at once, no blank wait on the session bootstrap.
-  it('probeAlreadyAnsweredOff_TheLegacyReaderAtOnce_WhileAStatusCallIsStillPending', async () => {
-    v2Answer.mockReturnValue(false)
+  // Review #1361: an in-app open after the probe answered opens at once, no blank wait on the session bootstrap.
+  it('probeAlreadyAnswered_OpensAtOnce_WhileAStatusCallIsStillPending', async () => {
+    v2Answer.mockReturnValue(true)
     v2Status.mockReturnValue(new Promise(() => {}))
     renderPage('/en/library/my/bk-1/read')
-    expect(await screen.findByTestId('legacy')).toBeInTheDocument()
-    expect(v2Book).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(v2Book).toHaveBeenCalledWith('bk-1'))
   })
 
   it('beforeTheProbe_RendersNothing', () => {
     v2Status.mockReturnValue(new Promise(() => {}))
     renderPage()
     expect(screen.queryByTestId('host')).toBeNull()
-    expect(screen.queryByTestId('legacy')).toBeNull()
   })
 
   it('v2On_TheCurrentFilesBytes_GoToTheHost_WithItsServerSyncTarget', async () => {

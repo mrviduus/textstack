@@ -4,15 +4,9 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { useLanguage } from '../../context/LanguageContext'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useAuth } from '../../context/AuthContext'
-import { useGuestLimits } from '../../context/GuestLimitsContext'
-import { DEMO_BOOK } from '../../config/demoBook'
-import { MobileSearchOverlay } from '../Search'
-import { LocalizedLink } from '../LocalizedLink'
 import { uploadUserBook } from '../../api/userBooks'
 import { v2UploadMessage } from '../../api/v2'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
-import { useLibraryShelves } from '../../hooks/useLibraryShelves'
-import { ContinueReadingCard } from './ContinueReadingCard'
 import { POPULAR_LANGUAGES, getLanguage } from '@textstack/shared'
 import { getFlagUrl } from '../../data/flags'
 
@@ -20,12 +14,7 @@ export function HeroSection() {
   const { t } = useTranslation()
   const { language } = useLanguage()
   const { isAuthenticated, ensureSession } = useAuth()
-  const { isReturningUser, guestState } = useGuestLimits()
-  const continueReadingBook = useLibraryShelves().shelves?.continueReading[0] ?? null
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
-  const [isMobile, setIsMobile] = useState(false)
-  const [searchOverlayOpen, setSearchOverlayOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [langPickerOpen, setLangPickerOpen] = useState(false)
@@ -35,13 +24,6 @@ export function HeroSection() {
   const nativeLang = getLanguage(nativeLanguage)
   const isCollision = nativeLanguage === language
   const showPulse = !hasConfirmedLanguage || isCollision
-
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 640)
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
 
   // Close lang picker on outside click
   useEffect(() => {
@@ -54,19 +36,6 @@ export function HeroSection() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [langPickerOpen])
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (query.trim()) {
-      navigate(`/${language}/search?q=${encodeURIComponent(query.trim())}`)
-    }
-  }
-
-  const handleInputFocus = () => {
-    if (isMobile) {
-      setSearchOverlayOpen(true)
-    }
-  }
 
   const handleUpload = async (file: File) => {
     if (uploading) return
@@ -96,15 +65,10 @@ export function HeroSection() {
   }
 
   const showGuestCta = !isAuthenticated
-  const demoPath = `/books/${DEMO_BOOK.bookSlug}/${DEMO_BOOK.chapterSlug}`
-  const returningPath = guestState.currentBook
-    ? `/books/${guestState.currentBook.bookSlug}/${guestState.currentBook.chapterSlug}`
-    : demoPath
 
   return (
     <section className="home-hero">
       <div className="home-hero__content">
-        {continueReadingBook && <ContinueReadingCard book={continueReadingBook} />}
         <h1 className="home-hero__title">{t('home.hero.title')}</h1>
         <p className="home-hero__subtitle">
           {t('home.hero.subtitleBefore')}{' '}
@@ -166,12 +130,6 @@ export function HeroSection() {
 
         {showGuestCta && (
           <div className="home-hero__cta-group">
-            <LocalizedLink
-              to={isReturningUser ? returningPath : demoPath}
-              className={`home-hero__cta-primary${!isReturningUser ? ' home-hero__cta-primary--pulse' : ''}`}
-            >
-              {isReturningUser ? t('home.hero.ctaReturning') : t('home.hero.ctaPrimary')}
-            </LocalizedLink>
             {uploading ? (
               <span className="home-hero__cta-secondary" style={{ opacity: 0.7 }}>
                 <span className="material-icons-outlined" style={{ fontSize: 18, marginRight: 4 }}>hourglass_empty</span>
@@ -200,21 +158,7 @@ export function HeroSection() {
           </div>
         )}
 
-        <form className="home-hero__search" onSubmit={handleSearch}>
-          <span className="material-icons-outlined home-hero__search-icon">search</span>
-          <input
-            type="text"
-            className="home-hero__search-input"
-            placeholder={t('home.hero.searchPlaceholder') || 'Search by title, author, or genre...'}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={handleInputFocus}
-            readOnly={isMobile}
-          />
-        </form>
       </div>
-
-      {searchOverlayOpen && <MobileSearchOverlay onClose={() => setSearchOverlayOpen(false)} />}
     </section>
   )
 }

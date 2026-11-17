@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  startV2Probe, v2Status, onV2, resetV2ForTests, uploadV2Book, V2UploadError, saveV2Progress, readV2Progress,
+  startV2Probe, v2Status, resetV2ForTests, uploadV2Book, V2UploadError, saveV2Progress, readV2Progress,
   pullV2Books, getV2UserBooks, getV2UserBook, v2Store, completeV2Book, uncompleteV2Book, v2Chapters, rememberV2State, fetchV2FileBytes,
 } from '../v2'
-import { getUserBook, getUserBooks, saveUserBookProgress, getUserBookFileUrl, getUserBookBookmarks, bulkFinishUserBooks } from '../userBooks'
-import { getWords } from '../vocabulary'
+import { getUserBook, getUserBookFileUrl, bulkFinishUserBooks } from '../userBooks'
 import { fakeApi, asFake, V2_ON, book, file, feed, conflict, state, position, resetMidCall, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
 
 afterEach(() => {
@@ -44,38 +43,9 @@ describe('the V2 probe', () => {
   it('makes a call before the session bootstrap settles wait for the probe instead of answering off', async () => {
     resetV2ForTests() // a fresh app start: the bootstrap has not settled
     fakeApi(V2_ON)
-    const early = onV2()
+    const early = v2Status()
     await startV2Probe()
-    expect(await early).toBe(true)
-  })
-})
-
-describe('with V2 off, each call takes exactly its legacy route', () => {
-  beforeEach(async () => {
-    fakeApi({ 'GET /me/v2/status': [{ status: 404 }] })
-    await startV2Probe()
-  })
-
-  it.each([
-    ['getUserBook', () => getUserBook('b1'), 'GET /me/books/b1'],
-    ['getUserBooks', () => getUserBooks(), 'GET /me/books'],
-    ['getUserBookBookmarks', () => getUserBookBookmarks('b1'), 'GET /me/books/b1/bookmarks'],
-    ['getWords', () => getWords(), 'GET /me/vocabulary/words'],
-  ])('%s', async (_name, call, route) => {
-    const calls = fakeApi({ [route]: [{ status: 200, body: [] }] })
-    await call().catch(() => null)
-    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([route])
-  })
-
-  it('saveUserBookProgress, with the legacy body', async () => {
-    const calls = fakeApi({ 'PUT /me/books/b1/progress': [{ status: 200 }] })
-    const body = { chapterSlug: 'one', locator: 'scroll:one:5', percent: 0.3, percentUnit: 'book', locatorKind: 'scroll', updatedAt: '2026-11-02T00:00:00.000Z' }
-    expect(await saveUserBookProgress('b1', body)).toBeUndefined()
-    expect(calls).toEqual([{ method: 'PUT', path: '/me/books/b1/progress', body }])
-  })
-
-  it('getUserBookFileUrl', () => {
-    expect(getUserBookFileUrl('b1')).toBe('http://localhost:8080/me/books/b1/file')
+    expect((await early).enabled).toBe(true)
   })
 })
 
@@ -145,12 +115,6 @@ describe('the V2 library', () => {
     v2Store.reset()
     fakeApi({ 'GET /me/v2/library/changes': feed() })
     await expect(getV2UserBook('a-book')).rejects.toMatchObject({ status: 404 })
-  })
-
-  it('has no bookmarks for a V2 book, and asks no route for them', async () => {
-    const calls = fakeApi({})
-    expect(await getUserBookBookmarks('b1')).toEqual([])
-    expect(calls).toHaveLength(0)
   })
 })
 

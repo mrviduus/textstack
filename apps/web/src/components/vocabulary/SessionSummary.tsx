@@ -1,10 +1,9 @@
-import { REVIEW_BATCH_SIZES, type ReviewMode } from '@textstack/shared'
+import { REVIEW_BATCH_SIZES } from '@textstack/shared'
 
 interface Props {
   reviewed: number
   correct: number
   elapsedMs: number
-  reviewMode: ReviewMode
   batchSize: number
   wrongCount: number
   t: (key: string) => string
@@ -13,7 +12,6 @@ interface Props {
   onRetryWrong: () => void
   onBatchChange: (size: number) => void
   /** Absent: the session has one mode (V2: flashcards), and no switch is shown. */
-  onModeChange?: (mode: ReviewMode) => void
 }
 
 function getReward(rate: number, t: (k: string) => string) {
@@ -29,8 +27,8 @@ function formatTime(ms: number): string {
 }
 
 export function SessionSummary({
-  reviewed, correct, elapsedMs, reviewMode, batchSize, wrongCount, t,
-  onBack, onAgain, onRetryWrong, onBatchChange, onModeChange,
+  reviewed, correct, elapsedMs, batchSize, wrongCount, t,
+  onBack, onAgain, onRetryWrong, onBatchChange,
 }: Props) {
   const rate = reviewed > 0 ? Math.round((correct / reviewed) * 100) : 0
   const reward = getReward(rate, t)
@@ -53,22 +51,6 @@ export function SessionSummary({
         <span className="review-summary__stat-big">{formatTime(elapsedMs)}</span>
         <span className="review-summary__stat-label">Time</span>
       </div>
-
-      {/* Review style toggle */}
-      {onModeChange && <div className="review-summary__section">
-        <span className="review-summary__section-label">Mode</span>
-        <div className="review-summary__toggle">
-          {(['classic', 'blitz'] as ReviewMode[]).map(m => (
-            <button
-              key={m}
-              className={`review-summary__toggle-item ${reviewMode === m ? 'review-summary__toggle-item--active' : ''}`}
-              onClick={() => onModeChange(m)}
-            >
-              {m === 'blitz' ? 'Blitz' : 'Flashcards'}
-            </button>
-          ))}
-        </div>
-      </div>}
 
       {/* Batch size */}
       <div className="review-summary__section">

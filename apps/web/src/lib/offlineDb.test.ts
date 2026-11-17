@@ -28,17 +28,17 @@ function stubIndexedDb(existingStores: string[]) {
 describe('openOfflineDb upgrade', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('v10 drops the dictionary store and leaves the others alone', async () => {
+  it('v11 drops the retired dictionary and catalog stores and leaves the others alone', async () => {
     const v9 = ['bookmarks', 'chapters', 'cachedBooks', 'highlights', 'translations', 'dictionary', 'tts-audio', 'pendingVocabWords', 'explains']
     const { db, stores, open } = stubIndexedDb(v9)
     const { openOfflineDb } = await import('./offlineDb')
 
     await openOfflineDb()
 
-    expect(open).toHaveBeenCalledWith('textstack-reader', 10)
-    expect(db.deleteObjectStore).toHaveBeenCalledTimes(1)
-    expect(db.deleteObjectStore).toHaveBeenCalledWith('dictionary')
+    const retired = ['chapters', 'cachedBooks', 'dictionary']
+    expect(open).toHaveBeenCalledWith('textstack-reader', 11)
+    expect(db.deleteObjectStore.mock.calls.map(([n]) => n).sort()).toEqual(retired.sort())
     expect(db.createObjectStore).not.toHaveBeenCalled()
-    expect([...stores]).toEqual(v9.filter((s) => s !== 'dictionary'))
+    expect([...stores]).toEqual(v9.filter((s) => !retired.includes(s)))
   })
 })

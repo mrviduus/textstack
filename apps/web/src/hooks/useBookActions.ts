@@ -1,12 +1,5 @@
 import { useCallback, useState } from 'react'
-import {
-  cancelUserBook,
-  deleteUserBook,
-  markUserBookComplete,
-  retryUserBook,
-  unmarkUserBookComplete,
-  type UserBook,
-} from '../api/userBooks'
+import { deleteUserBook, markUserBookComplete, unmarkUserBookComplete, type UserBook } from '../api/userBooks'
 import { emitDataChanges } from '../lib/dataEvents'
 
 interface Options {
@@ -15,11 +8,11 @@ interface Options {
 }
 
 export function useBookActions(book: UserBook, opts: Options = {}) {
-  const [pending, setPending] = useState<null | 'mark' | 'retry' | 'cancel' | 'delete'>(null)
+  const [pending, setPending] = useState<null | 'mark' | 'delete'>(null)
   const [error, setError] = useState<string | null>(null)
 
   const run = useCallback(async (
-    kind: 'mark' | 'retry' | 'cancel' | 'delete',
+    kind: 'mark' | 'delete',
     fn: () => Promise<unknown>,
     after?: () => void,
   ) => {
@@ -51,14 +44,6 @@ export function useBookActions(book: UserBook, opts: Options = {}) {
     return run('mark', () => unmarkUserBookComplete(book.id), opts.onChange)
   }, [book.id, opts.onChange, run])
 
-  const retry = useCallback(() => {
-    return run('retry', () => retryUserBook(book.id), opts.onChange)
-  }, [book.id, opts.onChange, run])
-
-  const cancel = useCallback(() => {
-    return run('cancel', () => cancelUserBook(book.id), opts.onChange)
-  }, [book.id, opts.onChange, run])
-
   const remove = useCallback(() => {
     return run('delete', () => deleteUserBook(book.id), opts.onDelete ?? opts.onChange)
   }, [book.id, opts.onChange, opts.onDelete, run])
@@ -66,8 +51,6 @@ export function useBookActions(book: UserBook, opts: Options = {}) {
   return {
     markFinished,
     markUnfinished,
-    retry,
-    cancel,
     remove,
     pending,
     error,

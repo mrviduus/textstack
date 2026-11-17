@@ -8,12 +8,9 @@ export interface PaletteRoute {
 export const PALETTE_ROUTES: PaletteRoute[] = [
   { id: 'page.home', labelKey: 'palette.pages.home', path: '/', icon: 'home' },
   { id: 'page.library', labelKey: 'palette.pages.library', path: '/library', icon: 'collections_bookmark' },
-  { id: 'page.discover', labelKey: 'palette.pages.discover', path: '/books', icon: 'auto_stories' },
-  { id: 'page.search', labelKey: 'palette.pages.search', path: '/search', icon: 'search' },
   { id: 'page.vocabulary', labelKey: 'palette.pages.vocabulary', path: '/vocabulary', icon: 'spellcheck' },
   { id: 'page.vocabularyReview', labelKey: 'palette.pages.vocabularyReview', path: '/vocabulary/review', icon: 'school' },
   { id: 'page.highlights', labelKey: 'palette.pages.highlights', path: '/highlights', icon: 'bookmark' },
-  { id: 'page.stats', labelKey: 'palette.pages.stats', path: '/stats', icon: 'insights' },
   { id: 'page.about', labelKey: 'palette.pages.about', path: '/about', icon: 'info' },
 ]
 

@@ -1,4 +1,4 @@
-import { lazy, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, isOfflineError, OPENED_AT_KEY, v2Api, withOpened } from '@textstack/shared'
 import { readItem, writeItem } from '../lib/safeLocalStorage'
@@ -11,7 +11,7 @@ import { useTranslation } from '../hooks/useTranslation'
 
 /**
  * `/:lang/library/my/:id/read[/:chapterSlug]` and `/read-v2` (#1225, M5 #1031): a V2 book in the V2 reader page,
- * behind Features:V2Api. With V2 off for this app start (the probe's answer, waited for) it is the legacy reader. Online only: the current file's
+ * the reader once the session is settled (the probe, waited for). Online only: the current file's
  * bytes are fetched per open (with progress) and transferred into the frame. Position and highlights: on the
  * server, through V2ReaderHost's sync (#1226). The load's failures by cause, Retry where it can help (#1227).
  */
@@ -19,10 +19,6 @@ export const PROD_READY_DEADLINE_MS = READY_DEADLINE_NETWORK_MS
 export const STALL_GRACE_MS = 1000
 
 class NoFile extends Error {}
-
-// V2 off: the legacy reader, rendered here (not a redirect: /read itself is this page, M5 #1031). Deleted at M6.
-const loadLegacy = () => import('./ReaderPage')
-const LegacyReaderPage = lazy(() => loadLegacy().then((m) => ({ default: m.ReaderPage })))
 
 type Load = { percent: number | null } | { error: string; retry: boolean } | null
 
@@ -45,8 +41,8 @@ export function V2ReaderPage() {
   const highlightShown = () => dropParam('highlight')
   const { language } = useLanguage()
   const { t } = useTranslation()
-  // The probe's answer at once when this start has one (an in-app open); else waited for (a cold load).
-  const [enabled, setEnabled] = useState<boolean | null>(v2Answer)
+  // The session is settled at once when this start has a probe answer (an in-app open); else waited for (a cold load).
+  const [ready, setReady] = useState(() => v2Answer() !== null)
   const [book, setBook] = useState<V2HostBook | null>(null)
   const [load, setLoad] = useState<Load>(null)
   /** Retry (a failed load, or the host's reload after its bytes went into a frame that never answered). */
@@ -54,14 +50,12 @@ export function V2ReaderPage() {
 
   useEffect(() => {
     let live = true
-    // ponytail: a cold load fetches the legacy chunk beside the probe (no waterfall when V2 is off), wasted when on; goes at M6.
-    if (v2Answer() === null) void loadLegacy().catch(() => {})
-    void v2Status().then((s) => { if (live) setEnabled(s.enabled) })
+    void v2Status().then(() => { if (live) setReady(true) })
     return () => { live = false }
   }, [])
 
   useEffect(() => {
-    if (!enabled) return
+    if (!ready) return
     // Unmount, another book, Retry: the download in flight stops (its bytes would be nobody's).
     const abort = new AbortController()
     let stalled = false
@@ -117,10 +111,9 @@ export function V2ReaderPage() {
       abort.abort()
       clearTimeout(stall)
     }
-  }, [enabled, id, t, attempt])
+  }, [ready, id, t, attempt])
 
-  if (enabled === false) return <LegacyReaderPage mode="userbook" />
-  if (enabled === null) return null
+  if (!ready) return null
   const failed = load && 'error' in load ? load : null
   const idleHeading = failed ? '' : load && 'percent' in load && load.percent !== null ? t('v2Reader.downloading', { percent: load.percent }) : t('v2Reader.loading')
   return (

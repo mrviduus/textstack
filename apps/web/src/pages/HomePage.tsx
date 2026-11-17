@@ -1,8 +1,6 @@
 import { SeoHead } from '../components/SeoHead'
 import { HeroSection } from '../components/home/HeroSection'
-import { StatsBar } from '../components/home/StatsBar'
 import { FeaturesSection } from '../components/home/FeaturesSection'
-import { RecommendedSection } from '../components/home/RecommendedSection'
 import { ComparisonSection } from '../components/home/ComparisonSection'
 import { FaqSection } from '../components/home/FaqSection'
 import { Footer } from '../components/Footer'
@@ -20,9 +18,7 @@ export function HomePage() {
           description={t('home.hero.seoDescription')}
         />
         <HeroSection />
-        <StatsBar />
         <FeaturesSection />
-        <RecommendedSection />
         <ComparisonSection />
         <FaqSection />
       </div>

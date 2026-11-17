@@ -61,23 +61,6 @@ describe('AssistantMenu', () => {
     expect(item(/Discuss the book/)).toBeInTheDocument()
   })
 
-  it('current chapter already reviewed → "Open review" link + discuss the chapter again', async () => {
-    listOAuthGrants.mockResolvedValue([])
-    renderMenu({ current: { ...current, reviewed: true } })
-    await openMenu()
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
-    expect(item(/Open review of current chapter/)).toHaveAttribute('href', '/en/library/my/b1/review/prompts')
-    expect(item(/Discuss current chapter/)).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: /Discuss the book/ })).toBeNull()
-  })
-
-  it('catalog book: the review link uses the slug', async () => {
-    listOAuthGrants.mockResolvedValue([])
-    renderMenu({ book: { title: 'Dracula', editionId: 'e1', slug: 'dracula' }, current: { ...current, reviewed: true } })
-    await openMenu()
-    expect(item(/Open review/)).toHaveAttribute('href', '/en/books/dracula/review/prompts')
-  })
-
   it('old "Open in Claude / ChatGPT" links and the connector hint are gone', async () => {
     listOAuthGrants.mockResolvedValue([])
     renderMenu()

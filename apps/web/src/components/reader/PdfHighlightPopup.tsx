@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
 import { useTranslation } from '../../hooks/useTranslation'
 import { noteChange } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
-import { ReviewedRow } from './ReviewedMarks'
 
 // Dedicated edit popup for an Original-layout PDF highlight (parity with reflow:
 // recolor / delete / note). Deliberately NOT the reflow NoteEditor — that one is
@@ -143,7 +142,6 @@ export function PdfHighlightPopup({
         touchAction: 'none',
       }}
     >
-      <ReviewedRow highlightId={highlight.id} />
       <div className="note-editor__header" style={{ borderLeftColor: SWATCH[highlight.color] }}>
         <span className="note-editor__text-preview">
           {highlight.selectedText.length > 50
