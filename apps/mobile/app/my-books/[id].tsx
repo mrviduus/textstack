@@ -699,8 +699,9 @@ export default function UserBookDetailScreen() {
         )}
 
         {/* Action buttons */}
-        {/* V2 reads the raw file (queued, processing or failed extraction alike) once its bytes are in. */}
-        {(v2Reader ? !!book.hasFile : isReady && book.chapters.length > 0) && (
+        {/* V2 reads the raw file (queued, processing or failed extraction alike) once its bytes are in. Unknown (an
+            offline copy cached before `hasFile`): chapters on the device mean the book was readable. No network. */}
+        {(v2Reader ? (book.hasFile ?? book.chapters.length > 0) : isReady && book.chapters.length > 0) && (
           <View style={styles.actions}>
             <AssistantMenu
               book={{

@@ -58,5 +58,7 @@ export function cachedUserBookDetail(
     updatedAt: cachedAtIso,
     completedAt: null,
     hasOriginalPdf: hasStoredOriginal,
+    // V2 (M5 #1031): a cached V2 file version (`fileId`, persisted) had its bytes in; legacy: unknown (the screen decides).
+    hasFile: meta.fileId ? true : undefined,
   }
 }

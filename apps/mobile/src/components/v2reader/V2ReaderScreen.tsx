@@ -178,10 +178,10 @@ const freshNonce = () => nonceFromUuid(uuid.v4())
 type Opening = { file: string; name: string; format?: string | null }
 const isStaged = (file: string) => file.startsWith('staging/')
 
-/** Logs a failure; `show` also puts it on screen (the screen's `showError`: a full disk as a human message, hostErrors.ts). */
 /** The reader route's Back waits this long for the page's `book-closed` (its save in), then leaves anyway. */
 const LEAVE_FALLBACK_MS = 1500
 
+/** Logs a failure; `show` also puts it on screen (the screen's `showError`: a full disk as a human message, hostErrors.ts). */
 const fail = (what: string, show?: (e: unknown) => void) => (e: unknown) => {
   console.log(`[v2] ${what} failed: ${e}`)
   show?.(e)
@@ -644,10 +644,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const flushPage = useCallback(() => { webView.current?.injectJavaScript(FLUSH_JS) }, [])
   useFlushOnLeave(flushPage)
 
-  /**
-   * Back or the top bar: the list at once (the hidden page takes no tap or key from here), then the book ends
-   * once the page's pending save is in (`CLOSE_BOOK_JS`: `store`, then `book-closed`). No page to flush: at once.
-   */
   // The reader route (`/my-books/read/[bookId]/…`, M5 #1031) names its book `bookId`; the dev route's deep link `book`.
   const params = useLocalSearchParams<{ book?: string; bookId?: string; highlight?: string }>()
   const linkedBook = params.book ?? params.bookId
@@ -663,6 +659,11 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (router.canGoBack()) router.back()
     else router.replace('/')
   }
+  /**
+   * Back or the top bar: the list at once (the hidden page takes no tap or key from here), then the book ends
+   * once the page's pending save is in (`CLOSE_BOOK_JS`: `store`, then `book-closed`). No page to flush: at once.
+   * On the reader route: the same flush, then the route is left (above).
+   */
   const closeBook = () => {
     if (onRoute) {
       if (leaving.current) return
@@ -1583,7 +1584,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           <Pressable onPress={retryLink} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('common.retry')}</Text></Pressable>
         </View>
       )}
-      {openError && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{openError}</Text>}
+      {/* One error per failed deep link: its own (with Retry) over the download's. */}
+      {openError && !linkFailed && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{openError}</Text>}
       {error && <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{error}</Text>}
       {offer && (
         <Pressable onPress={() => { goTo(offer, true); setOffer(null) }} accessibilityRole="button" style={styles.offer}>

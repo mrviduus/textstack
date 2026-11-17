@@ -33,25 +33,39 @@ let probe: Promise<V2Switch> | null = null
  * reader; only the server's 200/404 changes it; sign-out and an account change forget it (`forgetV2Answer`).
  */
 let known: V2Switch = V2_OFF
+/** Bumped by `forgetV2Answer`: a probe started before it answers for the previous account, and is dropped. */
+let generation = 0
+const listeners = new Set<(s: V2Switch) => void>()
+const setKnown = (s: V2Switch) => {
+  known = s
+  for (const l of listeners) l(s)
+}
+/** Called with the switch whenever it changes (hydrated, answered, forgotten): AuthContext's `useV2`. Returns the unsubscribe. */
+export function onV2Change(l: (s: V2Switch) => void): () => void {
+  listeners.add(l)
+  return () => { listeners.delete(l) }
+}
 /** `known` is newer than the device's copy (the server answered, or the answer was forgotten): a late read keeps out. */
 let settled = false
 const LAST_ANSWER_KEY = 'v2.lastStatus'
 const hydrate = () => AsyncStorage.getItem(LAST_ANSWER_KEY).then((v) => {
   const s = v ? (JSON.parse(v) as V2Switch) : null
-  if (!settled && s && typeof s.enabled === 'boolean') known = { enabled: s.enabled, maxPartBytes: Number(s.maxPartBytes) || 0 }
+  if (!settled && s && typeof s.enabled === 'boolean') setKnown({ enabled: s.enabled, maxPartBytes: Number(s.maxPartBytes) || 0 })
 }, () => {})
 /** The stored answer is in `known` (a local read, never the network): the root layout waits for it. */
 export let v2Hydrated: Promise<void> = hydrate()
-const answer = (s: V2Switch) => {
+const answer = (s: V2Switch, gen: number) => {
+  if (gen !== generation) return known // the previous account's probe
   settled = true
-  known = s
+  setKnown(s)
   AsyncStorage.setItem(LAST_ANSWER_KEY, JSON.stringify(s)).catch(() => {})
   return s
 }
 /** Sign-out, an auth failure, another account signing in: the answer was the previous account's. Asked again next. */
 export function forgetV2Answer() {
+  generation++
   settled = true
-  known = V2_OFF
+  setKnown(V2_OFF)
   probe = null
   unreached = false
   AsyncStorage.removeItem(LAST_ANSWER_KEY).catch(() => {})
@@ -70,10 +84,12 @@ let unreached = false
 export function startV2Probe(): Promise<V2Switch> {
   if (probe) return probe
   const seen = onlineEvents
+  const gen = generation
   probe = v2Api.getStatus().then(
-    (s) => answer({ enabled: true, maxPartBytes: s.maxPartBytes }),
+    (s) => answer({ enabled: true, maxPartBytes: s.maxPartBytes }, gen),
     (e) => {
-      if (e instanceof ApiError && e.status === 404) return answer(V2_OFF)
+      if (gen !== generation) return known // the previous account's probe: nothing of it stays
+      if (e instanceof ApiError && e.status === 404) return answer(V2_OFF, gen)
       if (e instanceof ApiError && e.status === 401) probe = null
       // Never reached, or V2 paused (503 `v2_unavailable`): asked again after a reconnect.
       else if ((unreached = isOfflineError(e) || (e instanceof ApiError && e.status === 503))) {
@@ -179,6 +195,8 @@ export const v2Store = {
 export function resetV2ForTests() {
   probe = null
   known = V2_OFF
+  generation++
+  listeners.clear()
   settled = false
   unreached = false
   unwatch?.()
