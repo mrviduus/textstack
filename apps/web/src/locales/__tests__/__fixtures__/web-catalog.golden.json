@@ -391,6 +391,7 @@
   "myBooks.deleted.body": "It was deleted from your account on the server. The downloaded copy is still on this device.",
   "myBooks.deleted.bodyNoCopy": "It was deleted from your account on the server.",
   "myBooks.deleted.removeDownload": "Remove download from this device",
+  "myBooks.upload.formats": "Supported formats: EPUB, MOBI, AZW3, FB2, CBZ, PDF",
   "myBooks.deleted.title": "This book was deleted",
   "nav.about": "About",
   "nav.aboutTextStack": "About TextStack Reader",

@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { resetV2ForTests, reloadLastV2AnswerForTests, forgetV2Answer, onV2, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, type UploadIo } from './v2'
+import { resetV2ForTests, reloadLastV2AnswerForTests, forgetV2Answer, onV2, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, uploadPicked, UPLOAD_PICKER_TYPES, PICKER_TYPES_BY_FORMAT, type UploadIo, type UploadStaging } from './v2'
+import en from '../../../../packages/shared/src/i18n/en.json'
 import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, feed, book, file, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
@@ -339,6 +340,38 @@ describe('mobile v2', () => {
     const put = calls.find((c) => c.method === 'PUT' && c.path.startsWith('/books/'))!
     expect(put.body).toMatchObject({ title: 'My Book', file: { sha256: sha, byteSize: 25, format: 'epub' } })
     expect(calls.at(-1)).toMatchObject({ method: 'POST', body: { partCount: 3 } })
+  })
+
+  it('a picked book is uploaded from its staged copy with what the page read from it; the copy is gone either way (#1426)', async () => {
+    const calls: Call[] = []
+    vi.stubGlobal('fetch', wrapIds(calls))
+    const staged = new Set<string>()
+    const staging: UploadStaging = {
+      copyIn: async () => { staged.add('staging/1.epub'); return { name: 'staging/1.epub', uri: 'file:///v2/staging/1.epub' } },
+      remove: (name) => { staged.delete(name) },
+    }
+    const opened: string[] = []
+    const device: UploadIo = { ...io(), open: (uri) => { opened.push(uri); return io().open(uri) } }
+    const meta = { title: 'Moby-Dick', author: 'Herman Melville', lang: 'en', description: 'A whale.' }
+    const read: string[] = []
+    const describe = async (name: string) => { read.push(name); return { meta, cover: null } }
+
+    await uploadPicked({ uri: 'content://picked', name: 'moby_dick (1).epub' }, 25, device, staging, describe)
+    expect(opened).toEqual(['file:///v2/staging/1.epub'])
+    expect(read).toEqual(['staging/1.epub'])
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ title: 'Moby-Dick', author: 'Herman Melville', language: 'en', description: 'A whale.' })
+    expect(staged.size).toBe(0)
+
+    // A failed upload (the server down on the import) still deletes the copy.
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, text: async () => '' })))
+    await expect(uploadPicked({ uri: 'content://picked', name: 'a.epub' }, 25, device, staging, describe)).rejects.toBeTruthy()
+    expect(staged.size).toBe(0)
+  })
+
+  it('the upload screen offers all six formats, in its picker and its words', () => {
+    expect(Object.keys(PICKER_TYPES_BY_FORMAT).sort()).toEqual(['azw3', 'cbz', 'epub', 'fb2', 'mobi', 'pdf'])
+    for (const types of Object.values(PICKER_TYPES_BY_FORMAT)) for (const t of types) expect(UPLOAD_PICKER_TYPES).toContain(t)
+    for (const f of Object.keys(PICKER_TYPES_BY_FORMAT)) expect(en.myBooks.upload.formats).toContain(f.toUpperCase())
   })
 
   it('sends the bytes to a book imported elsewhere without them', async () => {

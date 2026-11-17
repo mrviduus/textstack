@@ -8,7 +8,34 @@ import { useAuth } from '../../src/context/AuthContext'
 import { useDownload } from '../../src/context/DownloadContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { SessionGate } from '../../src/components/SessionGate'
-import { startV2Probe, uploadV2Book, deviceUploadIo } from '../../src/lib/v2'
+import { startV2Probe, uploadPicked, deviceUploadIo, UPLOAD_PICKER_TYPES, type UploadStaging } from '../../src/lib/v2'
+import { makeV2Dirs, v2Root } from '../../src/lib/v2reader/deviceLibrary'
+import { useV2Describer } from '../../src/components/v2reader/V2Describer'
+import { useLanguage } from '../../src/context/LanguageContext'
+
+/**
+ * #1426: the pick copied straight from the picker's URI (no cache copy) into the reader's `staging/`, the one place
+ * the reader page reads a file from (bookOrigin.mjs); a failed copy (a full disk) leaves no partial file behind.
+ */
+const deviceStaging: UploadStaging = {
+  async copyIn(uri) {
+    makeV2Dirs()
+    const name = `staging/${Date.now()}.epub`
+    const dest = new File(v2Root(), ...name.split('/'))
+    try {
+      // expo-file-system copies a SAF/content:// source to a local file (as the reader's pick does).
+      await new File(uri).copy(dest)
+    } catch (e) {
+      try { if (dest.exists) dest.delete() } catch {}
+      throw e
+    }
+    return { name, uri: dest.uri }
+  },
+  remove(name) {
+    const file = new File(v2Root(), ...name.split('/'))
+    if (file.exists) file.delete()
+  },
+}
 
 
 export default function UploadRoute() {
@@ -28,6 +55,8 @@ function UploadScreen() {
   const { user } = useAuth()
   const { syncOfflineLibrary } = useDownload()
   const { canUpload } = capabilitiesFor(user)
+  const { t } = useLanguage()
+  const [describer, describe] = useV2Describer()
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -68,21 +97,12 @@ function UploadScreen() {
     uploadRef.current = upload
     /** Nobody cancelled, left or superseded this upload. */
     const live = () => !upload.cancelled
-    // The picker's copy in cache/DocumentPicker/ (#1143): deleted once this upload ends, however it ends.
-    let pickedUri: string | null = null
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'application/epub+zip',
-          'application/pdf',
-          'application/octet-stream',
-        ],
-        copyToCacheDirectory: true,
-      })
+      // No cache copy (#1426): `uploadPicked` copies the pick into staging/ and deletes that copy however it ends.
+      const result = await DocumentPicker.getDocumentAsync({ type: UPLOAD_PICKER_TYPES, copyToCacheDirectory: false })
 
       if (result.canceled) return
       const file = result.assets[0]
-      pickedUri = file.uri
       // Left (or cancelled) while the picker was open: no state, no probe, no hash.
       if (!live()) return
       setFileName(file.name)
@@ -92,8 +112,9 @@ function UploadScreen() {
       // library open that book instead. The part size is the status probe's answer: none, no upload.
       const v2 = await startV2Probe()
       if (!v2.enabled) throw new Error('Network error — check your connection.')
-      const { bookId, existing } = await uploadV2Book(
-        file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled),
+      // The page reads the book's title, author and cover from the staged copy beside the hash (#1426).
+      const { bookId, existing } = await uploadPicked(
+        file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled), deviceStaging, describe,
         // A superseded upload's last part never moves the newer upload's bar.
         p => { if (live()) setUploadProgress(p) })
       if (!live()) return
@@ -121,8 +142,6 @@ function UploadScreen() {
     } finally {
       // A cancelled one was reset by Cancel; a left one has no screen; a superseded one is not its own.
       if (live()) setUploading(false)
-      // Best-effort: a cleanup failure never fails the upload (the OS clears the cache eventually).
-      if (pickedUri) try { new File(pickedUri).delete() } catch {}
     }
   }
 
@@ -169,7 +188,7 @@ function UploadScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
           <Text style={styles.title}>Upload a Book</Text>
-          <Text style={styles.subtitle}>Supported formats: EPUB, PDF</Text>
+          <Text style={styles.subtitle}>{t('myBooks.upload.formats')}</Text>
 
           {!uploading && (
             <TouchableOpacity
@@ -218,6 +237,7 @@ function UploadScreen() {
 
           {error && <Text style={styles.error}>{error}</Text>}
         </View>
+        {describer}
       </SafeAreaView>
     </>
   )

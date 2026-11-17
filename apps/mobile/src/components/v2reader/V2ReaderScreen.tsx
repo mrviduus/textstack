@@ -19,7 +19,7 @@ import { deviceLocalLibrary, makeV2Dirs, v2Root } from '../../lib/v2reader/devic
 import { capabilitiesFor } from '../../lib/capabilities'
 import type { BookNotes, BookRow } from '../../lib/v2reader/localLibrary'
 import { downloadV2Book, openBookHost, syncV2Library, tryAgainV2Book, type SyncHost } from '../../lib/v2reader/sync'
-import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
+import { DESCRIBE_MS, PAGE_WEBVIEW_PROPS, pageSource } from './pageWebView'
 import { createOpenTracker, type Take } from '../../lib/v2reader/openTracker.mjs'
 import { createMovedTracker } from '../../lib/v2reader/movedTracker.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../lib/v2reader/sessionTracker.mjs'
@@ -67,7 +67,7 @@ import { readToc, tocAround, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
 import { V2BookmarksSheet, V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { V2SearchSheet } from './V2SearchSheet'
 import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
-import { PAGE_URL, bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
+import { bookUrl } from '../../lib/v2reader/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
 import { USER_AGENT_PROBE, createWebViewCheck, webViewStorePackage, type WebViewVerdict } from '../../lib/v2reader/webViewVersion'
@@ -177,8 +177,6 @@ const freshNonce = () => nonceFromUuid(uuid.v4())
  * is recognised instead of being paired with this one's file.
  */
 type Opening = { file: string; name: string; format?: string | null }
-/** #1426: how long the page may take to describe the open book (its cover drawn on a canvas). */
-const DESCRIBE_MS = 20_000
 const isStaged = (file: string) => file.startsWith('staging/')
 
 /** The reader route's Back waits this long for the page's `book-closed` (its save in), then leaves anyway. */
@@ -296,8 +294,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   tRef.current = t
   const webView = useRef<WebView>(null)
   const [nonce, setNonce] = useState(freshNonce)
-  // The base URL arms the patched WebView's book interceptor (bookOrigin.mjs) and gives the page that https origin.
-  const source = useMemo(() => ({ html: v2ReaderAndroidPageHtml(nonce), baseUrl: PAGE_URL }), [nonce])
+  const source = useMemo(() => pageSource(nonce), [nonce])
   const ready = useRef(false)
   const opening = useRef<Opening | null>(null)
   /** Which page answer belongs to which open (openTracker.mjs): a book kept on screen, a stale `restored`. */
@@ -1652,18 +1649,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
           // No system Copy/Share/Web search menu over our bar (the legacy reader's ReaderShell did the same).
           menuItems={[]}
           onLayout={(e) => { pageWidth.current = e.nativeEvent.layout.width }}
-          // README "WebView": no file access at all (the library's defaults, all off); the page reads its book by
-          // XHR from the interceptor, so no book bytes cross the bridge. `*`: react-native-webview opens a
-          // navigation outside originWhitelist in another app, so the filter is onShouldStartLoadWithRequest below.
+          // README "WebView": the shared security props (pageWebView.ts).
+          {...PAGE_WEBVIEW_PROPS}
           source={source}
-          originWhitelist={['*']}
           onMessage={onMessage}
           // Runs as its own script on page start, so it answers even where the page fails to parse (#1228).
           injectedJavaScriptBeforeContentLoaded={USER_AGENT_PROBE}
           onRenderProcessGone={reload}
           onContentProcessDidTerminate={reload}
-          // The page never navigates; only its own about:/blob:/data: loads pass.
-          onShouldStartLoadWithRequest={({ url }) => /^(about|blob|data):/.test(url)}
         />
       </View>
       {inBook ? (

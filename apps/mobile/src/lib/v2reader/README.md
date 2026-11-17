@@ -976,7 +976,9 @@ serves exactly `bookOrigin.mjs` `BOOK_PATH` (`/v2/books/<sha256>.epub`, `/v2/sta
 `files/v2/`, checks the canonical file is still in `books/` or `staging/` (a symlink cannot lead out), and answers
 404 to anything else on that host, so nothing on it reaches the network. The page reads the book by XHR from it,
 streamed, so no book bytes cross the bridge. The same patch limits the message bridge on that WebView: with `WEB_MESSAGE_LISTENER` (every engine that can run the page, Chrome 117+) only the main frame's messages are delivered; on the `addJavascriptInterface` fallback (older engines, no frame information) only the user-agent answer is, and no book opens there. Other WebViews keep the fallback as it was; on the listener path they too take main-frame messages only (none of them uses iframes). `originWhitelist={['*']}` on purpose: react-native-webview opens a navigation outside
-the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data: only) is the filter.
+the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data: only) is the filter. These props live
+once, in `src/components/v2reader/pageWebView.ts`, for every WebView of the page: the reader's and the upload screen's
+hidden `V2Describer` (#1426), which copies the pick into `staging/`, calls `describe(id, <its URL>)` and unmounts.
 
 **Web, its own document** (#1219, production route #1225): `frame.mjs` splits the page into two files under
 `/reader-v2/` (paths: `framePath.mjs`):

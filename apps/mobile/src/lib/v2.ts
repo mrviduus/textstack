@@ -13,7 +13,7 @@ import {
   v2Api, ApiError, isOfflineError, V2_OFF, placeToV2Locator, createSha256, parsePdfPageLocator,
   ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, createV2Books, uploadV2File, V2UploadError,
   type V2Book, type V2FileChapters, type V2Annotation, type V2Word, type V2Chapter, type V2ReadingState, type V2ReadingStateWrite, type V2Switch,
-  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse, type V2ClientFormat,
+  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse, type V2ClientFormat, type V2FileDetails,
 } from '@textstack/shared'
 
 export { V2UploadError }
@@ -368,6 +368,8 @@ export interface UploadIo {
   sendPart(bookId: string, fileId: string, index: number, bytes: Uint8Array): Promise<unknown>
   /** Hands the JS thread back between chunks: hashing 80 MB in one go freezes the screen. Throws `aborted` once cancelled. */
   yieldNow(): Promise<void>
+  /** #1426: the file's details and cover for a new import (shared `V2UploadIo.describe`). */
+  describe?(): Promise<V2FileDetails | null>
 }
 
 const HASH_CHUNK = 1024 * 1024
@@ -414,10 +416,55 @@ export async function uploadV2Book(
       },
       // A cancel while the last part was in flight: never complete it (the cancel point throws `aborted`).
       beforeComplete: io.yieldNow,
+      describe: io.describe,
     })
     return { bookId, existing: !sent }
   } finally {
     source.close()
+  }
+}
+
+/**
+ * What the upload screen's picker offers, by format (the six the reader reads). Android names .mobi, .azw3 and .fb2
+ * by many types or none, so octet-stream (and zip, for a CBZ or an FBZ) is offered too.
+ */
+export const PICKER_TYPES_BY_FORMAT: Record<V2ClientFormat, string[]> = {
+  epub: ['application/epub+zip'],
+  mobi: ['application/x-mobipocket-ebook'],
+  azw3: ['application/vnd.amazon.ebook', 'application/vnd.amazon.mobi8-ebook'],
+  fb2: ['application/x-fictionbook+xml', 'application/x-zip-compressed-fb2', 'text/xml'],
+  cbz: ['application/vnd.comicbook+zip', 'application/x-cbz'],
+  pdf: ['application/pdf'],
+}
+export const UPLOAD_PICKER_TYPES = [...Object.values(PICKER_TYPES_BY_FORMAT).flat(), 'application/zip', 'application/octet-stream']
+
+/** Where a picked file is copied for its upload: the reader's `staging/` on a device. */
+export interface UploadStaging {
+  /** Copies `uri` in; resolves to the copy's name under `files/v2/` (`staging/<ms>.epub`) and its file URI. */
+  copyIn(uri: string): Promise<{ name: string; uri: string }>
+  /** Best-effort; a missing file is not an error. */
+  remove(name: string): void
+}
+
+/**
+ * #1426: a picked file uploaded from a copy in the reader's `staging/`, the one place the reader page can read it from,
+ * and read by the page (`describe(name)`) on the way. The copy is deleted however the upload ends. The reader's first
+ * storage creation empties `staging/` (V2ReaderScreen `deviceFiles`): the describe then answers null and the upload
+ * goes on from its open file.
+ */
+export async function uploadPicked(
+  file: { uri: string; name: string },
+  maxPartBytes: number,
+  io: UploadIo,
+  staging: UploadStaging,
+  describe: (name: string) => Promise<V2FileDetails | null>,
+  onProgress?: (percent: number) => void,
+): Promise<{ bookId: string; existing: boolean }> {
+  const copy = await staging.copyIn(file.uri)
+  try {
+    return await uploadV2Book({ uri: copy.uri, name: file.name }, maxPartBytes, { ...io, describe: () => describe(copy.name) }, onProgress)
+  } finally {
+    try { staging.remove(copy.name) } catch { /* best effort: staging/ is emptied on the reader's next start */ }
   }
 }
 
