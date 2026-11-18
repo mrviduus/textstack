@@ -70,6 +70,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         Assert.Equal((1L, file, 0.3m, 0.3m), (stored.Revision, stored.FileId, stored.BookFraction, stored.FrontierFraction));
         AssertSameJson(Cfi(3), stored.CurrentLocator);
         AssertSameJson(Cfi(3), stored.FrontierLocator);
+        Assert.Equal(new DateTimeOffset(2026, 10, 30, 10, 0, 0, TimeSpan.Zero), stored.CompletedAt);
 
         // The web, not knowing a row exists, writes as if first: it loses and gets the row.
         var blind = await _repo.AdvanceAsync(user, book, At(file, 5), null, default, Ct);
@@ -119,6 +120,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var finished = At(file, 8);
         finished.CompletedAt = DateTimeOffset.UtcNow;
         await _repo.AdvanceAsync(user, book, finished, 1, default, Ct); // another device moved on
+        Assert.NotNull((await _repo.GetAsync(user, book, Ct))!.CompletedAt);
 
         var replayed = await _repo.ResetAsync(user, book, 1, Ct);
         Assert.False(replayed.Accepted);
@@ -157,10 +159,29 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_ReaderOpensEachFormat_OnlyItsLocatorSchemesFit(string format, bool cfi, bool pdfPage, bool pageName)
     {
         var (user, book, file) = await ReaderWithFileAsync(format);
-        (string Locator, decimal Fraction, bool Fits)[] schemes = [(Cfi(1), 0.1m, cfi), (PdfPage, 0.2m, pdfPage), (PageName, 0.5m, pageName)];
+        (string Locator, decimal Fraction, bool Fits)[] schemes = [(PageName, 0.1m, pageName), (Cfi(1), 0.2m, cfi), (PdfPage, 0.2m, pdfPage)];
 
-        foreach (var misfit in schemes.Where(s => !s.Fits))
-            Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, misfit.Locator), null, default, Ct)).Accepted);
+        // The position's own guard and the frontier's, on the first write (insert) and on a later one (update).
+        async Task MisfitsLoseAsync(long? expectedRevision)
+        {
+            foreach (var misfit in schemes.Where(s => !s.Fits))
+                Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, misfit.Locator, 0.3m), expectedRevision, default, Ct)).Accepted);
+            if (!cfi || pageName)
+                return;
+            // A fitting frontier further on does not carry a misfit position.
+            var behind = Locating(file, PageName, 0.2m);
+            behind.FrontierLocator = Cfi(9);
+            behind.FrontierFraction = 0.9m;
+            Assert.False((await _repo.AdvanceAsync(user, book, behind, expectedRevision, default, Ct)).Accepted);
+
+            var misfitFrontier = At(file, 1);
+            misfitFrontier.FrontierLocator = PageName;
+            misfitFrontier.FrontierFraction = 0.9m;
+            Assert.False((await _repo.AdvanceAsync(user, book, misfitFrontier, expectedRevision, default, Ct)).Accepted);
+        }
+
+        await MisfitsLoseAsync(null);
+        Assert.Null(await _repo.GetAsync(user, book, Ct));
 
         long? revision = null;
         foreach (var (locator, fraction, _) in schemes.Where(s => s.Fits))
@@ -176,24 +197,13 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
             AssertSameJson(locator, stored.FrontierLocator);
         }
 
-        foreach (var misfit in schemes.Where(s => !s.Fits))
-            Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, misfit.Locator, 0.3m), revision, default, Ct)).Accepted);
+        await MisfitsLoseAsync(revision);
 
         if (format == "pdf") // the transitional reader's reflow of a PDF; the chapter guard is not this test's (no keys)
-            Assert.True((await _repo.AdvanceAsync(user, book, Locating(file, TextPosition, 0.3m), revision, default, Ct)).Accepted);
-
-        if (cfi && !pageName)
         {
-            // The position's own guard: a fitting frontier further on does not carry a misfit position.
-            var behind = Locating(file, PageName, 0.2m);
-            behind.FrontierLocator = Cfi(9);
-            behind.FrontierFraction = 0.9m;
-            Assert.False((await _repo.AdvanceAsync(user, book, behind, revision, default, Ct)).Accepted);
-
-            var misfitFrontier = At(file, 1);
-            misfitFrontier.FrontierLocator = PageName;
-            misfitFrontier.FrontierFraction = 0.9m;
-            Assert.False((await _repo.AdvanceAsync(user, book, misfitFrontier, revision, default, Ct)).Accepted);
+            var reflow = await _repo.AdvanceAsync(user, book, Locating(file, TextPosition, 0.3m), revision, default, Ct);
+            Assert.True(reflow.Accepted);
+            revision = reflow.Current!.Revision;
         }
     }
 
@@ -256,7 +266,8 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 1, Ct));
     }
 
-    // Owner isolation: bob, holding alice's ids (and his own chapter key), never reads, changes or deletes her rows.
+    // Owner isolation: bob, holding alice's ids, never reads, changes or deletes her rows; nor does alice write
+    // on a chapter key only a third reader's file has.
     [Fact]
     public async Task AdvanceAsync_BobHoldingAlicesIds_NeverReadsChangesOrDeletesHerState()
     {
