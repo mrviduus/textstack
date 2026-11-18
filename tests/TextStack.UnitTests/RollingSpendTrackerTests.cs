@@ -2,213 +2,114 @@ using Application.Ai;
 using Application.Auth;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
+using NSubstitute;
+using NSubstitute.Exceptions;
 using TextStack.Ai.Llm;
 
 namespace TextStack.UnitTests;
 
 /// <summary>
-/// In-memory per-feature daily spend tracking (Phase 12 RLOps slice 4): Interlocked increments,
-/// UTC day rollover via TimeProvider, lazy seed scaled by 1/sampleRate, the 80% alert (once on
-/// crossing + dedup same day + refires next day), and best-effort failure swallowing.
+/// The daily LLM spend per feature: what a day's calls add up to, what a restart remembers, and the
+/// one admin email when a budgeted feature crosses 80% of its day.
 /// </summary>
 public class RollingSpendTrackerTests
 {
     private static readonly DateTimeOffset Day1 = new(2026, 6, 18, 10, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset Day2 = new(2026, 6, 19, 10, 0, 0, TimeSpan.Zero);
 
-    // ---- Record + SpentTodayUsd ----
+    private readonly IEmailService _email = Substitute.For<IEmailService>();
+    private readonly SteppedClock _clock = new() { Now = Day1 };
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public void Record_Increments_SpentTodaySums()
+    public void Record_ADaysCalls_SumToTheMicroDollar()
     {
-        var t = Build(out _, out _);
+        var t = Build();
+
+        Assert.Equal(0m, t.SpentTodayUsd("never-touched"));
         t.Record("explain", 0.5m);
         t.Record("explain", 0.25m);
         Assert.Equal(0.75m, t.SpentTodayUsd("explain"));
-    }
 
-    [Fact]
-    public void SpentTodayUsd_UnknownFeature_Zero()
-    {
-        var t = Build(out _, out _);
-        Assert.Equal(0m, t.SpentTodayUsd("never-touched"));
-    }
-
-    [Fact]
-    public void Record_Concurrent_SumsExactly_ViaInterlocked()
-    {
-        var t = Build(out _, out _);
-        Parallel.For(0, 1000, _ => t.Record("explain", 0.001m));
-        Assert.Equal(1.0m, t.SpentTodayUsd("explain"));
-    }
-
-    [Fact]
-    public void Record_NanoCost_MicroDollarRoundTrip_Precise()
-    {
-        var t = Build(out _, out _);
-        // 0.000001 USD = exactly 1 micro-dollar; 1000 of them = 0.001 USD.
+        // 0.000001 USD = exactly 1 micro-dollar; 1000 of them = 0.001 USD, nothing lost to rounding.
         for (var i = 0; i < 1000; i++)
-            t.Record("explain", 0.000001m);
-        Assert.Equal(0.001m, t.SpentTodayUsd("explain"));
+            t.Record("translate", 0.000001m);
+        Assert.Equal(0.001m, t.SpentTodayUsd("translate"));
     }
 
-    // ---- Day rollover ----
-
     [Fact]
-    public void DayRollover_ResetsSpend()
+    public void Record_ThousandCallsAtOnce_SumExactly()
     {
-        var clock = new SteppedClock { Now = Day1 };
-        var t = Build(out _, out _, clock: clock);
+        var t = Build();
 
-        t.Record("explain", 2.0m);
-        Assert.Equal(2.0m, t.SpentTodayUsd("explain"));
+        Parallel.For(0, 1000, _ => t.Record("explain", 0.001m));
 
-        clock.Now = Day2; // new UTC day
-        Assert.Equal(0m, t.SpentTodayUsd("explain")); // fresh bucket
-        t.Record("explain", 0.3m);
-        Assert.Equal(0.3m, t.SpentTodayUsd("explain"));
-    }
-
-    // ---- Lazy seed ----
-
-    [Fact]
-    public void LazySeed_ScalesBy_InverseSampleRate()
-    {
-        // explain sampled at 0.1 → seed = tracedSum * 10.
-        var traces = new List<TraceRow>
-        {
-            Trace("explain", 0.05m, Day1),
-            Trace("explain", 0.05m, Day1),
-        };
-        var tracing = new TracingOptions(1.0, new Dictionary<string, double> { ["explain"] = 0.1 });
-        var t = Build(out _, out _, clock: new SteppedClock { Now = Day1 }, traces: traces, tracing: tracing);
-
-        // 0.10 traced * (1/0.1) = 1.00 estimated.
         Assert.Equal(1.0m, t.SpentTodayUsd("explain"));
     }
 
-    [Fact]
-    public void LazySeed_DefaultRate_NoScale()
+    /// <summary>A restart seeds today's spend (traces since UTC midnight, scaled by 1/rate) once; a failing database seeds 0.</summary>
+    [Theory]
+    [InlineData(0.1, false, "1.0")]   // 0.10 traced at a 10% sample → 1.00 estimated
+    [InlineData(1.0, false, "0.1")]   // traced in full → unscaled
+    [InlineData(null, false, "0.2")]  // feature not listed → the default rate (0.5) scales it
+    [InlineData(0.1, true, "0")]      // database down → seed swallowed, starts at 0
+    public void SpentTodayUsd_AfterARestart_SeedsTodaysSampledSpendOnce(double? featureRate, bool databaseDown, string seededUsd)
     {
-        var traces = new List<TraceRow> { Trace("translate", 0.4m, Day1) };
-        var t = Build(out _, out _, clock: new SteppedClock { Now = Day1 }, traces: traces);
-        Assert.Equal(0.4m, t.SpentTodayUsd("translate")); // default rate 1.0 → unscaled
-    }
+        var seeded = decimal.Parse(seededUsd, System.Globalization.CultureInfo.InvariantCulture);
+        var source = new FakeSpendSource(databaseDown ? null : [new("explain", 0.05m), new("explain", 0.05m)]);
+        var rates = new Dictionary<string, double> { ["translate"] = 0.01 };
+        if (featureRate is { } rate) rates["explain"] = rate;
+        var tracing = new TracingOptions(DefaultSampleRate: 0.5, rates);
+        var t = Build(source: source, tracing: tracing);
 
-    [Fact]
-    public void LazySeed_RunsOnce_ThenLiveRecordsAddOnTop()
-    {
-        var traces = new List<TraceRow> { Trace("explain", 0.05m, Day1) };
-        var tracing = new TracingOptions(1.0, new Dictionary<string, double> { ["explain"] = 0.1 });
-        var t = Build(out var source, out _, clock: new SteppedClock { Now = Day1 }, traces: traces, tracing: tracing);
-
-        Assert.Equal(0.5m, t.SpentTodayUsd("explain")); // 0.05 * 10 (seeded)
+        Assert.Equal(seeded, t.SpentTodayUsd("explain"));
         t.Record("explain", 1.0m);
-        Assert.Equal(1.5m, t.SpentTodayUsd("explain")); // seed not re-applied
-        Assert.Equal(1, source.Calls); // seed queried the traces exactly once
-    }
-
-    // ---- 80% alert ----
-
-    [Fact]
-    public void Alert_FiresOnce_OnCrossing_80Percent()
-    {
-        var email = new Mock<IEmailService>();
-        var t = Build(out _, out email, budgets: Budget("explain", daily: 10m, BudgetMode.HardStop), clock: new SteppedClock { Now = Day1 });
-
-        t.Record("explain", 7.0m); // 70% — below threshold, no alert
-        t.Record("explain", 1.5m); // crosses to 85% — ONE alert
-
-        email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(seeded + 1.0m, t.SpentTodayUsd("explain")); // live records on top, seed not re-applied
+        Assert.Equal(1, source.Calls);
+        Assert.Equal(new DateTimeOffset(2026, 6, 18, 0, 0, 0, TimeSpan.Zero), source.Since); // today's UTC midnight, not a rolling window
     }
 
     [Fact]
-    public void Alert_ManyCallsOverThreshold_ExactlyOneEmail_NoStorm()
+    public void Record_SpendCrosses80Percent_AlertsTheAdminOncePerDay()
     {
-        // Edge-trigger + dedup: once over 80%, hammering with 100 more over-budget Records
-        // must NOT spam — exactly one email total.
-        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.HardStop), clock: new SteppedClock { Now = Day1 });
+        var t = Build(budgets: Budget("explain", daily: 10m, BudgetMode.HardStop));
 
-        t.Record("explain", 8.5m); // crosses 80% → the single alert
+        t.Record("translate", 1000m); // no budget → never alerts
+        t.Record("explain", 7.0m);    // 70%: below the line
+        _email.DidNotReceiveWithAnyArgs().SendAdminAlertAsync(default!, default!, Ct);
+
+        t.Record("explain", 1.5m);    // crosses to 85%: the one alert
         for (var i = 0; i < 100; i++)
-            t.Record("explain", 1.0m); // all well over 80%/100% — must not re-alert
+            t.Record("explain", 1.0m); // far over 80% and 100%: no storm
+        _email.Received(1).SendAdminAlertAsync(Arg.Is<string>(s => s.Contains("'explain' at 85")), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        _email.ReceivedWithAnyArgs(1).SendAdminAlertAsync(default!, default!, Ct);
 
-        email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        _clock.Now = Day2; // a new UTC day: spend back to 0, alert armed again
+        Assert.Equal(0m, t.SpentTodayUsd("explain"));
+        t.Record("explain", 9.0m);
+        Assert.Equal(9.0m, t.SpentTodayUsd("explain"));
+        _email.ReceivedWithAnyArgs(2).SendAdminAlertAsync(default!, default!, Ct);
     }
 
     [Fact]
-    public void Alert_ConcurrentCrossing_ExactlyOneEmail()
+    public void Record_ManyCallsCrossAtOnce_OneAlert()
     {
-        // 200 parallel Records that together cross 80% — dedup must still yield exactly one email.
-        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.Fallback), clock: new SteppedClock { Now = Day1 });
-        Parallel.For(0, 200, _ => t.Record("explain", 0.1m)); // sums to $20, well over 80%
+        var t = Build(budgets: Budget("explain", 10m, BudgetMode.Fallback));
 
-        email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        Parallel.For(0, 200, _ => t.Record("explain", 0.1m)); // $20, well over 80%
+
+        _email.ReceivedWithAnyArgs(1).SendAdminAlertAsync(default!, default!, Ct);
     }
 
     [Fact]
-    public void Alert_DefaultDispatch_SendsOffTheRecordingThread()
+    public void Record_DefaultDispatch_SendsTheAlertOffTheRecordingThread()
     {
         // Production path: Record never waits for the email. The one test that polls.
-        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.HardStop),
-            clock: new SteppedClock { Now = Day1 }, inlineAlerts: false);
+        var t = Build(budgets: Budget("explain", 10m, BudgetMode.HardStop), inlineAlerts: false);
 
         t.Record("explain", 8.5m);
 
-        Eventually(() => email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once));
-    }
-
-    [Fact]
-    public void Alert_DedupsSameDay()
-    {
-        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.Fallback), clock: new SteppedClock { Now = Day1 });
-
-        t.Record("explain", 8.5m); // crosses 80% → alert
-        t.Record("explain", 1.0m); // already alerted today → no second alert
-
-        email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public void Alert_Refires_NextDay()
-    {
-        var clock = new SteppedClock { Now = Day1 };
-        var t = Build(out _, out var email, budgets: Budget("explain", 10m, BudgetMode.HardStop), clock: clock);
-
-        t.Record("explain", 9.0m); // day1 alert
-        clock.Now = Day2;
-        t.Record("explain", 9.0m); // day2 alert (fresh dedup)
-
-        email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
-    }
-
-    [Fact]
-    public void Alert_NotFired_WhenBudgetOff()
-    {
-        var t = Build(out _, out var email, budgets: BudgetOptions.Empty, clock: new SteppedClock { Now = Day1 });
-        t.Record("explain", 1000m);
-        email.Verify(e => e.SendAdminAlertAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
-    public void SeedFailure_Swallowed_SpentTreatedAsZero()
-    {
-        // A spend source that throws → seed fails → bucket starts at 0.
-        var t = new RollingSpendTracker(
-            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), new SteppedClock { Now = Day1 },
-            BudgetOptions.Empty, new TracingOptions(), NullLogger<RollingSpendTracker>.Instance, new FakeSpendSource(null));
-
-        Assert.Equal(0m, t.SpentTodayUsd("explain")); // no throw
-        t.Record("explain", 0.5m);
-        Assert.Equal(0.5m, t.SpentTodayUsd("explain")); // live record still works
+        Eventually(() => _email.ReceivedWithAnyArgs(1).SendAdminAlertAsync(default!, default!, Ct));
     }
 
     // ---- harness ----
@@ -219,7 +120,7 @@ public class RollingSpendTrackerTests
         while (true)
         {
             try { assert(); return; }
-            catch (MockException) when (DateTime.UtcNow < deadline) { Thread.Sleep(20); }
+            catch (ReceivedCallsException) when (DateTime.UtcNow < deadline) { Thread.Sleep(20); }
         }
     }
 
@@ -227,49 +128,35 @@ public class RollingSpendTrackerTests
         new(new FeatureBudget(null, null, BudgetMode.Off),
             new Dictionary<string, FeatureBudget> { [feature] = new(daily, "ollama", mode) });
 
-    private sealed record TraceRow(string Feature, decimal CostUsd, DateTimeOffset At);
-
-    private static TraceRow Trace(string feature, decimal cost, DateTimeOffset at) => new(feature, cost, at);
-
-    private static RollingSpendTracker Build(
-        out FakeSpendSource source,
-        out Mock<IEmailService> email,
-        BudgetOptions? budgets = null,
-        SteppedClock? clock = null,
-        List<TraceRow>? traces = null,
-        TracingOptions? tracing = null,
-        bool inlineAlerts = true)
-    {
-        var mail = email = new Mock<IEmailService>();
-        email.Setup(e => e.SendAdminAlertAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-        source = new FakeSpendSource(traces ?? []);
-
-        return new RollingSpendTracker(
-            new ServiceCollection().AddScoped(_ => mail.Object).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
-            clock ?? new SteppedClock { Now = Day1 },
+    private RollingSpendTracker Build(
+        BudgetOptions? budgets = null, FakeSpendSource? source = null, TracingOptions? tracing = null, bool inlineAlerts = true) =>
+        new(new ServiceCollection().AddScoped(_ => _email).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            _clock,
             budgets ?? BudgetOptions.Empty,
             tracing ?? new TracingOptions(),
             NullLogger<RollingSpendTracker>.Instance,
-            source)
+            source ?? new FakeSpendSource([]))
         {
             // #1134: send the alert on the calling thread, so the tests assert right after
             // Record instead of polling for a Task.Run a starved thread pool may not start in time.
             Dispatch = inlineAlerts ? work => work() : work => Task.Run(work),
         };
-    }
+
+    private sealed record TraceRow(string Feature, decimal CostUsd);
 
     /// <summary>The V2 traces' spend sum (V2LlmTraceWriter in production); <c>null</c> rows = a failing database.</summary>
     private sealed class FakeSpendSource(List<TraceRow>? traces) : ILlmSpendSource
     {
         private int _calls;
         public int Calls => Volatile.Read(ref _calls);
+        public DateTimeOffset? Since { get; private set; }
 
         public decimal SampledCostSince(string featureTag, DateTimeOffset since)
         {
             Interlocked.Increment(ref _calls);
+            Since = since;
             if (traces is null) throw new InvalidOperationException("db down");
-            return traces.Where(t => t.Feature == featureTag && t.At >= since).Sum(t => t.CostUsd);
+            return traces.Where(t => t.Feature == featureTag).Sum(t => t.CostUsd);
         }
     }
 }
