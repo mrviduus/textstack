@@ -79,12 +79,12 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
     }
 
     private const string UpdateProfile = $"""
-        UPDATE users SET email = @email, name = @name, picture = @picture WHERE id = @userId
+        UPDATE users SET email = @email, name = COALESCE(name, @name) WHERE id = @userId
         RETURNING {Columns}
         """;
 
-    public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct) =>
-        UpdateEmailHolderAsync(UpdateProfile, new { userId, email, name, picture }, ct);
+    public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, CancellationToken ct) =>
+        UpdateEmailHolderAsync(UpdateProfile, new { userId, email, name }, ct);
 
     private const string PromoteGuest = $"""
         UPDATE users SET email = @email, name = @name, password_hash = @passwordHash, is_guest = false, promoted_at = now()

@@ -48,14 +48,10 @@ public sealed class V2AuthService(
                 Picture = google.Picture,
                 GoogleSubject = google.Subject,
             }, ct) ?? await users.GetByGoogleSubjectAsync(google.Subject, ct);
-        else
-        {
-            // A photo the reader uploaded wins over Google's.
-            var picture = UserAccount.IsStoredPicture(user.Picture) ? user.Picture : google.Picture;
-            if (user.Email != google.Email || user.Name != google.Name || user.Picture != picture)
-                // No account back: another account holds the new email, so sign in as the account is.
-                user = (await users.UpdateProfileAsync(user.Id, google.Email, google.Name, picture, ct)).Account ?? user;
-        }
+        // Google's name and photo seed a new account only; after that the reader's own win.
+        else if (user.Email != google.Email || (user.Name is null && google.Name is not null))
+            // No account back: another account holds the new email, so sign in as the account is.
+            user = (await users.UpdateProfileAsync(user.Id, google.Email, google.Name, ct)).Account ?? user;
 
         return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, null, ct);
     }
@@ -75,8 +71,8 @@ public sealed class V2AuthService(
                 Name = fullName,
                 AppleSubject = apple.Subject,
             }, ct) ?? await users.GetByAppleSubjectAsync(apple.Subject, ct);
-        else if (fullName != null && user.Name != fullName)
-            user = (await users.UpdateProfileAsync(user.Id, user.Email, fullName, user.Picture, ct)).Account ?? user;
+        else if (fullName != null && user.Name is null)
+            user = (await users.UpdateProfileAsync(user.Id, user.Email, fullName, ct)).Account ?? user;
 
         return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, null, ct);
     }

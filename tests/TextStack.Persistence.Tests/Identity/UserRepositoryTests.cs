@@ -140,28 +140,28 @@ public class UserRepositoryTests(V2PostgresFixture db) : UserRepositoryContract(
     }
 
     [Fact]
-    public async Task UpdateProfileAsync_Account_ReplacesEmailNameAndPicture()
+    public async Task UpdateProfileAsync_Account_ReplacesEmailKeepsItsOwnName()
     {
         var account = await CreatedAsync();
         var email = $"{Guid.NewGuid()}@new";
 
-        var result = await _repo.UpdateProfileAsync(account.Id, email, "New", "https://pic", Ct);
+        var result = await _repo.UpdateProfileAsync(account.Id, email, "New", Ct);
 
         Assert.Equal(AccountUpdateOutcome.Updated, result.Outcome);
         var read = (await _repo.GetAsync(account.Id, Ct))!;
-        Assert.Equal((email, "New", "https://pic"), (read.Email, read.Name, read.Picture));
+        Assert.Equal((email, account.Name ?? "New"), (read.Email, read.Name));
     }
 
     [Fact]
     public async Task UpdateProfileAsync_NoSuchAccount_IsNotFound() =>
-        Assert.Equal(AccountUpdateOutcome.NotFound, (await _repo.UpdateProfileAsync(Guid.NewGuid(), $"{Guid.NewGuid()}@x", null, null, Ct)).Outcome);
+        Assert.Equal(AccountUpdateOutcome.NotFound, (await _repo.UpdateProfileAsync(Guid.NewGuid(), $"{Guid.NewGuid()}@x", null, Ct)).Outcome);
 
     [Fact]
     public async Task UpdateProfileAsync_AnotherAccountsEmailInAnotherCase_IsEmailTakenAndChangesNothing()
     {
         var (account, other) = (await CreatedAsync(), await CreatedAsync());
 
-        var result = await _repo.UpdateProfileAsync(account.Id, other.Email.ToUpperInvariant(), "New", null, Ct);
+        var result = await _repo.UpdateProfileAsync(account.Id, other.Email.ToUpperInvariant(), "New", Ct);
 
         Assert.Equal((AccountUpdateOutcome.EmailTaken, (UserAccount?)null), (result.Outcome, result.Account));
         Assert.Equal(account.Email, (await _repo.GetAsync(account.Id, Ct))!.Email);
@@ -172,7 +172,7 @@ public class UserRepositoryTests(V2PostgresFixture db) : UserRepositoryContract(
     {
         var (alice, bob) = (await CreatedAsync(), await CreatedAsync());
 
-        await _repo.UpdateProfileAsync(alice.Id, $"{Guid.NewGuid()}@new", "New", null, Ct);
+        await _repo.UpdateProfileAsync(alice.Id, $"{Guid.NewGuid()}@new", "New", Ct);
 
         var read = (await _repo.GetAsync(bob.Id, Ct))!;
         Assert.Equal((bob.Email, bob.Name), (read.Email, read.Name));
