@@ -50,7 +50,7 @@ with a written sunset; **Q3** retire collections; **Q5** keep guest sessions (AD
     `template0` with `LOCALE_PROVIDER icu ICU_LOCALE 'und'`. The server default would let a base-image
     bump silently re-sort every text index — the legacy cluster has been in that state since its own
     initdb ([#1056](https://github.com/mrviduus/textstack/issues/1056),
-    [postmortem](../../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). ICU's version travels
+    [postmortem](../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). ICU's version travels
     with the image, which is digest-pinned and no longer bumped automatically, and `und` orders text
     exactly as the `en_US.utf8` it replaces. Changing this later is a dump and restore, which is why
     it is settled while V2 is empty.
@@ -458,7 +458,7 @@ Wire rules: [v2-sync-protocol.md](../../internal/v2/v2-sync-protocol.md) "Annota
 ## Amended 2026-11-08 — `takedown_at` ([#1027](https://github.com/mrviduus/textstack/issues/1027))
 
 - `user_books.takedown_at`: its meaning is carried into V2 as content-removed (`books.removed_at` and
-  `book_files.content_removed_at` = `takedown_at`, no bytes, no chapters; `internal/ops/v2-etl.md` §4);
+  `book_files.content_removed_at` = `takedown_at`, no bytes, no chapters; the ETL runbook §4, in git history);
   the column itself stays retired (decided item 3).
 
 ## Amended 2026-11-17 — sessions and assistant connections were not carried (M5, [#1031](https://github.com/mrviduus/textstack/issues/1031))
@@ -467,7 +467,7 @@ Wire rules: [v2-sync-protocol.md](../../internal/v2/v2-sync-protocol.md) "Annota
   `oauth_grants`, `mcp_access_keys`) were planned as copies; the ETL did not carry them. The tables exist on
   V2 and started empty.
 - Effect at the production switch (2026-11-17): every user signed in again, and MCP connectors were
-  connected again. Log: [`v2-cutover-2026-11-17.md`](../../../internal/ops/v2-cutover-2026-11-17.md).
+  connected again. Log: the cutover log (in git history); the archive: [backup.md](../../internal/ops/backup.md#the-legacy-archive-pre-v2).
 
 ## Amended 2026-11-17 — the transitional tables stay (M6, owner decision D8)
 

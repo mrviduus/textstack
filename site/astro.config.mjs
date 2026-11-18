@@ -46,6 +46,9 @@ export default defineConfig({
             'architecture/frontend',
             'architecture/delivery',
             'architecture/v2',
+            'architecture/auth',
+            'architecture/security',
+            'architecture/vocabulary-srs',
             { label: 'Decisions', collapsed: true, items: [{ autogenerate: { directory: 'architecture/adr' } }] },
           ],
         },
@@ -54,6 +57,7 @@ export default defineConfig({
           items: [
             'reference/environment-variables',
             'reference/mcp',
+            'guides/testing',
             'guides/e2e-tests',
             'architecture/data-model',
             'architecture/data-access',

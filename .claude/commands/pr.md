@@ -102,7 +102,7 @@ what it cost. Write it that well. Only these go to files, in the same PR:
 
 | What happened | Where it goes |
 |---|---|
-| It broke production | Postmortem in `internal/incidents/`, from `_TEMPLATE.md` |
+| It broke production | Postmortem in `docs/internal/incidents/`, from `_TEMPLATE.md` |
 | It changed a load-bearing decision | ADR in `docs/architecture/adr/` |
 | It finished or created open work | `docs/STATUS.md`, and an issue per open item |
 

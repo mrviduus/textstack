@@ -6,7 +6,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { LocalizedLink } from '../LocalizedLink'
 
 /**
- * "Discuss" — opens the reader's own Claude or ChatGPT with a chapter brief (talk, then the review) (chapter-review.md §12).
+ * "Discuss" — opens the reader's own Claude or ChatGPT with a chapter brief (talk, then the review) (ADR-016; the original spec is in git history).
  * Which chat is `useAssistantLauncher` (shared with the book page's Assistant menu); with both
  * connected a ▾ beside the button switches — the new pick is remembered per device.
  */

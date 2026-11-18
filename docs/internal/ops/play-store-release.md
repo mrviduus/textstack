@@ -4,7 +4,7 @@ How a build reaches Android users, and the answers you will be asked for again a
 cannot look up anywhere else. Play offers no export of the Data Safety form, so the
 copy below **is** the record — update it in the same commit that changes the answer.
 
-Live status lives in [`docs/STATUS.md`](../../docs/STATUS.md). This file is the mechanics.
+Live status lives in [`docs/STATUS.md`](../../STATUS.md). This file is the mechanics.
 
 ---
 
@@ -65,7 +65,7 @@ If they differ, you need a build, not an update.
 
 `npm run check:runtime-version` was named here as the thing that would do this
 comparison. It was never written. What does it now is
-[`.github/workflows/mobile-ota.yml`](../../.github/workflows/mobile-ota.yml): on every
+[`.github/workflows/mobile-ota.yml`](../../../.github/workflows/mobile-ota.yml): on every
 push to `main` touching `apps/mobile/**` or `packages/**` it resolves the runtime,
 compares it with the newest finished Android production build, and publishes the OTA
 only on a match. ~~A mismatch fails the run~~ — no longer: since 2026-09-28 (#625) a mismatch

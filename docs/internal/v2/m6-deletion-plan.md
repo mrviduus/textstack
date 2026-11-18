@@ -2,10 +2,10 @@
 
 Status: **Done 2026-11-17.** Merged: P0 #1395, O1 #1393, I1 #1398, A1 #1397, W1 #1401, M1 #1400, MCP #1399, B1 #1407,
 R #1409, B2 #1410, B3 #1412, F3 #1413; legacy database dropped 2026-11-17 18:24 UTC after the restore gate
-([`m6-legacy-drop-2026-11-17.md`](../../../internal/ops/m6-legacy-drop-2026-11-17.md)). **Order fix found on the day:**
+(the drop note, in git history; the archive: [backup.md](../ops/backup.md#the-legacy-archive-pre-v2)). **Order fix found on the day:**
 F step 2 (drop) must come *after* F step 3 (ledger move): until #1413, `api` and `worker` waited on the legacy
 `migrator`, which ran against the legacy database, so dropping it first would have stopped the stack starting.
-Leftovers: #1406. Base: `main` 27a8b9bc, 2026-11-17. Inputs: [`.claude/m6-prompt.md`](../../../.claude/m6-prompt.md),
+Leftovers: #1406. Base: `main` 27a8b9bc, 2026-11-17. Inputs: `.claude/m6-prompt.md` (deleted; in git history),
 [v2-plan §5.5](v2-plan.md#55-retire-m6), [ADR-030](../../architecture/adr/ADR-030-two-databases-one-cutover.md) decided 7,
 [ADR-031](../../architecture/adr/ADR-031-v2-schema.md), [ADR-027](../../architecture/adr/ADR-027-retire-public-catalog.md) +
 [catalog-retirement-plan §2.5](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/catalog-retirement-plan.md),

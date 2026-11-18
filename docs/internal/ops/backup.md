@@ -25,9 +25,9 @@ make restore FILE=~/backups/textstack/textstack_v2-db_2026-11-18_030012.sql.gz  
 ```
 
 Since the cutover (2026-11-17) every backup is of the V2 database (`V2_POSTGRES_DB`, default `textstack_v2`); the
-legacy one is read-only and archived, and is no longer dumped. `make backup` runs `infra/scripts/pg-dump-checked.sh`:
+legacy one was archived and dropped ([below](#the-legacy-archive-pre-v2)). `make backup` runs `infra/scripts/pg-dump-checked.sh`:
 a missing database or a dump without pg_dump's trailer exits 1. `make restore` refuses when the V2 database exists
-(`make migrate-drop CONFIRM=<db>` first); see [database/README.md § Backups](../../database/README.md#backups-1043).
+(`make migrate-drop CONFIRM=<db>` first); see [database/README.md § Backups](../../../database/README.md#backups-1043).
 
 `backup-verify` spins up `pgvector/pgvector:pg16` on a random port, loads the gzipped
 dump with `ON_ERROR_STOP`, then runs a sanity SELECT: at least 10 tables, and `users`, `books`, `book_files`,
@@ -47,7 +47,7 @@ The throwaway container is removed on exit.
    `textstack_v2-db-`, `textstack_v2-pre-deploy-`) — history lives in R2.
 4. `gunzip -t`, then `infra/scripts/backup-verify.sh` restores the new dump into a throwaway pgvector container.
 5. **Off-site copy to Cloudflare R2** (below).
-6. Queues the nightly full SSG rebuild; then a disk alarm fails the job at ≥85% on `/` or the Docker root.
+6. A disk alarm fails the job at ≥85% on `/` or the Docker root.
 
 To trigger manually: GitHub UI → Actions → **Scheduled Backup** → Run workflow.
 
@@ -104,13 +104,25 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    `/db.sql` is the last legacy dump (frozen since the cutover): nothing reads that database any more.
 4. **Start the rest:** `docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d`
    (the migrator brings the schema forward if the code is newer than the dump).
-5. **Verify:** `curl https://textstack.app/api/health` → `"healthy"`, `/api/health/ready` all ok, open a book,
-   then queue a full SSG rebuild (admin → SSG, or `make rebuild-ssg`).
+5. **Verify:** `curl https://textstack.app/api/health` → `"healthy"`, `/api/health/ready` all ok, open a book.
 
 **Data loss window:** up to 24 h (the nightly backup). `pre-deploy-*` dumps on the old box are gone with it.
 
+## The legacy archive (pre-V2)
+
+The legacy database (`textstack_prod`) was dumped at the V2 cutover (2026-11-17, writes frozen from 10:49 UTC) and
+dropped at M6 the same day, after a verified restore. The archive dump: `~/archive/textstack-legacy-2026-11-17.sql.gz`
+on the server (`~/archive/` is outside every backup path: restic takes `data/storage`, `data/library`, `.env` and
+the stdin dumps; the local prune touches only `~/backups/textstack/`), and `~/Archive/textstack/` on the owner's Mac.
+sha256 `1e872b9e0f7cf1fa9cbee4201e584b167a97707a499a8d6dd2c571c115540208` (a `.sha256` file sits beside each copy).
+The code that served it is git tag `pre-v2-cutover`. R2 also keeps the last nightly legacy `/db.sql` (hours older
+than the archive). To read it: `gunzip -c` into an empty database in a throwaway `pgvector/pgvector:pg16` container
+(`psql -v ON_ERROR_STOP=1`). To serve it again: restore it as the legacy database, then
+`gh workflow run deploy.yml -f rollback_commit=<sha of pre-v2-cutover>`; everything written to V2 since the freeze is
+lost on that path (ADR-030's rollback table).
+
 ## See also
 
-- [Local Development](../../docs/start/run-locally.md) — Docker setup
+- [Local Development](../../start/run-locally.md) — Docker setup
 - [Uptime Monitoring](uptime-monitoring.md) — `health-check.yml` (every 5 min) probes API +
   frontends; backups are checked by `backup.yml` itself and by the monthly restore drill

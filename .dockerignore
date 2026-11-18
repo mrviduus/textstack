@@ -29,11 +29,11 @@ apps/admin/dist/
 .DS_Store
 Thumbs.db
 
-# Docs, working notes and the docs site (#1275)
+# Docs, Claude Code guides and the docs site (#1275)
 docs/
-internal/
 site/
 *.md
+**/CLAUDE.md
 
 # Tests (not needed in Docker build)
 tests/

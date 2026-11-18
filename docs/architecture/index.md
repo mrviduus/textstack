@@ -24,7 +24,7 @@ New here? Read [a book's journey](story.md) first: the same system as a short st
 
 ## The parts
 
-How the deployment is laid out and what a second worker would take: [c4-worker-scaling.md](../../internal/c4-worker-scaling.md). How requests move between these parts: [flows.md](flows.md).
+Why one worker runs every queue, and what a second would take: [ADR-022](adr/ADR-022-one-consumer-per-queue.md), [ADR-023](adr/ADR-023-single-instance-no-fire-and-forget.md). How requests move between these parts: [flows.md](flows.md).
 
 ```
 Internet ─► Cloudflare (DNS + TLS) ─► Cloudflare Tunnel ─► nginx on host (:80)
@@ -157,4 +157,4 @@ are superseded or obsolete.
 - [flows.md](flows.md) — runtime view: upload, read, MCP, background AI
 - [data-model.md](data-model.md) — entity map + PII
 - [frontend.md](frontend.md) — apps and packages
-- [admin](../../internal/admin.md)
+- [admin](auth.md#admin)

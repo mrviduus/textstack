@@ -36,7 +36,7 @@ database/
 
 The wait is deliberate: since the cutover this is the only database, so a schema the migrator could
 not apply is a reason not to start the code that needs it. Before the cutover it was the other way
-round ([postmortem](../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)).
+round ([postmortem](../docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)).
 
 `run.sh` needs a role that may `CREATE DATABASE` and a reachable `postgres` maintenance database. It
 creates from `template0`, so it does not need a `template1` whose collation version still matches —

@@ -5,8 +5,8 @@ rotating refresh token. Web keeps both in HttpOnly cookies; mobile (`X-Client: m
 the response body and stores them in SecureStore.
 
 Checked against code 2026-11-17. Guest posture and its rejected alternatives:
-[ADR-014](../../docs/architecture/adr/ADR-014-guest-sessions.md). Admin auth is separate
-(`admin_access_token` cookie, `AdminAuthMiddleware`) — see [security.md](../security.md).
+[ADR-014](adr/ADR-014-guest-sessions.md). Admin auth is separate: [Admin](#admin) below.
+Cookies, CORS, rate limits: [security.md](security.md).
 
 ## Flow
 
@@ -58,7 +58,7 @@ cookies, re-set on every refresh so an active session slides).
 
 The sync API under `/me/v2` (`V2Endpoints.cs`): library, reading state, annotations (highlights, notes
 and bookmarks are all annotations), vocabulary, shares/checkpoints/insights. Routes:
-[api-endpoints.md](../claude/api-endpoints.md).
+[`backend/CLAUDE.md`](../../backend/CLAUDE.md) "API endpoints".
 
 ## Database
 
@@ -98,3 +98,19 @@ RESEND_API_KEY=...             # password reset
 
 TTLs: `Jwt:AccessTokenExpiryMinutes` (60), `Jwt:RefreshTokenExpiryDays` (365),
 `Jwt:GuestRefreshTokenExpiryDays` (30) in `backend/src/Api/appsettings.json`.
+
+## Admin
+
+The admin app (`apps/admin/`, prod `https://textstack.dev`, local `http://localhost:81`) is a shell (M6 D2):
+login, an empty home, not found. Not linked from the public UI; nginx sends `X-Robots-Tag: noindex, nofollow` and
+has no IP allowlist, so the login is the only protection in the repo. Knobs are edited by SQL.
+
+An admin is an account with `role = 'admin'` (one role, ADR-031 decided 7), created by the CLI `create-admin`.
+Email + password (BCrypt), JWT access token in the `admin_access_token` cookie + a rotating refresh token.
+`AdminAuthMiddleware` guards every `/admin/*` path except `/admin/auth/*`. There is no audit log.
+
+| File | Purpose |
+|------|---------|
+| `backend/src/Api/Endpoints/AdminAuthEndpoints.cs` | `POST /admin/auth/{login,refresh,logout}`, `GET /admin/auth/me` |
+| `backend/src/Api/Middleware/AdminAuthMiddleware.cs` | Auth gate |
+| `backend/src/Application/Identity/V2AdminAuthService.cs` | Login, refresh, logout |

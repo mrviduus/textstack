@@ -33,7 +33,7 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
    `await using var conn = await dataSource.OpenConnectionAsync(ct)`; it returns to the pool on
    dispose. Never hold a connection across awaits you don't own. Building it opens nothing, so
    startup never touches the database
-   ([postmortem](../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). Without
+   ([postmortem](../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)). Without
    `ConnectionStrings:V2` every service still resolves; the first open fails naming that key.
 6. **Transactions.** A use case that writes two aggregates atomically begins
    one (`await using var tx = await unitOfWork.BeginAsync(ct)`, `IV2UnitOfWork`), passes

@@ -1,4 +1,4 @@
-# TextStack — Automated Testing Strategy (MVP → Hardening)
+# Testing
 
 Goal: **everything is automatically testable** (CI runs it), with fast feedback locally and strong confidence before deploy.
 
@@ -31,7 +31,7 @@ pnpm -C apps/web test:watch # Watch mode
 |-------|----------------|------------------|
 | Unit | xUnit v3 | Vitest |
 | Integration | `LiveApiFixture` → HTTP against a running API (docker compose in CI); `Persistence.Tests` → repositories on Testcontainers Postgres | (not used yet) |
-| E2E | Playwright ([guide](../docs/guides/e2e-tests.md)) | Playwright ([guide](../docs/guides/e2e-tests.md)) |
+| E2E | Playwright ([guide](e2e-tests.md)) | Playwright ([guide](e2e-tests.md)) |
 
 ### Backend Testing
 

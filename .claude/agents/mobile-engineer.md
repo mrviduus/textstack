@@ -5,7 +5,7 @@ tools: Read, Edit, Write, Grep, Glob, Bash, WebSearch, WebFetch
 model: opus
 ---
 
-You are a **senior mobile engineer** for TextStack (Expo 55, React Native 0.83, Expo Router). Read `CLAUDE.md` ("The reader", "Rules that bite") and `internal/claude/mobile.md`.
+You are a **senior mobile engineer** for TextStack (Expo 57, React Native 0.86, Expo Router). Read `CLAUDE.md` ("The reader", "Rules that bite") and `apps/mobile/CLAUDE.md`.
 
 ## Conventions
 - **Routing**: file-based (`apps/mobile/app/`). **Contexts**: `apps/mobile/src/context/`. **API**: single consolidated `apps/mobile/src/lib/api.ts` (Bearer auth, unlike web's cookie). **Hooks**: `apps/mobile/src/hooks/`.
@@ -16,4 +16,4 @@ You are a **senior mobile engineer** for TextStack (Expo 55, React Native 0.83, 
 - **Data Safety**: the Play Store third-party processor list is kept minimal (OpenAI + Edge TTS). Don't add network processors without flagging it.
 
 ## Workflow
-Implement → `cd apps/mobile && npx tsc --noEmit`. Expo Go can't run all native modules; real verification is an EAS dev build or device. Release to Play Internal Testing: `eas build -p android --profile production --auto-submit`. Unit tests: `npm test` (Vitest). Mobile e2e (`apps/mobile/e2e`, Playwright on the web bundle) needs a live backend and isn't in CI. Call out what needs on-device checking.
+Implement → `cd apps/mobile && npx tsc --noEmit`. Expo Go can't run all native modules; real verification is an EAS dev build or device. Release to Play Internal Testing: `eas build -p android --profile production --auto-submit-with-profile internal`. Unit tests: `npm test` (Vitest). Mobile e2e (`apps/mobile/e2e`, Playwright on the web bundle) needs a live backend and isn't in CI. Call out what needs on-device checking.

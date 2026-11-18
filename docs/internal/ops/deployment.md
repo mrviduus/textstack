@@ -356,6 +356,6 @@ docker compose up -d --build
 
 ## See Also
 
-- [Environment Variables](../../docs/reference/environment-variables.md)
-- [CI/CD Pipeline](../../.github/workflows/)
+- [Environment Variables](../../reference/environment-variables.md)
+- [CI/CD Pipeline](../../../.github/workflows/)
 - [SSG Documentation](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/legacy/ssg-prerender.md)

@@ -1,6 +1,6 @@
 # ADR-030 — Two databases, one cutover
 
-**Status:** Done — cutover (M5) and legacy drop (M6) on 2026-11-17; one database, `textstack_v2`, one ledger in `database/` ([`m6-legacy-drop-2026-11-17.md`](../../../internal/ops/m6-legacy-drop-2026-11-17.md)) · **Date:** 2026-10-30 · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §5 · **Builds on:** ADR-026, ADR-028 · **Supersedes:** the in-place/interim migration of ADR-027 (which stays Proposed-deferred as research input) · **Keeps:** ADR-021 (only the migrator migrates)
+**Status:** Done — cutover (M5) and legacy drop (M6) on 2026-11-17; one database, `textstack_v2`, one ledger in `database/` ([legacy archive](../../internal/ops/backup.md#the-legacy-archive-pre-v2)) · **Date:** 2026-10-30 · **Plan:** [v2-plan.md](../../internal/v2/v2-plan.md) §5 · **Builds on:** ADR-026, ADR-028 · **Supersedes:** the in-place/interim migration of ADR-027 (which stays Proposed-deferred as research input) · **Keeps:** ADR-021 (only the migrator migrates)
 
 ## Context
 
@@ -35,7 +35,7 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
    grow a seventh image. ADR-021 holds for both databases: only a migrator migrates.
    **Amended 2026-10-30:** `api` and `worker` wait on the legacy migrator only. Waiting on
    `migrator-v2` too took the site down on the day it shipped, for a database nothing read
-   ([postmortem](../../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)); `migrator-v2` is
+   ([postmortem](../../internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md)); `migrator-v2` is
    behind compose profile `v2`. V2 readiness returns as a gate over V2 endpoints when V2 holds real
    data (#1053) — two databases exist so that V2 can be broken while V1 serves, and a hard
    dependency from V1's containers undoes exactly that.
