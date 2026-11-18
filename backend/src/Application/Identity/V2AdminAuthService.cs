@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Application.AdminAuth;
 using Application.AdminSettings;
 using Application.Auth;
@@ -19,14 +20,15 @@ public sealed class V2AdminAuthService(
     IAdminSettingsRepository settings,
     IMemoryCache cache,
     JwtTokens tokens,
-    TimeProvider clock) : IAdminAuthService
+    TimeProvider clock,
+    ILogger<V2AdminAuthService>? logger = null) : IAdminAuthService
 {
     private static readonly TimeSpan SettingsCacheDuration = TimeSpan.FromMinutes(5);
 
     public async Task<AdminAuthResult?> LoginAsync(string email, string password, CancellationToken ct)
     {
         var admin = await users.GetByEmailAsync(email, ct);
-        if (admin is not { Role: UserAccount.AdminRole, PasswordHash: { } verified } || !PasswordHashing.Matches(password, verified))
+        if (admin is not { Role: UserAccount.AdminRole, PasswordHash: { } verified } || !PasswordHashing.Matches(password, verified, logger, admin.Id))
             return null;
         var (raw, hash) = JwtTokens.NewOpaqueToken();
         var (_, days) = await SessionSettingsAsync(ct);

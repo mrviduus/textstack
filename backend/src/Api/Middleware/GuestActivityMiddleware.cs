@@ -47,7 +47,7 @@ public class GuestActivityMiddleware(RequestDelegate next)
     public static bool ShouldWrite(DateTimeOffset? lastWrittenAt, DateTimeOffset now) =>
         lastWrittenAt is not { } last || now - last >= DebounceInterval;
 
-    public async Task InvokeAsync(HttpContext context, IAuthService authService, IMemoryCache cache)
+    public async Task InvokeAsync(HttpContext context, IAuthService authService, IMemoryCache cache, ILogger<GuestActivityMiddleware> logger)
     {
         await next(context);
 
@@ -68,8 +68,9 @@ public class GuestActivityMiddleware(RequestDelegate next)
 
             cache.Set(key, DateTimeOffset.UtcNow, DebounceInterval);
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogWarning(ex, "Guest {UserId} last-active write failed; the next request retries", id);
             // Non-critical: the response has already been written, and a failure here costs a guest
             // nothing until the 30-day sweep. Deliberately NOT cached on failure, so the next
             // request retries rather than waiting out the debounce.

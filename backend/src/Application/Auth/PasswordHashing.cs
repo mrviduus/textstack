@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 namespace Application.Auth;
 
 /// <summary>The password rules legacy and V2 sign-in share: what is accepted, how it is hashed and checked.</summary>
@@ -17,10 +18,15 @@ public static class PasswordHashing
     /// A hash BCrypt cannot parse (a bad hand edit, a truncated value) is a failed login, not a 500.
     /// BCrypt.Net throws several exception types for corrupt input; none of them means "match".
     /// </summary>
-    public static bool Matches(string password, string? hash)
+    public static bool Matches(string password, string? hash, ILogger? logger = null, Guid? accountId = null)
     {
         if (string.IsNullOrEmpty(hash)) return false;
         try { return BCrypt.Net.BCrypt.Verify(password, hash); }
-        catch (Exception) { return false; }
+        catch (Exception ex)
+        {
+            // Every login for this account fails until the hash is fixed: worth seeing.
+            logger?.LogWarning(ex, "The stored password hash of account {AccountId} could not be read", accountId);
+            return false;
+        }
     }
 }

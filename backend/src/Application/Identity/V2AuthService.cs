@@ -172,7 +172,7 @@ public sealed class V2AuthService(
     public async Task<AuthResult> LoginWithEmailAsync(string email, string password, CancellationToken ct)
     {
         var user = await users.GetByEmailAsync(Emails.Normalize(email), ct);
-        if (user?.PasswordHash is not { } verified || !PasswordHashing.Matches(password, verified))
+        if (user?.PasswordHash is not { } verified || !PasswordHashing.Matches(password, verified, logger, user.Id))
             return AuthResult.Failed(AuthStatus.InvalidCredentials);
         return await IssueAsync(user, verified, null, ct);
     }
