@@ -425,9 +425,14 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         var user = (await Auth.LoginWithGoogleAsync("token", Ct)).User!;
         Assert.Equal(("Ann Smith", "https://google.test/ann.jpg"), (user.Name, user.Picture));
 
+        // Until the reader chooses, Google's own photo follows Google.
+        _providers.Google["token"] = _providers.Google["token"] with { Picture = "https://google.test/ann2.jpg" };
+        Assert.Equal("https://google.test/ann2.jpg", (await Auth.LoginWithGoogleAsync("token", Ct)).User!.Picture);
+
         await _users.UpdateNameAndLanguageAsync(user.Id, "Ann", null, Ct);
         await _users.SetPictureAsync(user.Id, null, Ct);
 
+        _providers.Google["token"] = _providers.Google["token"] with { Name = "Ann S.", Picture = "https://google.test/new.jpg" };
         var again = (await Auth.LoginWithGoogleAsync("token", Ct)).User!;
         Assert.Equal(("Ann", (string?)null), (again.Name, again.Picture));
     }
@@ -694,7 +699,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         public Task<UserAccount?> GetByGoogleSubjectAsync(string subject, CancellationToken ct) => inner.GetByGoogleSubjectAsync(subject, ct);
         public Task<UserAccount?> GetByAppleSubjectAsync(string subject, CancellationToken ct) => inner.GetByAppleSubjectAsync(subject, ct);
         public Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct) => inner.CreateAsync(account, ct);
-        public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, CancellationToken ct) => inner.UpdateProfileAsync(userId, email, name, ct);
+        public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct) => inner.UpdateProfileAsync(userId, email, name, picture, ct);
         public Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct) => inner.PromoteGuestAsync(userId, email, name, passwordHash, ct);
         public Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct) => inner.SetRoleAsync(userId, role, ct);
         public Task<bool> DeleteAsync(Guid userId, CancellationToken ct) => inner.DeleteAsync(userId, ct);

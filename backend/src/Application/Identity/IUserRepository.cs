@@ -31,12 +31,14 @@ public interface IUserRepository
     Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct);
 
     /// <summary>
-    /// What a provider sign-in refreshes on an existing account: the email, and the name only while
-    /// the account has none. The picture is never touched: the reader's own name and photo win (#1446).
+    /// What a provider sign-in refreshes on an existing account: the email; the name only while the
+    /// account has none; the picture only while it is still a provider's URL. An uploaded or removed
+    /// photo and a name the reader set stay (#1446). Checked in the UPDATE itself, so a concurrent
+    /// upload is never overwritten.
     /// <see cref="AccountUpdateOutcome.NotFound"/> when there is no such account,
     /// <see cref="AccountUpdateOutcome.EmailTaken"/> when another account holds the email (nothing changed).
     /// </summary>
-    Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, CancellationToken ct);
+    Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct);
 
     /// <summary>
     /// Turns a guest into an account in place: email, name and password set, <c>promoted_at</c> stamped,

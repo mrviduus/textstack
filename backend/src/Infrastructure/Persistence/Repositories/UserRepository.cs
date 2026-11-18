@@ -79,12 +79,16 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
     }
 
     private const string UpdateProfile = $"""
-        UPDATE users SET email = @email, name = COALESCE(name, @name) WHERE id = @userId
+        UPDATE users SET email = @email,
+            name = COALESCE(name, @name),
+            -- Only a provider's URL follows the provider; an upload or a removal (NULL) stays.
+            picture = CASE WHEN picture LIKE 'http%' THEN COALESCE(@picture, picture) ELSE picture END
+        WHERE id = @userId
         RETURNING {Columns}
         """;
 
-    public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, CancellationToken ct) =>
-        UpdateEmailHolderAsync(UpdateProfile, new { userId, email, name }, ct);
+    public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct) =>
+        UpdateEmailHolderAsync(UpdateProfile, new { userId, email, name, picture }, ct);
 
     private const string PromoteGuest = $"""
         UPDATE users SET email = @email, name = @name, password_hash = @passwordHash, is_guest = false, promoted_at = now()
