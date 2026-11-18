@@ -19,6 +19,7 @@ public sealed class V2IngestionWorker(IServiceProvider services, ILogger<V2Inges
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var ingestion = services.GetRequiredService<V2IngestionService>();
+        var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
         var (lastSweep, lastOrphanSweep) = (DateTimeOffset.MinValue, DateTimeOffset.MinValue);
         var delay = TimeSpan.Zero;
         while (!stoppingToken.IsCancellationRequested)
@@ -28,7 +29,7 @@ public sealed class V2IngestionWorker(IServiceProvider services, ILogger<V2Inges
                 await Task.Delay(delay, stoppingToken);
                 // On their own clocks, before each job: a steady queue must not starve them. Stamped
                 // first, so a failing sweep waits its interval instead of running on every pass.
-                var now = DateTimeOffset.UtcNow;
+                var now = clock.GetUtcNow();
                 if (now - lastSweep >= SweepEvery)
                 {
                     lastSweep = now;

@@ -46,9 +46,10 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
     public async Task InvokeAsync(HttpContext context, IMcpKeyRepository keys, IOAuthRepository oauth, IConfiguration config, TimeProvider clock)
     {
         var token = context.GetAccessToken();
+        var now = clock.GetUtcNow();
         if (OAuth.LooksLikeAccessToken(token))
         {
-            await ResolveOAuthTokenAsync(context, oauth, config, token!, clock.GetUtcNow());
+            await ResolveOAuthTokenAsync(context, oauth, config, token!, now);
             await next(context);
             return;
         }
@@ -72,7 +73,7 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
             // Throttled: an assistant makes one request per tool call. Writing this per request
             // would put an UPDATE in front of every read of the user's own library.
             if (!config.GetValue<bool>(WriteFreezeMiddleware.ConfigurationKey)
-                && (key.LastUsedAt is null || clock.GetUtcNow() - key.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval))
+                && (key.LastUsedAt is null || now - key.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval))
                 await keys.TouchAsync(key.Id, context.RequestAborted);
         }
 

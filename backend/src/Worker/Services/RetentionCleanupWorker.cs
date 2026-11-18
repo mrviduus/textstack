@@ -48,7 +48,7 @@ public class RetentionCleanupWorker(
                 logger.LogError(ex, "Error during retention cleanup");
             }
 
-            await Task.Delay(Interval, stoppingToken);
+            await Task.Delay(Interval, clock ?? TimeProvider.System, stoppingToken);
         }
     }
 
