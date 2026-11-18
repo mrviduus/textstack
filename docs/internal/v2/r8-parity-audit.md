@@ -6,7 +6,7 @@
 
 R8 deletes the legacy readers (web `ReaderPage`, mobile `ReaderShell`, `packages/reader-engine`) and the transitional
 `book_chapters` / `ingestion_jobs` path. ADR-029 names it the reader's point of no return. This audit lists what the
-legacy readers do that the V2 page ([`apps/mobile/src/lib/v2reader/`](../../../apps/mobile/src/lib/v2reader/README.md))
+legacy readers do that the V2 page ([`apps/mobile/src/lib/v2reader/`](../../../packages/reader/README.md))
 does not, sorts each gap, and sizes the waves to R8.
 
 Sources: a code inventory of each of the three readers at `main` 01d9940d (file:line evidence for every row was

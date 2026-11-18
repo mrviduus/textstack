@@ -21,7 +21,7 @@ jobs:
         with:
           sparse-checkout: |
             .github/release.yml
-            scripts/changelog-data.mjs
+            tools/checks/changelog-data.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - if: ${{ !github.event.pull_request.head.repo.fork }}
@@ -41,4 +41,4 @@ jobs:
       - if: contains(github.event.pull_request.labels.*.name, 'public')
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: node scripts/changelog-data.mjs --check
+        run: node tools/checks/changelog-data.mjs --check

@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
-import { openedDeadlineMs } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
+import { openedDeadlineMs } from '../../../../../packages/reader/src/deadlines.mjs'
 
 // #1263: the bars and tap zones of the V2 reader on the web, driven through a fake frame as V2ReaderHost.test.tsx.
 

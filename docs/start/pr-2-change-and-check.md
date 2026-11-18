@@ -40,7 +40,7 @@ In this lesson you make the change, run the checks and save your work.
    - You changed `docs/` or any `.md` file:
 
      ```bash
-     node scripts/check-doc-links.mjs
+     node tools/checks/check-doc-links.mjs
      ```
 
    You should see: every command ends without errors. The backend unit tests print `Passed!` with

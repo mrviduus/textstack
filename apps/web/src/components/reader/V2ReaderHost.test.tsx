@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { READY_DEADLINE_MS, V2ReaderHost, type V2HostBook } from './V2ReaderHost'
-import { openedDeadlineMs } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
+import { openedDeadlineMs } from '../../../../../packages/reader/src/deadlines.mjs'
 
 // #1225: the one web host of the V2 reader page, driven through a fake frame: what it posts into the frame
 // (spied on the iframe's window) and which page messages it takes.

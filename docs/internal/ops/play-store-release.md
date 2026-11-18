@@ -74,7 +74,7 @@ only on a match. ~~A mismatch fails the run~~ — no longer: since 2026-09-28 (#
 OTA (no installed app has the new runtime; the build carries the JS). A push while that
 build is still queued or running starts no second build and publishes its OTA to the new
 runtime, which the build picks up on first launch; once the build finishes, pushes compare
-against it and publish as usual. Logic: `scripts/mobile-ota-decide.mjs`. So **merging any
+against it and publish as usual. Logic: `infra/scripts/mobile-ota-decide.mjs`. So **merging any
 native change (a dependency, a config plugin, `app.json`) ships a store build to the
 testers** — time the merge accordingly. `production` stays a manual
 `mobile-release.yml` run.

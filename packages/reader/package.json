@@ -1,0 +1,22 @@
+{
+  "name": "@textstack/reader",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "build": "node src/build.mjs",
+    "check": "node src/build.mjs --check",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "vitest": "catalog:",
+    "jsdom": "catalog:"
+  }
+}

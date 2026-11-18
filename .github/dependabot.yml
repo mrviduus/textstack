@@ -7,7 +7,7 @@
 # Alerts are on now, and so are Dependabot **security updates** — the second
 # half, which is what actually opens a pull request when an advisory lands.
 # Both are repository settings rather than file entries, and
-# scripts/check-advisories.mjs asserts them on every pull request, because a
+# tools/checks/check-advisories.mjs asserts them on every pull request, because a
 # setting somebody can switch off is not a check.
 #
 # What this file is for, after that: almost nothing. Version updates on a
@@ -15,7 +15,7 @@
 # and proposes the lockfile, the pnpm catalog and Directory.Packages.props in
 # ONE pull request. Splitting the two was the point — a vulnerability must not
 # wait for a calendar, and not-falling-behind does not need a weekly one.
-# `scripts/report-drift.mjs` prints how far behind we are on every pull request,
+# `tools/dependencies/report-drift.mjs` prints how far behind we are on every pull request,
 # so the quiet lane stays visible between runs.
 version: 2
 updates:
@@ -76,7 +76,7 @@ updates:
   # nobody moves is a base that never gets patched, so these two lanes move them —
   # weekly, one grouped pull request each, and CI + the image secret scan gate it
   # like any other change. Not here: images named inside scripts and workflow
-  # `run:` lines (the scanner in scripts/scan-image-secrets.sh, restic in
+  # `run:` lines (the scanner in infra/scripts/scan-image-secrets.sh, restic in
   # backup.yml, alpine in the Makefile) — Dependabot cannot see those; bump by hand.
   - package-ecosystem: docker
     directories: [/backend/Docker, /apps/admin]

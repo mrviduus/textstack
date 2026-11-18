@@ -5,7 +5,7 @@ import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { deviceLocalLibrary } from '../../lib/v2reader/deviceLibrary'
-import { colorOf } from '../../lib/v2reader/highlights.mjs'
+import { colorOf } from '../../../../../packages/reader/src/highlights.mjs'
 import { HIGHLIGHT_BG } from '../../lib/readerColors'
 
 type Item = { id: string; bookId: string; bookTitle: string; text: string; color: string; note: string | null }

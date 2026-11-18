@@ -7,7 +7,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 #
 # Host pre-req (run once):
-#   scripts/loadtest/install-nvidia-toolkit.sh
+#   infra/scripts/loadtest/install-nvidia-toolkit.sh
 #
 # Rollback: drop the `-f docker-compose.gpu.yml` from the deploy invocation
 # and redeploy — Ollama falls back to CPU with no other side effects.

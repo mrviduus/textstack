@@ -824,7 +824,7 @@ once. Nothing local is lost.
     the other account is refused (nothing pulled, pushed or recorded) — a sync pass never wipes.
 
   Sign-out and account deletion are different actions: deletion is `DELETE FROM users` on the server
-  (ADR-031 rule 9) and the same local wipe. Client: R6 (#1070), rules in `apps/mobile/src/lib/v2reader/README.md`.
+  (ADR-031 rule 9) and the same local wipe. Client: R6 (#1070), rules in `packages/reader/README.md`.
 - **Quota**: V2 bytes count against the same tier limits, computed over V2 `users` / `book_files`
   (never through legacy EF, ADR-030). A file is counted once: while legacy still holds the bytes it is
   legacy's; at cutover the ETL moves the key and the count moves with it. No double counting.

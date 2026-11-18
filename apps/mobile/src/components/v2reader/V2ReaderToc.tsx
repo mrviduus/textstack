@@ -5,9 +5,9 @@ import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
-import { tocAround, withTitle, type V2TocEntry } from '../../lib/v2reader/toc.mjs'
-import type { V2HighlightItem } from '../../lib/v2reader/highlights.mjs'
-import type { V2BookmarkItem } from '../../lib/v2reader/bookmarks.mjs'
+import { tocAround, withTitle, type V2TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import type { V2HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
+import type { V2BookmarkItem } from '../../../../../packages/reader/src/bookmarks.mjs'
 import { HIGHLIGHT_BG } from '../../lib/readerColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */

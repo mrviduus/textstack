@@ -1,7 +1,7 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { test, expect, type Page } from '@playwright/test'
-import { V2_READER_FRAME_PATH } from '../../../mobile/src/lib/v2reader/framePath.mjs'
+import { V2_READER_FRAME_PATH } from '../../../../packages/reader/src/framePath.mjs'
 
 // @v2-reader-dev — the V2 reader page on the web dev route (R5, #1037): /dev/reader-v2 hosts the
 // foliate page in an iframe, the EPUB comes from a file input, everything persists in localStorage.

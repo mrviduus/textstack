@@ -36,7 +36,7 @@ name: Mobile OTA (auto)
 #
 # That run publishes no update: nothing installed has the new runtime yet, and the
 # build carries the commit's JS itself. A push while that build is still queued or
-# running does not start a second one. Both rules: scripts/mobile-ota-decide.mjs.
+# running does not start a second one. Both rules: infra/scripts/mobile-ota-decide.mjs.
 #
 # One track, not two. Play identifies a release by `versionCode` and refuses a
 # second upload of the same one — submitting build 28 to `internal` and then to
@@ -170,7 +170,7 @@ jobs:
       # Finished builds AND queued/running ones: a production build still in flight with this
       # commit's runtime means the previous push already started the store build, and this one
       # must not start a second. The decision (publish / build / queued) and why it is shaped
-      # like that: scripts/mobile-ota-decide.mjs, tested in mobile-ota-decide.test.mjs.
+      # like that: infra/scripts/mobile-ota-decide.mjs, tested in mobile-ota-decide.test.mjs.
       # Filtered there, not with a CLI flag — the profile filter has been spelled --profile and
       # --buildProfile across EAS versions, and a wrong flag name fails the run for a reason
       # that has nothing to do with the app.
@@ -194,7 +194,7 @@ jobs:
               --json --non-interactive > "$f"
             files+=("$f")
           done
-          node "$GITHUB_WORKSPACE/scripts/mobile-ota-decide.mjs" "$HASH" "${files[@]}"
+          node "$GITHUB_WORKSPACE/infra/scripts/mobile-ota-decide.mjs" "$HASH" "${files[@]}"
 
       # The JS bundle every installed app downloads. EXPO_PUBLIC_* values are inlined
       # into it, so a secret put in EAS's production environment under that prefix
@@ -214,7 +214,7 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/ota-scan"
           eas env:exec production "npx expo export --platform android --output-dir '$out'" --non-interactive
-          SCAN_SECRET_VALUES="$EXPO_TOKEN" "$GITHUB_WORKSPACE/scripts/scan-image-secrets.sh" --dir "$out"
+          SCAN_SECRET_VALUES="$EXPO_TOKEN" "$GITHUB_WORKSPACE/infra/scripts/scan-image-secrets.sh" --dir "$out"
           rm -rf "$out"
 
       # The source-level permission check, before anything is built. It reads the
@@ -257,7 +257,7 @@ jobs:
       # No update when this run started the store build: its runtime is on no installed app
       # yet, and the binary itself carries this commit's JS. Publishing anyway gave a green
       # "OTA published" that reached nobody (run 37661100905, #761). On `queued` it does
-      # publish — see scripts/mobile-ota-decide.mjs.
+      # publish — see infra/scripts/mobile-ota-decide.mjs.
       #
       # Commit subject only, passed through the environment rather than
       # interpolated into the script: a commit message is attacker-controlled

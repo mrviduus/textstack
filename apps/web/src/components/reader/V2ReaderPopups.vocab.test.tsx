@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { V2Popup } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
+import type { V2Popup } from '../../../../../packages/reader/src/wordPopup.mjs'
 
 // #1270: a word tapped in the V2 reader is saved to the vocabulary as the legacy reader saves it (useReaderVocabulary),
 // and each answer is shown as the legacy reader shows it.

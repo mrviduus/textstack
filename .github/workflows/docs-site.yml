@@ -1,7 +1,7 @@
 name: Docs site
 
-# Publishes the docs site (#1275) to GitHub Pages: docs/ is the content, site/ the tooling.
-# The product is not involved: deploy.yml ignores docs/**, site/** and this file.
+# Publishes the docs site (#1275) to GitHub Pages: docs/ is the content, tools/docs-site/ the tooling.
+# The product is not involved: deploy.yml ignores docs/**, tools/docs-site/** and this file.
 #
 # One-time setup, by the repository owner: Settings → Pages → Source = "GitHub Actions".
 # Until then the deploy job fails and the old gh-pages branch keeps being served.
@@ -10,8 +10,8 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - '!docs/internal/**'   # hidden from the site (site/src/content.config.ts)
-      - 'site/**'
+      - '!docs/internal/**'   # hidden from the site (tools/docs-site/src/content.config.ts)
+      - 'tools/docs-site/**'
       - '.github/workflows/docs-site.yml'
   workflow_dispatch:
 
@@ -40,17 +40,17 @@ jobs:
       - id: pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Install
-        working-directory: site
+        working-directory: tools/docs-site
         run: pnpm install --ignore-workspace --frozen-lockfile
       - name: Build
-        working-directory: site
+        working-directory: tools/docs-site
         env:
           DOCS_SITE: ${{ steps.pages.outputs.origin }}
           DOCS_BASE: ${{ steps.pages.outputs.base_path }}
         run: pnpm build
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: site/dist
+          path: tools/docs-site/dist
 
   deploy:
     needs: build

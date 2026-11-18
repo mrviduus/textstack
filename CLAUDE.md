@@ -16,7 +16,7 @@ Personal book library w/ a Kindle-like reader. Upload EPUB, MOBI, AZW3, FB2, CBZ
 
 **History**: the V2 program (#1013) finished 2026-11-17: one database, one reader, the public catalog/SEO/SSG retired. Plan and decisions, kept as history: [`docs/internal/v2/`](docs/internal/v2/), ADR-029–032. Where the project is now: [`docs/STATUS.md`](docs/STATUS.md).
 
-**The reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `apps/mobile/src/lib/v2reader/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx` (route `app/my-books/read/…`; dev route `app/dev/epub-v2.tsx`, `__DEV__` only) and web `apps/web/src/components/reader/V2ReaderHost.tsx` (route `/:lang/library/my/:id/read`; dev route `/dev/reader-v2`, dev server only, `main.tsx`). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script; nginx locations in `infra/nginx/textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `apps/mobile/src/lib/v2reader/`. iOS has no reader (M6 D4).
+**The reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `packages/reader/src/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx` (route `app/my-books/read/…`; dev route `app/dev/epub-v2.tsx`, `__DEV__` only) and web `apps/web/src/components/reader/V2ReaderHost.tsx` (route `/:lang/library/my/:id/read`; dev route `/dev/reader-v2`, dev server only, `main.tsx`). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script; nginx locations in `infra/nginx/textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `packages/reader/`. iOS has no reader (M6 D4).
 
 ## Where to write things down
 
@@ -79,7 +79,7 @@ pnpm -C apps/web test                       # Frontend unit tests (Vitest)
 pnpm -C apps/web test:watch                 # Watch mode
 pnpm -C apps/web test:e2e                   # Playwright E2E (headless)
 pnpm -C apps/web test:e2e:ui                # Playwright E2E (UI mode)
-node scripts/check-doc-links.mjs            # Every relative link in tracked .md files resolves (CI docs-links)
+node tools/checks/check-doc-links.mjs            # Every relative link in tracked .md files resolves (CI docs-links)
 
 # Lint
 dotnet format textstack.sln                  # Backend

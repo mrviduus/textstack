@@ -10,5 +10,7 @@ pollers, their systemd units and `claude-isolated.sh` went with the public catal
 | `pg-dump-checked.sh` | `pg_dump` that fails on an incomplete dump (trailer check, `.tmp` until complete). | `backup.yml`, `deploy.yml` pre-deploy backup, `make backup` |
 | `backup-verify.sh` | Restores a V2 dump into a throwaway Postgres container and runs sanity queries. | `make backup-verify` |
 | `backup-files-tar.sh` | The files archive of `backup.yml` (self-check: `backup-files-tar.test.sh`). | `backup.yml` |
-| `arxiv-to-epub.py` | Builds an EPUB (with a CC BY attribution page) from a paper's arXiv HTML. Refuses anything not CC BY 4.0. Needs `pandoc`. | `python3 -I infra/scripts/arxiv-to-epub.py <arxiv_id> <out_dir>` (on a laptop) |
 | `metrics.sql` | Ad-hoc usage metrics (users, …). | `psql -f` |
+
+Deployment and Docker helpers, mobile OTA decisions, registry retention and load testing also live here.
+Book import helpers live in [`tools/import/`](../../tools/import/).

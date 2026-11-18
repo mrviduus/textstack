@@ -95,7 +95,7 @@ origin to book content, so it cannot inherit the production reader's safety argu
    readers. Why: with the nonce inline in the 3.75 MB page, `no-store` re-sent the whole page on every book open; now
    an open downloads ~1.3 KB and the script comes from the HTTP cache. The shell's placeholder fails closed (a shell
    served unfilled runs nothing), and `integrity` pins the script to the shell that names it. Android keeps the
-   inline page (`v2ReaderPageHtml(nonce)`). Files and checks: `apps/mobile/src/lib/v2reader/frame.mjs`,
+   inline page (`v2ReaderPageHtml(nonce)`). Files and checks: `packages/reader/src/frame.mjs`,
    `prodCsp.check.mjs`, the README's "Web, its own document".
    **Amended 2026-11-11 (owner decision; Android, #1228): no `file://`.** The R4 recommendation, built: the Android
    page loads under `https://appassets.androidplatform.net/` and reads its book by XHR from a native interceptor, a

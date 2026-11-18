@@ -2,7 +2,7 @@
 import { act, createElement, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { NO_SEARCH, SEARCH_DEBOUNCE_MS, readSearchResults, searchStart, searchTake, type V2Search } from '../../lib/v2reader/search.mjs'
+import { NO_SEARCH, SEARCH_DEBOUNCE_MS, readSearchResults, searchStart, searchTake, type V2Search } from '../../../../../packages/reader/src/search.mjs'
 
 // #1315: the Android host's search sheet. No React Native renderer here (as readerBars.a11y.test.tsx): react-native's
 // views are stubbed as DOM elements carrying their accessible name and press handler.

@@ -1,7 +1,7 @@
 # Frontend Architecture
 
 pnpm workspace. React 19 + TypeScript (versions pinned in the `catalog:` of `pnpm-workspace.yaml`).
-Three apps, one shared package.
+Web, mobile, browser extension and a retained admin shell; two shared packages.
 
 ---
 
@@ -28,7 +28,7 @@ Consumed as source through path aliases (not built or published).
 - `@textstack/shared` — API client, API types, i18n, sentence splitting, anon/guest helpers, reader
   progress logic. Edit here when both web and mobile need the change.
 
-The reader itself is not a package: our foliate-js fork, built by `apps/mobile/src/lib/v2reader/build.mjs`
+The shared reader lives in `@textstack/reader` (`packages/reader`): our foliate-js fork, built by `packages/reader/src/build.mjs`
 into a generated page that both web and mobile host ([ADR-032](adr/ADR-032-one-engine-foliate-fork.md)).
 
 ---
@@ -76,7 +76,7 @@ sandboxed frame (`/:lang/library/my/:id/read`):
 Web: `--font-serif` / `--font-sans` in `apps/web/src/styles/theme.css`; TextStack as WOFF2 `@font-face`
 (`apps/web/src/assets/fonts/`, `font-display: swap`, content-hashed under `/assets/`, one-year immutable cache);
 Source Sans 3 via Google Fonts. Mobile bundles the TTFs for native screens in `apps/mobile/assets/fonts/`; the
-reader's fonts are the V2 page's (`apps/mobile/src/lib/v2reader/README.md`, "Reading settings").
+reader's fonts are the V2 page's (`packages/reader/README.md`, "Reading settings").
 
 ## Key directories (`apps/web/src/`)
 

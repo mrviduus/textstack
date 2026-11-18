@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { V2_READER_DIR, V2_READER_FRAME_PATH, V2_READER_SCRIPT_PATH } from '../../mobile/src/lib/v2reader/framePath.mjs'
+import { V2_READER_DIR, V2_READER_FRAME_PATH, V2_READER_SCRIPT_PATH } from '../../../packages/reader/src/framePath.mjs'
 
 const PLACEHOLDER = '%V2_READER_FRAME_NONCE%' // frame.mjs FRAME_NONCE_PLACEHOLDER (not imported: it loads the page)
 // The page's own nonce placeholder and its format readers (page code); the dev page (its file input, its route).

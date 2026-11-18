@@ -32,7 +32,7 @@ the owner's yes in step 4.
 Reader-visible = something a person reading books on textstack.app or the Android app can see or
 feel *today*. Not: CI, tests, docs, refactors, dev-only routes (`/dev/*`), admin-only tools. When unsure, check `docs/STATUS.md`.
 
-For each candidate, draft (format = `parsePublic` in `scripts/changelog-data.mjs`):
+For each candidate, draft (format = `parsePublic` in `tools/checks/changelog-data.mjs`):
 
 ```markdown
 ## Public
@@ -56,7 +56,7 @@ For each picked PR:
 ```bash
 gh pr view <n> --json body --jq .body > /tmp/pr<n>.md    # use the scratchpad dir
 # append the block (replace an existing "## Public" section instead of adding a second)
-PR_BODY="$(cat <file>)" node scripts/changelog-data.mjs --check   # must print "Public block OK"
+PR_BODY="$(cat <file>)" node tools/checks/changelog-data.mjs --check   # must print "Public block OK"
 gh pr edit <n> --body-file <file>
 gh pr edit <n> --add-label public
 ```

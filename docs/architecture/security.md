@@ -45,7 +45,7 @@ Origins come from `Cors:AllowedOrigins` (`appsettings.json`), with a fallback li
 ## Secrets
 
 Only in the server's `.env` (gitignored) at runtime: DB password, JWT signing key, Google client id, OpenAI and
-Resend keys, Sentry DSN. Images are secret-scanned before push (`scripts/scan-image-secrets.sh`); the web bundle is
+Resend keys, Sentry DSN. Images are secret-scanned before push (`infra/scripts/scan-image-secrets.sh`); the web bundle is
 scanned at deploy.
 
 ## Rate limiting

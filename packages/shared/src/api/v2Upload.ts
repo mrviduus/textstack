@@ -52,7 +52,7 @@ export interface V2UploadPart {
 
 /**
  * A book's details and cover as read from its file (the reader page's `described`, as `readDescribed` in
- * apps/mobile/src/lib/v2reader/describe.mjs takes it): each field '' when the file has none, the cover a
+ * packages/reader/src/describe.mjs takes it): each field '' when the file has none, the cover a
  * `data:image/jpeg;base64,` URL or null.
  */
 export interface V2FileDetails {

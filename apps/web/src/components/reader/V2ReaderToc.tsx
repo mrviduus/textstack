@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
-import { tocAround, type V2TocEntry } from '../../../../mobile/src/lib/v2reader/toc.mjs'
-import type { V2HighlightItem } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
-import type { V2BookmarkItem } from '../../../../mobile/src/lib/v2reader/bookmarks.mjs'
+import { tocAround, type V2TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import type { V2HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
+import type { V2BookmarkItem } from '../../../../../packages/reader/src/bookmarks.mjs'
 import { COLOR_MAP } from './decorationColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */

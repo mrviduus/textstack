@@ -3,12 +3,12 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
   type V2FontFamily, type V2Settings, type V2TextAlign, type V2Theme,
-} from '../../../../mobile/src/lib/v2reader/settings.mjs'
-import { TTS_SPEEDS, TTS_SPEED_KEY, readSpeed } from '../../../../mobile/src/lib/v2reader/listen.mjs'
+} from '../../../../../packages/reader/src/settings.mjs'
+import { TTS_SPEEDS, TTS_SPEED_KEY, readSpeed } from '../../../../../packages/reader/src/listen.mjs'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
-import { readGlosses, withGlosses } from '../../../../mobile/src/lib/v2reader/wordMarks.mjs'
+import { readGlosses, withGlosses } from '../../../../../packages/reader/src/wordMarks.mjs'
 import { STORAGE_KEY as LEGACY_SETTINGS_KEY } from '../../hooks/useReaderSettings'
 
 /**

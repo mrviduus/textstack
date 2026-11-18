@@ -10,8 +10,8 @@ import { fonts } from '../../theme/typography'
 import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
   type V2FontFamily, type V2Settings, type V2TextAlign, type V2Theme,
-} from '../../lib/v2reader/settings.mjs'
-import { TTS_SPEEDS, TTS_SPEED_KEY, createSpeedChoice } from '../../lib/v2reader/listen.mjs'
+} from '../../../../../packages/reader/src/settings.mjs'
+import { TTS_SPEEDS, TTS_SPEED_KEY, createSpeedChoice } from '../../../../../packages/reader/src/listen.mjs'
 
 /**
  * The reader's choices (#1260), read once for the process and replaced by every change (as the flow choice):
