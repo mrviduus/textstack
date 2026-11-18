@@ -18,64 +18,66 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     private async Task<IReadOnlyList<DiscussionCheckpoint>> AllAsync(Book book) =>
         (await _repo.ListAsync(book.UserId, book.Id, null, 100, null, Ct)).Items;
 
-    [Fact]
-    public async Task AppendAsync_NewOperation_StoresTheCheckpoint()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var checkpoint = NewCheckpoint(book);
-        checkpoint.OpenQuestions = """["Who lit the lamp?"]""";
-
-        var result = await _repo.AppendAsync(checkpoint, Ct);
-
-        Assert.Equal((WriteOutcome.Created, checkpoint.Id), (result.Outcome, result.Row!.Id));
-        var read = Assert.Single(await AllAsync(book));
-        Assert.Equal(("Why the night is dark", "en", (string?)null, checkpoint.OperationId),
-            (read.Topic, read.Language, read.ChapterKey, read.OperationId));
-        Assert.Equal(("""["It is a mood, not the weather."]""", "[]", "[]", """["Who lit the lamp?"]"""),
-            (read.ReaderThoughts, read.AssistantSuggestions, read.Conclusions, read.OpenQuestions));
-    }
+    private static (WriteOutcome, DiscussionCheckpoint?) Mismatch => (WriteOutcome.ShareMismatch, null);
 
     [Fact]
-    public async Task AppendAsync_TwoStagesOfOneChapter_KeepsBoth()
+    public async Task AppendAsync_ReaderSavesStagesOfADiscussion_KeepsEachInOrderAndRefusesAnEmptyOne()
     {
         var book = await db.NewReaderWithBookAsync();
+        var bookLevel = NewCheckpoint(book);
+        bookLevel.OpenQuestions = """["Who lit the lamp?"]""";
         var first = NewCheckpoint(book);
         var second = NewCheckpoint(book);
         first.ChapterKey = second.ChapterKey = "ch-1";
 
+        var result = await _repo.AppendAsync(bookLevel, Ct);
         await _repo.AppendAsync(first, Ct);
         await _repo.AppendAsync(second, Ct);
+        // Pinned times: the order never rests on two appends landing in the same microsecond.
+        foreach (var (id, minutes) in new[] { (bookLevel.Id, 3), (first.Id, 2), (second.Id, 1) })
+            await db.ExecAsync("UPDATE discussion_checkpoints SET created_at = now() - make_interval(mins => @minutes) WHERE id = @id", new { id, minutes });
 
-        Assert.Equal([first.Id, second.Id], (await AllAsync(book)).Select(c => c.Id));
+        Assert.Equal((WriteOutcome.Created, bookLevel.Id), (result.Outcome, result.Row!.Id));
+        var all = await AllAsync(book);
+        Assert.Equal([bookLevel.Id, first.Id, second.Id], all.Select(c => c.Id));
+        var read = all[0];
+        Assert.Equal(("Why the night is dark", "en", (string?)null, (Guid?)null, bookLevel.OperationId),
+            (read.Topic, read.Language, read.ChapterKey, read.FileId, read.OperationId));
+        Assert.Equal(("""["It is a mood, not the weather."]""", "[]", "[]", """["Who lit the lamp?"]"""),
+            (read.ReaderThoughts, read.AssistantSuggestions, read.Conclusions, read.OpenQuestions));
+
+        // A checkpoint with all four sections empty says nothing: the schema refuses it.
+        var empty = NewCheckpoint(book);
+        empty.ReaderThoughts = "[]";
+        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.AppendAsync(empty, Ct));
+        Assert.Equal(("23514", "ck_discussion_checkpoints_not_empty"), (error.SqlState, error.ConstraintName));
+        Assert.Equal(3L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
     [Fact]
-    public async Task AppendAsync_SameOperationAndPayloadHash_ReplaysTheStoredRowWithoutASecond()
+    public async Task AppendAsync_RetriedOperation_ReplaysTheSamePayloadConflictsOnAnotherEvenAfterItsShareIsGone()
     {
         var book = await db.NewReaderWithBookAsync();
-        var checkpoint = NewCheckpoint(book);
+        var share = NewShare(book);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(book, share);
         await _repo.AppendAsync(checkpoint, Ct);
-        var retry = NewCheckpoint(book);
+        var retry = NewCheckpoint(book, share);
         (retry.OperationId, retry.PayloadSha256) = (checkpoint.OperationId, checkpoint.PayloadSha256);
-
-        var result = await _repo.AppendAsync(retry, Ct);
-
-        Assert.Equal((WriteOutcome.Replayed, checkpoint.Id), (result.Outcome, result.Row!.Id));
-        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
-    }
-
-    [Fact]
-    public async Task AppendAsync_SameOperationOtherPayloadHash_ConflictsAndStoresNothing()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var checkpoint = NewCheckpoint(book);
-        await _repo.AppendAsync(checkpoint, Ct);
-        var changed = NewCheckpoint(book);
+        var changed = NewCheckpoint(book, share);
         changed.OperationId = checkpoint.OperationId;
 
-        var result = await _repo.AppendAsync(changed, Ct);
+        var replayed = await _repo.AppendAsync(retry, Ct);
+        var conflict = await _repo.AppendAsync(changed, Ct);
 
-        Assert.Equal((WriteOutcome.OperationConflict, checkpoint.Id), (result.Outcome, result.Row!.Id));
+        Assert.Equal((WriteOutcome.Replayed, checkpoint.Id), (replayed.Outcome, replayed.Row!.Id));
+        Assert.Equal((WriteOutcome.OperationConflict, checkpoint.Id), (conflict.Outcome, conflict.Row!.Id));
+
+        // The share deleted since: the insert no longer matches, yet the retry is answered from the stored row.
+        await _shares.DeleteAsync(book.UserId, share.Id, Ct);
+        var afterDelete = await _repo.AppendAsync(checkpoint, Ct);
+
+        Assert.Equal((WriteOutcome.Replayed, checkpoint.Id), (afterDelete.Outcome, afterDelete.Row!.Id));
         Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
@@ -98,136 +100,41 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task AppendAsync_AllSectionsEmpty_IsRefusedBySchema()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var checkpoint = NewCheckpoint(book);
-        checkpoint.ReaderThoughts = "[]";
-
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.AppendAsync(checkpoint, Ct));
-
-        Assert.Equal(("23514", "ck_discussion_checkpoints_not_empty"), (error.SqlState, error.ConstraintName));
-    }
-
-    [Fact]
-    public async Task AppendAsync_ShareOfTheSameChapterAndFile_StoresTheLink()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var share = NewShare(book);
-        await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(book, share);
-
-        var result = await _repo.AppendAsync(checkpoint, Ct);
-
-        Assert.Equal((WriteOutcome.Created, (Guid?)share.Id), (result.Outcome, result.Row!.SharedChapterId));
-    }
-
-    [Fact]
-    public async Task AppendAsync_ShareOfAnotherChapter_IsAShareMismatchAndStoresNothing()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var share = NewShare(book);
-        await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(book, share);
-        checkpoint.ChapterKey = "ch-2";
-
-        var result = await _repo.AppendAsync(checkpoint, Ct);
-
-        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
-    }
-
-    // Same user, chapter and (no) file: only the share's book differs. Without the book guard the
-    // insert would pass and the deferred share FK refuse it at commit, a 500.
-    [Fact]
-    public async Task AppendAsync_OwnShareOfAnotherBook_IsAShareMismatchAndStoresNothing()
+    public async Task AppendAsync_NamingAShare_LinksOnlyItsOwnBookChapterAndFile()
     {
         var book = await db.NewReaderWithBookAsync();
         var other = await db.NewBookAsync(book.UserId, "Another book");
         var share = NewShare(book);
-        share.FileId = null;
         await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(other, share);
-        checkpoint.FileId = null;
 
-        var result = await _repo.AppendAsync(checkpoint, Ct);
+        var linked = await _repo.AppendAsync(NewCheckpoint(book, share), Ct);
+        Assert.Equal((WriteOutcome.Created, (Guid?)share.Id), (linked.Outcome, linked.Row!.SharedChapterId));
 
-        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, other.Id));
-    }
-
-    [Fact]
-    public async Task AppendAsync_ShareOfAnotherFileVersion_IsAShareMismatchAndStoresNothing()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var share = NewShare(book);
-        await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(book, share);
-        checkpoint.FileId = (await db.ReplaceFileAsync(book)).Current!.Id;
-
-        var result = await _repo.AppendAsync(checkpoint, Ct);
-
-        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
-    }
-
-    // #1316: an assistant names the share, not a file version: the checkpoint takes the share's file.
-    [Fact]
-    public async Task AppendAsync_NoFileNamingAShareWithOne_StoresTheSharesFile()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var share = NewShare(book);
-        await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(book, share);
-        checkpoint.FileId = null;
-
-        var result = await _repo.AppendAsync(checkpoint, Ct);
-
+        // #1316: an assistant names the share, not a file version: the checkpoint takes the share's file.
+        var noFile = NewCheckpoint(book, share);
+        noFile.FileId = null;
+        var inherited = await _repo.AppendAsync(noFile, Ct);
         Assert.NotNull(share.FileId);
-        Assert.Equal((WriteOutcome.Created, (Guid?)share.Id, share.FileId), (result.Outcome, result.Row!.SharedChapterId, result.Row.FileId));
-    }
+        Assert.Equal((WriteOutcome.Created, (Guid?)share.Id, share.FileId), (inherited.Outcome, inherited.Row!.SharedChapterId, inherited.Row.FileId));
 
-    [Fact]
-    public async Task AppendAsync_NoFileNamingAnotherUsersShare_IsAShareMismatchAndStoresNothingForEither()
-    {
-        var hers = await db.NewReaderWithBookAsync();
-        var his = await db.NewReaderWithBookAsync();
-        var share = NewShare(hers);
-        await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(his, share);
-        checkpoint.FileId = null;
+        var otherChapter = NewCheckpoint(book, share);
+        otherChapter.ChapterKey = "ch-2";
+        Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(otherChapter, Ct)));
 
-        var result = await _repo.AppendAsync(checkpoint, Ct);
+        // A share with no file, a checkpoint with none: same user and chapter, only the book differs.
+        // Without the book guard the insert would pass and the deferred share FK refuse it at commit, a 500.
+        var fileless = NewShare(book);
+        (fileless.ChapterKey, fileless.FileId) = ("ch-3", null);
+        await _shares.ShareAsync(fileless, Ct);
+        var otherBook = NewCheckpoint(other, fileless);
+        Assert.Null(otherBook.FileId);
+        Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(otherBook, Ct)));
 
-        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal((0L, 0L), (await db.CountAsync("discussion_checkpoints", his.UserId, his.Id), await db.CountAsync("discussion_checkpoints", hers.UserId, hers.Id)));
-    }
+        var otherVersion = NewCheckpoint(book, share);
+        otherVersion.FileId = (await db.ReplaceFileAsync(book)).Current!.Id;
+        Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(otherVersion, Ct)));
 
-    [Fact]
-    public async Task AppendAsync_NoFileAndNoShare_StoresNoFile()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var checkpoint = NewCheckpoint(book);
-        checkpoint.FileId = null;
-
-        var result = await _repo.AppendAsync(checkpoint, Ct);
-
-        Assert.Equal((WriteOutcome.Created, null), (result.Outcome, result.Row!.FileId));
-    }
-
-    [Fact]
-    public async Task AppendAsync_RetryAfterItsShareWasDeleted_ReplaysTheStoredRow()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var share = NewShare(book);
-        await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(book, share);
-        await _repo.AppendAsync(checkpoint, Ct);
-        await _shares.DeleteAsync(book.UserId, share.Id, Ct);
-
-        var result = await _repo.AppendAsync(checkpoint, Ct);
-
-        Assert.Equal((WriteOutcome.Replayed, checkpoint.Id), (result.Outcome, result.Row!.Id));
+        Assert.Equal((2L, 0L), (await db.CountAsync("discussion_checkpoints", book.UserId, book.Id), await db.CountAsync("discussion_checkpoints", book.UserId, other.Id)));
     }
 
     [Fact]
@@ -249,19 +156,19 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         await db.WaitUntilBlockedByAsync(conn, append);
         await delete.CommitAsync(Ct);
 
-        var result = await append;
-        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
+        Assert.Equal(Mismatch, ToPair(await append));
         Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
     [Fact]
-    public async Task ListAsync_MoreThanAPage_ReturnsChronologicalPagesUntilNoCursor()
+    public async Task ListAsync_ReaderPagesThroughABooksDiscussion_ChronologicalPagesUntilNoCursor()
     {
         var book = await db.NewReaderWithBookAsync();
         var appended = new List<Guid>();
         for (var i = 0; i < 5; i++)
         {
             var checkpoint = NewCheckpoint(book);
+            if (i == 0) checkpoint.ChapterKey = "ch-1";
             await _repo.AppendAsync(checkpoint, Ct);
             appended.Add(checkpoint.Id);
         }
@@ -276,44 +183,20 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal([2, 2, 1], pages.Select(p => p.Count));
         Assert.Equal(appended, pages.SelectMany(p => p));
-    }
 
-    [Fact]
-    public async Task ListAsync_ChapterKey_ReturnsThatChapterOnly()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var inChapter = NewCheckpoint(book);
-        inChapter.ChapterKey = "ch-1";
-        await _repo.AppendAsync(inChapter, Ct);
-        await _repo.AppendAsync(NewCheckpoint(book), Ct);
+        var chapter = await _repo.ListAsync(book.UserId, book.Id, "ch-1", 10, null, Ct);
+        Assert.Equal((appended[0], (CheckpointCursor?)null), (Assert.Single(chapter.Items).Id, chapter.Next));
 
-        var page = await _repo.ListAsync(book.UserId, book.Id, "ch-1", 10, null, Ct);
+        var everything = await _repo.ListAsync(book.UserId, book.Id, null, int.MaxValue, null, Ct);
+        Assert.Equal(appended, everything.Items.Select(c => c.Id));
+        Assert.Null(everything.Next);
 
-        Assert.Equal(inChapter.Id, Assert.Single(page.Items).Id);
-        Assert.Null(page.Next);
-    }
-
-    [Fact]
-    public async Task ListAsync_LargestLimit_ReturnsEverythingWithNoMore()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.AppendAsync(NewCheckpoint(book), Ct);
-
-        var page = await _repo.ListAsync(book.UserId, book.Id, null, int.MaxValue, null, Ct);
-
-        Assert.Single(page.Items);
-        Assert.Null(page.Next);
-    }
-
-    [Fact]
-    public async Task ListAsync_LimitBelowOne_Throws()
-    {
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            _repo.ListAsync(Guid.NewGuid(), Guid.NewGuid(), null, 0, null, Ct));
+            _repo.ListAsync(book.UserId, book.Id, null, 0, null, Ct));
     }
 
     [Fact]
-    public async Task DeleteAsync_OwnCheckpoint_RemovesOnlyIt()
+    public async Task DeleteAsync_OwnCheckpoint_RemovesOnlyItOnce()
     {
         var book = await db.NewReaderWithBookAsync();
         var gone = NewCheckpoint(book);
@@ -327,77 +210,48 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         Assert.False(await _repo.DeleteAsync(book.UserId, gone.Id, Ct));
     }
 
-    // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
-
     [Fact]
-    public async Task AppendAsync_AlicesOperationIdAsBob_CreatesBobsOwnRow()
+    public async Task EveryMethod_BobHoldingAlicesIds_NeverReadsChangesOrDeletesHerRows()
     {
         var alices = await db.NewReaderWithBookAsync();
         var bobs = await db.NewReaderWithBookAsync();
-        var hers = NewCheckpoint(alices);
-        await _repo.AppendAsync(hers, Ct);
-        var his = NewCheckpoint(bobs);
-        his.OperationId = hers.OperationId;
-
-        var result = await _repo.AppendAsync(his, Ct);
-
-        Assert.Equal((WriteOutcome.Created, his.Id), (result.Outcome, result.Row!.Id));
-        Assert.Equal(hers.Id, Assert.Single(await AllAsync(alices)).Id);
-    }
-
-    [Fact]
-    public async Task AppendAsync_AlicesOperationIdAsBobWithAMismatchedShare_IsAShareMismatchNotHerRow()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bobs = await db.NewReaderWithBookAsync();
-        var hers = NewCheckpoint(alices);
-        await _repo.AppendAsync(hers, Ct);
-        var his = NewCheckpoint(bobs);
-        (his.OperationId, his.PayloadSha256, his.ChapterKey, his.SharedChapterId) =
-            (hers.OperationId, hers.PayloadSha256, "ch-1", Guid.NewGuid());
-
-        var result = await _repo.AppendAsync(his, Ct);
-
-        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-    }
-
-    [Fact]
-    public async Task AppendAsync_AlicesBookAndShareAsBob_IsAShareMismatch()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
+        var eves = await db.NewReaderWithBookAsync();
         var share = NewShare(alices);
         await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(alices, share);
-        checkpoint.UserId = bob;
-
-        var result = await _repo.AppendAsync(checkpoint, Ct);
-
-        Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", alices.UserId, alices.Id));
-    }
-
-    [Fact]
-    public async Task ListAsync_AlicesBookAsBob_ReturnsNothing()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.AppendAsync(NewCheckpoint(alices), Ct);
-
-        var page = await _repo.ListAsync(bob, alices.Id, null, 10, null, Ct);
-
-        Assert.Empty(page.Items);
-    }
-
-    [Fact]
-    public async Task DeleteAsync_AlicesCheckpointAsBob_ReturnsFalseAndKeepsIt()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
         var hers = NewCheckpoint(alices);
         await _repo.AppendAsync(hers, Ct);
 
-        Assert.False(await _repo.DeleteAsync(bob, hers.Id, Ct));
+        // Her operation id and hash with a share that does not match: a mismatch, not her row replayed.
+        // Another intruder, so no row of his own under that operation id can answer instead.
+        var replayOfHers = NewCheckpoint(eves);
+        (replayOfHers.OperationId, replayOfHers.PayloadSha256, replayOfHers.ChapterKey, replayOfHers.SharedChapterId) =
+            (hers.OperationId, hers.PayloadSha256, "ch-1", Guid.NewGuid());
+        Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(replayOfHers, Ct)));
+
+        // Her operation id is his own new operation.
+        var his = NewCheckpoint(bobs);
+        his.OperationId = hers.OperationId;
+        var created = await _repo.AppendAsync(his, Ct);
+        Assert.Equal((WriteOutcome.Created, his.Id), (created.Outcome, created.Row!.Id));
+
+        // Her book and her share, under his user id.
+        var onHerBook = NewCheckpoint(alices, share);
+        onHerBook.UserId = bobs.UserId;
+        Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(onHerBook, Ct)));
+
+        // His book naming her share, no file to compare.
+        var withHerShare = NewCheckpoint(bobs, share);
+        withHerShare.FileId = null;
+        Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(withHerShare, Ct)));
+
+        Assert.Empty((await _repo.ListAsync(bobs.UserId, alices.Id, null, 10, null, Ct)).Items);
+        Assert.False(await _repo.DeleteAsync(bobs.UserId, hers.Id, Ct));
+
         Assert.Equal(hers.Id, Assert.Single(await AllAsync(alices)).Id);
+        Assert.Equal(his.Id, Assert.Single(await AllAsync(bobs)).Id);
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", bobs.UserId, alices.Id));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", eves.UserId));
     }
+
+    private static (WriteOutcome, DiscussionCheckpoint?) ToPair(WriteResult<DiscussionCheckpoint> result) => (result.Outcome, result.Row);
 }
