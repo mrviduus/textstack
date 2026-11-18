@@ -186,6 +186,9 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
         var user = older.UserId;
         var removed = await db.NewBookAsync(user);
         var newer = await db.NewBookAsync(user);
+        // Distinct times, so the order never rests on two inserts landing in the same microsecond.
+        await db.ExecAsync("UPDATE books SET updated_at = now() - interval '2 minutes' WHERE id = @id", new { id = older.Id });
+        await db.ExecAsync("UPDATE books SET updated_at = now() - interval '1 minute' WHERE id = @id", new { id = newer.Id });
         await _repo.RemoveAsync(user, removed.Id, Ct); // now the latest change
 
         var books = await _repo.ListAsync(user, Ct);
@@ -219,6 +222,7 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
         var latest = await jobs.EnqueueAsync(user, book.Id, file, Ct);
         await db.ExecAsync("UPDATE ingestion_jobs SET status = 'processing', attempt_count = 1 WHERE id = @id", new { id = latest.Id });
         var before = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
+        Assert.Equal("processing", before.CurrentFile!.Ingestion); // the newest job, not the older failed one
 
         Assert.True(await jobs.SucceedAsync(latest.Id, 1, "epub", Ct));
 
