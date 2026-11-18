@@ -80,7 +80,9 @@ public static class ProfileEndpoints
             }
         }
 
-        var updated = await users.UpdateNameAndLanguageAsync(userId.Value, request.Name?.Trim(), nativeLanguage, ct);
+        // An omitted name (null) keeps the current one, as NativeLanguage does.
+        var name = request.Name is null ? user.Name : request.Name.Trim();
+        var updated = await users.UpdateNameAndLanguageAsync(userId.Value, name, nativeLanguage, ct);
         return updated == null ? Results.Unauthorized() : Results.Ok(new AuthResponse(updated.ToDto()));
     }
 

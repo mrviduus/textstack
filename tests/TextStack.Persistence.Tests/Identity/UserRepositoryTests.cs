@@ -140,16 +140,21 @@ public class UserRepositoryTests(V2PostgresFixture db) : UserRepositoryContract(
     }
 
     [Fact]
-    public async Task UpdateProfileAsync_Account_ReplacesEmailNameAndPicture()
+    public async Task UpdateProfileAsync_ProviderSignIn_ReplacesEmailButNotTheReadersNameOrPhoto()
     {
         var account = await CreatedAsync();
+        await _repo.SetPictureAsync(account.Id, "ab/uploaded/avatar.jpg", Ct);
         var email = $"{Guid.NewGuid()}@new";
 
-        var result = await _repo.UpdateProfileAsync(account.Id, email, "New", "https://pic", Ct);
+        var result = await _repo.UpdateProfileAsync(account.Id, email, "Provider name", "https://pic", Ct);
 
         Assert.Equal(AccountUpdateOutcome.Updated, result.Outcome);
         var read = (await _repo.GetAsync(account.Id, Ct))!;
-        Assert.Equal((email, "New", "https://pic"), (read.Email, read.Name, read.Picture));
+        Assert.Equal((email, account.Name, "ab/uploaded/avatar.jpg"), (read.Email, read.Name, read.Picture));
+
+        // An account without a name gets the provider's.
+        await _repo.UpdateNameAndLanguageAsync(account.Id, null, null, Ct);
+        Assert.Equal("Provider name", (await _repo.UpdateProfileAsync(account.Id, email, "Provider name", null, Ct)).Account!.Name);
     }
 
     [Fact]

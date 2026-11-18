@@ -48,14 +48,11 @@ public sealed class V2AuthService(
                 Picture = google.Picture,
                 GoogleSubject = google.Subject,
             }, ct) ?? await users.GetByGoogleSubjectAsync(google.Subject, ct);
-        else
-        {
-            // A photo the reader uploaded wins over Google's.
-            var picture = UserAccount.IsStoredPicture(user.Picture) ? user.Picture : google.Picture;
-            if (user.Email != google.Email || user.Name != google.Name || user.Picture != picture)
-                // No account back: another account holds the new email, so sign in as the account is.
-                user = (await users.UpdateProfileAsync(user.Id, google.Email, google.Name, picture, ct)).Account ?? user;
-        }
+        // Google seeds the name and follows its own photo URL; the reader's own name and photo win (SQL).
+        else if (user.Email != google.Email || (user.Name is null && google.Name is not null)
+                 || (user.Picture?.StartsWith("http", StringComparison.Ordinal) == true && google.Picture is not null && user.Picture != google.Picture))
+            // No account back: another account holds the new email, so sign in as the account is.
+            user = (await users.UpdateProfileAsync(user.Id, google.Email, google.Name, google.Picture, ct)).Account ?? user;
 
         return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, null, ct);
     }
@@ -75,8 +72,8 @@ public sealed class V2AuthService(
                 Name = fullName,
                 AppleSubject = apple.Subject,
             }, ct) ?? await users.GetByAppleSubjectAsync(apple.Subject, ct);
-        else if (fullName != null && user.Name != fullName)
-            user = (await users.UpdateProfileAsync(user.Id, user.Email, fullName, user.Picture, ct)).Account ?? user;
+        else if (fullName != null && user.Name is null)
+            user = (await users.UpdateProfileAsync(user.Id, user.Email, fullName, null, ct)).Account ?? user;
 
         return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, null, ct);
     }

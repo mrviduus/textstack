@@ -79,7 +79,11 @@ public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
     }
 
     private const string UpdateProfile = $"""
-        UPDATE users SET email = @email, name = @name, picture = @picture WHERE id = @userId
+        UPDATE users SET email = @email,
+            name = COALESCE(name, @name),
+            -- Only a provider's URL follows the provider; an upload or a removal (NULL) stays.
+            picture = CASE WHEN picture LIKE 'http%' THEN COALESCE(@picture, picture) ELSE picture END
+        WHERE id = @userId
         RETURNING {Columns}
         """;
 

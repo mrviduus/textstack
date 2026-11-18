@@ -31,7 +31,10 @@ public interface IUserRepository
     Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct);
 
     /// <summary>
-    /// What a provider sign-in refreshes on an existing account; returns it updated.
+    /// What a provider sign-in refreshes on an existing account: the email; the name only while the
+    /// account has none; the picture only while it is still a provider's URL. An uploaded or removed
+    /// photo and a name the reader set stay (#1446). Checked in the UPDATE itself, so a concurrent
+    /// upload is never overwritten.
     /// <see cref="AccountUpdateOutcome.NotFound"/> when there is no such account,
     /// <see cref="AccountUpdateOutcome.EmailTaken"/> when another account holds the email (nothing changed).
     /// </summary>

@@ -402,7 +402,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     // Google, Apple, test login.
 
     [Fact]
-    public async Task LoginWithGoogleAsync_SameSubjectTwice_OneAccountWithTheLatestProfile()
+    public async Task LoginWithGoogleAsync_SameSubjectTwice_OneAccountWithTheLatestEmail()
     {
         var subject = Guid.NewGuid().ToString();
         _providers.Google["first"] = new(subject, NewEmail(), "Ann", null);
@@ -412,24 +412,29 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         var second = await Auth.LoginWithGoogleAsync("second", Ct);
 
         Assert.Equal(first.User!.Id, second.User?.Id);
-        Assert.Equal((_providers.Google["second"].Email, "Ann B"), (second.User!.Email, second.User.Name));
+        Assert.Equal((_providers.Google["second"].Email, "Ann"), (second.User!.Email, second.User.Name));
         Assert.Equal(first.User.Id, (await _users.GetByGoogleSubjectAsync(subject, Ct))?.Id);
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("forged", Ct)).Status);
     }
 
-    // #1435/#1436: Google's photo follows the account until the reader uploads their own.
+    // #1436/#1446: Google seeds a new account's name and photo; after that the reader's own choices win.
     [Fact]
-    public async Task LoginWithGoogleAsync_ReaderUploadedAPhoto_UploadedPhotoKept()
+    public async Task LoginWithGoogleAsync_ReaderChangedNameAndPhoto_ReaderChoicesKept()
     {
-        var subject = Guid.NewGuid().ToString();
-        _providers.Google["token"] = new(subject, NewEmail(), "Ann", "https://google.test/old.jpg");
+        _providers.Google["token"] = new(Guid.NewGuid().ToString(), NewEmail(), "Ann Smith", "https://google.test/ann.jpg");
         var user = (await Auth.LoginWithGoogleAsync("token", Ct)).User!;
+        Assert.Equal(("Ann Smith", "https://google.test/ann.jpg"), (user.Name, user.Picture));
 
-        _providers.Google["token"] = _providers.Google["token"] with { Picture = "https://google.test/new.jpg" };
-        Assert.Equal("https://google.test/new.jpg", (await Auth.LoginWithGoogleAsync("token", Ct)).User!.Picture);
+        // Until the reader chooses, Google's own photo follows Google.
+        _providers.Google["token"] = _providers.Google["token"] with { Picture = "https://google.test/ann2.jpg" };
+        Assert.Equal("https://google.test/ann2.jpg", (await Auth.LoginWithGoogleAsync("token", Ct)).User!.Picture);
 
-        await _users.SetPictureAsync(user.Id, "ab/uploaded/avatar.jpg", Ct);
-        Assert.Equal("ab/uploaded/avatar.jpg", (await Auth.LoginWithGoogleAsync("token", Ct)).User!.Picture);
+        await _users.UpdateNameAndLanguageAsync(user.Id, "Ann", null, Ct);
+        await _users.SetPictureAsync(user.Id, null, Ct);
+
+        _providers.Google["token"] = _providers.Google["token"] with { Name = "Ann S.", Picture = "https://google.test/new.jpg" };
+        var again = (await Auth.LoginWithGoogleAsync("token", Ct)).User!;
+        Assert.Equal(("Ann", (string?)null), (again.Name, again.Picture));
     }
 
     [Fact]
@@ -462,7 +467,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         var second = await Auth.LoginWithAppleAsync("token", "Ann B", null, Ct);
 
         Assert.Equal(Emails.AppleRelay(subject), first.User!.Email);
-        Assert.Equal((first.User.Id, "Ann B"), (second.User!.Id, second.User.Name));
+        Assert.Equal((first.User.Id, "Ann"), (second.User!.Id, second.User.Name));
     }
 
     [Fact]
