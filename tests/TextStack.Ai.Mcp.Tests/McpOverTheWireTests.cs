@@ -248,7 +248,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         // An invented slug used to be stored verbatim and resolve to nothing later: refused before the write.
         var invented = await CallAsync(client, "set_book_progress", Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "ch-99")));
         Assert.True(invented.IsError);
-        Assert.Contains("no chapter 'ch-99'", TextOf(invented));
+        Assert.Equal("set_book_progress failed: no chapter 'ch-99' in 'Designing Data-Intensive Applications'", TextOf(invented));
         Assert.Null(_harness.Stub.Last("v2_put_reading_state"));
 
         // "I finished chapter 1" must not drop the reader back into chapter 1: the stored position is the
@@ -276,7 +276,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         // A refused write (a revision conflict) is a tool error: never "your progress was recorded" when it was not.
         var refused = await CallAsync(client, "set_book_progress", Args(("bookId", StubBackend.RefusingBookId), ("chapterSlug", "replication")));
         Assert.True(refused.IsError);
-        Assert.Contains("refused", TextOf(refused));
+        Assert.Equal("set_book_progress failed: the position was refused", TextOf(refused));
     }
 
     [Fact]
@@ -396,7 +396,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     }
 
     [Fact]
-    public async Task Vocabulary_ExistingDeletedMissingWordsAndAPausedFeed_AreReportedNotHidden()
+    public async Task Vocabulary_ExistingDeletedAndMissingWords_AreReportedNotHidden()
     {
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
@@ -404,7 +404,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         var noOperation = await CallAsync(client, "add_vocabulary_words",
             Args(("words", JsonDocument.Parse("""[{ "word": "quiver", "language": "en", "translation": "колчан" }]""").RootElement)));
         Assert.True(noOperation.IsError);
-        Assert.Contains("'operationId' is required", TextOf(noOperation));
+        Assert.Equal("'operationId' is required: a new UUID for this save, the same one when retrying it.", TextOf(noOperation));
         Assert.Null(_harness.Stub.Last("v2_save_word"));
 
         var words = JsonDocument.Parse($$"""
@@ -412,23 +412,31 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
              { "word": "{{StubBackend.DeletedV2Word}}", "language": "en", "translation": "t" }]
             """).RootElement;
         var added = await CallAsync(client, "add_vocabulary_words", Args(("words", words), ("operationId", Guid.NewGuid())));
+        AssertOk(added);
         var lines = Json(added).GetProperty("results");
         Assert.Equal(("already_saved", "55555555-5555-5555-5555-555555555555"), (lines[0].GetProperty("status").GetString(), lines[0].GetProperty("id").GetString()));
         Assert.Equal(("refused", "This item was deleted."), (lines[1].GetProperty("status").GetString(), lines[1].GetProperty("message").GetString()));
 
         var update = await CallAsync(client, "update_vocabulary_word", Args(("id", StubBackend.MissingV2WordId), ("translation", "t")));
         Assert.True(update.IsError);
-        Assert.Contains("no such word", TextOf(update));
+        Assert.Equal("update_vocabulary_word: no such word; get ids from list_my_vocabulary", TextOf(update));
         Assert.Null(_harness.Stub.Last("v2_patch_word"));
 
-        // A feed that does not answer is a tool error with the server's own message, never an empty list.
-        foreach (var status in new[] { 503, 404 })
-        {
-            _harness.Stub.V2FeedStatus = status;
-            var listed = await CallAsync(client, "list_my_vocabulary", Args());
-            Assert.True(listed.IsError, $"{status}");
-            Assert.Contains("refused: Sync is paused.", TextOf(listed));
-        }
+    }
+
+    /// <summary>A feed that does not answer is a tool error with the server's own message, never an empty list.</summary>
+    [Theory]
+    [InlineData(503)]
+    [InlineData(404)]
+    public async Task ListMyVocabulary_FeedNotAnswering_IsAToolErrorNotAnEmptyList(int status)
+    {
+        _harness.Stub.V2FeedStatus = status;
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var listed = await CallAsync(client, "list_my_vocabulary", Args());
+
+        Assert.True(listed.IsError);
+        Assert.Equal("list_my_vocabulary refused: Sync is paused.", TextOf(listed));
     }
 
     // ── the discussion tools ───────────────────────────────────────────────────
@@ -451,6 +459,10 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     private List<JsonElement> Sent(string key, Guid operationId) =>
         shared.Harness.Stub.All(key).Select(r => JsonDocument.Parse(r.Body).RootElement)
             .Where(b => b.GetProperty("operationId").GetString() == operationId.ToString()).ToList();
+
+    /// <summary>Whether anything reached the stub's discussion routes naming <paramref name="id"/>.</summary>
+    private bool AnythingSentFor(string id) =>
+        new[] { "v2_share", "v2_checkpoint", "v2_list_checkpoints", "v2_get_share" }.SelectMany(shared.Harness.Stub.All).Any(r => r.PathAndQuery.Contains(id) || r.Body.Contains(id));
 
     private static Dictionary<string, object?> Checkpoint(Guid operationId, string thought = "It reads like a confession.", string? sharedChapterId = null)
     {
@@ -478,7 +490,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         Assert.Equal((StubBackend.SharedChapterId, true), (Json(first).GetProperty("id").GetString(), Json(first).GetProperty("saved").GetBoolean()));
         Assert.Equal(StubBackend.SharedChapterId, Json(retried).GetProperty("id").GetString());
         Assert.True(changed.IsError);
-        Assert.Contains("share_chapter refused: This operation id was used with a different payload.", TextOf(changed));
+        Assert.Equal("share_chapter refused: This operation id was used with a different payload.", TextOf(changed));
         var sent = Sent("v2_share", operationId)[0];
         Assert.Equal((0, false), (sent.GetProperty("notes").GetArrayLength(), sent.TryGetProperty("fileId", out _)));
 
@@ -537,7 +549,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         AssertOk(retried);
         Assert.Equal((StubBackend.CheckpointId, true), (Json(retried).GetProperty("id").GetString(), Json(retried).GetProperty("saved").GetBoolean()));
         Assert.True(changed.IsError);
-        Assert.Contains("operation id was used with a different payload", TextOf(changed));
+        Assert.Equal("save_checkpoint refused: This operation id was used with a different payload.", TextOf(changed));
         var sent = Sent("v2_checkpoint", operationId)[0];
         Assert.Equal(["It reads like a confession.", "Second"], sent.GetProperty("readerThoughts").EnumerateArray().Select(t => t.GetString()));
         Assert.Equal((0, 0), (sent.GetProperty("assistantSuggestions").GetArrayLength(), sent.GetProperty("conclusions").GetArrayLength()));
@@ -568,26 +580,27 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     private const string CheckpointBody = """ "topic": "The letter", "language": "en", "chapterKey": "ch02.xhtml", "readerThoughts": ["It reads like a confession.", "Second"], "openQuestions": ["Who wrote it?"] """;
 
     /// <summary>
-    /// Discussion arguments refused before anything is sent: each row says why. {book} is a fresh
-    /// book id; {oversize} is Cyrillic text within the schema's characters but over the server's UTF-8 bytes.
+    /// Discussion arguments refused before anything is sent for them: each row says why. {book} is a
+    /// fresh id, and nothing naming it reaches the stub; {oversize} is Cyrillic text within the
+    /// schema's characters but over the server's UTF-8 bytes.
     /// </summary>
     [Theory]
     [InlineData("share_chapter", """{ "bookId": "{book}", "chapterKey": "ch02.xhtml", "chapterText": "{oversize}", "operationId": "0be7a000-0000-4000-8000-0000000000b1" }""", "'chapterText' must be at most 200 KB as UTF-8.")]
     [InlineData("share_chapter", """{ "bookId": "{book}", "chapterKey": "ch02.xhtml", "chapterText": "It was the night." }""", "'operationId' is required and must be a UUID.")]
     [InlineData("save_checkpoint", """{ "bookId": "{book}", """ + CheckpointBody + """ }""", "'operationId' is required and must be a UUID.")]
     [InlineData("save_checkpoint", """{ "bookId": "{book}", """ + CheckpointBody + """, "conclusions": ["ok", ""], "operationId": "0be7a000-0000-4000-8000-0000000000b2" }""", "'conclusions[1]' must not be blank.")]
-    [InlineData("get_shared_chapter", """{ "shareId": "../books" }""", "'shareId' is required and must be a UUID.")]
+    [InlineData("get_shared_chapter", """{ "shareId": "../books/{book}" }""", "'shareId' is required and must be a UUID.")]
     public async Task DiscussionTools_InvalidArguments_RefusedWithReason_NothingSent(string tool, string argsJson, string expectedMessage)
     {
         await using var client = await ConnectSharedAsync();
         var oversize = new string('ж', Contracts.V2.SyncLimits.MaxChapterTextBytes / 2 + 1);
-        var before = shared.Harness.Stub.TotalRequests;
+        var book = Guid.NewGuid().ToString();
 
-        var result = await CallAsync(client, tool, ArgsJson(argsJson.Replace("{book}", Guid.NewGuid().ToString()).Replace("{oversize}", oversize)));
+        var result = await CallAsync(client, tool, ArgsJson(argsJson.Replace("{book}", book).Replace("{oversize}", oversize)));
 
         Assert.True(result.IsError);
         Assert.Equal(expectedMessage, TextOf(result));
-        Assert.Equal(before, shared.Harness.Stub.TotalRequests);
+        Assert.False(AnythingSentFor(book));
     }
 
     /// <summary>
