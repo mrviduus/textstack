@@ -20,7 +20,9 @@ public sealed record CachedTokens(
 /// <c>TEXTSTACK_MCP_TOKEN_CACHE</c> (an explicit file path).
 ///
 /// SECURITY: tokens are secrets. On Unix the file is written with mode
-/// <c>0600</c> (owner read/write only). On READ, if the file is group- or
+/// <c>0600</c> (owner read/write only) via a temp file renamed over the path,
+/// so a symlink at the path is replaced, never followed. On READ, a symlinked
+/// cache is refused, and if the file is group- or
 /// world-readable on Unix it is treated as compromised and IGNORED (returns
 /// null) rather than trusted — the caller simply re-runs the device flow. On
 /// Windows we rely on the user-profile ACL (no explicit mode is set).
@@ -70,7 +72,13 @@ public sealed class TokenCache
     {
         try
         {
-            if (!File.Exists(_path))
+            var info = new FileInfo(_path);
+            if (!info.Exists)
+                return null;
+
+            // A symlink at the cache path points somewhere we did not write: not ours.
+            // (Check-then-read race accepted: a single-user cache in the owner's home.)
+            if (info.LinkTarget != null)
                 return null;
 
             // Refuse a group/world-readable secret on Unix — treat as no cache so
@@ -96,7 +104,8 @@ public sealed class TokenCache
     }
 
     /// <summary>
-    /// Writes the cached tokens with owner-only perms (0600) on Unix. Creates the
+    /// Writes the cached tokens with owner-only perms (0600) on Unix, via a temp
+    /// file renamed over the path on every OS. Creates the
     /// parent directory if missing. Best-effort: a write failure (e.g. read-only
     /// dir) is swallowed — the in-memory tokens still work for this session.
     /// </summary>
@@ -108,30 +117,68 @@ public sealed class TokenCache
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
+            DeleteStaleTemps(string.IsNullOrEmpty(dir) ? "." : dir);
+
             var json = JsonSerializer.Serialize(tokens, JsonOptions);
 
-            if (OperatingSystem.IsWindows())
+            // Write a fresh temp file (exclusive create; on Unix 0600 before the secret
+            // lands), then rename it over the path: a rename replaces a symlink planted
+            // at the path instead of following it. Accepted limits: a deliberate
+            // symlinked dotfile is replaced too, and a symlinked parent dir is trusted.
+            var temp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            var options = new FileStreamOptions
             {
-                File.WriteAllText(_path, json);
-            }
-            else
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+            };
+            if (!OperatingSystem.IsWindows())
+                options.UnixCreateMode = OwnerOnly;
+
+            try
             {
-                // Create with 0600 BEFORE writing the secret so it is never briefly
-                // world-readable. If the file pre-exists with looser perms, tighten it.
-                using (var fs = new FileStream(
-                    _path, FileMode.Create, FileAccess.Write, FileShare.None,
-                    bufferSize: 4096, options: FileOptions.None))
+                using (var fs = new FileStream(temp, options))
                 {
-                    fs.Dispose();
+                    // UnixCreateMode is masked by umask; set 0600 exactly before writing.
+                    if (!OperatingSystem.IsWindows())
+                        File.SetUnixFileMode(fs.SafeFileHandle, OwnerOnly);
+
+                    using var writer = new StreamWriter(fs);
+                    writer.Write(json);
+                    writer.Flush();
+                    fs.Flush(flushToDisk: true);
                 }
-                File.SetUnixFileMode(_path, OwnerOnly);
-                File.WriteAllText(_path, json);
-                File.SetUnixFileMode(_path, OwnerOnly);
+                File.Move(temp, _path, overwrite: true);
+            }
+            finally
+            {
+                File.Delete(temp); // no-op once moved
             }
         }
         catch
         {
             // Best-effort persistence — non-fatal.
+        }
+    }
+
+    // A crash between create and move leaves a temp file holding live tokens.
+    // Sweep this cache's own leftovers (older than a minute, so a concurrent
+    // writer's in-flight temp is spared). Best-effort.
+    private void DeleteStaleTemps(string dir)
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow.AddMinutes(-1);
+            var pattern = System.IO.Path.GetFileName(_path) + ".*.tmp";
+            foreach (var stale in Directory.EnumerateFiles(dir, pattern))
+            {
+                if (File.GetLastWriteTimeUtc(stale) < cutoff)
+                    File.Delete(stale);
+            }
+        }
+        catch
+        {
+            // Leftovers are retried on the next write.
         }
     }
 }
