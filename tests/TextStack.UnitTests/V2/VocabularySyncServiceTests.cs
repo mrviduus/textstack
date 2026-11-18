@@ -21,7 +21,8 @@ public class VocabularySyncServiceTests
 
     private readonly ILibraryRepository _library = Substitute.For<ILibraryRepository>();
     private readonly IVocabularyRepository _words = Substitute.For<IVocabularyRepository>();
-    private VocabularySyncService Service => new(_library, _words, new SrsEngine(), TimeProvider.System);
+    private readonly SteppedClock _clock = new() { Now = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero) };
+    private VocabularySyncService Service => new(_library, _words, new SrsEngine(), _clock);
 
     /// <summary>The user has <see cref="BookId"/>, whose one version is <see cref="FileId"/>; nothing else.</summary>
     public VocabularySyncServiceTests()
@@ -89,8 +90,8 @@ public class VocabularySyncServiceTests
         return seen;
     }
 
-    private static VocabularyReviewRequest Answer(bool isCorrect = true, DateTimeOffset? at = null, Guid? operationId = null) =>
-        new(operationId ?? Guid.NewGuid(), CardId, "multiple_choice", isCorrect, null, at ?? DateTimeOffset.UtcNow);
+    private VocabularyReviewRequest Answer(bool isCorrect = true, DateTimeOffset? at = null, Guid? operationId = null) =>
+        new(operationId ?? Guid.NewGuid(), CardId, "multiple_choice", isCorrect, null, at ?? _clock.Now);
 
     private static PatchVocabularyWordRequest Patch(long revision, string translationJson = "\"сагайдак\"", string? definitionJson = null) =>
         new(revision, JsonSerializer.Deserialize<JsonElement>(translationJson),
@@ -100,8 +101,8 @@ public class VocabularySyncServiceTests
         _words.UpdateWordAsync(User, CardId, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns(new RevisionedWrite<VocabularyWord>(accepted, current));
 
-    private void Restores(long expectedRevision, VocabularyWord? current) =>
-        _words.RestoreWordAsync(User, CardId, expectedRevision, Arg.Any<CancellationToken>()).Returns(new RevisionedWrite<VocabularyWord>(false, current));
+    private void Restores(long expectedRevision, VocabularyWord? current, Guid? cardId = null) =>
+        _words.RestoreWordAsync(User, cardId ?? CardId, expectedRevision, Arg.Any<CancellationToken>()).Returns(new RevisionedWrite<VocabularyWord>(false, current));
 
     private static VocabularyWordDto CardOf(SyncResult result) => Assert.IsType<VocabularyWordDto>(result.Body);
 
@@ -140,6 +141,8 @@ public class VocabularySyncServiceTests
         var card = code is null ? CardOf(result) : Assert.IsType<VocabularyWordDto>(V2Fakes.Error(result).Current);
         if (code is not null) Assert.Equal((code, 4L), (V2Fakes.Error(result).Code, V2Fakes.Error(result).Revision!.Value));
         Assert.Equal((CardId, 4L, deleted, said), (card.Id, card.Revision, card.DeletedAt is not null, card.Example));
+        if (example is null) await _words.DidNotReceiveWithAnyArgs().AddExampleAsync(default, default!, Ct);
+        else await _words.Received(1).AddExampleAsync(User, Arg.Is<VocabularyExample>(e => e.WordId == CardId), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -152,13 +155,16 @@ public class VocabularySyncServiceTests
         Assert.Equal((409, SyncCodes.UnknownFile), (foreignFile.Status, V2Fakes.Error(foreignFile).Code));
         Assert.Empty(_words.ReceivedCalls());
 
-        var foreignCard = await Service.AddExampleAsync(User, Guid.NewGuid(), Sentence(), Ct);
-        Restores(1, null);
-        var foreignRestore = await Service.RestoreWordAsync(User, CardId, new RestoreVocabularyWordRequest(1), Ct);
+        var aliceCard = Guid.NewGuid();
+        var foreignCard = await Service.AddExampleAsync(User, aliceCard, Sentence(), Ct);
+        // A restore has no read before its write: the repository's guarded UPDATE is the ownership check, and finds no row.
+        Restores(1, null, aliceCard);
+        var foreignRestore = await Service.RestoreWordAsync(User, aliceCard, new RestoreVocabularyWordRequest(1), Ct);
 
         Assert.Equal((404, SyncCodes.NotFound), (foreignCard.Status, V2Fakes.Error(foreignCard).Code));
         await _words.DidNotReceiveWithAnyArgs().AddExampleAsync(default, default!, Ct);
-        Assert.Equal(404, foreignRestore.Status);
+        Assert.Equal((404, SyncCodes.NotFound), (foreignRestore.Status, V2Fakes.Error(foreignRestore).Code));
+        await _words.DidNotReceiveWithAnyArgs().GetWordAsync(default, default, Ct);
     }
 
     [Fact]
@@ -242,43 +248,61 @@ public class VocabularySyncServiceTests
 
     // S3: the schedule is the engine's, computed from the card the repository hands it (the locked one).
     [Theory]
-    [InlineData(WriteOutcome.Created, false, 201, null)]
-    [InlineData(WriteOutcome.Replayed, false, 200, null)]
-    [InlineData(WriteOutcome.Deleted, true, 409, SyncCodes.Deleted)]
-    public async Task RecordReviewAsync_ThirdCorrectAnswerAtMastery_RetiresTheCardAndAnswersAsItStands(
-        WriteOutcome outcome, bool deleted, int status, string? code)
+    [InlineData(WriteOutcome.Created, 201)]
+    [InlineData(WriteOutcome.Replayed, 200)]
+    public async Task RecordReviewAsync_ThirdCorrectAnswerAtMastery_RetiresTheCard(WriteOutcome outcome, int status)
     {
         var seen = RecordsReviews(outcome);
-        Stores(Card(revision: 2, deleted));
+        Stores(Card(revision: 2));
 
         var result = await Service.RecordReviewAsync(User, Answer(), Ct);
 
         var mastered = new VocabularyWord { Stage = 4, ConsecutiveCorrect = 2, IntervalDays = 28m };
         Assert.Equal(new ReviewSchedule(4, 56m, 3, Retire: true), seen.Single().Schedule(mastered));
-        Assert.Equal(status, result.Status);
-        if (code is null) Assert.Equal(CardId, Assert.IsType<RecordedReviewDto>(result.Body).Word.Id);
-        else Assert.Equal((code, 2L), (V2Fakes.Error(result).Code, V2Fakes.Error(result).Revision!.Value));
+        Assert.Equal((status, CardId), (result.Status, Assert.IsType<RecordedReviewDto>(result.Body).Word.Id));
+    }
+
+    [Fact]
+    public async Task RecordReviewAsync_DeletedCard_IsDeletedWithTheTombstone()
+    {
+        RecordsReviews(WriteOutcome.Deleted);
+        Stores(Card(revision: 2, deleted: true));
+
+        var result = await Service.RecordReviewAsync(User, Answer(), Ct);
+
+        var error = V2Fakes.Error(result);
+        Assert.Equal((409, SyncCodes.Deleted, 2L), (result.Status, error.Code, error.Revision!.Value));
+        Assert.NotNull(Assert.IsType<VocabularyWordDto>(error.Current).DeletedAt);
     }
 
     // M1.3 delta 5: a replay is told apart from a new operation by its hash, so one payload sent two ways must hash the same.
     [Fact]
-    public async Task Payloads_OneExampleOrOneAnswerSentTwoWays_HashTheSame()
+    public async Task AddExampleAsync_SameExampleAsASaveByKey_HashesTheSame()
     {
         Saves(WordSaveOutcome.Existing, Card());
-        var exampleHashes = AddsExample(WriteOutcome.Created);
+        var hashes = AddsExample(WriteOutcome.Created);
         var example = Sentence(bookId: BookId);
+
         await Service.SaveWordAsync(User, Save(example), Ct);
         await Service.AddExampleAsync(User, CardId, example, Ct);
 
+        Assert.Equal(2, hashes.Count);
+        Assert.Single(hashes.Distinct());
+    }
+
+    [Fact]
+    public async Task RecordReviewAsync_OneInstantInTwoOffsets_HashesTheSameAndAnotherAnswerDoesNot()
+    {
         var answers = RecordsReviews(WriteOutcome.Created);
+        Stores(Card());
         var operationId = Guid.NewGuid();
-        var instant = new DateTimeOffset(2026, 10, 30, 20, 15, 3, 500, TimeSpan.FromHours(2));
+        var instant = new DateTimeOffset(2025, 12, 31, 20, 15, 3, 500, TimeSpan.FromHours(2));
+
         await Service.RecordReviewAsync(User, Answer(at: instant, operationId: operationId), Ct);
         await Service.RecordReviewAsync(User, Answer(at: instant.ToUniversalTime(), operationId: operationId), Ct);
         await Service.RecordReviewAsync(User, Answer(isCorrect: false, at: instant, operationId: operationId), Ct);
 
-        Assert.Equal(2, exampleHashes.Count);
-        Assert.Single(exampleHashes.Distinct());
+        Assert.Equal(3, answers.Count);
         Assert.Equal(answers[0].Sha256, answers[1].Sha256);
         Assert.NotEqual(answers[0].Sha256, answers[2].Sha256);
     }
