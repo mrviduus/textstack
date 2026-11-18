@@ -286,8 +286,8 @@ public sealed class V2AuthService(
     private static async Task DeleteUserFilesAsync(IFileStorageService storage, Guid userId, string? picture, ILogger? logger, CancellationToken ct)
     {
         await DeleteStoredAsync("DeleteUserDirectory", () => storage.DeleteUserDirectoryAsync(userId, ct));
-        if (!string.IsNullOrEmpty(picture) && !picture.StartsWith("http"))
-            await DeleteStoredAsync("DeleteAvatar", () => storage.DeleteFileAsync(picture, ct));
+        if (UserAccount.IsStoredPicture(picture))
+            await DeleteStoredAsync("DeleteAvatar", () => storage.DeleteFileAsync(picture!, ct));
 
         // An orphan file is recoverable, but it must be observable.
         async Task DeleteStoredAsync(string operation, Func<Task> delete)
