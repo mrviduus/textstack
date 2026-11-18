@@ -15,7 +15,7 @@ namespace TextStack.UnitTests;
 /// revoked refresh token starts a new sign-in. The token file is owner-only.
 /// All against fake HTTP handlers and a temp-dir cache; no network.
 /// </summary>
-public class McpDeviceFlowTests
+public class McpDeviceFlowTests : IDisposable
 {
     private const string SiteHost = "textstack.test";
     private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
@@ -116,8 +116,17 @@ public class McpDeviceFlowTests
             time: null, minPollInterval: TimeSpan.FromMilliseconds(5));
     }
 
-    private static TokenCache TempCache() =>
-        new(Path.Combine(Path.GetTempPath(), "ts-mcp-" + Guid.NewGuid().ToString("N") + ".json"));
+    // Every token file a test creates is deleted even when the test fails.
+    private readonly List<string> _tempFiles = [];
+
+    private TokenCache TempCache()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "ts-mcp-" + Guid.NewGuid().ToString("N") + ".json");
+        _tempFiles.Add(path);
+        return new TokenCache(path);
+    }
+
+    public void Dispose() => _tempFiles.ForEach(File.Delete);
 
     private static string B64Url(string s) =>
         Convert.ToBase64String(Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -143,14 +152,10 @@ public class McpDeviceFlowTests
         var logger = new CapturingLogger<DeviceFlowTokenProvider>();
         var provider = Build(handler, cache, logger);
 
-        // The tool call never waits on the reader approving in a browser.
-        var sw = System.Diagnostics.Stopwatch.StartNew();
         var first = await provider.GetTokenAsync(CancellationToken.None);
-        sw.Stop();
         var pending = Assert.IsType<TokenResult.Pending>(first);
         Assert.Equal("https://x/device", pending.VerificationUri);
         Assert.Equal("WDJB-MQXR", pending.UserCode);
-        Assert.True(sw.ElapsedMilliseconds < 800, $"GetTokenAsync blocked for {sw.ElapsedMilliseconds}ms");
 
         await provider.WaitForBackgroundPollAsync();
 
@@ -170,24 +175,55 @@ public class McpDeviceFlowTests
             Assert.Equal(OwnerOnly, File.GetUnixFileMode(cache.Path));
 
         // The log tells the reader where to go, and never carries a secret.
-        var log = Assert.Single(logger.Entries).Message;
-        Assert.Contains("https://x/device", log);
-        Assert.Contains("WDJB-MQXR", log);
-        Assert.DoesNotContain("SECRET-DC", log);
-        Assert.DoesNotContain("SECRET-RT", log);
-        Assert.DoesNotContain(access, log);
-
-        File.Delete(cache.Path);
+        var logs = logger.Entries.Select(e => e.Message).ToList();
+        Assert.Contains(logs, m => m.Contains("https://x/device") && m.Contains("WDJB-MQXR"));
+        Assert.DoesNotContain(logs, m => m.Contains("SECRET-DC") || m.Contains("SECRET-RT") || m.Contains(access));
     }
 
-    // expiresIn is the saved access token's lifetime; 20s is inside the 30s skew.
+    [Fact]
+    public async Task GetTokenAsync_FirstSignIn_AnswersWithoutWaitingForApproval()
+    {
+        var handler = new ScriptedHandler(
+        [
+            Resp(HttpStatusCode.OK, DeviceCode("UC")),
+            Resp(HttpStatusCode.BadRequest, Pending),
+        ]);
+        var provider = Build(handler, TempCache());
+
+        // The tool call never waits on the (1s) poll for the reader approving in a browser.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await provider.GetTokenAsync(CancellationToken.None);
+        sw.Stop();
+
+        Assert.IsType<TokenResult.Pending>(result);
+        Assert.True(sw.ElapsedMilliseconds < 800, $"GetTokenAsync blocked for {sw.ElapsedMilliseconds}ms");
+    }
+
+    // 60s left is outside the 30s refresh margin.
     [Theory]
-    [InlineData(3600, null, false, "OLD-RT")]
-    [InlineData(20, "ROTATED-RT", true, "ROTATED-RT")]
-    [InlineData(-3600, "ROTATED-RT", true, "ROTATED-RT")]
-    [InlineData(-3600, null, true, "OLD-RT")]
-    public async Task GetTokenAsync_SavedSignIn_UsedUntilNearExpiryThenRefreshed(
-        int expiresIn, string? serverRefreshToken, bool expectRefresh, string expectedSavedRefreshToken)
+    [InlineData(3600)]
+    [InlineData(60)]
+    public async Task GetTokenAsync_SavedSignInStillValid_UsedWithoutNetwork(int expiresIn)
+    {
+        var cache = TempCache();
+        var access = JwtIn(TimeSpan.FromSeconds(expiresIn));
+        cache.Write(new CachedTokens(access, "OLD-RT", DateTimeOffset.UtcNow.AddSeconds(expiresIn)));
+        var handler = new ScriptedHandler([Resp(HttpStatusCode.InternalServerError, "")]);
+        var provider = Build(handler, cache);
+
+        var result = await provider.GetTokenAsync(CancellationToken.None);
+
+        Assert.Equal(access, Assert.IsType<TokenResult.Authorized>(result).AccessToken);
+        Assert.Empty(handler.Requests);
+    }
+
+    // expiresIn is the saved access token's lifetime; 20s is inside the 30s refresh margin.
+    [Theory]
+    [InlineData(20, "ROTATED-RT", "ROTATED-RT")]
+    [InlineData(-3600, "ROTATED-RT", "ROTATED-RT")]
+    [InlineData(-3600, null, "OLD-RT")]
+    public async Task GetTokenAsync_SavedSignInNearExpiry_RefreshedAndSaved(
+        int expiresIn, string? serverRefreshToken, string expectedSavedRefreshToken)
     {
         var cache = TempCache();
         var oldAccess = JwtIn(TimeSpan.FromSeconds(expiresIn));
@@ -202,26 +238,15 @@ public class McpDeviceFlowTests
 
         var result = await provider.GetTokenAsync(CancellationToken.None);
 
-        var authorized = Assert.IsType<TokenResult.Authorized>(result);
-        if (!expectRefresh)
-        {
-            Assert.Equal(oldAccess, authorized.AccessToken);
-            Assert.Empty(handler.Requests); // a valid token never touches the network
-        }
-        else
-        {
-            Assert.Equal(newAccess, authorized.AccessToken);
-            var request = Assert.Single(handler.Requests);
-            Assert.Equal("/auth/refresh-mobile", request.RequestUri!.AbsolutePath);
-            Assert.Equal("OLD-RT", JsonDocument.Parse(handler.Bodies[0]!).RootElement.GetProperty("refreshToken").GetString());
-        }
+        Assert.Equal(newAccess, Assert.IsType<TokenResult.Authorized>(result).AccessToken);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("/auth/refresh-mobile", request.RequestUri!.AbsolutePath);
+        Assert.Equal("OLD-RT", JsonDocument.Parse(handler.Bodies[0]!).RootElement.GetProperty("refreshToken").GetString());
 
         var saved = cache.Read();
         Assert.NotNull(saved);
-        Assert.Equal(expectRefresh ? newAccess : oldAccess, saved!.AccessToken);
+        Assert.Equal(newAccess, saved!.AccessToken);
         Assert.Equal(expectedSavedRefreshToken, saved.RefreshToken);
-
-        File.Delete(cache.Path);
     }
 
     [Fact]
@@ -242,8 +267,6 @@ public class McpDeviceFlowTests
         Assert.Equal("UC2", Assert.IsType<TokenResult.Pending>(result).UserCode);
         Assert.Equal("/auth/refresh-mobile", handler.Requests[0].RequestUri!.AbsolutePath);
         Assert.Equal("/auth/device/code", handler.Requests[1].RequestUri!.AbsolutePath);
-
-        File.Delete(cache.Path);
     }
 
     [Fact]
@@ -256,8 +279,6 @@ public class McpDeviceFlowTests
 
         // Not swallowed into Pending / Failed.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.GetTokenAsync(cts.Token));
-
-        File.Delete(cache.Path);
     }
 
     [Theory]
@@ -328,13 +349,14 @@ public class McpDeviceFlowTests
         Assert.Equal(1, handler.DeviceCodeCount);
     }
 
-    // 4102444800 = 2100-01-01, 946684800 = 2000-01-01. Payload lengths cover both
-    // base64url padding cases (%4 == 2 and 3). Null = unreadable → treated as expired.
+    // 4102444800 = 2100-01-01, 946684800 = 2000-01-01. "%4" = unpadded base64url payload
+    // length mod 4, i.e. which padding Base64UrlDecode restores. Null = unreadable → expired.
     public static TheoryData<string, long?> TokenShapes => new()
     {
-        { Jwt(4102444800, sub: "u12"), 4102444800 },
-        { Jwt(946684800), 946684800 },
-        { $"{B64Url("{}")}.{B64Url("""{"exp":"4102444800"}""")}.sig", 4102444800 },
+        { Jwt(4102444800, sub: "u12"), 4102444800 }, // %4 == 0, no padding
+        { Jwt(4102444800), 4102444800 }, // %4 == 3, one "=" restored
+        { Jwt(946684800), 946684800 }, // %4 == 2, "==" restored
+        { $"{B64Url("{}")}.{B64Url("""{"exp":"4102444800"}""")}.sig", 4102444800 }, // exp as a numeric string
         { $"{B64Url("{}")}.{B64Url("""{"sub":"u1"}""")}.sig", null },
         { $"{B64Url("{}")}.{B64Url("""{"exp":true}""")}.sig", null },
         { "not-a-jwt", null },
@@ -372,7 +394,5 @@ public class McpDeviceFlowTests
             File.SetUnixFileMode(cache.Path, OwnerOnly | loosened);
             Assert.Null(cache.Read());
         }
-
-        File.Delete(cache.Path);
     }
 }
