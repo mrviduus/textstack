@@ -417,6 +417,21 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("forged", Ct)).Status);
     }
 
+    // #1435/#1436: Google's photo follows the account until the reader uploads their own.
+    [Fact]
+    public async Task LoginWithGoogleAsync_ReaderUploadedAPhoto_UploadedPhotoKept()
+    {
+        var subject = Guid.NewGuid().ToString();
+        _providers.Google["token"] = new(subject, NewEmail(), "Ann", "https://google.test/old.jpg");
+        var user = (await Auth.LoginWithGoogleAsync("token", Ct)).User!;
+
+        _providers.Google["token"] = _providers.Google["token"] with { Picture = "https://google.test/new.jpg" };
+        Assert.Equal("https://google.test/new.jpg", (await Auth.LoginWithGoogleAsync("token", Ct)).User!.Picture);
+
+        await _users.SetPictureAsync(user.Id, "ab/uploaded/avatar.jpg", Ct);
+        Assert.Equal("ab/uploaded/avatar.jpg", (await Auth.LoginWithGoogleAsync("token", Ct)).User!.Picture);
+    }
+
     [Fact]
     public async Task LoginWithGoogleAsync_VerifiedEmailOfAnotherAccount_IsEmailTaken()
     {

@@ -48,9 +48,14 @@ public sealed class V2AuthService(
                 Picture = google.Picture,
                 GoogleSubject = google.Subject,
             }, ct) ?? await users.GetByGoogleSubjectAsync(google.Subject, ct);
-        else if (user.Email != google.Email || user.Name != google.Name || user.Picture != google.Picture)
-            // Another account holds the new email: sign in as the account is.
-            user = (await users.UpdateProfileAsync(user.Id, google.Email, google.Name, google.Picture, ct)).Account ?? user;
+        else
+        {
+            // A photo the reader uploaded wins over Google's.
+            var picture = UserAccount.IsStoredPicture(user.Picture) ? user.Picture : google.Picture;
+            if (user.Email != google.Email || user.Name != google.Name || user.Picture != picture)
+                // No account back: another account holds the new email, so sign in as the account is.
+                user = (await users.UpdateProfileAsync(user.Id, google.Email, google.Name, picture, ct)).Account ?? user;
+        }
 
         return user is null ? AuthResult.Failed(AuthStatus.EmailTaken) : await IssueAsync(user, null, null, ct);
     }
