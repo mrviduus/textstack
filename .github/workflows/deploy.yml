@@ -34,6 +34,7 @@ on:
       - '!extension/**'
       - '!.github/workflows/mobile-*.yml'
       - '!**/CLAUDE.md'   # Claude Code guides (backend/, apps/mobile/); nothing reads them at build or run time
+      - '!.claude/**'     # Claude Code agents, commands and skills
   workflow_dispatch:
     inputs:
       rollback_commit:

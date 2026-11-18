@@ -89,5 +89,5 @@ from the app independently of a review.
 - Questions survive a re-save when their prompt is unchanged (matched by `prompt_hash`), so running
   a review again does not wipe SRS progress for the parts that did not change.
 - Cascade: deleting the insight (reader-only DELETE) deletes its questions. The Edition FK cascade
-  already noted in assistant-handoff.md now also takes reviews with it — same risk, larger blast.
+  already noted in the assistant-handoff log (git history) now also takes reviews with it — same risk, larger blast.
 - The ceiling the entity exists to hold stays `chapters + 1` rows per book.

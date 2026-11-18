@@ -128,6 +128,8 @@ jobs:
             esac
             case "$f" in
               '') ;;
+              # Working notes and Claude Code guides: hidden from the site, read by no build or test.
+              docs/internal/*|.claude/*|*/CLAUDE.md) ;;
               docs/*|site/*) docs=true ;;
               # Another workflow, a form, a repo page: no job here builds or tests it.
               # ci.yml itself stays everything, and so do the compose overrides.

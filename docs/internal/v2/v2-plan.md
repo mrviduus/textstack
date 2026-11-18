@@ -368,7 +368,7 @@ Fixed rules for every slice: English only; one PR, closes its issue; `/pr` write
 | # | Agent | Do |
 |---|---|---|
 | M5.1 | backend-engineer | shim §5.4 + `Database:Mode` flag + write-freeze switch; MCP alias stage |
-| M5.2 | qa-automation | cutover runbook `internal/ops/v2-cutover.md`; MCP S1–S10 suite; smoke checklist |
+| M5.2 | qa-automation | cutover runbook (removed 2026-11-18, in git history); MCP S1–S10 suite; smoke checklist |
 | M5.3 | owner | execute §5.3; incident template open during the window |
 | M5.4 | backend | rename `/me/v2/*` → final routes; `routes.public.txt` |
 
