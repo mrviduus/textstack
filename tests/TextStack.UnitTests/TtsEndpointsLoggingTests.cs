@@ -50,14 +50,19 @@ public class TtsEndpointsLoggingTests
         {
             "synthesize" => await TtsEndpoints.Synthesize(new DefaultHttpContext(), "Hello", "en", null, null, tts, config, logger, CancellationToken.None),
             "timestamps" => await TtsEndpoints.GetTimestamps(new DefaultHttpContext(), "Hello", "en", null, null, tts, config, logger, CancellationToken.None),
-            _ => await TtsEndpoints.GetVoices("en", tts, logger, CancellationToken.None),
+            "voices" => await TtsEndpoints.GetVoices("en", tts, logger, CancellationToken.None),
+            _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
         };
 
         Assert.Equal(status, Assert.IsType<ProblemHttpResult>(result).StatusCode);
-        Assert.Single(logger.Entries, e => e.Level == level);
+        // Each endpoint reaches its own upstream call, and only that one.
+        await tts.Received(endpoint == "synthesize" ? 1 : 0).SynthesizeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await tts.Received(endpoint == "timestamps" ? 1 : 0).SynthesizeWithTimestampsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await tts.Received(endpoint == "voices" ? 1 : 0).GetVoicesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        // One entry, at the cause's level: Error reaches Sentry; input-driven Warnings stay out of it.
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(level, entry.Level);
         if (level == LogLevel.Error)
-            Assert.Same(upstream, logger.Errors.Single().Exception); // the outage reaches Sentry with its cause
-        else
-            Assert.Empty(logger.Errors); // input-driven: kept out of Sentry
+            Assert.Same(upstream, entry.Exception); // the outage reaches Sentry with its cause
     }
 }
