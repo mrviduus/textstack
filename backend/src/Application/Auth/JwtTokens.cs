@@ -75,13 +75,10 @@ public sealed class JwtTokens
             var isGuest = principal.FindFirst(GuestClaimType)?.Value == "true";
             return new AccessTokenIdentity(Guid.Parse(userIdClaim), isGuest, IssuedAt((JwtSecurityToken)validated));
         }
-        catch (Exception ex) when (IsUnexpected(ex))
+        catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Token validation failed for a reason other than a bad token");
-            return null;
-        }
-        catch
-        {
+            if (IsUnexpected(ex))
+                _logger?.LogWarning(ex, "Token validation failed for a reason other than an expired or misdirected token");
             return null;
         }
     }
@@ -120,19 +117,20 @@ public sealed class JwtTokens
             AdminRole? role = roleClaim != null && Enum.TryParse<AdminRole>(roleClaim, out var parsed) ? parsed : null;
             return new AdminAccessTokenIdentity(adminId, role, IssuedAt((JwtSecurityToken)validated));
         }
-        catch (Exception ex) when (IsUnexpected(ex))
+        catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Token validation failed for a reason other than a bad token");
-            return null;
-        }
-        catch
-        {
+            if (IsUnexpected(ex))
+                _logger?.LogWarning(ex, "Token validation failed for a reason other than an expired or misdirected token");
             return null;
         }
     }
 
-    // A bad, expired or forged token throws these: that is a "no", not a fault worth a log line.
-    private static bool IsUnexpected(Exception ex) => ex is not (SecurityTokenException or ArgumentException);
+    // An expired, garbled or other-audience token is an everyday "no". A bad signature is logged: it is
+    // either forged or signed with another key, and every token failing that way is a key mismatch.
+    private static bool IsUnexpected(Exception ex) => ex is not (SecurityTokenExpiredException
+        or SecurityTokenNotYetValidException or SecurityTokenMalformedException or SecurityTokenInvalidAudienceException
+        or SecurityTokenInvalidIssuerException or SecurityTokenNoExpirationException)
+        && ex.GetType() != typeof(ArgumentException);
 
     // JWT iat is whole seconds. Keep full precision for reset checks, including a new sign-in
     // during the same second as a reset. Old signed tokens retain the conservative iat fallback.

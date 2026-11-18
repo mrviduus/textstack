@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -40,7 +41,7 @@ public class IdentityMiddlewareTests
         var userId = Guid.NewGuid();
         var http = Request(TestTokens.Token(userId, guestClaim: isGuest), s => s.AddSingleton(users.Object));
 
-        await new GuestActivityMiddleware(_ => Task.CompletedTask).InvokeAsync(http, Auth, new MemoryCache(new MemoryCacheOptions()), Microsoft.Extensions.Logging.Abstractions.NullLogger<GuestActivityMiddleware>.Instance);
+        await new GuestActivityMiddleware(_ => Task.CompletedTask).InvokeAsync(http, Auth, new MemoryCache(new MemoryCacheOptions()), NullLogger<GuestActivityMiddleware>.Instance);
 
         users.Verify(u => u.TouchActiveAsync(userId, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), isGuest ? Times.Once() : Times.Never());
     }

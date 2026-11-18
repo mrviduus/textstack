@@ -191,9 +191,10 @@ app.MapGet("/health", async (V2DataSource db, ILogger<Program> logger, Cancellat
         await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
         return Results.Ok("healthy");
     }
-    catch (Exception ex) when (!ct.IsCancellationRequested)
+    catch (Exception ex)
     {
-        logger.LogWarning(ex, "Health check: the database is unreachable");
+        if (!ct.IsCancellationRequested)
+            logger.LogWarning(ex, "Health check: the database is unreachable");
         return Results.StatusCode(503);
     }
 });
@@ -296,7 +297,7 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     }
     catch (Exception ex)
     {
-        logger.LogDebug(ex, "Readiness: Ollama probe failed");
+        logger.LogInformation(ex, "Readiness: Ollama probe failed");
         components["ollama"] = new { status = "degraded" };
     }
 

@@ -70,7 +70,7 @@ public class GuestActivityMiddleware(RequestDelegate next)
         }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, "Guest {UserId} last-active write failed; the next request retries", id);
+            logger.LogWarning(ex, "Guest {UserId} last-active write failed; the next request retries", id);
             // Non-critical: the response has already been written, and a failure here costs a guest
             // nothing until the 30-day sweep. Deliberately NOT cached on failure, so the next
             // request retries rather than waiting out the debounce.
