@@ -24,7 +24,6 @@ public class LibraryContentServiceTests
     private const string Key = "library/key.epub";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly ILibraryRepository _library = Substitute.For<ILibraryRepository>();
     private readonly IIngestionJobRepository _jobs = Substitute.For<IIngestionJobRepository>();
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly ILibraryFileStore _files = Substitute.For<ILibraryFileStore>();
@@ -32,20 +31,14 @@ public class LibraryContentServiceTests
     private readonly BookFile _file = new() { Id = FileId, UserId = User, BookId = BookId, Sha256 = Sha, ByteSize = 1000, Format = "epub", IsCurrent = true };
     private readonly BookFile _oldFile = new() { Id = OldFileId, UserId = User, BookId = BookId, Sha256 = Sha, ByteSize = 1000, Format = "epub" };
     private readonly StagedContent _staged = new(Key, "/tmp/staged", Sha, 1000);
+    private readonly ILibraryRepository _library;
 
     public LibraryContentServiceTests()
     {
-        // NSubstitute answers "" for strings: every string? lookup is null unless a test says otherwise.
-        _library.FileFormatAsync(default, default, default, default).ReturnsForAnyArgs((string?)null);
-        _library.RemoveContentAsync(default, default, default, default).ReturnsForAnyArgs((string?)null);
-        _files.Locate(default!).ReturnsForAnyArgs((string?)null);
-
         // The reader's book carries the file as its current one, as the library read does; OldFileId is a superseded version.
-        _library.GetAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(_ => new Book { Id = BookId, UserId = User, CurrentFile = _file });
-        _library.ExistsAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(true);
-        _library.GetFileAsync(User, BookId, FileId, Arg.Any<CancellationToken>()).Returns(_ => _file);
-        _library.GetFileAsync(User, BookId, OldFileId, Arg.Any<CancellationToken>()).Returns(_ => _oldFile);
-        _library.FileFormatAsync(User, BookId, Arg.Is<Guid>(f => f == FileId || f == OldFileId), Arg.Any<CancellationToken>()).Returns("epub");
+        _library = V2Fakes.Library(User, BookId, _file, _oldFile);
+        // NSubstitute answers "" for strings: no file is on disk unless a test says otherwise.
+        _files.Locate(default!).ReturnsForAnyArgs((string?)null);
         // A Free account whose override is the test's limit.
         _users.GetAsync(User, Arg.Any<CancellationToken>())
             .Returns(new UserAccount { Id = User, Email = "reader@test", Tier = "Free", StorageLimitOverrideBytes = Limit });

@@ -19,18 +19,11 @@ public class VocabularySyncServiceTests
     private static readonly Guid CardId = Guid.NewGuid();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly ILibraryRepository _library = Substitute.For<ILibraryRepository>();
+    /// <summary>The user has <see cref="BookId"/>, whose one version is <see cref="FileId"/>; nothing else.</summary>
+    private readonly ILibraryRepository _library = V2Fakes.Library(User, BookId, FileId);
     private readonly IVocabularyRepository _words = Substitute.For<IVocabularyRepository>();
     private readonly SteppedClock _clock = new() { Now = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero) };
     private VocabularySyncService Service => new(_library, _words, new SrsEngine(), _clock);
-
-    /// <summary>The user has <see cref="BookId"/>, whose one version is <see cref="FileId"/>; nothing else.</summary>
-    public VocabularySyncServiceTests()
-    {
-        _library.FileFormatAsync(default, default, default, default).ReturnsForAnyArgs((string?)null);
-        _library.FileFormatAsync(User, BookId, FileId, Arg.Any<CancellationToken>()).Returns("epub");
-        _library.ExistsAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(true);
-    }
 
     private static VocabularyWord Card(long revision = 1, bool deleted = false) => new()
     {

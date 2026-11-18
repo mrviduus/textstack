@@ -23,7 +23,8 @@ public class ReadingSyncServiceTests
     private static readonly Guid OldFile = Guid.NewGuid();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly ILibraryRepository _library = Substitute.For<ILibraryRepository>();
+    // The user has the book; its current file is CurrentFile, OldFile a superseded version of it.
+    private readonly ILibraryRepository _library = V2Fakes.Library(User, BookId, CurrentFile, OldFile);
     private readonly IReadingStateRepository _states = Substitute.For<IReadingStateRepository>();
     private readonly IReadingSessionRepository _sessions = Substitute.For<IReadingSessionRepository>();
     private readonly IBookChapterRepository _chapters = Substitute.For<IBookChapterRepository>();
@@ -31,11 +32,6 @@ public class ReadingSyncServiceTests
 
     public ReadingSyncServiceTests()
     {
-        // The user has the book; its current file is CurrentFile, OldFile a superseded version of it.
-        CurrentFileIs("epub");
-        _library.ExistsAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(true);
-        foreach (var version in new[] { CurrentFile, OldFile })
-            _library.GetFileAsync(User, BookId, version, Arg.Any<CancellationToken>()).Returns(new BookFile { Id = version, BookId = BookId });
         // A write loses with nothing stored unless a test says otherwise.
         Loses(null);
     }

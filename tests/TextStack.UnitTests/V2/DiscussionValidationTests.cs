@@ -13,7 +13,7 @@ public class DiscussionValidationTests
     private static readonly Guid BookId = Guid.NewGuid();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly DiscussionSyncService _service = new(Library(User, BookId, null).Object, Shares().Object, Checkpoints().Object);
+    private readonly DiscussionSyncService _service = new(Library(User, BookId, (Guid?)null), Shares(), Checkpoints());
 
     /// <summary>The refused field, or null when the request got past validation.</summary>
     private static async Task<string?> FieldOf(Task<SyncResult> pending) => (await pending).Body is V2Error { Code: SyncCodes.InvalidPayload } e ? e.Field : null;
