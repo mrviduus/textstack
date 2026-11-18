@@ -75,7 +75,6 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private async Task<UserAccount> NewAccountAsync(string role) =>
         (await _users.CreateAsync(new UserAccount { Id = Guid.NewGuid(), Email = NewEmail(), PasswordHash = PasswordHash, Role = role }, Ct))!;
 
-
     // A reader with a password.
 
     [Fact]
@@ -98,26 +97,32 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal(AuthStatus.InvalidCredentials, (await Auth.LoginWithEmailAsync(email, "wrong password", Ct)).Status);
         Assert.Equal(AuthStatus.InvalidCredentials, (await Auth.LoginWithEmailAsync(NewEmail(), Password, Ct)).Status);
 
-        // Refresh rotates; the old token is spent. Within the grace (two tabs at once) it is refused, not treated as theft.
+        // Refresh rotates; the old token is spent.
         var refreshed = await Auth.RefreshTokenAsync(registered.RefreshToken!, Ct);
         Assert.Equal(registered.User.Id, refreshed.User?.Id);
         Assert.NotEqual(registered.RefreshToken, refreshed.RefreshToken);
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(registered.RefreshToken!, Ct)).Status);
-        var laptop = (await Auth.RefreshTokenAsync(refreshed.RefreshToken!, Ct)).RefreshToken!;
+        // Within the grace (two tabs at once) that reuse is not treated as theft: the new token still refreshes.
+        var laptop = await Auth.RefreshTokenAsync(refreshed.RefreshToken!, Ct);
+        Assert.True(laptop.Succeeded);
 
         // Signing out ends that session only.
-        Assert.True(await Auth.LogoutAsync(laptop, Ct));
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(laptop, Ct)).Status);
+        Assert.True(await Auth.LogoutAsync(laptop.RefreshToken!, Ct));
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(laptop.RefreshToken!, Ct)).Status);
         Assert.True((await Auth.RefreshTokenAsync(phone.RefreshToken!, Ct)).Succeeded);
-        Assert.False(await Auth.LogoutAsync(laptop, Ct));
+        Assert.False(await Auth.LogoutAsync(laptop.RefreshToken!, Ct));
+
+        // A test login (e2e) of a reader's email is one account however often it runs.
+        var tester = NewEmail();
+        Assert.Equal((await Auth.TestLoginAsync(tester, Ct)).User!.Id, (await Auth.TestLoginAsync(tester, Ct)).User?.Id);
     }
 
     [Fact]
-    public async Task RefreshTokenAsync_StolenTokenReplayedOrRotationLost_NoSessionAndTheFamilyDies()
+    public async Task RefreshTokenAsync_RotationLostThenStolenTokenReplayed_LostRaceRefusedReplayKillsTheFamily()
     {
         var (user, refresh, _) = await SignedInAsync();
 
-        // A lost rotation race never hands out a token that was not stored.
+        // A lost rotation race never hands out a token that was not stored; the family lives on.
         var lost = await AuthWith(sessions: new LosingRotation(_sessions)).RefreshTokenAsync(refresh, Ct);
         Assert.Equal(AuthStatus.InvalidToken, lost.Status);
         Assert.Null(lost.RefreshToken);
@@ -135,15 +140,17 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     public async Task RefreshTokenAsync_GuestAndAccount_OwnWindowsAndAnAbsoluteLifetime()
     {
         var guest = await Auth.CreateGuestSessionAsync(Ct);
-        var (user, refresh, _) = await SignedInAsync();
+        var (_, refresh, _) = await SignedInAsync();
 
         var (guestNext, accountNext) = (await Auth.RefreshTokenAsync(guest.RefreshToken!, Ct), await Auth.RefreshTokenAsync(refresh, Ct));
 
         Assert.Equal(_clock.Now.AddDays(GuestDays), await ExpiresAtAsync(guestNext.RefreshToken!), TimeSpan.FromSeconds(1));
         Assert.Equal(_clock.Now.AddDays(AccountDays), await ExpiresAtAsync(accountNext.RefreshToken!), TimeSpan.FromSeconds(1));
 
-        // Refreshing forever does not stretch a sign-in past its absolute lifetime.
-        await db.AgeSessionsAsync(user.Id, "91 days");
+        // Refreshing forever does not stretch a sign-in past its absolute lifetime, counted from the
+        // family's first row: only that row is aged, the presented child is fresh.
+        await db.ExecAsync("UPDATE user_refresh_tokens SET created_at = now() - interval '91 days' WHERE token_hash = @hash",
+            new { hash = DeviceCodes.HashToken(refresh) });
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(accountNext.RefreshToken!, Ct)).Status);
     }
 
@@ -382,14 +389,19 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     {
         var subject = Guid.NewGuid().ToString();
         _providers.Apple["token"] = new(subject, null, null, null);
-        var (_, _, email) = await SignedInAsync();
 
-        // A body email (here another account's) is the client's word, ignored.
-        var first = await Auth.LoginWithAppleAsync("token", "Ann", email, Ct);
+        // A token without an email: the account gets the relay email.
+        var first = await Auth.LoginWithAppleAsync("token", "Ann", null, Ct);
         var second = await Auth.LoginWithAppleAsync("token", "Ann B", null, Ct);
 
         Assert.Equal(Emails.AppleRelay(subject), first.User!.Email);
         Assert.Equal((first.User.Id, "Ann"), (second.User!.Id, second.User.Name));
+
+        // A body email (here another account's) is the client's word, ignored for the relay email.
+        var (_, _, email) = await SignedInAsync();
+        var other = Guid.NewGuid().ToString();
+        _providers.Apple["body"] = new(other, null, null, null);
+        Assert.Equal(Emails.AppleRelay(other), (await Auth.LoginWithAppleAsync("body", null, email, Ct)).User!.Email);
 
         // The verified token's email of another account: taken, never linked.
         _providers.Apple["taken"] = new(Guid.NewGuid().ToString(), email, null, null);
@@ -464,12 +476,7 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithAppleAsync("a", null, null, Ct)).Status);
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.IssueSessionAsync(admin, DateTimeOffset.UtcNow, Ct)).Status);
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", admin.Id));
-
-        // A reader's test login is one account however often it runs.
-        var email = NewEmail();
-        Assert.Equal((await Auth.TestLoginAsync(email, Ct)).User!.Id, (await Auth.TestLoginAsync(email, Ct)).User?.Id);
     }
-
 
     private Task<Guid> OwnerAsync(Guid bookId) => db.ScalarAsync<Guid>("SELECT user_id FROM books WHERE id = @bookId", new { bookId });
 
