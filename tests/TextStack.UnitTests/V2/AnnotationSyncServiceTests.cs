@@ -105,9 +105,9 @@ public class AnnotationSyncServiceTests
     [InlineData("selectedText", Cfi, null, "selectedText is at most")]
     [InlineData("locator", TextPosition, null, "reading position only")]
     [InlineData("fileId", Cfi, null, "fileId is required")]
-    [InlineData("locator", PdfAnchor, "epub", "A pdf-page locator does not fit a epub file")]
-    [InlineData("locator", PdfAnchor, "html", "A pdf-page locator does not fit a html file")]
-    [InlineData("locator", Cfi, "pdf", "A epub-cfi locator does not fit a pdf file")]
+    [InlineData("locator", PdfAnchor, "epub", "The pdf-page locator does not fit this epub file")]
+    [InlineData("locator", PdfAnchor, "html", "The pdf-page locator does not fit this html file")]
+    [InlineData("locator", Cfi, "pdf", "The epub-cfi locator does not fit this pdf file")]
     public async Task SaveAsync_HighlightTheServerCannotStore_IsInvalidPayloadSayingWhyAndWritesNothing(
         string field, string locator, string? format, string why)
     {
@@ -170,7 +170,7 @@ public class AnnotationSyncServiceTests
     // An annotation stored before the scheme check (#1122): an edit keeping its locator lands, one moving it is refused.
     [Theory]
     [InlineData(Cfi, 200, null)]
-    [InlineData("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/2!/4/2/1:0)","quote":"bright"}""", 400, "A epub-cfi locator does not fit a pdf file")]
+    [InlineData("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/2!/4/2/1:0)","quote":"bright"}""", 400, "The epub-cfi locator does not fit this pdf file")]
     public async Task SaveAsync_EditOfAMisfitLocatorStoredBeforeTheCheck_LandsOnlyIfItKeepsIt(string storedLocator, int status, string? why)
     {
         FileIs("pdf");

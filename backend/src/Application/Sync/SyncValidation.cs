@@ -256,7 +256,7 @@ public static class SyncValidation
     };
 
     private static SyncResult Misfit(string scheme, string format, string field) =>
-        SyncResult.Invalid(field, $"A {scheme} locator does not fit a {format} file.");
+        SyncResult.Invalid(field, $"The {scheme} locator does not fit this {format} file.");
 
     private static SyncResult? EpubCfi(JsonElement locator, JsonElement value, string field, LocatorUse use)
     {
