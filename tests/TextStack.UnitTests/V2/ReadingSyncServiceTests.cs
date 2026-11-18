@@ -173,12 +173,12 @@ public class ReadingSyncServiceTests
     // #1122: the write's SQL refuses a scheme that does not fit the file; the loss is named here, from the book's current file.
     // textstack-* fits any file: the transitional reader writes it on a PDF's reflow too.
     [Theory]
-    [InlineData(PdfPage, null, "epub", 400, "currentLocator", "A pdf-page locator does not fit a epub file.")]
-    [InlineData(PdfPage, null, "html", 400, "currentLocator", "A pdf-page locator does not fit a html file.")]
-    [InlineData(Cfi, null, "pdf", 400, "currentLocator", "A epub-cfi locator does not fit a pdf file.")]
-    [InlineData(PageName, null, "pdf", 400, "currentLocator", "A page-name locator does not fit a pdf file.")]
-    [InlineData(PageName, null, "mobi", 400, "currentLocator", "A page-name locator does not fit a mobi file.")]
-    [InlineData(TextPositionV1, Cfi, "pdf", 400, "frontierLocator", "A epub-cfi locator does not fit a pdf file.")]
+    [InlineData(PdfPage, null, "epub", 400, "currentLocator", "The pdf-page locator does not fit this epub file.")]
+    [InlineData(PdfPage, null, "html", 400, "currentLocator", "The pdf-page locator does not fit this html file.")]
+    [InlineData(Cfi, null, "pdf", 400, "currentLocator", "The epub-cfi locator does not fit this pdf file.")]
+    [InlineData(PageName, null, "pdf", 400, "currentLocator", "The page-name locator does not fit this pdf file.")]
+    [InlineData(PageName, null, "mobi", 400, "currentLocator", "The page-name locator does not fit this mobi file.")]
+    [InlineData(TextPositionV1, Cfi, "pdf", 400, "frontierLocator", "The epub-cfi locator does not fit this pdf file.")]
     [InlineData(PdfPage, null, "pdf", 409, null, null)]
     [InlineData(Cfi, null, "epub", 409, null, null)]
     [InlineData(Cfi, null, "html", 409, null, null)]
