@@ -28,7 +28,7 @@ public class VocabularyValidationTests
         _words.GetWordAsync(default, default, default).ReturnsForAnyArgs(new VocabularyWord());
     }
 
-    private VocabularySyncService Service => new(Substitute.For<ILibraryRepository>(), _words, new SrsEngine(), _clock);
+    private VocabularySyncService Service => new(V2Fakes.Library(Guid.NewGuid(), Guid.NewGuid(), (Guid?)null), _words, new SrsEngine(), _clock);
 
     /// <summary>The refused field, or null when the request got past validation.</summary>
     private static async Task<string?> FieldOf(Task<SyncResult> pending) => (await pending).Body is V2Error { Code: SyncCodes.InvalidPayload } e ? e.Field : null;

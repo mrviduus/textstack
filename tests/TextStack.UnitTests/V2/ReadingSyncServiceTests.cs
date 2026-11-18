@@ -24,7 +24,8 @@ public class ReadingSyncServiceTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     // The user has the book; its current file is CurrentFile, OldFile a superseded version of it.
-    private readonly ILibraryRepository _library = V2Fakes.Library(User, BookId, CurrentFile, OldFile);
+    private readonly BookFile _current = new() { Id = CurrentFile, BookId = BookId, Sha256 = new string('a', 64), Format = "epub", IsCurrent = true };
+    private readonly ILibraryRepository _library;
     private readonly IReadingStateRepository _states = Substitute.For<IReadingStateRepository>();
     private readonly IReadingSessionRepository _sessions = Substitute.For<IReadingSessionRepository>();
     private readonly IBookChapterRepository _chapters = Substitute.For<IBookChapterRepository>();
@@ -32,6 +33,7 @@ public class ReadingSyncServiceTests
 
     public ReadingSyncServiceTests()
     {
+        _library = V2Fakes.Library(User, BookId, _current, new BookFile { Id = OldFile, BookId = BookId, Format = "epub" });
         // A write loses with nothing stored unless a test says otherwise.
         Loses(null);
     }
@@ -68,13 +70,8 @@ public class ReadingSyncServiceTests
         _states.AdvanceAsync(default, default, default!, default, default!, default)
             .ReturnsForAnyArgs(new RevisionedWrite<ReadingState>(false, stored));
 
-    private void CurrentFileIs(string format) =>
-        _library.GetAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(_ => new Book
-        {
-            Id = BookId,
-            UserId = User,
-            CurrentFile = new BookFile { Id = CurrentFile, BookId = BookId, Sha256 = new string('a', 64), Format = format, IsCurrent = true },
-        });
+    // The fake reads the row live: the book, the file and its format all answer with this one.
+    private void CurrentFileIs(string format) => _current.Format = format;
 
     private void FileHasChapter(string chapterKey) =>
         _chapters.ExistsAsync(User, CurrentFile, chapterKey, Arg.Any<CancellationToken>()).Returns(true);

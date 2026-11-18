@@ -29,7 +29,7 @@ internal static class V2Fakes
         library.RemoveContentAsync(default, default, default, default).ReturnsForAnyArgs((string?)null);
         library.ExistsAsync(user, bookId, Arg.Any<CancellationToken>()).Returns(true);
         library.GetAsync(user, bookId, Arg.Any<CancellationToken>()).Returns(_ => new Book { Id = bookId, UserId = user, CurrentFile = current });
-        foreach (var file in versions.Prepend(current).OfType<BookFile>())
+        foreach (var file in versions.Append(current).OfType<BookFile>())
         {
             library.GetFileAsync(user, bookId, file.Id, Arg.Any<CancellationToken>()).Returns(_ => file);
             library.FileFormatAsync(user, bookId, file.Id, Arg.Any<CancellationToken>()).Returns(_ => file.Format);

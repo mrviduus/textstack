@@ -76,29 +76,37 @@ public class DiscussionSyncServiceTests
     [Fact]
     public async Task AnotherReader_HoldingTheReadersBookAndIds_IsRefusedEverywhereAndWritesNothing()
     {
+        // What the reader holds: Bob's 404s below come from the ownership check, not an unset fake.
         var shareId = Guid.NewGuid();
         _shares.GetAsync(User, shareId, Arg.Any<CancellationToken>()).Returns(new SharedChapter { Id = shareId, ChapterKey = "ch02.xhtml", NotesSnapshot = "[]" });
+        _library.SetCheckpointSavingAsync(User, BookId, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new Domain.Library.Book { Id = BookId, UserId = User });
 
-        var share = await Service.ShareAsync(Bob, BookId, V2Fakes.NewShare(), Ct);
-        var checkpoint = await Service.SaveCheckpointAsync(Bob, BookId, V2Fakes.NewCheckpoint(), Ct);
-        var shares = await Service.ListSharesAsync(Bob, BookId, Ct);
-        var checkpoints = await Service.ListCheckpointsAsync(Bob, BookId, null, null, null, Ct);
-        var saving = await Service.SetCheckpointSavingAsync(Bob, BookId, new CheckpointSavingRequest(false), Ct);
+        (string Endpoint, SyncResult Result)[] refused =
+        [
+            ("share", await Service.ShareAsync(Bob, BookId, V2Fakes.NewShare(), Ct)),
+            ("save checkpoint", await Service.SaveCheckpointAsync(Bob, BookId, V2Fakes.NewCheckpoint(), Ct)),
+            ("list shares", await Service.ListSharesAsync(Bob, BookId, Ct)),
+            ("list checkpoints", await Service.ListCheckpointsAsync(Bob, BookId, null, null, null, Ct)),
+            ("checkpoint saving", await Service.SetCheckpointSavingAsync(Bob, BookId, new CheckpointSavingRequest(false), Ct)),
+        ];
         var readShare = await Service.GetShareAsync(Bob, shareId, Ct);
         // Even the reader cannot share a file that is not a version of the book.
         var foreignFile = await Service.ShareAsync(User, BookId, V2Fakes.NewShare(Guid.NewGuid()), Ct);
 
-        foreach (var refused in new[] { share, checkpoint, shares, checkpoints, saving })
-            Assert.Equal((404, SyncCodes.BookNotFound), (refused.Status, V2Fakes.Error(refused).Code));
+        foreach (var (endpoint, result) in refused)
+            Assert.Equal((endpoint, 404, SyncCodes.BookNotFound), (endpoint, result.Status, V2Fakes.Error(result).Code));
         Assert.Equal((404, SyncCodes.NotFound), (readShare.Status, V2Fakes.Error(readShare).Code));
         Assert.Equal((409, SyncCodes.UnknownFile), (foreignFile.Status, V2Fakes.Error(foreignFile).Code));
         await _shares.DidNotReceiveWithAnyArgs().ShareAsync(default!, Ct);
         await _checkpoints.DidNotReceiveWithAnyArgs().AppendAsync(default!, Ct);
+        // The same ids answer the reader.
         Assert.Equal(200, (await Service.GetShareAsync(User, shareId, Ct)).Status);
+        Assert.Equal(200, (await Service.SetCheckpointSavingAsync(User, BookId, new CheckpointSavingRequest(false), Ct)).Status);
     }
 
     [Fact]
-    public async Task DeleteAsync_ShareOrCheckpointDeletedTwice_Is204Then404()
+    public async Task DeleteShareAsyncAndDeleteCheckpointAsync_DeletedTwice_Are204Then404()
     {
         var (shareId, checkpointId) = (Guid.NewGuid(), Guid.NewGuid());
         _shares.DeleteAsync(User, shareId, Arg.Any<CancellationToken>()).Returns(true, false);

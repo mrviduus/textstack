@@ -36,7 +36,6 @@ public class AnnotationSyncServiceTests
     public AnnotationSyncServiceTests()
     {
         _chapters.ExistsAsync(User, FileId, OnChapter, Arg.Any<CancellationToken>()).Returns(true);
-        _library.ClearReceivedCalls();
         _chapters.ClearReceivedCalls();
     }
 
