@@ -33,6 +33,9 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(bookLevel, Ct);
         await _repo.AppendAsync(first, Ct);
         await _repo.AppendAsync(second, Ct);
+        // Pinned times: the order never rests on two appends landing in the same microsecond.
+        foreach (var (id, minutes) in new[] { (bookLevel.Id, 3), (first.Id, 2), (second.Id, 1) })
+            await db.ExecAsync("UPDATE discussion_checkpoints SET created_at = now() - make_interval(mins => @minutes) WHERE id = @id", new { id, minutes });
 
         Assert.Equal((WriteOutcome.Created, bookLevel.Id), (result.Outcome, result.Row!.Id));
         var all = await AllAsync(book);
@@ -118,10 +121,13 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         otherChapter.ChapterKey = "ch-2";
         Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(otherChapter, Ct)));
 
-        // Same user, chapter and (no) file: only the book differs. Without the book guard the insert
-        // would pass and the deferred share FK refuse it at commit, a 500.
-        var otherBook = NewCheckpoint(other, share);
-        otherBook.FileId = null;
+        // A share with no file, a checkpoint with none: same user and chapter, only the book differs.
+        // Without the book guard the insert would pass and the deferred share FK refuse it at commit, a 500.
+        var fileless = NewShare(book);
+        (fileless.ChapterKey, fileless.FileId) = ("ch-3", null);
+        await _shares.ShareAsync(fileless, Ct);
+        var otherBook = NewCheckpoint(other, fileless);
+        Assert.Null(otherBook.FileId);
         Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(otherBook, Ct)));
 
         var otherVersion = NewCheckpoint(book, share);
@@ -209,13 +215,15 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     {
         var alices = await db.NewReaderWithBookAsync();
         var bobs = await db.NewReaderWithBookAsync();
+        var eves = await db.NewReaderWithBookAsync();
         var share = NewShare(alices);
         await _shares.ShareAsync(share, Ct);
         var hers = NewCheckpoint(alices);
         await _repo.AppendAsync(hers, Ct);
 
         // Her operation id and hash with a share that does not match: a mismatch, not her row replayed.
-        var replayOfHers = NewCheckpoint(bobs);
+        // Another intruder, so no row of his own under that operation id can answer instead.
+        var replayOfHers = NewCheckpoint(eves);
         (replayOfHers.OperationId, replayOfHers.PayloadSha256, replayOfHers.ChapterKey, replayOfHers.SharedChapterId) =
             (hers.OperationId, hers.PayloadSha256, "ch-1", Guid.NewGuid());
         Assert.Equal(Mismatch, ToPair(await _repo.AppendAsync(replayOfHers, Ct)));
@@ -242,6 +250,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         Assert.Equal(hers.Id, Assert.Single(await AllAsync(alices)).Id);
         Assert.Equal(his.Id, Assert.Single(await AllAsync(bobs)).Id);
         Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", bobs.UserId, alices.Id));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", eves.UserId));
     }
 
     private static (WriteOutcome, DiscussionCheckpoint?) ToPair(WriteResult<DiscussionCheckpoint> result) => (result.Outcome, result.Row);
