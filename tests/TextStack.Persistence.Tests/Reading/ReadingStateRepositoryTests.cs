@@ -27,7 +27,14 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         return (book.UserId, book.Id, book.CurrentFile!.Id);
     }
 
-    // Transitional (M2.7a): the chapter guard of a textstack-* write, in the statement itself.
+    private async Task<(Guid User, Guid Book, Guid File)> ReaderWithFileAsync(string format)
+    {
+        var user = await db.NewReaderAsync();
+        var imported = new Domain.Library.Book { Id = Guid.NewGuid(), Title = "A " + format };
+        var book = (await _library.ImportAsync(user, imported, V2PostgresFixture.NewFile(user, imported.Id, format: format), Ct)).Book!;
+        return (user, book.Id, book.CurrentFile!.Id);
+    }
+
     private async Task<(Guid User, Guid Book, Guid File)> ReaderWithChapterAsync(string key = "ch-1")
     {
         var (user, book, file) = await ReaderWithBookAsync();
@@ -41,224 +48,247 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     private static ReadingState WithFrontier(Guid fileId, int page, int frontierPage) =>
         new() { FileId = fileId, CurrentLocator = Cfi(page), BookFraction = page / 10m, FrontierLocator = Cfi(frontierPage), FrontierFraction = frontierPage / 10m, ClientRecordedAt = DateTimeOffset.UtcNow };
 
-    // #1122: the scheme guard, in the write itself.
-    private const string PdfPage = """{"version":1,"scheme":"pdf-page","value":{"page":2}}""";
-    private const string TextPosition = """{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.2}}""";
-
     private static ReadingState Locating(Guid fileId, string locator, decimal fraction = 0.2m) =>
         new() { FileId = fileId, CurrentLocator = locator, BookFraction = fraction, ClientRecordedAt = DateTimeOffset.UtcNow };
 
+    // A reader on the phone and on the web: the write naming the stored revision wins, the stale one gets the stored state.
     [Fact]
-    public async Task AdvanceAsync_PdfPageOnAnEpub_LosesFirstAndLater()
+    public async Task AdvanceAsync_ReaderOnThePhoneThenTheWeb_NewerRevisionWinsAndStaleGetsTheStoredState()
     {
         var (user, book, file) = await ReaderWithBookAsync();
+        var phone = At(file, 3);
+        phone.ClientRecordedAt = new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.FromHours(2));
+        phone.CompletedAt = phone.ClientRecordedAt;
+        phone.FrontierFraction = 0.5m; // a fraction without a locator is no frontier
 
-        Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PdfPage), null, default, Ct)).Accepted);
-        Assert.True((await _repo.AdvanceAsync(user, book, At(file, 1), null, default, Ct)).Accepted);
-        Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PdfPage, 0.3m), 1, default, Ct)).Accepted);
-    }
+        var first = await _repo.AdvanceAsync(user, book, phone, null, default, Ct);
 
-    [Fact]
-    public async Task AdvanceAsync_OnAPdf_PdfPageAndTextstackWinAndEpubCfiLoses()
-    {
-        var user = await db.NewReaderAsync();
-        var imported = new Domain.Library.Book { Id = Guid.NewGuid(), Title = "A PDF" };
-        var pdf = (await _library.ImportAsync(user, imported, V2PostgresFixture.NewFile(user, imported.Id, format: "pdf"), Ct)).Book!;
-        var file = pdf.CurrentFile!.Id;
-
-        Assert.False((await _repo.AdvanceAsync(user, pdf.Id, At(file, 1), null, default, Ct)).Accepted);
-        Assert.True((await _repo.AdvanceAsync(user, pdf.Id, Locating(file, PdfPage), null, default, Ct)).Accepted);
-        // The transitional reader's reflow of a PDF; the chapter guard is not this test's (no keys handed in).
-        Assert.True((await _repo.AdvanceAsync(user, pdf.Id, Locating(file, TextPosition, 0.3m), 1, default, Ct)).Accepted);
-        Assert.False((await _repo.AdvanceAsync(user, pdf.Id, Locating(file, Cfi(4), 0.4m), 2, default, Ct)).Accepted);
-    }
-
-    // #1128: foliate addresses every non-PDF format by CFI (ADR-032); pdf-page stays PDF-only.
-    [Theory]
-    [InlineData("mobi")]
-    [InlineData("azw3")]
-    [InlineData("fb2")]
-    [InlineData("cbz")]
-    public async Task AdvanceAsync_OnAFoliateFormat_EpubCfiWinsAndPdfPageLoses(string format)
-    {
-        var user = await db.NewReaderAsync();
-        var imported = new Domain.Library.Book { Id = Guid.NewGuid(), Title = "A " + format };
-        var book = (await _library.ImportAsync(user, imported, V2PostgresFixture.NewFile(user, imported.Id, format: format), Ct)).Book!;
-        var file = book.CurrentFile!.Id;
-
-        Assert.False((await _repo.AdvanceAsync(user, book.Id, Locating(file, PdfPage), null, default, Ct)).Accepted);
-        Assert.True((await _repo.AdvanceAsync(user, book.Id, At(file, 1), null, default, Ct)).Accepted);
-    }
-
-    // #1188: a CBZ page by its entry name; page-name fits a cbz and an epub (#1196: a pre-paginated one's spine href).
-    private const string PageName = """{"version":1,"scheme":"page-name","value":{"page":"p02.png","index":1}}""";
-
-    private async Task<(Guid User, Guid Book, Guid File)> ReaderWithFileAsync(string format)
-    {
-        var user = await db.NewReaderAsync();
-        var imported = new Domain.Library.Book { Id = Guid.NewGuid(), Title = "A " + format };
-        var book = (await _library.ImportAsync(user, imported, V2PostgresFixture.NewFile(user, imported.Id, format: format), Ct)).Book!;
-        return (user, book.Id, book.CurrentFile!.Id);
-    }
-
-    [Theory]
-    [InlineData("cbz")]
-    [InlineData("epub")]
-    public async Task AdvanceAsync_PageNameOnACbzOrAnEpub_WinsAndReadsBackAsSent(string format)
-    {
-        var (user, book, file) = await ReaderWithFileAsync(format);
-        var write = Locating(file, PageName, 0.5m);
-        write.FrontierLocator = PageName;
-        write.FrontierFraction = 0.5m;
-
-        Assert.True((await _repo.AdvanceAsync(user, book, write, null, default, Ct)).Accepted);
-
-        var stored = (await _repo.GetAsync(user, book, Ct))!;
-        AssertSameJson(PageName, stored.CurrentLocator);
-        AssertSameJson(PageName, stored.FrontierLocator);
-    }
-
-    [Theory]
-    [InlineData("pdf")]
-    [InlineData("mobi")]
-    [InlineData("fb2")]
-    public async Task AdvanceAsync_PageNameOnAnotherFormat_LosesFirstAndLater(string format)
-    {
-        var (user, book, file) = await ReaderWithFileAsync(format);
-
-        Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PageName), null, default, Ct)).Accepted);
-        Assert.True((await _repo.AdvanceAsync(user, book, Locating(file, format == "pdf" ? PdfPage : Cfi(1)), null, default, Ct)).Accepted);
-        Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, PageName, 0.3m), 1, default, Ct)).Accepted);
-    }
-
-    // The position's own guard: a fitting frontier further on is what the write stores as the frontier.
-    [Fact]
-    public async Task AdvanceAsync_PageNamePositionBehindAFittingFrontierOnAMobi_Loses()
-    {
-        var (user, book, file) = await ReaderWithFileAsync("mobi");
-        var write = Locating(file, PageName, 0.2m);
-        write.FrontierLocator = Cfi(9);
-        write.FrontierFraction = 0.9m;
-
-        Assert.False((await _repo.AdvanceAsync(user, book, write, null, default, Ct)).Accepted);
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_PageNameFrontierOnAMobi_Loses()
-    {
-        var (user, book, file) = await ReaderWithFileAsync("mobi");
-        var write = At(file, 1);
-        write.FrontierLocator = PageName;
-        write.FrontierFraction = 0.9m;
-
-        Assert.False((await _repo.AdvanceAsync(user, book, write, null, default, Ct)).Accepted);
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_FirstWriteOnAChapterTheFileLacks_LosesAndOnItsChapterWins()
-    {
-        var (user, book, file) = await ReaderWithChapterAsync();
-
-        Assert.False((await _repo.AdvanceAsync(user, book, At(file, 3), null, new("gone", "gone"), Ct)).Accepted);
-        Assert.True((await _repo.AdvanceAsync(user, book, At(file, 3), null, OnChapter, Ct)).Accepted);
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_AfterAReExtractionDroppedTheChapter_Loses()
-    {
-        var (user, book, file) = await ReaderWithChapterAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, OnChapter, Ct);
-        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(user, book, file,
-            [new() { Id = Guid.NewGuid(), ChapterKey = "renamed", ChapterNumber = 1, Title = "t", Html = "<p/>", PlainText = "", WordCount = 0 }], Ct);
-
-        var result = await _repo.AdvanceAsync(user, book, At(file, 4), 1, OnChapter, Ct);
-
-        Assert.Equal((false, 1L), (result.Accepted, result.Current!.Revision));
-    }
-
-    // A client may echo the stored frontier back: once its chapter is gone, that must not refuse the write.
-    [Fact]
-    public async Task AdvanceAsync_FrontierBehindTheStoredOneOnAMissingChapter_IsIgnored()
-    {
-        var (user, book, file) = await ReaderWithChapterAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 6), null, OnChapter, Ct);
-
-        var result = await _repo.AdvanceAsync(user, book, WithFrontier(file, 3, 5), 1, new("ch-1", "gone"), Ct);
-
-        Assert.Equal((true, 0.6m), (result.Accepted, result.Current!.FrontierFraction));
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_FrontierAheadOnAMissingChapter_Loses()
-    {
-        var (user, book, file) = await ReaderWithChapterAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 6), null, OnChapter, Ct);
-
-        Assert.False((await _repo.AdvanceAsync(user, book, WithFrontier(file, 3, 8), 1, new("ch-1", "gone"), Ct)).Accepted);
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_KeyOnlyAnotherUsersFileHas_Loses()
-    {
-        await ReaderWithChapterAsync("bobs");
-        var (user, book, file) = await ReaderWithChapterAsync();
-
-        Assert.False((await _repo.AdvanceAsync(user, book, At(file, 3), null, new("bobs", "bobs"), Ct)).Accepted);
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_FirstWrite_CreatesTheRowAtRevisionOne()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-
-        var result = await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
-
-        Assert.True(result.Accepted);
+        Assert.True(first.Accepted);
+        Assert.Equal(new DateTimeOffset(2026, 10, 30, 10, 0, 0, TimeSpan.Zero), first.Current!.ClientRecordedAt);
+        Assert.Equal(TimeSpan.Zero, first.Current.ClientRecordedAt.Offset);
         var stored = (await _repo.GetAsync(user, book, Ct))!;
         Assert.Equal((1L, file, 0.3m, 0.3m), (stored.Revision, stored.FileId, stored.BookFraction, stored.FrontierFraction));
         AssertSameJson(Cfi(3), stored.CurrentLocator);
         AssertSameJson(Cfi(3), stored.FrontierLocator);
-    }
 
-    [Fact]
-    public async Task AdvanceAsync_FirstWriteWhenARowExists_LosesAndReturnsTheRow()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
+        // The web, not knowing a row exists, writes as if first: it loses and gets the row.
+        var blind = await _repo.AdvanceAsync(user, book, At(file, 5), null, default, Ct);
+        Assert.False(blind.Accepted);
+        Assert.Equal((1L, 0.3m), (blind.Current!.Revision, blind.Current.BookFraction));
 
-        var result = await _repo.AdvanceAsync(user, book, At(file, 5), null, default, Ct);
-
-        Assert.False(result.Accepted);
-        Assert.Equal((1L, 0.3m), (result.Current!.Revision, result.Current.BookFraction));
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_MatchingRevision_WinsAndIncrementsTheRevision()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
-
-        var result = await _repo.AdvanceAsync(user, book, At(file, 5), 1, default, Ct);
-
-        Assert.True(result.Accepted);
-        Assert.Equal((2L, 0.5m), (result.Current!.Revision, result.Current.BookFraction));
+        var web = await _repo.AdvanceAsync(user, book, At(file, 6), 1, default, Ct);
+        Assert.True(web.Accepted);
+        Assert.Equal((2L, 0.6m), (web.Current!.Revision, web.Current.BookFraction));
         Assert.Equal(2L, (await _repo.GetAsync(user, book, Ct))!.Revision);
-    }
 
-    [Fact]
-    public async Task AdvanceAsync_StaleRevision_LosesAndReturnsTheWinnersStateIntact()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
-        await _repo.AdvanceAsync(user, book, At(file, 6), 1, default, Ct);
-
-        var result = await _repo.AdvanceAsync(user, book, At(file, 4), 1, default, Ct);
-
-        Assert.False(result.Accepted);
-        Assert.Equal((2L, 0.6m), (result.Current!.Revision, result.Current.BookFraction));
-        AssertSameJson(Cfi(6), result.Current.CurrentLocator);
+        // The phone, still on revision 1.
+        var stale = await _repo.AdvanceAsync(user, book, At(file, 4), 1, default, Ct);
+        Assert.False(stale.Accepted);
+        Assert.Equal((2L, 0.6m), (stale.Current!.Revision, stale.Current.BookFraction));
+        AssertSameJson(Cfi(6), stale.Current.CurrentLocator);
         Assert.Equal(0.6m, (await _repo.GetAsync(user, book, Ct))!.BookFraction);
     }
+
+    [Fact]
+    public async Task AdvanceAsync_ReaderFlipsBackThenAhead_FrontierOnlyMovesForward()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 8), null, default, Ct);
+
+        var back = WithFrontier(file, 2, 5); // a device that knew less: still behind the stored frontier
+        var result = await _repo.AdvanceAsync(user, book, back, 1, default, Ct);
+
+        Assert.True(result.Accepted);
+        Assert.Equal((0.2m, 0.8m), (result.Current!.BookFraction, result.Current.FrontierFraction));
+        AssertSameJson(Cfi(8), result.Current.FrontierLocator);
+
+        var ahead = await _repo.AdvanceAsync(user, book, WithFrontier(file, 2, 9), 2, default, Ct);
+
+        Assert.Equal(0.9m, ahead.Current!.FrontierFraction);
+        AssertSameJson(Cfi(9), ahead.Current.FrontierLocator);
+    }
+
+    [Fact]
+    public async Task ResetAsync_ReaderRestartsAFinishedBook_ForgetsFrontierAndStaleDevicesLose()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        var none = await _repo.ResetAsync(user, book, 1, Ct);
+        Assert.Equal((false, (ReadingState?)null), (none.Accepted, none.Current));
+
+        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
+        var finished = At(file, 8);
+        finished.CompletedAt = DateTimeOffset.UtcNow;
+        await _repo.AdvanceAsync(user, book, finished, 1, default, Ct); // another device moved on
+
+        var replayed = await _repo.ResetAsync(user, book, 1, Ct);
+        Assert.False(replayed.Accepted);
+        Assert.Equal((2L, 0.8m, (long?)null), (replayed.Current!.Revision, replayed.Current.FrontierFraction, replayed.Current.ResetRevision));
+
+        var result = await _repo.ResetAsync(user, book, 2, Ct);
+        Assert.True(result.Accepted);
+        var reset = result.Current!;
+        Assert.Equal((3L, 3L, 0.8m, (decimal?)null, (string?)null, (DateTimeOffset?)null),
+            (reset.Revision, reset.ResetRevision, reset.BookFraction, reset.FrontierFraction, reset.FrontierLocator, reset.CompletedAt));
+        AssertSameJson(Cfi(8), reset.CurrentLocator);
+
+        // A device still on revision 2 < reset_revision 3: it can be told it lost to a reset, not to a move.
+        var stale = await _repo.AdvanceAsync(user, book, At(file, 9), 2, default, Ct);
+        Assert.False(stale.Accepted);
+        Assert.Equal((3L, 3L, (decimal?)null), (stale.Current!.Revision, stale.Current.ResetRevision, stale.Current.FrontierFraction));
+
+        // The next write moves the revision on; reset_revision keeps naming the reset's.
+        var next = await _repo.AdvanceAsync(user, book, At(file, 1), reset.Revision, default, Ct);
+        Assert.Equal((4L, 3L, 0.1m), (next.Current!.Revision, next.Current.ResetRevision, next.Current.FrontierFraction));
+    }
+
+    // #1122/#1128/#1188/#1196: the scheme guard, in the write itself. Foliate addresses every non-PDF format
+    // by CFI (ADR-032); pdf-page stays PDF-only; page-name fits a cbz and a (pre-paginated) epub.
+    private const string PdfPage = """{"version":1,"scheme":"pdf-page","value":{"page":2}}""";
+    private const string PageName = """{"version":1,"scheme":"page-name","value":{"page":"p02.png","index":1}}""";
+    private const string TextPosition = """{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.2}}""";
+
+    [Theory]
+    [InlineData("epub", true, false, true)]
+    [InlineData("pdf", false, true, false)]
+    [InlineData("mobi", true, false, false)]
+    [InlineData("azw3", true, false, false)]
+    [InlineData("fb2", true, false, false)]
+    [InlineData("cbz", true, false, true)]
+    public async Task AdvanceAsync_ReaderOpensEachFormat_OnlyItsLocatorSchemesFit(string format, bool cfi, bool pdfPage, bool pageName)
+    {
+        var (user, book, file) = await ReaderWithFileAsync(format);
+        (string Locator, decimal Fraction, bool Fits)[] schemes = [(Cfi(1), 0.1m, cfi), (PdfPage, 0.2m, pdfPage), (PageName, 0.5m, pageName)];
+
+        foreach (var misfit in schemes.Where(s => !s.Fits))
+            Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, misfit.Locator), null, default, Ct)).Accepted);
+
+        long? revision = null;
+        foreach (var (locator, fraction, _) in schemes.Where(s => s.Fits))
+        {
+            var write = Locating(file, locator, fraction);
+            write.FrontierLocator = locator;
+            write.FrontierFraction = fraction;
+            var result = await _repo.AdvanceAsync(user, book, write, revision, default, Ct);
+            Assert.True(result.Accepted);
+            revision = result.Current!.Revision;
+            var stored = (await _repo.GetAsync(user, book, Ct))!;
+            AssertSameJson(locator, stored.CurrentLocator);
+            AssertSameJson(locator, stored.FrontierLocator);
+        }
+
+        foreach (var misfit in schemes.Where(s => !s.Fits))
+            Assert.False((await _repo.AdvanceAsync(user, book, Locating(file, misfit.Locator, 0.3m), revision, default, Ct)).Accepted);
+
+        if (format == "pdf") // the transitional reader's reflow of a PDF; the chapter guard is not this test's (no keys)
+            Assert.True((await _repo.AdvanceAsync(user, book, Locating(file, TextPosition, 0.3m), revision, default, Ct)).Accepted);
+
+        if (cfi && !pageName)
+        {
+            // The position's own guard: a fitting frontier further on does not carry a misfit position.
+            var behind = Locating(file, PageName, 0.2m);
+            behind.FrontierLocator = Cfi(9);
+            behind.FrontierFraction = 0.9m;
+            Assert.False((await _repo.AdvanceAsync(user, book, behind, revision, default, Ct)).Accepted);
+
+            var misfitFrontier = At(file, 1);
+            misfitFrontier.FrontierLocator = PageName;
+            misfitFrontier.FrontierFraction = 0.9m;
+            Assert.False((await _repo.AdvanceAsync(user, book, misfitFrontier, revision, default, Ct)).Accepted);
+        }
+    }
+
+    // Transitional (M2.7a): the chapter guard of a textstack-* write, in the statement itself.
+    [Fact]
+    public async Task AdvanceAsync_LegacyReaderOnAChapter_WritesOnlyWhileTheChapterExists()
+    {
+        var (user, book, file) = await ReaderWithChapterAsync();
+
+        Assert.False((await _repo.AdvanceAsync(user, book, At(file, 6), null, new("gone", "gone"), Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, book, At(file, 6), null, OnChapter, Ct)).Accepted);
+
+        // A client may echo the stored frontier back: once its chapter is gone, that must not refuse the write.
+        var echo = await _repo.AdvanceAsync(user, book, WithFrontier(file, 3, 5), 1, new("ch-1", "gone"), Ct);
+        Assert.Equal((true, 0.6m), (echo.Accepted, echo.Current!.FrontierFraction));
+        Assert.False((await _repo.AdvanceAsync(user, book, WithFrontier(file, 3, 8), 2, new("ch-1", "gone"), Ct)).Accepted);
+
+        // A re-extraction drops the chapter.
+        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(user, book, file,
+            [new() { Id = Guid.NewGuid(), ChapterKey = "renamed", ChapterNumber = 1, Title = "t", Html = "<p/>", PlainText = "", WordCount = 0 }], Ct);
+        var dropped = await _repo.AdvanceAsync(user, book, At(file, 4), 2, OnChapter, Ct);
+        Assert.Equal((false, 2L), (dropped.Accepted, dropped.Current!.Revision));
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_ReaderReplacesTheBooksFile_OldFileLosesAndOnlyTheRemovedFilesStateIsDeleted()
+    {
+        var (user, book, oldFile) = await ReaderWithBookAsync();
+        var newFile = (await _library.ReplaceFileAsync(user, book, V2PostgresFixture.NewFile(user, book), oldFile, null, Ct)).Current!.Id;
+
+        Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 3), null, default, Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, book, At(newFile, 3), null, default, Ct)).Accepted);
+        Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 4), 1, default, Ct)).Accepted);
+
+        Assert.False(await _repo.DeleteForFileAsync(user, book, oldFile, null, Ct));
+        Assert.NotNull(await _repo.GetAsync(user, book, Ct));
+
+        await using (var tx = await db.DataSource.BeginAsync(Ct))
+            Assert.True(await _repo.DeleteForFileAsync(user, book, newFile, tx.Transaction, Ct)); // rolled back
+        Assert.NotNull(await _repo.GetAsync(user, book, Ct));
+
+        Assert.True(await _repo.DeleteForFileAsync(user, book, newFile, null, Ct));
+        Assert.Null(await _repo.GetAsync(user, book, Ct));
+    }
+
+    [Fact]
+    public async Task ListChangedAsync_AfterACursor_ReturnsLaterStatesInUpdateOrder()
+    {
+        var (user, first, firstFile) = await ReaderWithBookAsync();
+        var second = await db.NewBookAsync(user);
+        await _repo.AdvanceAsync(user, first, At(firstFile, 3), null, default, Ct);
+        var older = (await _repo.AdvanceAsync(user, second.Id, At(second.CurrentFile!.Id, 3), null, default, Ct)).Current!;
+        await _repo.AdvanceAsync(user, first, At(firstFile, 4), 1, default, Ct);
+
+        var all = await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct);
+        var after = Assert.Single(await _repo.ListChangedAsync(user, older.UpdatedAt, older.BookId, 10, Ct));
+
+        Assert.Equal([second.Id, first], all.Select(s => s.BookId));
+        Assert.Equal((first, 2L), (after.BookId, after.Revision));
+        Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 1, Ct));
+    }
+
+    // Owner isolation: bob, holding alice's ids (and his own chapter key), never reads, changes or deletes her rows.
+    [Fact]
+    public async Task AdvanceAsync_BobHoldingAlicesIds_NeverReadsChangesOrDeletesHerState()
+    {
+        await ReaderWithChapterAsync("bobs");
+        var (alice, book, file) = await ReaderWithChapterAsync();
+        var bob = await db.NewReaderAsync();
+        var unread = await db.NewBookAsync(alice);
+
+        Assert.False((await _repo.AdvanceAsync(alice, book, At(file, 3), null, new("bobs", "bobs"), Ct)).Accepted);
+        await _repo.AdvanceAsync(alice, book, At(file, 3), null, OnChapter, Ct);
+
+        Assert.Null(await _repo.GetAsync(bob, book, Ct));
+        foreach (var expectedRevision in new long?[] { null, 1 })
+        {
+            var write = await _repo.AdvanceAsync(bob, book, At(file, 9), expectedRevision, default, Ct);
+            Assert.Equal((false, (ReadingState?)null), (write.Accepted, write.Current));
+        }
+        var firstWrite = await _repo.AdvanceAsync(bob, unread.Id, At(unread.CurrentFile!.Id, 9), null, default, Ct);
+        Assert.Equal((false, (ReadingState?)null), (firstWrite.Accepted, firstWrite.Current));
+        Assert.Null(await _repo.GetAsync(alice, unread.Id, Ct));
+        Assert.Null(await _repo.GetAsync(bob, unread.Id, Ct));
+
+        var reset = await _repo.ResetAsync(bob, book, 1, Ct);
+        Assert.Equal((false, (ReadingState?)null), (reset.Accepted, reset.Current));
+        Assert.False(await _repo.DeleteForFileAsync(bob, book, file, null, Ct));
+        Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
+
+        var alices = (await _repo.GetAsync(alice, book, Ct))!;
+        Assert.Equal((1L, 0.3m, 0.3m), (alices.Revision, alices.BookFraction, alices.FrontierFraction));
+    }
+
+    // Concurrency: each its own test.
 
     [Fact]
     public async Task AdvanceAsync_TwoWritersWithTheSameRevision_ExactlyOneWins()
@@ -278,34 +308,15 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task AdvanceAsync_MovingBack_KeepsTheFrontierLocatorAndFraction()
+    public async Task AdvanceAsync_TwoFirstWritesAtOnce_ExactlyOneWins()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 8), null, default, Ct);
 
-        var back = At(file, 2);
-        back.FrontierLocator = Cfi(5); // a device that knew less: still behind the stored frontier
-        back.FrontierFraction = 0.5m;
-        var result = await _repo.AdvanceAsync(user, book, back, 1, default, Ct);
+        var results = await Task.WhenAll(Enumerable.Range(1, 4)
+            .Select(page => _repo.AdvanceAsync(user, book, At(file, page), null, default, Ct)));
 
-        Assert.True(result.Accepted);
-        Assert.Equal((0.2m, 0.8m), (result.Current!.BookFraction, result.Current.FrontierFraction));
-        AssertSameJson(Cfi(8), result.Current.FrontierLocator);
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_FrontierAheadOfStored_MovesItForward()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
-
-        var state = At(file, 2);
-        state.FrontierLocator = Cfi(9);
-        state.FrontierFraction = 0.9m;
-        var result = await _repo.AdvanceAsync(user, book, state, 1, default, Ct);
-
-        Assert.Equal(0.9m, result.Current!.FrontierFraction);
-        AssertSameJson(Cfi(9), result.Current.FrontierLocator);
+        Assert.Single(results, r => r.Accepted);
+        Assert.All(results, r => Assert.NotNull(r.Current));
     }
 
     [Fact]
@@ -328,240 +339,5 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
 
         Assert.False((await firstWrite).Accepted);
         Assert.Null(await _repo.GetAsync(user, book, Ct));
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_FileThatIsNotTheCurrentOne_Loses()
-    {
-        var (user, book, oldFile) = await ReaderWithBookAsync();
-        var newFile = (await _library.ReplaceFileAsync(user, book, V2PostgresFixture.NewFile(user, book), oldFile, null, Ct)).Current!.Id;
-
-        Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 3), null, default, Ct)).Accepted);
-        Assert.True((await _repo.AdvanceAsync(user, book, At(newFile, 3), null, default, Ct)).Accepted);
-        Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 4), 1, default, Ct)).Accepted);
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_TwoFirstWritesAtOnce_ExactlyOneWins()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-
-        var results = await Task.WhenAll(Enumerable.Range(1, 4)
-            .Select(page => _repo.AdvanceAsync(user, book, At(file, page), null, default, Ct)));
-
-        Assert.Single(results, r => r.Accepted);
-        Assert.All(results, r => Assert.NotNull(r.Current));
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_ClientTimeWithAnOffset_StoresItAsUtc()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        var state = At(file, 3);
-        state.ClientRecordedAt = new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.FromHours(2));
-        state.CompletedAt = state.ClientRecordedAt;
-
-        var result = await _repo.AdvanceAsync(user, book, state, null, default, Ct);
-
-        Assert.True(result.Accepted);
-        Assert.Equal(new DateTimeOffset(2026, 10, 30, 10, 0, 0, TimeSpan.Zero), result.Current!.ClientRecordedAt);
-        Assert.Equal(TimeSpan.Zero, result.Current.ClientRecordedAt.Offset);
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_FrontierFractionWithoutLocator_TreatsItAsNoFrontier()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        var state = At(file, 3);
-        state.FrontierFraction = 0.5m;
-
-        var result = await _repo.AdvanceAsync(user, book, state, null, default, Ct);
-
-        Assert.True(result.Accepted);
-        Assert.Equal(0.3m, result.Current!.FrontierFraction);
-        AssertSameJson(Cfi(3), result.Current.FrontierLocator);
-    }
-
-    [Fact]
-    public async Task ResetAsync_ExistingState_ForgetsFrontierAndCompletionKeepsPositionBumpsRevisionAndRecordsIt()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        var finished = At(file, 8);
-        finished.CompletedAt = DateTimeOffset.UtcNow;
-        await _repo.AdvanceAsync(user, book, finished, null, default, Ct);
-
-        var result = await _repo.ResetAsync(user, book, 1, Ct);
-
-        Assert.True(result.Accepted);
-        var reset = result.Current!;
-
-        Assert.Equal((2L, 2L, 0.8m, (decimal?)null, (string?)null, (DateTimeOffset?)null),
-            (reset.Revision, reset.ResetRevision, reset.BookFraction, reset.FrontierFraction, reset.FrontierLocator, reset.CompletedAt));
-        AssertSameJson(Cfi(8), reset.CurrentLocator);
-        // The next write moves the revision on; reset_revision keeps naming the reset's.
-        var next = await _repo.AdvanceAsync(user, book, At(file, 1), reset.Revision, default, Ct);
-        Assert.Equal((3L, 2L, 0.1m), (next.Current!.Revision, next.Current.ResetRevision, next.Current.FrontierFraction));
-    }
-
-    [Fact]
-    public async Task ResetAsync_NoState_LosesWithNoCurrent()
-    {
-        var (user, book, _) = await ReaderWithBookAsync();
-
-        var result = await _repo.ResetAsync(user, book, 1, Ct);
-
-        Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
-    }
-
-    [Fact]
-    public async Task ResetAsync_StaleRevision_LosesAndKeepsTheFrontier()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
-        await _repo.AdvanceAsync(user, book, At(file, 6), 1, default, Ct); // another device moved on
-
-        var replayed = await _repo.ResetAsync(user, book, 1, Ct);
-
-        Assert.False(replayed.Accepted);
-        Assert.Equal((2L, 0.6m, (long?)null), (replayed.Current!.Revision, replayed.Current.FrontierFraction, replayed.Current.ResetRevision));
-    }
-
-    [Fact]
-    public async Task DeleteForFileAsync_StateOfThatFile_DeletesIt()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
-
-        Assert.True(await _repo.DeleteForFileAsync(user, book, file, null, Ct));
-        Assert.Null(await _repo.GetAsync(user, book, Ct));
-    }
-
-    [Fact]
-    public async Task DeleteForFileAsync_StateOfAnotherFile_KeepsIt()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
-
-        Assert.False(await _repo.DeleteForFileAsync(user, book, Guid.NewGuid(), null, Ct));
-        Assert.NotNull(await _repo.GetAsync(user, book, Ct));
-    }
-
-    [Fact]
-    public async Task DeleteForFileAsync_InACallersTransactionRolledBack_KeepsTheState()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 3), null, default, Ct);
-
-        await using (var tx = await db.DataSource.BeginAsync(Ct))
-            Assert.True(await _repo.DeleteForFileAsync(user, book, file, tx.Transaction, Ct));
-
-        Assert.NotNull(await _repo.GetAsync(user, book, Ct));
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_AfterACursor_ReturnsLaterStatesInUpdateOrder()
-    {
-        var (user, first, firstFile) = await ReaderWithBookAsync();
-        var second = await db.NewBookAsync(user);
-        await _repo.AdvanceAsync(user, first, At(firstFile, 3), null, default, Ct);
-        var older = (await _repo.AdvanceAsync(user, second.Id, At(second.CurrentFile!.Id, 3), null, default, Ct)).Current!;
-        await _repo.AdvanceAsync(user, first, At(firstFile, 4), 1, default, Ct);
-
-        var all = await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct);
-        var after = Assert.Single(await _repo.ListChangedAsync(user, older.UpdatedAt, older.BookId, 10, Ct));
-
-        Assert.Equal([second.Id, first], all.Select(s => s.BookId));
-        Assert.Equal((first, 2L), (after.BookId, after.Revision));
-        Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 1, Ct));
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_AfterReset_StaleDeviceWithOldRevision_Loses()
-    {
-        var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 8), null, default, Ct); // device A reads revision 1
-        await _repo.ResetAsync(user, book, 1, Ct);                    // the reader restarts the book
-
-        var stale = await _repo.AdvanceAsync(user, book, At(file, 9), 1, default, Ct); // device A, still on revision 1
-
-        Assert.False(stale.Accepted);
-        // Revision 1 < reset_revision 2: the loser can be told it lost to a reset, not to a move.
-        Assert.Equal((2L, 2L, (decimal?)null), (stale.Current!.Revision, stale.Current.ResetRevision, stale.Current.FrontierFraction));
-    }
-
-    // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
-
-    [Fact]
-    public async Task GetAsync_AlicesBookAsBob_ReturnsNull()
-    {
-        var (alice, book, file) = await ReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
-
-        Assert.Null(await _repo.GetAsync(bob, book, Ct));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData(1L)]
-    public async Task AdvanceAsync_AlicesBookAsBob_LosesAndChangesNothing(long? expectedRevision)
-    {
-        var (alice, book, file) = await ReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
-
-        var result = await _repo.AdvanceAsync(bob, book, At(file, 9), expectedRevision, default, Ct);
-
-        Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
-        var alices = (await _repo.GetAsync(alice, book, Ct))!;
-        Assert.Equal((1L, 0.3m), (alices.Revision, alices.BookFraction));
-    }
-
-    [Fact]
-    public async Task AdvanceAsync_FirstWriteOnAlicesBookAsBob_LosesAndCreatesNothing()
-    {
-        var (alice, book, file) = await ReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
-        var result = await _repo.AdvanceAsync(bob, book, At(file, 9), null, default, Ct);
-
-        Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
-        Assert.Null(await _repo.GetAsync(alice, book, Ct));
-        Assert.Null(await _repo.GetAsync(bob, book, Ct));
-    }
-
-    [Fact]
-    public async Task ResetAsync_AlicesBookAsBob_LosesWithNoCurrentAndKeepsHerState()
-    {
-        var (alice, book, file) = await ReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
-
-        var result = await _repo.ResetAsync(bob, book, 1, Ct);
-
-        Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
-        var alices = (await _repo.GetAsync(alice, book, Ct))!;
-        Assert.Equal((1L, 0.3m), (alices.Revision, alices.FrontierFraction));
-    }
-
-    [Fact]
-    public async Task DeleteForFileAsync_AlicesStateAsBob_ReturnsFalseAndKeepsIt()
-    {
-        var (alice, book, file) = await ReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
-
-        Assert.False(await _repo.DeleteForFileAsync(bob, book, file, null, Ct));
-        Assert.NotNull(await _repo.GetAsync(alice, book, Ct));
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_OtherUser_SeesNoneOfAlicesStates()
-    {
-        var (alice, book, file) = await ReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.AdvanceAsync(alice, book, At(file, 3), null, default, Ct);
-
-        Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
     }
 }
