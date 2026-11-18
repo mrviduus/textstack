@@ -44,6 +44,9 @@ public abstract class OAuthRepositoryContract(IIdentityFixture db, IOAuthReposit
 
     private Task<IReadOnlyList<OAuthTokenGrant>> LiveAsync(Guid user) => _repo.ListLiveAsync(user, DateTimeOffset.UtcNow, Ct);
 
+    private Task<long> StoredAsync(OAuthTokenGrant grant) =>
+        db.ScalarAsync<long>("SELECT count(*) FROM oauth_grants WHERE id = @Id", grant);
+
     private Task<DateTimeOffset> RevokedAtAsync(OAuthTokenGrant grant) =>
         db.ScalarAsync<DateTimeOffset>("SELECT revoked_at FROM oauth_grants WHERE id = @Id", grant);
 
@@ -90,15 +93,15 @@ public abstract class OAuthRepositoryContract(IIdentityFixture db, IOAuthReposit
     public async Task ApproveRequestAsync_UnknownUserDeniedOrPastTheDeadline_ReturnsNullAndBindsNoOne()
     {
         var reader = await db.NewReaderAsync();
-        var (unknownUser, denied, late) = (await CreatedRequestAsync(), await CreatedRequestAsync(), await CreatedRequestAsync());
+        var (forUnknownUser, denied, late) = (await CreatedRequestAsync(), await CreatedRequestAsync(), await CreatedRequestAsync());
         await _repo.DenyRequestAsync(denied.Id, DateTimeOffset.UtcNow, Ct);
 
-        Assert.Null(await ApproveAsync(unknownUser.Id, Guid.NewGuid()));
+        Assert.Null(await ApproveAsync(forUnknownUser.Id, Guid.NewGuid()));
         Assert.Null(await ApproveAsync(denied.Id, reader));
-        // The consent page opened an hour past its 30-minute deadline.
+        // The consent page opened 30 minutes past its 30-minute deadline.
         Assert.Null(await _repo.ApproveRequestAsync(late.Id, reader, NewHash(), DateTimeOffset.UtcNow.AddHours(2), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), Ct));
 
-        foreach (var request in new[] { unknownUser, denied, late })
+        foreach (var request in new[] { forUnknownUser, denied, late })
             Assert.Null((await _repo.GetRequestAsync(request.Id, Ct))!.UserId);
     }
 
@@ -197,6 +200,15 @@ public abstract class OAuthRepositoryContract(IIdentityFixture db, IOAuthReposit
 
         Assert.Equal(0, await _repo.RevokeOnRefreshReuseAsync(grant.RefreshTokenHash, Ct));
         Assert.Equal(first, await RevokedAtAsync(grant));
+
+        // A grant the reader already revoked by hand: the replay finds nothing live, the hand revocation time stays.
+        var (owner, handRevoked) = await ConnectedAsync();
+        Assert.True(await RotateAsync(handRevoked));
+        Assert.True(await _repo.RevokeAsync(owner, handRevoked.Id, Ct));
+        var byHand = await RevokedAtAsync(handRevoked);
+
+        Assert.Equal(0, await _repo.RevokeOnRefreshReuseAsync(handRevoked.RefreshTokenHash, Ct));
+        Assert.Equal(byHand, await RevokedAtAsync(handRevoked));
     }
 
     [Fact]
@@ -253,7 +265,8 @@ public abstract class OAuthRepositoryContract(IIdentityFixture db, IOAuthReposit
     public async Task DeleteDeadGrantsAsync_Cutoff_DeletesTheRevokedAndTheExpiredAndKeepsTheLive()
     {
         var user = await db.NewReaderAsync();
-        // Never revoked, its refresh token long dead; a year no other test sweeps.
+        // Never revoked, its refresh token long dead. The sweep is global over a shared database, so
+        // the test asserts only its own rows, by id.
         var expired = NewGrant("http://localhost:2/cb");
         expired.RefreshTokenExpiresAt = new DateTimeOffset(2004, 1, 1, 0, 0, 0, TimeSpan.Zero);
         await _repo.ConnectAsync(user, await ApprovedRequestAsync(user), expired, Ct);
@@ -263,11 +276,12 @@ public abstract class OAuthRepositoryContract(IIdentityFixture db, IOAuthReposit
         await db.ExecAsync("UPDATE oauth_grants SET revoked_at = '2004-01-01Z' WHERE id = @Id", revoked);
         var live = NewGrant();
         await _repo.ConnectAsync(user, await ApprovedRequestAsync(user), live, Ct);
-        Assert.Equal(3L, await db.CountAsync("oauth_grants", user));
+        Assert.Equal((1L, 1L, 1L), (await StoredAsync(expired), await StoredAsync(revoked), await StoredAsync(live)));
 
-        Assert.Equal(2, await _repo.DeleteDeadGrantsAsync(new DateTimeOffset(2004, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
+        await _repo.DeleteDeadGrantsAsync(new DateTimeOffset(2004, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct);
 
-        Assert.Equal(live.Id, Assert.Single(await LiveAsync(user)).Id);
-        Assert.Equal(1L, await db.CountAsync("oauth_grants", user));
+        Assert.Equal(0L, await StoredAsync(expired));
+        Assert.Equal(0L, await StoredAsync(revoked));
+        Assert.Equal(1L, await StoredAsync(live));
     }
 }
