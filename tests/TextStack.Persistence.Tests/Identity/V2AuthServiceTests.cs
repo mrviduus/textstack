@@ -75,120 +75,122 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     private async Task<UserAccount> NewAccountAsync(string role) =>
         (await _users.CreateAsync(new UserAccount { Id = Guid.NewGuid(), Email = NewEmail(), PasswordHash = PasswordHash, Role = role }, Ct))!;
 
-
-    // Registration and email login: the real path.
+    // A reader with a password.
 
     [Fact]
-    public async Task RegisterWithEmailAsync_NewEmail_SignsInAndTheSamePasswordLogsIn()
+    public async Task RegisterWithEmailAsync_NewReader_RegistersSignsInRefreshesAndSignsOut()
     {
         var email = NewEmail();
+        Assert.Equal(AuthStatus.InvalidInput, (await Auth.RegisterWithEmailAsync("not-an-email", Password, null, null, Ct)).Status);
+        Assert.Equal(AuthStatus.InvalidInput, (await Auth.RegisterWithEmailAsync(email, "short", null, null, Ct)).Status);
 
         var registered = await Auth.RegisterWithEmailAsync(email, Password, "Reader", null, Ct);
 
         Assert.True(registered.Succeeded);
         Assert.Equal((email, false), (registered.User.Email, registered.User.IsGuest));
         Assert.Equal((registered.User.Id, false), Identity(registered.AccessToken));
-        Assert.Equal(registered.User.Id, (await Auth.LoginWithEmailAsync("  " + email.ToUpperInvariant(), Password, Ct)).User?.Id);
-    }
-
-    [Fact]
-    public async Task RegisterWithEmailAsync_EmailTakenInAnotherCase_EmailTaken()
-    {
-        var (_, _, email) = await SignedInAsync();
-
         Assert.Equal(AuthStatus.EmailTaken, (await Auth.RegisterWithEmailAsync(email.ToUpperInvariant(), Password, null, null, Ct)).Status);
-    }
 
-    [Theory]
-    [InlineData("not-an-email", Password)]
-    [InlineData("reader@example.test", "short")]
-    public async Task RegisterWithEmailAsync_BadEmailOrPassword_InvalidInput(string email, string password)
-    {
-        Assert.Equal(AuthStatus.InvalidInput, (await Auth.RegisterWithEmailAsync(email, password, null, null, Ct)).Status);
-    }
-
-    [Fact]
-    public async Task RegisterWithEmailAsync_WithAGuest_PromotesItInPlace()
-    {
-        var guest = (await Auth.CreateGuestSessionAsync(Ct)).User!;
-
-        var registered = await Auth.RegisterWithEmailAsync(NewEmail(), Password, null, guest.Id, Ct);
-
-        Assert.Equal(guest.Id, registered.User?.Id);
-        var stored = (await _users.GetAsync(guest.Id, Ct))!;
-        Assert.False(stored.IsGuest);
-        Assert.NotNull(stored.PromotedAt);
-    }
-
-    [Fact]
-    public async Task RegisterWithEmailAsync_GuestIdOfAnAdmin_NewAccountTheAdminUntouched()
-    {
-        var guest = (await Auth.CreateGuestSessionAsync(Ct)).User!;
-        await _users.SetRoleAsync(guest.Id, UserAccount.AdminRole, Ct);
-
-        var registered = await Auth.RegisterWithEmailAsync(NewEmail(), Password, null, guest.Id, Ct);
-
-        Assert.NotEqual(guest.Id, registered.User?.Id);
-        Assert.Null((await _users.GetAsync(guest.Id, Ct))!.PasswordHash);
-    }
-
-    [Fact]
-    public async Task LoginWithEmailAsync_WrongPasswordOrUnknownEmail_InvalidCredentials()
-    {
-        var (_, _, email) = await SignedInAsync();
-
+        // Signs in on a second device: email trimmed and case-blind; a wrong password or email is one answer.
+        var phone = await Auth.LoginWithEmailAsync("  " + email.ToUpperInvariant(), Password, Ct);
+        Assert.Equal(registered.User.Id, phone.User?.Id);
         Assert.Equal(AuthStatus.InvalidCredentials, (await Auth.LoginWithEmailAsync(email, "wrong password", Ct)).Status);
         Assert.Equal(AuthStatus.InvalidCredentials, (await Auth.LoginWithEmailAsync(NewEmail(), Password, Ct)).Status);
+
+        // Refresh rotates; the old token is spent.
+        var refreshed = await Auth.RefreshTokenAsync(registered.RefreshToken!, Ct);
+        Assert.Equal(registered.User.Id, refreshed.User?.Id);
+        Assert.NotEqual(registered.RefreshToken, refreshed.RefreshToken);
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(registered.RefreshToken!, Ct)).Status);
+        // Within the grace (two tabs at once) that reuse is not treated as theft: the new token still refreshes.
+        var laptop = await Auth.RefreshTokenAsync(refreshed.RefreshToken!, Ct);
+        Assert.True(laptop.Succeeded);
+
+        // Signing out ends that session only.
+        Assert.True(await Auth.LogoutAsync(laptop.RefreshToken!, Ct));
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(laptop.RefreshToken!, Ct)).Status);
+        Assert.True((await Auth.RefreshTokenAsync(phone.RefreshToken!, Ct)).Succeeded);
+        Assert.False(await Auth.LogoutAsync(laptop.RefreshToken!, Ct));
+
+        // A test login (e2e) of a reader's email is one account however often it runs.
+        var tester = NewEmail();
+        Assert.Equal((await Auth.TestLoginAsync(tester, Ct)).User!.Id, (await Auth.TestLoginAsync(tester, Ct)).User?.Id);
     }
 
     [Fact]
-    public async Task LoginWithEmailAsync_ResetBetweenCheckAndIssue_InvalidCredentialsAndNoSession()
+    public async Task RefreshTokenAsync_RotationLostThenStolenTokenReplayed_LostRaceRefusedReplayKillsTheFamily()
     {
-        var account = await NewAccountAsync(UserAccount.ReaderRole);
-        var code = (await Auth.RequestPasswordResetAsync(account.Email, Ct))!;
-        var users = new HookedUsers(_users) { AfterGetByEmail = async () => Assert.True(await Auth.ResetPasswordAsync(code, NewPassword, Ct)) };
+        var (user, refresh, _) = await SignedInAsync();
 
-        var login = await AuthWith(users: users).LoginWithEmailAsync(account.Email, Password, Ct);
+        // A lost rotation race never hands out a token that was not stored; the family lives on.
+        var lost = await AuthWith(sessions: new LosingRotation(_sessions)).RefreshTokenAsync(refresh, Ct);
+        Assert.Equal(AuthStatus.InvalidToken, lost.Status);
+        Assert.Null(lost.RefreshToken);
 
-        Assert.Equal(AuthStatus.InvalidCredentials, login.Status);
-        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", account.Id));
-    }
+        var child = (await Auth.RefreshTokenAsync(refresh, Ct)).RefreshToken!;
+        var grandchild = (await Auth.RefreshTokenAsync(child, Ct)).RefreshToken!;
+        await db.AgeSessionsAsync(user.Id, "1 minute");
 
-    [Fact]
-    public async Task LoginWithEmailAsync_AccountDeleted_RefusedAndItsSessionsGone()
-    {
-        var (user, refresh, email) = await SignedInAsync();
-
-        Assert.True(await _users.DeleteAsync(user.Id, Ct));
-
-        Assert.Equal(AuthStatus.InvalidCredentials, (await Auth.LoginWithEmailAsync(email, Password, Ct)).Status);
+        // The grandparent replayed after the grace: theft, so the live grandchild dies too.
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
-        Assert.Null(await Auth.GetUserByIdAsync(user.Id, Ct));
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(grandchild, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_GuestAndAccount_OwnWindowsAndAnAbsoluteLifetime()
+    {
+        var guest = await Auth.CreateGuestSessionAsync(Ct);
+        var (_, refresh, _) = await SignedInAsync();
+
+        var (guestNext, accountNext) = (await Auth.RefreshTokenAsync(guest.RefreshToken!, Ct), await Auth.RefreshTokenAsync(refresh, Ct));
+
+        Assert.Equal(_clock.Now.AddDays(GuestDays), await ExpiresAtAsync(guestNext.RefreshToken!), TimeSpan.FromSeconds(1));
+        Assert.Equal(_clock.Now.AddDays(AccountDays), await ExpiresAtAsync(accountNext.RefreshToken!), TimeSpan.FromSeconds(1));
+
+        // Refreshing forever does not stretch a sign-in past its absolute lifetime, counted from the
+        // family's first row: only that row is aged, the presented child is fresh.
+        await db.ExecAsync("UPDATE user_refresh_tokens SET created_at = now() - interval '91 days' WHERE token_hash = @hash",
+            new { hash = DeviceCodes.HashToken(refresh) });
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(accountNext.RefreshToken!, Ct)).Status);
     }
 
     // Guests and the merge.
 
     [Fact]
-    public async Task CreateGuestSessionAsync_NewGuest_IsAGuestWithAGuestToken()
+    public async Task RegisterWithEmailAsync_GuestRegisters_PromotedInPlaceButAnAdminIdNever()
     {
         var guest = await Auth.CreateGuestSessionAsync(Ct);
-
         Assert.True(guest.Succeeded);
         Assert.True((await _users.GetAsync(guest.User.Id, Ct))!.IsGuest);
         Assert.Matches("^guest-[0-9a-f]{32}@guest.local$", guest.User.Email);
         Assert.Equal((guest.User.Id, true), Identity(guest.AccessToken));
         Assert.True((await Auth.RefreshTokenAsync(guest.RefreshToken, Ct)).Succeeded);
+
+        var registered = await Auth.RegisterWithEmailAsync(NewEmail(), Password, null, guest.User.Id, Ct);
+
+        Assert.Equal(guest.User.Id, registered.User?.Id);
+        var stored = (await _users.GetAsync(guest.User.Id, Ct))!;
+        Assert.False(stored.IsGuest);
+        Assert.NotNull(stored.PromotedAt);
+
+        // A guest id that names an admin is never promoted: a new account, the admin untouched.
+        var admin = (await Auth.CreateGuestSessionAsync(Ct)).User!;
+        await _users.SetRoleAsync(admin.Id, UserAccount.AdminRole, Ct);
+        var other = await Auth.RegisterWithEmailAsync(NewEmail(), Password, null, admin.Id, Ct);
+        Assert.NotEqual(admin.Id, other.User?.Id);
+        Assert.Null((await _users.GetAsync(admin.Id, Ct))!.PasswordHash);
     }
 
     [Fact]
-    public async Task MergeGuestAsync_GuestSignsIn_GuestRowsMoveAndTheMapNamesTheMatchedBook()
+    public async Task MergeGuestAsync_GuestSignsIn_RowsMoveOnceAndAnAccountIsNeverMerged()
     {
         var guest = (await Auth.CreateGuestSessionAsync(Ct)).User!;
-        var (account, _, _) = await SignedInAsync();
+        var ((account, _, _), (other, _, _)) = (await SignedInAsync(), await SignedInAsync());
         var sha = NewHash();
         var guestBook = await db.NewBookAsync(guest.Id, sha256: sha);
         var accountBook = await db.NewBookAsync(account.Id, sha256: sha);
         var ownBook = await db.NewBookAsync(guest.Id);
+        var othersBook = await db.NewBookAsync(other.Id);
 
         var merged = await Auth.MergeGuestAsync(guest.Id, account.Id, "/auth/login", Ct);
 
@@ -197,16 +199,10 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal(account.Id, await OwnerAsync(ownBook.Id));
         Assert.Null(await _users.GetAsync(guest.Id, Ct));
         Assert.Equal(AccountMergeOutcome.NoGuest, (await Auth.MergeGuestAsync(guest.Id, account.Id, "/auth/login", Ct))?.Outcome);
-    }
 
-    [Fact]
-    public async Task MergeGuestAsync_IntoAnotherAccountThatIsNoGuest_RefusedAndNothingMoves()
-    {
-        var ((alice, _, _), (bob, _, _)) = (await SignedInAsync(), await SignedInAsync());
-        var hers = await db.NewBookAsync(alice.Id);
-
-        Assert.Equal(AccountMergeOutcome.Refused, (await Auth.MergeGuestAsync(alice.Id, bob.Id, "/auth/login", Ct))?.Outcome);
-        Assert.Equal(alice.Id, await OwnerAsync(hers.Id));
+        // A real account passed as the "guest" is refused and keeps its books.
+        Assert.Equal(AccountMergeOutcome.Refused, (await Auth.MergeGuestAsync(other.Id, account.Id, "/auth/login", Ct))?.Outcome);
+        Assert.Equal(other.Id, await OwnerAsync(othersBook.Id));
     }
 
     [Theory]
@@ -226,89 +222,20 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal(calls, merge.Calls);
     }
 
-    // Refresh and sign-out.
-
-    [Fact]
-    public async Task RefreshTokenAsync_LiveToken_RotatesAndTheOldOneIsSpent()
-    {
-        var (user, refresh, _) = await SignedInAsync();
-
-        var refreshed = await Auth.RefreshTokenAsync(refresh, Ct);
-
-        Assert.Equal(user.Id, refreshed.User?.Id);
-        Assert.NotEqual(refresh, refreshed.RefreshToken);
-        // Within the grace: two tabs refreshing at once, refused but not treated as theft.
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
-        Assert.True((await Auth.RefreshTokenAsync(refreshed.RefreshToken!, Ct)).Succeeded);
-    }
-
-    [Fact]
-    public async Task RefreshTokenAsync_GrandparentReplayedAfterTheGrace_TheWholeFamilyDies()
-    {
-        var (user, refresh, _) = await SignedInAsync();
-        var child = (await Auth.RefreshTokenAsync(refresh, Ct)).RefreshToken!;
-        var grandchild = (await Auth.RefreshTokenAsync(child, Ct)).RefreshToken!;
-        await db.AgeSessionsAsync(user.Id, "1 minute");
-
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
-
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(grandchild, Ct)).Status);
-    }
-
-    [Fact]
-    public async Task RefreshTokenAsync_SignInPastItsAbsoluteLifetime_InvalidToken()
-    {
-        var (user, refresh, _) = await SignedInAsync();
-        await db.AgeSessionsAsync(user.Id, "91 days");
-
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
-    }
-
-    [Fact]
-    public async Task RefreshTokenAsync_RotationLost_NeverOkWithAnUnstoredToken()
-    {
-        var (_, refresh, _) = await SignedInAsync();
-
-        var refreshed = await AuthWith(sessions: new LosingRotation(_sessions)).RefreshTokenAsync(refresh, Ct);
-
-        Assert.Equal(AuthStatus.InvalidToken, refreshed.Status);
-        Assert.Null(refreshed.RefreshToken);
-    }
-
-    [Fact]
-    public async Task RefreshTokenAsync_GuestAndAccount_EachKeepsItsOwnWindow()
-    {
-        var guest = await Auth.CreateGuestSessionAsync(Ct);
-        var (_, refresh, _) = await SignedInAsync();
-
-        var (guestNext, accountNext) = (await Auth.RefreshTokenAsync(guest.RefreshToken!, Ct), await Auth.RefreshTokenAsync(refresh, Ct));
-
-        Assert.Equal(_clock.Now.AddDays(GuestDays), await ExpiresAtAsync(guestNext.RefreshToken!), TimeSpan.FromSeconds(1));
-        Assert.Equal(_clock.Now.AddDays(AccountDays), await ExpiresAtAsync(accountNext.RefreshToken!), TimeSpan.FromSeconds(1));
-    }
-
-    [Fact]
-    public async Task LogoutAsync_Session_RevokedAndOnlyThatOne()
-    {
-        var (_, first, email) = await SignedInAsync();
-        var second = await Auth.LoginWithEmailAsync(email, Password, Ct);
-
-        Assert.True(await Auth.LogoutAsync(first, Ct));
-
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(first, Ct)).Status);
-        Assert.True((await Auth.RefreshTokenAsync(second.RefreshToken!, Ct)).Succeeded);
-        Assert.False(await Auth.LogoutAsync(first, Ct));
-    }
-
     // Password reset.
 
     [Fact]
-    public async Task ResetPasswordAsync_RequestThenConfirm_OldSessionsPasswordAndDeviceApprovalsGone()
+    public async Task ResetPasswordAsync_ReaderForgetsThePassword_OldSessionsPasswordAndDeviceApprovalsGone()
     {
         var (user, refresh, email) = await SignedInAsync();
         var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
         await Auth.ApproveDeviceAsync(device.UserCode, user.Id, DateTimeOffset.UtcNow, Ct);
+        var guest = (await Auth.CreateGuestSessionAsync(Ct)).User!;
+        Assert.Null(await Auth.RequestPasswordResetAsync(NewEmail(), Ct));
+        Assert.Null(await Auth.RequestPasswordResetAsync(guest.Email, Ct));
         var code = (await Auth.RequestPasswordResetAsync(email, Ct))!;
+        Assert.False(await Auth.ResetPasswordAsync(code, "short", Ct));
+        Assert.False(await Auth.ResetPasswordAsync("no such code", NewPassword, Ct));
 
         Assert.True(await Auth.ResetPasswordAsync(code, NewPassword, Ct));
 
@@ -336,28 +263,55 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ResetPasswordAsync_ShortPasswordOrUnknownCode_False()
+    public async Task LoginWithEmailAsync_ResetBetweenCheckAndIssue_NoReaderOrAdminSession()
     {
-        var (_, _, email) = await SignedInAsync();
-        var code = (await Auth.RequestPasswordResetAsync(email, Ct))!;
+        var reader = await NewAccountAsync(UserAccount.ReaderRole);
+        var readerCode = (await Auth.RequestPasswordResetAsync(reader.Email, Ct))!;
+        var readerUsers = new HookedUsers(_users) { AfterGetByEmail = async () => Assert.True(await Auth.ResetPasswordAsync(readerCode, NewPassword, Ct)) };
 
-        Assert.False(await Auth.ResetPasswordAsync(code, "short", Ct));
-        Assert.False(await Auth.ResetPasswordAsync("no such code", NewPassword, Ct));
+        Assert.Equal(AuthStatus.InvalidCredentials, (await AuthWith(users: readerUsers).LoginWithEmailAsync(reader.Email, Password, Ct)).Status);
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", reader.Id));
+
+        var admin = await NewAccountAsync(UserAccount.AdminRole);
+        var adminCode = (await Auth.RequestPasswordResetAsync(admin.Email, Ct))!;
+        var adminUsers = new HookedUsers(_users) { AfterGetByEmail = async () => Assert.True(await Auth.ResetPasswordAsync(adminCode, NewPassword, Ct)) };
+
+        Assert.Null(await AdminWith(adminUsers).LoginAsync(admin.Email, Password, Ct));
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", admin.Id));
     }
 
-    [Fact]
-    public async Task RequestPasswordResetAsync_UnknownEmailOrPasswordlessGuest_Null()
-    {
-        var guest = (await Auth.CreateGuestSessionAsync(Ct)).User!;
+    // Account deletion.
 
-        Assert.Null(await Auth.RequestPasswordResetAsync(NewEmail(), Ct));
-        Assert.Null(await Auth.RequestPasswordResetAsync(guest.Email, Ct));
+    [Fact]
+    public async Task DeleteAccountAsync_ReaderDeletesTheAccount_RowsFilesAndSessionsGoneSignInRefused()
+    {
+        var (account, refresh, email) = await SignedInAsync();
+        var cover = _files.CoverKey(account.Id, Guid.NewGuid(), "png");
+        _files.Place(await _files.StageAsync(cover, new byte[] { 1 }, Ct));
+        Assert.True(File.Exists(Path.Combine(FilesRoot, cover)));
+        var avatar = await _legacyStorage.SaveFileAsync(account.Id, "avatar.png", new MemoryStream([1]), Ct);
+        await _users.SetPictureAsync(account.Id, avatar, Ct);
+        var uploads = Path.Combine(LegacyStorageRoot, "users", account.Id.ToString()[..2], account.Id.ToString());
+        Directory.CreateDirectory(uploads);
+        await File.WriteAllBytesAsync(Path.Combine(uploads, "book.epub"), [1], Ct);
+
+        Assert.True(await Auth.DeleteAccountAsync(account.Id, Ct));
+
+        Assert.Null(await _users.GetAsync(account.Id, Ct));
+        Assert.Null(await Auth.GetUserByIdAsync(account.Id, Ct));
+        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", account.Id));
+        Assert.False(File.Exists(Path.Combine(FilesRoot, cover)));
+        Assert.False(File.Exists(Path.Combine(LegacyStorageRoot, avatar)));
+        Assert.False(Directory.Exists(uploads));
+        Assert.Equal(AuthStatus.InvalidCredentials, (await Auth.LoginWithEmailAsync(email, Password, Ct)).Status);
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(refresh, Ct)).Status);
+        Assert.False(await Auth.DeleteAccountAsync(account.Id, Ct));
     }
 
     // Device flow.
 
     [Fact]
-    public async Task RedeemDeviceCodeAsync_StartApproveRedeem_TheApproversSessionOnce()
+    public async Task RedeemDeviceCodeAsync_TvSignsIn_TheApproversSessionOnceDeniedOrLateNever()
     {
         var ((alice, _, _), (bob, _, _)) = (await SignedInAsync(), await SignedInAsync());
         var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
@@ -369,40 +323,24 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal(bob.Id, redeemed.User?.Id);
         Assert.NotEqual(alice.Id, Auth.ValidateAccessTokenIdentity(redeemed.AccessToken!)?.UserId);
         Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
-    }
 
-    [Fact]
-    public async Task RedeemDeviceCodeAsync_Denied_AccessDenied()
-    {
-        var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
+        var denied = await Auth.CreateDeviceAuthorizationAsync(Ct);
+        Assert.Equal(DeviceApprovalResult.Ok, await Auth.DenyDeviceAsync(denied.UserCode, Ct));
+        Assert.Equal(DeviceRedeemStatus.AccessDenied, (await Auth.RedeemDeviceCodeAsync(denied.DeviceCode, Ct)).Status);
 
-        Assert.Equal(DeviceApprovalResult.Ok, await Auth.DenyDeviceAsync(device.UserCode, Ct));
-
-        Assert.Equal(DeviceRedeemStatus.AccessDenied, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
-    }
-
-    [Fact]
-    public async Task RedeemDeviceCodeAsync_PastItsDeadline_ExpiredAndApprovalSaysExpired()
-    {
-        var (user, _, _) = await SignedInAsync();
-        var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
-        _clock.Now += TimeSpan.FromSeconds(DeviceCodes.ExpiresInSeconds + 1);
-
-        Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct)).Status);
-        Assert.Equal(DeviceApprovalResult.Expired, await Auth.ApproveDeviceAsync(device.UserCode, user.Id, DateTimeOffset.UtcNow, Ct));
-    }
-
-    [Fact]
-    public async Task RedeemDeviceCodeAsync_UnknownCode_Expired()
-    {
         Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await Auth.RedeemDeviceCodeAsync("no such code", Ct)).Status);
         Assert.Equal(DeviceApprovalResult.NotFound, await Auth.ApproveDeviceAsync("ZZZZ-ZZZZ", Guid.NewGuid(), DateTimeOffset.UtcNow, Ct));
+
+        var late = await Auth.CreateDeviceAuthorizationAsync(Ct);
+        _clock.Now += TimeSpan.FromSeconds(DeviceCodes.ExpiresInSeconds + 1);
+        Assert.Equal(DeviceRedeemStatus.ExpiredToken, (await Auth.RedeemDeviceCodeAsync(late.DeviceCode, Ct)).Status);
+        Assert.Equal(DeviceApprovalResult.Expired, await Auth.ApproveDeviceAsync(late.UserCode, alice.Id, DateTimeOffset.UtcNow, Ct));
     }
 
-    // Google, Apple, test login.
+    // Google and Apple.
 
     [Fact]
-    public async Task LoginWithGoogleAsync_SameSubjectTwice_OneAccountWithTheLatestEmail()
+    public async Task LoginWithGoogleAsync_ReturningReader_OneAccountNeverLinkedByEmail()
     {
         var subject = Guid.NewGuid().ToString();
         _providers.Google["first"] = new(subject, NewEmail(), "Ann", null);
@@ -415,6 +353,15 @@ public class V2AuthServiceTests(V2PostgresFixture db)
         Assert.Equal((_providers.Google["second"].Email, "Ann"), (second.User!.Email, second.User.Name));
         Assert.Equal(first.User.Id, (await _users.GetByGoogleSubjectAsync(subject, Ct))?.Id);
         Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("forged", Ct)).Status);
+        _providers.Google["no email"] = new(Guid.NewGuid().ToString(), null, "Ann", null);
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("no email", Ct)).Status);
+
+        // Never linked by email: whoever registered (or Apple-created) the email first would own the
+        // owner's Google sign-ins.
+        var (user, _, email) = await SignedInAsync();
+        _providers.Google["taken"] = new(Guid.NewGuid().ToString(), email, "Ann", null);
+        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithGoogleAsync("taken", Ct)).Status);
+        Assert.Null((await _users.GetAsync(user.Id, Ct))!.GoogleSubject);
     }
 
     // #1436/#1446: Google seeds a new account's name and photo; after that the reader's own choices win.
@@ -438,206 +385,80 @@ public class V2AuthServiceTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task LoginWithGoogleAsync_VerifiedEmailOfAnotherAccount_IsEmailTaken()
-    {
-        // Never linked by email: whoever registered (or Apple-created) the email first would own the
-        // owner's Google sign-ins.
-        var (user, _, email) = await SignedInAsync();
-        _providers.Google["token"] = new(Guid.NewGuid().ToString(), email, "Ann", null);
-
-        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithGoogleAsync("token", Ct)).Status);
-        Assert.Null((await _users.GetAsync(user.Id, Ct))!.GoogleSubject);
-    }
-
-    [Fact]
-    public async Task LoginWithGoogleAsync_TokenWithoutAnEmail_InvalidToken()
-    {
-        _providers.Google["token"] = new(Guid.NewGuid().ToString(), null, "Ann", null);
-
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.LoginWithGoogleAsync("token", Ct)).Status);
-    }
-
-    [Fact]
-    public async Task LoginWithAppleAsync_SameSubject_OneAccountWithTheRelayEmail()
+    public async Task LoginWithAppleAsync_ReturningReader_OneRelayAccountOnlyTheTokenEmailCounts()
     {
         var subject = Guid.NewGuid().ToString();
         _providers.Apple["token"] = new(subject, null, null, null);
 
+        // A token without an email: the account gets the relay email.
         var first = await Auth.LoginWithAppleAsync("token", "Ann", null, Ct);
         var second = await Auth.LoginWithAppleAsync("token", "Ann B", null, Ct);
 
         Assert.Equal(Emails.AppleRelay(subject), first.User!.Email);
         Assert.Equal((first.User.Id, "Ann"), (second.User!.Id, second.User.Name));
-    }
 
-    [Fact]
-    public async Task LoginWithAppleAsync_TokenEmailOfAnotherAccount_IsEmailTaken()
-    {
+        // A body email (here another account's) is the client's word, ignored for the relay email.
         var (_, _, email) = await SignedInAsync();
-        _providers.Apple["token"] = new(Guid.NewGuid().ToString(), email, null, null);
+        var other = Guid.NewGuid().ToString();
+        _providers.Apple["body"] = new(other, null, null, null);
+        Assert.Equal(Emails.AppleRelay(other), (await Auth.LoginWithAppleAsync("body", null, email, Ct)).User!.Email);
 
-        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithAppleAsync("token", null, null, Ct)).Status);
-    }
-
-    [Fact]
-    public async Task LoginWithAppleAsync_BodyEmail_IgnoredForTheRelayEmail()
-    {
-        // Only the verified token's email counts: a body email (here another account's) is the client's word.
-        var (_, _, email) = await SignedInAsync();
-        var subject = Guid.NewGuid().ToString();
-        _providers.Apple["token"] = new(subject, null, null, null);
-
-        var result = await Auth.LoginWithAppleAsync("token", null, email, Ct);
-
-        Assert.Equal(Emails.AppleRelay(subject), result.User!.Email);
-    }
-
-    [Fact]
-    public async Task TestLoginAsync_SameEmailTwice_OneAccount()
-    {
-        var email = NewEmail();
-
-        var first = await Auth.TestLoginAsync(email, Ct);
-
-        Assert.Equal(first.User!.Id, (await Auth.TestLoginAsync(email, Ct)).User?.Id);
+        // The verified token's email of another account: taken, never linked.
+        _providers.Apple["taken"] = new(Guid.NewGuid().ToString(), email, null, null);
+        Assert.Equal(AuthStatus.EmailTaken, (await Auth.LoginWithAppleAsync("taken", null, null, Ct)).Status);
     }
 
     // Admins.
 
     [Fact]
-    public async Task DeleteAccountAsync_SignedInAccount_DeletesItWithItsRowsAndDirectory()
-    {
-        var (account, _, _) = await SignedInAsync();
-        var cover = _files.CoverKey(account.Id, Guid.NewGuid(), "png");
-        _files.Place(await _files.StageAsync(cover, new byte[] { 1 }, Ct));
-        Assert.True(File.Exists(Path.Combine(FilesRoot, cover)));
-
-        Assert.True(await Auth.DeleteAccountAsync(account.Id, Ct));
-
-        Assert.Null(await _users.GetAsync(account.Id, Ct));
-        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", account.Id));
-        Assert.False(File.Exists(Path.Combine(FilesRoot, cover)));
-    }
-
-    [Fact]
-    public async Task DeleteAccountAsync_LegacyStorageFiles_AvatarAndUploadsTreeGo()
-    {
-        var (account, _, _) = await SignedInAsync();
-        var avatar = await _legacyStorage.SaveFileAsync(account.Id, "avatar.png", new MemoryStream([1]), Ct);
-        await _users.SetPictureAsync(account.Id, avatar, Ct);
-        var shard = account.Id.ToString()[..2];
-        var uploads = Path.Combine(LegacyStorageRoot, "users", shard, account.Id.ToString());
-        Directory.CreateDirectory(uploads);
-        await File.WriteAllBytesAsync(Path.Combine(uploads, "book.epub"), [1], Ct);
-
-        Assert.True(await Auth.DeleteAccountAsync(account.Id, Ct));
-
-        Assert.False(File.Exists(Path.Combine(LegacyStorageRoot, avatar)));
-        Assert.False(Directory.Exists(uploads));
-    }
-
-    [Fact]
-    public async Task DeleteAccountAsync_NoSuchAccount_False()
-    {
-        Assert.False(await Auth.DeleteAccountAsync(Guid.NewGuid(), Ct));
-    }
-
-    [Fact]
-    public async Task CreateAdminAsync_NewEmail_AnAdminThatSignsIn()
+    public async Task AdminLoginAsync_NewAdmin_ShortPanelSessionThatNeverCrossesWithAReaderSession()
     {
         var email = NewEmail();
+        var admin = (await Admin.CreateAdminAsync(email, Password, Ct))!;
+        Assert.Equal((AdminRole.Admin, email), (admin.Role, admin.Email));
+        var reader = await Auth.LoginWithEmailAsync(email, Password, Ct);
 
-        var admin = await Admin.CreateAdminAsync(email, Password, Ct);
+        var panel = (await Admin.LoginAsync(email, Password, Ct))!;
 
-        Assert.Equal((AdminRole.Admin, email), (admin!.Role, admin.Email));
-        Assert.NotNull(await Admin.LoginAsync(email, Password, Ct));
-    }
-
-    [Fact]
-    public async Task CreateAdminAsync_TakenEmail_Null()
-    {
-        var reader = await NewAccountAsync(UserAccount.ReaderRole);
-
-        Assert.Null(await Admin.CreateAdminAsync(reader.Email, Password, Ct));
-        Assert.Equal(UserAccount.ReaderRole, (await _users.GetAsync(reader.Id, Ct))!.Role);
-    }
-
-    [Fact]
-    public async Task AdminLoginAsync_AdminRole_AdminTokenThatIsNoReadersToken()
-    {
-        var admin = await NewAccountAsync(UserAccount.AdminRole);
-        var reader = await Auth.LoginWithEmailAsync(admin.Email, Password, Ct);
-
-        var signedIn = (await Admin.LoginAsync(admin.Email, Password, Ct))!;
-
-        Assert.Equal((admin.Id, AdminRole.Admin), (signedIn.Admin.Id, signedIn.Admin.Role));
-        Assert.Equal((admin.Id, AdminRole.Admin), Admin.ValidateAccessToken(signedIn.AccessToken));
-        Assert.Null(Auth.ValidateAccessTokenIdentity(signedIn.AccessToken));
-        Assert.Equal((null, null), Admin.ValidateAccessToken(reader.AccessToken!));
-        Assert.Equal(admin.Id, (await Admin.RefreshTokenAsync(signedIn.RefreshToken, Ct))?.Admin.Id);
+        Assert.Equal((admin.Id, AdminRole.Admin), (panel.Admin.Id, panel.Admin.Role));
+        Assert.Equal((admin.Id, AdminRole.Admin), Admin.ValidateAccessToken(panel.AccessToken));
         Assert.NotNull(await Admin.GetAdminByIdAsync(admin.Id, Ct));
+        var token = new JwtSecurityTokenHandler().ReadJwtToken(panel.AccessToken);
+        Assert.InRange(token.ValidTo - DateTime.UtcNow, TimeSpan.FromMinutes(14), TimeSpan.FromMinutes(15));
+        Assert.Equal(_clock.Now.AddDays(7), await ExpiresAtAsync(panel.RefreshToken), TimeSpan.FromSeconds(1));
+
+        // Panel and reader tokens, access or refresh, never stand in for each other.
+        Assert.Null(Auth.ValidateAccessTokenIdentity(panel.AccessToken));
+        Assert.Equal((null, null), Admin.ValidateAccessToken(reader.AccessToken!));
+        Assert.Null(await Admin.RefreshTokenAsync(reader.RefreshToken!, Ct));
+        Assert.False(await Admin.LogoutAsync(reader.RefreshToken!, Ct));
+        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(panel.RefreshToken, Ct)).Status);
+        Assert.False(await Auth.LogoutAsync(panel.RefreshToken, Ct));
+
+        // A device the admin approves gets a reader session that never refreshes into the panel.
+        var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
+        await Auth.ApproveDeviceAsync(device.UserCode, admin.Id, DateTimeOffset.UtcNow, Ct);
+        var redeemed = await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct);
+        Assert.Equal(DeviceRedeemStatus.Approved, redeemed.Status);
+        Assert.Null(await Admin.RefreshTokenAsync(redeemed.RefreshToken!, Ct));
+
+        var next = (await Admin.RefreshTokenAsync(panel.RefreshToken, Ct))!;
+        Assert.Equal(admin.Id, next.Admin.Id);
+        Assert.True(await Admin.LogoutAsync(next.RefreshToken, Ct));
     }
 
     [Fact]
-    public async Task AdminLoginAsync_ReaderOrWrongPassword_Null()
+    public async Task AdminLoginAsync_Reader_NeverReachesThePanel()
     {
         var (reader, refresh, email) = await SignedInAsync();
 
+        Assert.Null(await Admin.CreateAdminAsync(email, Password, Ct));
+        Assert.Equal(UserAccount.ReaderRole, (await _users.GetAsync(reader.Id, Ct))!.Role);
         Assert.Null(await Admin.LoginAsync(email, Password, Ct));
         Assert.Null(await Admin.RefreshTokenAsync(refresh, Ct));
         Assert.Null(await Admin.GetAdminByIdAsync(reader.Id, Ct));
         await _users.SetRoleAsync(reader.Id, UserAccount.AdminRole, Ct);
         Assert.Null(await Admin.LoginAsync(email, "wrong password", Ct));
-    }
-
-    [Fact]
-    public async Task AdminLoginAsync_DefaultSettings_FifteenMinuteTokenAndSevenDaySession()
-    {
-        var admin = await NewAccountAsync(UserAccount.AdminRole);
-
-        var signedIn = (await Admin.LoginAsync(admin.Email, Password, Ct))!;
-
-        var token = new JwtSecurityTokenHandler().ReadJwtToken(signedIn.AccessToken);
-        Assert.InRange(token.ValidTo - DateTime.UtcNow, TimeSpan.FromMinutes(14), TimeSpan.FromMinutes(15));
-        Assert.Equal(_clock.Now.AddDays(7), await ExpiresAtAsync(signedIn.RefreshToken), TimeSpan.FromSeconds(1));
-    }
-
-    [Fact]
-    public async Task AdminLoginAsync_ResetBetweenCheckAndIssue_Null()
-    {
-        var admin = await NewAccountAsync(UserAccount.AdminRole);
-        var code = (await Auth.RequestPasswordResetAsync(admin.Email, Ct))!;
-        var users = new HookedUsers(_users) { AfterGetByEmail = async () => Assert.True(await Auth.ResetPasswordAsync(code, NewPassword, Ct)) };
-
-        Assert.Null(await AdminWith(users).LoginAsync(admin.Email, Password, Ct));
-        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", admin.Id));
-    }
-
-    [Fact]
-    public async Task AdminAndReaderRefreshTokens_NotInterchangeable()
-    {
-        var admin = await NewAccountAsync(UserAccount.AdminRole);
-        var reader = await Auth.LoginWithEmailAsync(admin.Email, Password, Ct);
-        var panel = (await Admin.LoginAsync(admin.Email, Password, Ct))!;
-
-        Assert.Null(await Admin.RefreshTokenAsync(reader.RefreshToken!, Ct));
-        Assert.False(await Admin.LogoutAsync(reader.RefreshToken!, Ct));
-        Assert.Equal(AuthStatus.InvalidToken, (await Auth.RefreshTokenAsync(panel.RefreshToken, Ct)).Status);
-        Assert.False(await Auth.LogoutAsync(panel.RefreshToken, Ct));
-        Assert.True(await Admin.LogoutAsync(panel.RefreshToken, Ct));
-    }
-
-    [Fact]
-    public async Task RedeemDeviceCodeAsync_ApprovedByAnAdmin_ReaderSessionThatNeverRefreshesIntoAdmin()
-    {
-        var admin = await NewAccountAsync(UserAccount.AdminRole);
-        var device = await Auth.CreateDeviceAuthorizationAsync(Ct);
-        await Auth.ApproveDeviceAsync(device.UserCode, admin.Id, DateTimeOffset.UtcNow, Ct);
-
-        var redeemed = await Auth.RedeemDeviceCodeAsync(device.DeviceCode, Ct);
-
-        Assert.Equal(DeviceRedeemStatus.Approved, redeemed.Status);
-        Assert.Null(await Admin.RefreshTokenAsync(redeemed.RefreshToken!, Ct));
     }
 
     [Fact]
