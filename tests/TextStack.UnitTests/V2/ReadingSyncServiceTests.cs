@@ -7,14 +7,13 @@ using Application.Transitional;
 using Contracts.V2;
 using Domain.Library;
 using Domain.Reading;
-using Moq;
+using NSubstitute;
 
 namespace TextStack.UnitTests.V2;
 
 /// <summary>
-/// The loss classification of v2-sync-protocol.md "The revision rule", on fakes: the repository says
-/// only "lost, and here is what is stored"; this service tells a replacement from an unknown file, a
-/// reset from a move.
+/// A reader's place in a book, synced (v2-sync-protocol.md "The revision rule"), on fakes: the repository says
+/// only "lost, and here is what is stored"; this service tells a replacement from an unknown file, a reset from a move.
 /// </summary>
 public class ReadingSyncServiceTests
 {
@@ -24,373 +23,254 @@ public class ReadingSyncServiceTests
     private static readonly Guid OldFile = Guid.NewGuid();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly Mock<ILibraryRepository> _library = V2Fakes.Library(User, BookId, CurrentFile, OldFile);
-    private readonly Mock<IReadingStateRepository> _states = new();
-    private readonly Mock<IReadingSessionRepository> _sessions = new();
-    private readonly Mock<IBookChapterRepository> _chapters = new();
-    private ReadingSyncService Service => new(_library.Object, _states.Object, _sessions.Object, _chapters.Object);
+    private readonly ILibraryRepository _library = Substitute.For<ILibraryRepository>();
+    private readonly IReadingStateRepository _states = Substitute.For<IReadingStateRepository>();
+    private readonly IReadingSessionRepository _sessions = Substitute.For<IReadingSessionRepository>();
+    private readonly IBookChapterRepository _chapters = Substitute.For<IBookChapterRepository>();
+    private readonly SteppedClock _clock = new() { Now = new DateTimeOffset(2024, 3, 1, 12, 0, 0, TimeSpan.Zero) };
+
+    public ReadingSyncServiceTests()
+    {
+        // The user has the book; its current file is CurrentFile, OldFile a superseded version of it.
+        CurrentFileIs("epub");
+        _library.ExistsAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(true);
+        foreach (var version in new[] { CurrentFile, OldFile })
+            _library.GetFileAsync(User, BookId, version, Arg.Any<CancellationToken>()).Returns(new BookFile { Id = version, BookId = BookId });
+        // A write loses with nothing stored unless a test says otherwise.
+        Loses(null);
+    }
+
+    private ReadingSyncService Service => new(_library, _states, _sessions, _chapters, _clock);
 
     private static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 
-    private static readonly JsonElement Position = Json("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4!/4/2/1:0)","quote":"It was a bright cold day"}""");
+    private const string Cfi = """{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4!/4/2/1:0)","quote":"It was a bright cold day"}""";
+    private const string PdfPage = """{"version":1,"scheme":"pdf-page","value":{"page":2}}""";
+    private const string PageName = """{"version":1,"scheme":"page-name","value":{"page":"p02.png","index":1}}""";
+    private const string TextPositionV1 = """{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.5}}""";
+    private const string TextAnchor = """{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"ch-1","prefix":"","exact":"x","suffix":"","startOffset":0,"endOffset":1}}""";
 
-    private static ReadingStateRequest Write(Guid fileId, long? expectedRevision, JsonElement? locator = null) =>
-        new(expectedRevision, fileId, locator ?? Position, 0.4m, null, null, null, DateTimeOffset.UtcNow);
+    private static string TextPosition(string chapterSlug) =>
+        $$$"""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"{{{chapterSlug}}}","chapterFraction":0.5}}""";
 
-    private static ReadingState Stored(long revision, long? resetRevision = null) => new()
+    private ReadingStateRequest Write(Guid fileId, long? expectedRevision, string locator = Cfi) =>
+        new(expectedRevision, fileId, Json(locator), 0.4m, null, null, null, _clock.Now);
+
+    private static ReadingState Stored(long revision, long? resetRevision = null, decimal? frontierFraction = null) => new()
     {
         BookId = BookId,
         FileId = CurrentFile,
-        CurrentLocator = Position.GetRawText(),
+        CurrentLocator = Cfi,
         BookFraction = 0.4m,
+        FrontierLocator = frontierFraction is null ? null : Cfi,
+        FrontierFraction = frontierFraction,
         Revision = revision,
         ResetRevision = resetRevision,
     };
 
     private void Loses(ReadingState? stored) =>
-        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RevisionedWrite<ReadingState>(false, stored));
-
-
-    [Fact]
-    public async Task WriteAsync_Accepted_IsOkWithTheStoredState()
-    {
-        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), null, It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RevisionedWrite<ReadingState>(true, Stored(1)));
-
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null), Ct);
-
-        Assert.Equal((200, 1L), (result.Status, Assert.IsType<ReadingStateDto>(result.Body).Revision));
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostOnABookThatIsNotTheUsers_IsBookNotFound()
-    {
-        var otherBook = Guid.NewGuid();
-        _states.Setup(s => s.AdvanceAsync(User, otherBook, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RevisionedWrite<ReadingState>(false, null));
-
-        var result = await Service.WriteAsync(User, otherBook, Write(CurrentFile, null), Ct);
-
-        Assert.Equal((404, SyncCodes.BookNotFound), (result.Status, V2Fakes.Error(result).Code));
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostNamingASupersededVersion_IsFileReplacedWithTheCurrentFile()
-    {
-        Loses(null); // the replacement deleted the state
-
-        var result = await Service.WriteAsync(User, BookId, Write(OldFile, 3), Ct);
-
-        var error = V2Fakes.Error(result);
-        Assert.Equal((409, SyncCodes.FileReplaced, CurrentFile, CurrentFile), (result.Status, error.Code, error.FileId, error.CurrentFile!.Id));
-        Assert.Null(error.Current);
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostNamingAFileThatIsNoVersionOfTheBook_IsUnknownFile()
-    {
-        Loses(null);
-
-        var result = await Service.WriteAsync(User, BookId, Write(Guid.NewGuid(), null), Ct);
-
-        // The PDD's example body: no file to point at.
-        var error = V2Fakes.Error(result);
-        Assert.Equal((409, SyncCodes.UnknownFile, (Guid?)null, (BookFileDto?)null), (result.Status, error.Code, error.FileId, error.CurrentFile));
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostToAResetAfterTheRevisionItRead_IsReset()
-    {
-        Loses(Stored(revision: 4, resetRevision: 3));
-
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 2), Ct);
-
-        var error = V2Fakes.Error(result);
-        Assert.Equal((SyncCodes.Reset, (long?)4, CurrentFile), (error.Code, error.Revision, error.FileId));
-        Assert.Equal(3L, Assert.IsType<ReadingStateDto>(error.Current).ResetRevision);
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostToAMoveAfterAnOlderReset_IsStaleRevision()
-    {
-        Loses(Stored(revision: 5, resetRevision: 3));
-
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 3), Ct);
-
-        Assert.Equal((SyncCodes.StaleRevision, (long?)5), (V2Fakes.Error(result).Code, V2Fakes.Error(result).Revision));
-    }
-
-    [Fact]
-    public async Task WriteAsync_FirstWriteLosingToAResetRow_IsStaleRevision()
-    {
-        Loses(Stored(revision: 2, resetRevision: 2)); // a first writer had no frontier to lose
-
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null), Ct);
-
-        Assert.Equal(SyncCodes.StaleRevision, V2Fakes.Error(result).Code);
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostWithNoStoredStateOnTheCurrentFile_IsStaleRevisionWithNoCurrent()
-    {
-        Loses(null);
-
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 7), Ct);
-
-        var error = V2Fakes.Error(result);
-        Assert.Equal((SyncCodes.StaleRevision, (long?)null, (object?)null), (error.Code, error.Revision, error.Current));
-    }
-
-    private static JsonElement TextPosition(string chapterSlug) =>
-        Json($$$"""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"{{{chapterSlug}}}","chapterFraction":0.5}}""");
-
-    private void FileHasChapter(Guid fileId, string chapterKey) =>
-        _chapters.Setup(c => c.ExistsAsync(User, fileId, chapterKey, It.IsAny<CancellationToken>())).ReturnsAsync(true);
-
-    [Fact]
-    public async Task WriteAsync_TextPosition_HandsItsChapterKeysToTheWrite()
-    {
-        _states.Setup(s => s.AdvanceAsync(User, BookId, It.IsAny<ReadingState>(), null, new TransitionalChapterKeys("ch-1", "ch-1"), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RevisionedWrite<ReadingState>(true, Stored(1)));
-
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, TextPosition("ch-1")), Ct);
-
-        Assert.Equal(200, result.Status);
-        _chapters.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostOnAChapterTheFileLacks_IsChapterNotFound()
-    {
-        Loses(null);
-
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, TextPosition("no-such")), Ct);
-
-        Assert.Equal((409, SyncCodes.ChapterNotFound), (result.Status, V2Fakes.Error(result).Code));
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostWithAWinningFrontierOnAChapterTheFileLacks_IsChapterNotFound()
-    {
-        FileHasChapter(CurrentFile, "ch-1");
-        Loses(Stored(2));
-        var request = Write(CurrentFile, 1, TextPosition("ch-1")) with { FrontierLocator = TextPosition("no-such"), FrontierFraction = 0.6m };
-
-        Assert.Equal(SyncCodes.ChapterNotFound, V2Fakes.Error(await Service.WriteAsync(User, BookId, request, Ct)).Code);
-    }
-
-    // The stored frontier is ahead, so this write would not have stored its own: that chapter is not why it lost.
-    [Fact]
-    public async Task WriteAsync_LostWithAFrontierBehindTheStoredOneOnAMissingChapter_IsStaleRevision()
-    {
-        FileHasChapter(CurrentFile, "ch-1");
-        var stored = Stored(2);
-        (stored.FrontierLocator, stored.FrontierFraction) = (stored.CurrentLocator, 0.9m);
-        Loses(stored);
-        var request = Write(CurrentFile, 1, TextPosition("ch-1")) with { FrontierLocator = TextPosition("no-such"), FrontierFraction = 0.6m };
-
-        Assert.Equal(SyncCodes.StaleRevision, V2Fakes.Error(await Service.WriteAsync(User, BookId, request, Ct)).Code);
-    }
-
-    // Any write on a superseded version is file_replaced (PDD "Reading state"), whatever its chapter.
-    [Fact]
-    public async Task WriteAsync_LostOnASupersededVersionWithAMissingChapter_IsFileReplaced()
-    {
-        Loses(Stored(5));
-
-        var error = V2Fakes.Error(await Service.WriteAsync(User, BookId, Write(OldFile, 3, TextPosition("no-such")), Ct));
-
-        Assert.Equal((SyncCodes.FileReplaced, CurrentFile, (long?)5), (error.Code, error.FileId, error.Revision));
-    }
-
-    [Fact]
-    public async Task WriteAsync_TextPositionOnAFileThatIsNoVersionOfTheBook_IsUnknownFile()
-    {
-        Loses(null);
-
-        Assert.Equal(SyncCodes.UnknownFile, V2Fakes.Error(await Service.WriteAsync(User, BookId, Write(Guid.NewGuid(), null, TextPosition("ch-1")), Ct)).Code);
-    }
-
-    [Fact]
-    public async Task WriteAsync_TextPositionOnABookThatIsNotTheUsers_IsBookNotFound()
-    {
-        var otherBook = Guid.NewGuid();
-        _states.Setup(s => s.AdvanceAsync(User, otherBook, It.IsAny<ReadingState>(), It.IsAny<long?>(), It.IsAny<TransitionalChapterKeys>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RevisionedWrite<ReadingState>(false, null));
-
-        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.WriteAsync(User, otherBook, Write(CurrentFile, null, TextPosition("ch-1")), Ct)).Code);
-    }
-
-    [Fact]
-    public async Task WriteAsync_LostWithPositionAndFrontierInOneChapter_AsksTheChapterOnce()
-    {
-        FileHasChapter(CurrentFile, "ch-1");
-        Loses(Stored(2));
-        var request = Write(CurrentFile, 1, TextPosition("ch-1")) with { FrontierLocator = TextPosition("ch-1"), FrontierFraction = 0.6m };
-
-        await Service.WriteAsync(User, BookId, request, Ct);
-
-        _chapters.Verify(c => c.ExistsAsync(User, CurrentFile, "ch-1", It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task WriteAsync_EpubCfiPosition_AsksNoChapter()
-    {
-        Loses(Stored(2));
-
-        await Service.WriteAsync(User, BookId, Write(CurrentFile, 1), Ct);
-
-        _chapters.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task WriteAsync_TextAnchorAsAPosition_IsInvalidPayloadAndWritesNothing()
-    {
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null,
-            Json("""{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"ch-1","prefix":"","exact":"x","suffix":"","startOffset":0,"endOffset":1}}""")), Ct);
-
-        Assert.Equal((400, SyncCodes.InvalidPayload, "currentLocator"), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
-        _states.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task WriteAsync_FrontierLocatorWithoutItsFraction_IsInvalidPayload()
-    {
-        var request = Write(CurrentFile, null) with { FrontierLocator = Position };
-
-        Assert.Equal("frontierLocator", V2Fakes.Error(await Service.WriteAsync(User, BookId, request, Ct)).Field);
-    }
-
-    [Fact]
-    public async Task ResetAsync_Stale_IsStaleRevisionWithTheStoredState()
-    {
-        _states.Setup(s => s.ResetAsync(User, BookId, 1, It.IsAny<CancellationToken>())).ReturnsAsync(new RevisionedWrite<ReadingState>(false, Stored(2)));
-
-        var result = await Service.ResetAsync(User, BookId, new ResetReadingStateRequest(1), Ct);
-
-        Assert.Equal((SyncCodes.StaleRevision, (long?)2), (V2Fakes.Error(result).Code, V2Fakes.Error(result).Revision));
-    }
-
-    [Fact]
-    public async Task ResetAsync_NoStateOnTheUsersBook_IsNotFound()
-    {
-        _states.Setup(s => s.ResetAsync(User, BookId, 1, It.IsAny<CancellationToken>())).ReturnsAsync(new RevisionedWrite<ReadingState>(false, null));
-
-        Assert.Equal(SyncCodes.NotFound, V2Fakes.Error(await Service.ResetAsync(User, BookId, new ResetReadingStateRequest(1), Ct)).Code);
-    }
-
-    [Fact]
-    public async Task GetAsync_BookThatIsNotTheUsers_IsBookNotFound() =>
-        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.GetAsync(User, Guid.NewGuid(), Ct)).Code);
-
-    private static ReadingSessionRequest Session(Guid? bookId) =>
-        new(bookId, DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow, 300, 120, 0.1m, 0.2m);
-
-    [Fact]
-    public async Task SaveSessionAsync_EndedBeforeItStarted_IsInvalidPayload()
-    {
-        var request = Session(null) with { EndedAt = DateTimeOffset.UtcNow.AddHours(-1) };
-
-        Assert.Equal("endedAt", V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), request, Ct)).Field);
-        _sessions.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task SaveSessionAsync_EndedPastTheClockSkew_IsInvalidPayload()
-    {
-        var request = Session(null) with { EndedAt = DateTimeOffset.UtcNow.AddMinutes(6) };
-
-        Assert.Equal("endedAt", V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), request, Ct)).Field);
-        _sessions.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task SaveSessionAsync_EmptyClientSessionId_IsInvalidPayload()
-    {
-        Assert.Equal("clientSessionId", V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.Empty, Session(null), Ct)).Field);
-        _sessions.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task SaveSessionAsync_BookThatIsNotTheUsers_IsBookNotFoundAndWritesNothing()
-    {
-        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), Session(Guid.NewGuid()), Ct)).Code);
-        _sessions.VerifyNoOtherCalls();
-    }
-
-    [Theory]
-    [InlineData(WriteOutcome.Created, 201)]
-    [InlineData(WriteOutcome.Replayed, 200)]
-    public async Task SaveSessionAsync_Stored_IsCreatedFirstAndOkOnReplay(WriteOutcome outcome, int status)
-    {
-        _sessions.Setup(s => s.SaveAsync(User, It.IsAny<ReadingSession>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new WriteResult<ReadingSession>(outcome, new ReadingSession { BookId = BookId }));
-
-        Assert.Equal(status, (await Service.SaveSessionAsync(User, Guid.NewGuid(), Session(BookId), Ct)).Status);
-    }
-
-    // #1122: the write's SQL refuses a scheme that does not fit the file; the loss is named here, from the book's current file.
-    private const string PdfPage = """{"version":1,"scheme":"pdf-page","value":{"page":2}}""";
-    private const string Cfi = """{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/4!/4/2/1:0)","quote":"It was a bright cold day"}""";
-    private const string TextPositionV1 = """{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.5}}""";
-    private const string PageName = """{"version":1,"scheme":"page-name","value":{"page":"p02.png","index":1}}""";
-
-    private void CurrentFileIs(string format)
-    {
-        _library.Setup(l => l.GetAsync(User, BookId, It.IsAny<CancellationToken>())).ReturnsAsync(new Book
+        _states.AdvanceAsync(default, default, default!, default, default!, default)
+            .ReturnsForAnyArgs(new RevisionedWrite<ReadingState>(false, stored));
+
+    private void CurrentFileIs(string format) =>
+        _library.GetAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(_ => new Book
         {
             Id = BookId,
             UserId = User,
             CurrentFile = new BookFile { Id = CurrentFile, BookId = BookId, Sha256 = new string('a', 64), Format = format, IsCurrent = true },
         });
-        _chapters.Setup(c => c.ExistsAsync(User, CurrentFile, "ch-1", It.IsAny<CancellationToken>())).ReturnsAsync(true);
-    }
 
-    [Theory]
-    [InlineData(PdfPage, "epub")]
-    [InlineData(PdfPage, "html")]
-    [InlineData(Cfi, "pdf")]
-    [InlineData(PageName, "pdf")]
-    [InlineData(PageName, "mobi")]
-    public async Task WriteAsync_LostOnASchemeThatDoesNotFitTheFile_IsInvalidPayload(string locator, string format)
+    private void FileHasChapter(string chapterKey) =>
+        _chapters.ExistsAsync(User, CurrentFile, chapterKey, Arg.Any<CancellationToken>()).Returns(true);
+
+    [Fact]
+    public async Task WriteAsync_ReaderMovesOn_IsOkAndHandsTheChapterKeysToTheWrite()
     {
-        CurrentFileIs(format);
-        Loses(null);
+        _states.AdvanceAsync(User, BookId, Arg.Any<ReadingState>(), null, Arg.Any<TransitionalChapterKeys>(), Arg.Any<CancellationToken>())
+            .Returns(new RevisionedWrite<ReadingState>(true, Stored(1)));
 
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, Json(locator)), Ct);
+        var onCfi = await Service.WriteAsync(User, BookId, Write(CurrentFile, null), Ct);
+        var onText = await Service.WriteAsync(User, BookId, Write(CurrentFile, null, TextPosition("ch-1")), Ct);
 
-        Assert.Equal((400, SyncCodes.InvalidPayload, "currentLocator"), (result.Status, V2Fakes.Error(result).Code, V2Fakes.Error(result).Field));
-    }
-
-    // textstack-* fits any file: the transitional reader writes it on a PDF's reflow too.
-    [Theory]
-    [InlineData(PdfPage, "pdf")]
-    [InlineData(Cfi, "epub")]
-    [InlineData(Cfi, "html")]
-    [InlineData(TextPositionV1, "epub")]
-    [InlineData(TextPositionV1, "pdf")]
-    [InlineData(PageName, "cbz")]
-    [InlineData(PageName, "epub")]
-    public async Task WriteAsync_LostOnASchemeThatFitsTheFile_IsStaleRevisionNotInvalid(string locator, string format)
-    {
-        CurrentFileIs(format);
-        Loses(Stored(2));
-
-        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 1, Json(locator)), Ct);
-
-        Assert.Equal((409, SyncCodes.StaleRevision), (result.Status, V2Fakes.Error(result).Code));
+        Assert.Equal((200, 1L), (onCfi.Status, Assert.IsType<ReadingStateDto>(onCfi.Body).Revision));
+        Assert.Equal(200, onText.Status);
+        // The write's SQL guards the chapter; an accepted write never asks again.
+        await _states.Received(1).AdvanceAsync(User, BookId, Arg.Any<ReadingState>(), null, new TransitionalChapterKeys("ch-1", "ch-1"), Arg.Any<CancellationToken>());
+        await _chapters.DidNotReceiveWithAnyArgs().ExistsAsync(default, default, default!, Ct);
     }
 
     [Fact]
-    public async Task WriteAsync_LostOnAFrontierThatDoesNotFitTheFile_IsInvalidPayloadNamingTheFrontier()
+    public async Task WriteAsync_AnotherReadersBook_IsBookNotFoundAndStoresNoSession()
     {
-        CurrentFileIs("pdf");
-        Loses(null);
-        var request = Write(CurrentFile, null, Json(TextPositionV1)) with { FrontierLocator = Json(Cfi), FrontierFraction = 0.6m };
+        var strangers = Guid.NewGuid();
+        var cfi = await Service.WriteAsync(User, strangers, Write(CurrentFile, null), Ct);
+
+        Assert.Equal((404, SyncCodes.BookNotFound), (cfi.Status, V2Fakes.Error(cfi).Code));
+        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.WriteAsync(User, strangers, Write(CurrentFile, null, TextPosition("ch-1")), Ct)).Code);
+        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.GetAsync(User, strangers, Ct)).Code);
+        Assert.Equal(SyncCodes.BookNotFound, V2Fakes.Error(await Service.SaveSessionAsync(User, Guid.NewGuid(), Session() with { BookId = strangers }, Ct)).Code);
+        await _sessions.DidNotReceiveWithAnyArgs().SaveAsync(default, default!, Ct);
+    }
+
+    [Fact]
+    public async Task WriteAsync_LostOnAFileThatIsNotTheCurrentOne_IsFileReplacedOrUnknownFile()
+    {
+        // The replacement deleted the state: point at the current file, nothing stored.
+        var replaced = V2Fakes.Error(await Service.WriteAsync(User, BookId, Write(OldFile, 3), Ct));
+        Assert.Equal((SyncCodes.FileReplaced, CurrentFile, CurrentFile, (object?)null), (replaced.Code, replaced.FileId, replaced.CurrentFile!.Id, replaced.Current));
+
+        // A file that is no version of the book: no file to point at, whatever the locator.
+        foreach (var locator in new[] { Cfi, TextPosition("ch-1") })
+        {
+            var result = await Service.WriteAsync(User, BookId, Write(Guid.NewGuid(), null, locator), Ct);
+            var unknown = V2Fakes.Error(result);
+            Assert.Equal((409, SyncCodes.UnknownFile, (Guid?)null, (BookFileDto?)null), (result.Status, unknown.Code, unknown.FileId, unknown.CurrentFile));
+        }
+
+        // Any write on a superseded version is file_replaced (PDD "Reading state"), even on a chapter it lacks.
+        Loses(Stored(5));
+        var withState = V2Fakes.Error(await Service.WriteAsync(User, BookId, Write(OldFile, 3, TextPosition("no-such")), Ct));
+        Assert.Equal((SyncCodes.FileReplaced, CurrentFile, (long?)5), (withState.Code, withState.FileId, withState.Revision));
+    }
+
+    // A first writer (no expected revision) had no frontier to lose, so a reset is news only to a writer that read an older revision.
+    [Theory]
+    [InlineData(4L, 3L, 2L, SyncCodes.Reset)]           // reset after the revision it read
+    [InlineData(5L, 3L, 3L, SyncCodes.StaleRevision)]   // a move after an older reset
+    [InlineData(2L, 2L, null, SyncCodes.StaleRevision)] // a first write losing to a reset row
+    [InlineData(null, null, 7L, SyncCodes.StaleRevision)] // nothing stored on the current file
+    public async Task WriteAsync_LostToAnotherDevice_IsResetOnlyForAWriterThatReadBeforeIt(long? storedRevision, long? resetRevision, long? expectedRevision, string code)
+    {
+        Loses(storedRevision is { } r ? Stored(r, resetRevision) : null);
+
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, expectedRevision), Ct);
+
+        var error = V2Fakes.Error(result);
+        Assert.Equal((409, code, storedRevision, CurrentFile), (result.Status, error.Code, error.Revision, error.FileId));
+        if (storedRevision is null) Assert.Null(error.Current);
+        else Assert.Equal(resetRevision, Assert.IsType<ReadingStateDto>(error.Current).ResetRevision);
+    }
+
+    // The write SQL's chapter guard asked again: the position's chapter, and the offered frontier's only when the write
+    // would have stored it (no stored frontier, or the offered one is further). One question per distinct chapter.
+    [Theory]
+    [InlineData("no-such", null, null, null, SyncCodes.ChapterNotFound, 1)] // first write on a chapter the file lacks
+    [InlineData("ch-1", "no-such", 2L, null, SyncCodes.ChapterNotFound, 2)] // a winning frontier on a missing chapter
+    [InlineData("ch-1", "no-such", 2L, 0.9, SyncCodes.StaleRevision, 1)]    // the stored frontier is ahead: not why it lost
+    [InlineData("ch-1", "ch-1", 2L, null, SyncCodes.StaleRevision, 1)]      // position and frontier in one chapter: asked once
+    [InlineData(null, null, 2L, null, SyncCodes.StaleRevision, 0)]          // epub-cfi names no chapter
+    public async Task WriteAsync_LostWithAChapterInPlay_IsChapterNotFoundOnlyWhenTheStoredChapterIsMissing(
+        string? positionChapter, string? frontierChapter, long? storedRevision, double? storedFrontier, string code, int chapterQuestions)
+    {
+        FileHasChapter("ch-1");
+        Loses(storedRevision is { } r ? Stored(r, frontierFraction: (decimal?)storedFrontier) : null);
+        var request = Write(CurrentFile, storedRevision - 1, positionChapter is null ? Cfi : TextPosition(positionChapter));
+        if (frontierChapter is not null) request = request with { FrontierLocator = Json(TextPosition(frontierChapter)), FrontierFraction = 0.6m };
 
         var result = await Service.WriteAsync(User, BookId, request, Ct);
 
-        Assert.Equal((400, "frontierLocator"), (result.Status, V2Fakes.Error(result).Field));
+        Assert.Equal((409, code), (result.Status, V2Fakes.Error(result).Code));
+        await _chapters.ReceivedWithAnyArgs(chapterQuestions).ExistsAsync(default, default, default!, Ct);
+        // Asked of this user, on the file the write named, by the chapter it named.
+        if (positionChapter is not null) await _chapters.Received(1).ExistsAsync(User, CurrentFile, positionChapter, Arg.Any<CancellationToken>());
+        if (frontierChapter is not null && frontierChapter != positionChapter && chapterQuestions == 2)
+            await _chapters.Received(1).ExistsAsync(User, CurrentFile, frontierChapter, Arg.Any<CancellationToken>());
+    }
+
+    // #1122: the write's SQL refuses a scheme that does not fit the file; the loss is named here, from the book's current file.
+    // textstack-* fits any file: the transitional reader writes it on a PDF's reflow too.
+    [Theory]
+    [InlineData(PdfPage, null, "epub", 400, "currentLocator", "A pdf-page locator does not fit a epub file.")]
+    [InlineData(PdfPage, null, "html", 400, "currentLocator", "A pdf-page locator does not fit a html file.")]
+    [InlineData(Cfi, null, "pdf", 400, "currentLocator", "A epub-cfi locator does not fit a pdf file.")]
+    [InlineData(PageName, null, "pdf", 400, "currentLocator", "A page-name locator does not fit a pdf file.")]
+    [InlineData(PageName, null, "mobi", 400, "currentLocator", "A page-name locator does not fit a mobi file.")]
+    [InlineData(TextPositionV1, Cfi, "pdf", 400, "frontierLocator", "A epub-cfi locator does not fit a pdf file.")]
+    [InlineData(PdfPage, null, "pdf", 409, null, null)]
+    [InlineData(Cfi, null, "epub", 409, null, null)]
+    [InlineData(Cfi, null, "html", 409, null, null)]
+    [InlineData(TextPositionV1, null, "epub", 409, null, null)]
+    [InlineData(TextPositionV1, null, "pdf", 409, null, null)]
+    [InlineData(PageName, null, "cbz", 409, null, null)]
+    [InlineData(PageName, null, "epub", 409, null, null)]
+    public async Task WriteAsync_LostWithAScheme_IsInvalidOnlyWhenItDoesNotFitTheFile(
+        string locator, string? frontier, string format, int status, string? field, string? why)
+    {
+        CurrentFileIs(format);
+        FileHasChapter("ch-1");
+        // A refused scheme is named even on a first write; a fitting one lost to a newer revision.
+        var fits = status == 409;
+        Loses(fits ? Stored(2) : null);
+        var request = Write(CurrentFile, fits ? 1 : null, locator);
+        if (frontier is not null) request = request with { FrontierLocator = Json(frontier), FrontierFraction = 0.6m };
+
+        var result = await Service.WriteAsync(User, BookId, request, Ct);
+
+        var error = V2Fakes.Error(result);
+        Assert.Equal((status, fits ? SyncCodes.StaleRevision : SyncCodes.InvalidPayload, field), (result.Status, error.Code, error.Field));
+        if (why is not null) Assert.Equal(why, error.Message);
+    }
+
+    [Theory]
+    [InlineData(TextAnchor, null, null, "currentLocator", "textstack-anchor-v1 is an annotation locator only.")]
+    [InlineData(Cfi, Cfi, null, "frontierLocator", "frontierLocator and frontierFraction are sent together or not at all.")]
+    [InlineData(Cfi, null, 0.6, "frontierLocator", "frontierLocator and frontierFraction are sent together or not at all.")]
+    public async Task WriteAsync_PayloadThatIsNoReadingPosition_IsInvalidPayloadAndWritesNothing(
+        string locator, string? frontier, double? frontierFraction, string field, string why)
+    {
+        var request = Write(CurrentFile, null, locator) with { FrontierLocator = frontier is null ? null : Json(frontier), FrontierFraction = (decimal?)frontierFraction };
+
+        var result = await Service.WriteAsync(User, BookId, request, Ct);
+
+        var error = V2Fakes.Error(result);
+        Assert.Equal((400, SyncCodes.InvalidPayload, field, why), (result.Status, error.Code, error.Field, error.Message));
+        await _states.DidNotReceiveWithAnyArgs().AdvanceAsync(default, default, default!, default, default!, Ct);
+    }
+
+    [Fact]
+    public async Task ResetAsync_StartOver_IsOkStaleOnANewerStateAndNotFoundWithNone()
+    {
+        _states.ResetAsync(User, BookId, 3, Arg.Any<CancellationToken>()).Returns(new RevisionedWrite<ReadingState>(true, Stored(4, resetRevision: 4)));
+        _states.ResetAsync(User, BookId, 1, Arg.Any<CancellationToken>()).Returns(new RevisionedWrite<ReadingState>(false, Stored(2)));
+        _states.ResetAsync(User, BookId, 9, Arg.Any<CancellationToken>()).Returns(new RevisionedWrite<ReadingState>(false, null));
+
+        var reset = await Service.ResetAsync(User, BookId, new ResetReadingStateRequest(3), Ct);
+        var stale = V2Fakes.Error(await Service.ResetAsync(User, BookId, new ResetReadingStateRequest(1), Ct));
+        var none = V2Fakes.Error(await Service.ResetAsync(User, BookId, new ResetReadingStateRequest(9), Ct));
+
+        Assert.Equal((200, 4L), (reset.Status, Assert.IsType<ReadingStateDto>(reset.Body).ResetRevision));
+        Assert.Equal((SyncCodes.StaleRevision, (long?)2), (stale.Code, stale.Revision));
+        Assert.Equal(SyncCodes.NotFound, none.Code);
+    }
+
+    private ReadingSessionRequest Session() =>
+        new(null, _clock.Now.AddMinutes(-5), _clock.Now, 300, 120, 0.1m, 0.2m);
+
+    // The future is the service clock's, not the machine's: the clock stands years back, so the machine would allow +6 minutes.
+    [Theory]
+    [InlineData(-65, false, "endedAt", "endedAt is before startedAt.")]
+    [InlineData(6, false, "endedAt", "endedAt is in the future.")]
+    [InlineData(0, true, "clientSessionId", "clientSessionId must be a client-minted UUID.")]
+    public async Task SaveSessionAsync_SessionThatCannotHaveHappened_IsInvalidPayloadAndStoresNothing(int endedMinutesFromNow, bool emptyId, string field, string why)
+    {
+        var request = Session() with { EndedAt = _clock.Now.AddMinutes(endedMinutesFromNow) };
+
+        var error = V2Fakes.Error(await Service.SaveSessionAsync(User, emptyId ? Guid.Empty : Guid.NewGuid(), request, Ct));
+
+        Assert.Equal((field, why), (error.Field, error.Message));
+        await _sessions.DidNotReceiveWithAnyArgs().SaveAsync(default, default!, Ct);
+    }
+
+    // Within the clock skew is not the future; a replay of the same session answers 200, not a second 201.
+    [Theory]
+    [InlineData(WriteOutcome.Created, 201)]
+    [InlineData(WriteOutcome.Replayed, 200)]
+    public async Task SaveSessionAsync_Stored_IsCreatedFirstAndOkOnReplay(WriteOutcome outcome, int status)
+    {
+        _sessions.SaveAsync(User, Arg.Any<ReadingSession>(), Arg.Any<CancellationToken>())
+            .Returns(new WriteResult<ReadingSession>(outcome, new ReadingSession { BookId = BookId }));
+        var request = Session() with { BookId = BookId, EndedAt = _clock.Now.AddMinutes(4) };
+
+        Assert.Equal(status, (await Service.SaveSessionAsync(User, Guid.NewGuid(), request, Ct)).Status);
     }
 }
