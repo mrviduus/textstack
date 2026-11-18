@@ -1,7 +1,7 @@
 using Application.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
+using NSubstitute;
 using Worker.Services;
 
 namespace TextStack.UnitTests;
@@ -12,12 +12,12 @@ public class RetentionCleanupTests
     [Fact]
     public async Task CleanupAsync_CredentialPortsThenAiSweeps_AllRulesRun()
     {
-        var oauth = new Mock<IOAuthRepository>();
+        var oauth = Substitute.For<IOAuthRepository>();
         var lastSweep = new TaskCompletionSource();
         await using var services = new ServiceCollection()
-            .AddScoped(_ => Mock.Of<ISessionTokenRepository>())
-            .AddScoped(_ => Mock.Of<IDeviceLoginRepository>())
-            .AddScoped(_ => oauth.Object)
+            .AddScoped(_ => Substitute.For<ISessionTokenRepository>())
+            .AddScoped(_ => Substitute.For<IDeviceLoginRepository>())
+            .AddScoped(_ => oauth)
             // The last V2 rule: resolving its writer marks the end of the sweep (the failure is logged).
             .AddScoped<Infrastructure.Persistence.Repositories.V2AgentRunWriter>(_ =>
             {
@@ -31,7 +31,7 @@ public class RetentionCleanupTests
         await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await worker.StopAsync(TestContext.Current.CancellationToken);
 
-        oauth.Verify(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
+        await oauth.Received(1).DeleteDeadGrantsAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -40,16 +40,15 @@ public class RetentionCleanupTests
         // The identity ports sweep with the cutoff they are given (their contract tests); the grace is the worker's.
         var clock = new SteppedClock();
         var cutoff = clock.Now - RetentionCleanupWorker.TokenGrace;
-        var sessions = new Mock<ISessionTokenRepository>();
-        var devices = new Mock<IDeviceLoginRepository>();
-        var oauth = new Mock<IOAuthRepository>();
+        var sessions = Substitute.For<ISessionTokenRepository>();
+        var devices = Substitute.For<IDeviceLoginRepository>();
+        var oauth = Substitute.For<IOAuthRepository>();
         var lastSweep = new TaskCompletionSource();
-        oauth.Setup(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
-            .Callback(lastSweep.SetResult).ReturnsAsync(0);
+        oauth.DeleteDeadGrantsAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>()).Returns(_ => { lastSweep.SetResult(); return 0; });
         await using var services = new ServiceCollection()
-            .AddScoped(_ => sessions.Object)
-            .AddScoped(_ => devices.Object)
-            .AddScoped(_ => oauth.Object)
+            .AddScoped(_ => sessions)
+            .AddScoped(_ => devices)
+            .AddScoped(_ => oauth)
             .BuildServiceProvider();
         using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance, clock);
 
@@ -57,24 +56,23 @@ public class RetentionCleanupTests
         await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await worker.StopAsync(TestContext.Current.CancellationToken);
 
-        sessions.Verify(s => s.DeleteExpiredSessionsAsync(cutoff, It.IsAny<CancellationToken>()), Times.Once);
-        sessions.Verify(s => s.DeleteExpiredPasswordResetsAsync(cutoff, It.IsAny<CancellationToken>()), Times.Once);
-        devices.Verify(d => d.DeleteExpiredAsync(cutoff, It.IsAny<CancellationToken>()), Times.Once);
-        oauth.Verify(o => o.DeleteDeadGrantsAsync(cutoff, It.IsAny<CancellationToken>()), Times.Once);
+        await sessions.Received(1).DeleteExpiredSessionsAsync(cutoff, Arg.Any<CancellationToken>());
+        await sessions.Received(1).DeleteExpiredPasswordResetsAsync(cutoff, Arg.Any<CancellationToken>());
+        await devices.Received(1).DeleteExpiredAsync(cutoff, Arg.Any<CancellationToken>());
+        await oauth.Received(1).DeleteDeadGrantsAsync(cutoff, Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task CleanupAsync_APortMissing_TheOtherRulesStillRun()
     {
-        var oauth = new Mock<IOAuthRepository>();
+        var oauth = Substitute.For<IOAuthRepository>();
         var lastSweep = new TaskCompletionSource();
-        oauth.Setup(o => o.DeleteDeadGrantsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
-            .Callback(lastSweep.SetResult).ReturnsAsync(0);
-        var devices = new Mock<IDeviceLoginRepository>();
+        oauth.DeleteDeadGrantsAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>()).Returns(_ => { lastSweep.SetResult(); return 0; });
+        var devices = Substitute.For<IDeviceLoginRepository>();
         // No ISessionTokenRepository: its two rules fail, logged, and the rest go on.
         await using var services = new ServiceCollection()
-            .AddScoped(_ => devices.Object)
-            .AddScoped(_ => oauth.Object)
+            .AddScoped(_ => devices)
+            .AddScoped(_ => oauth)
             .BuildServiceProvider();
         using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance);
 
@@ -82,6 +80,6 @@ public class RetentionCleanupTests
         await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await worker.StopAsync(TestContext.Current.CancellationToken);
 
-        devices.Verify(d => d.DeleteExpiredAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
+        await devices.Received(1).DeleteExpiredAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
     }
 }
