@@ -47,7 +47,7 @@ public class GuestActivityMiddleware(RequestDelegate next)
     public static bool ShouldWrite(DateTimeOffset? lastWrittenAt, DateTimeOffset now) =>
         lastWrittenAt is not { } last || now - last >= DebounceInterval;
 
-    public async Task InvokeAsync(HttpContext context, IAuthService authService, IMemoryCache cache, ILogger<GuestActivityMiddleware> logger)
+    public async Task InvokeAsync(HttpContext context, IAuthService authService, IMemoryCache cache, ILogger<GuestActivityMiddleware> logger, TimeProvider clock)
     {
         await next(context);
 
@@ -59,14 +59,15 @@ public class GuestActivityMiddleware(RequestDelegate next)
         // SELECT on every single guest request to decide whether to skip the UPDATE — the read it
         // was trying to avoid.
         var key = $"guest-active:{id}";
-        if (!ShouldWrite(cache.Get<DateTimeOffset?>(key), DateTimeOffset.UtcNow)) return;
+        var now = clock.GetUtcNow();
+        if (!ShouldWrite(cache.Get<DateTimeOffset?>(key), now)) return;
 
         try
         {
             var users = context.RequestServices.GetRequiredService<IUserRepository>();
-            await users.TouchActiveAsync(id, DateTimeOffset.UtcNow, CancellationToken.None);
+            await users.TouchActiveAsync(id, now, CancellationToken.None);
 
-            cache.Set(key, DateTimeOffset.UtcNow, DebounceInterval);
+            cache.Set(key, now, DebounceInterval);
         }
         catch (Exception ex)
         {

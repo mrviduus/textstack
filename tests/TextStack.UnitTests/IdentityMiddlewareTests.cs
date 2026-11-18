@@ -41,7 +41,7 @@ public class IdentityMiddlewareTests
         var userId = Guid.NewGuid();
         var http = Request(TestTokens.Token(userId, guestClaim: isGuest), s => s.AddSingleton(users.Object));
 
-        await new GuestActivityMiddleware(_ => Task.CompletedTask).InvokeAsync(http, Auth, new MemoryCache(new MemoryCacheOptions()), NullLogger<GuestActivityMiddleware>.Instance);
+        await new GuestActivityMiddleware(_ => Task.CompletedTask).InvokeAsync(http, Auth, new MemoryCache(new MemoryCacheOptions()), NullLogger<GuestActivityMiddleware>.Instance, TimeProvider.System);
 
         users.Verify(u => u.TouchActiveAsync(userId, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), isGuest ? Times.Once() : Times.Never());
     }
@@ -57,7 +57,7 @@ public class IdentityMiddlewareTests
         keys.Setup(k => k.GetLiveByHashAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(key);
         var http = Request(McpKeys.Generate());
 
-        await new McpKeyAuthMiddleware(_ => Task.CompletedTask).InvokeAsync(http, keys.Object, Mock.Of<IOAuthRepository>(), new ConfigurationBuilder().Build());
+        await new McpKeyAuthMiddleware(_ => Task.CompletedTask).InvokeAsync(http, keys.Object, Mock.Of<IOAuthRepository>(), new ConfigurationBuilder().Build(), TimeProvider.System);
 
         Assert.Equal(key.UserId, http.Items[McpKeyAuthMiddleware.UserIdItemKey]);
         keys.Verify(k => k.TouchAsync(key.Id, It.IsAny<CancellationToken>()), stale ? Times.Once() : Times.Never());
@@ -88,7 +88,7 @@ public class IdentityMiddlewareTests
         var reached = false;
 
         await new McpKeyAuthMiddleware(_ => { reached = true; return Task.CompletedTask; })
-            .InvokeAsync(http, keys.Object, oauth.Object, config);
+            .InvokeAsync(http, keys.Object, oauth.Object, config, TimeProvider.System);
 
         Assert.True(reached);
         Assert.Equal(userId, http.Items[McpKeyAuthMiddleware.UserIdItemKey]);
