@@ -21,7 +21,7 @@ public class UserAccount
     public string? Picture { get; set; }
 
     /// <summary>True for a photo the reader uploaded (a stored path); false for none or a provider's URL (Google, Apple).</summary>
-    public static bool IsStoredPicture(string? picture) => !string.IsNullOrEmpty(picture) && !picture.StartsWith("http");
+    public static bool IsStoredPicture(string? picture) => !string.IsNullOrEmpty(picture) && !picture.StartsWith("http", StringComparison.Ordinal);
     public bool IsGuest { get; set; }
     public DateTimeOffset? LastActiveAt { get; set; }
     public string? NativeLanguage { get; set; }
