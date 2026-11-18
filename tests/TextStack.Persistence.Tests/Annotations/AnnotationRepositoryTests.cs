@@ -42,322 +42,193 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Color = stored.Color,
     };
 
+    // A highlight's life on two devices: each write names the revision it read, and only that revision wins.
     [Fact]
-    public async Task SaveAsync_FirstWrite_CreatesTheRowAtRevisionOne()
+    public async Task SaveAsync_AReaderHighlightsAndEditsOnTwoDevices_OnlyTheWriteNamingTheCurrentRevisionWins()
     {
         var book = await db.NewReaderWithBookAsync();
         var highlight = Highlight(book);
 
-        var result = await _repo.SaveAsync(book.UserId, highlight, null, Ct);
+        var created = await _repo.SaveAsync(book.UserId, highlight, null, Ct);
 
-        Assert.True(result.Accepted);
+        Assert.True(created.Accepted);
         var stored = (await _repo.GetAsync(book.UserId, highlight.Id, Ct))!;
         Assert.Equal((1L, book.Id, book.CurrentFile!.Id, "quoted", "a note", "yellow", (DateTimeOffset?)null),
             (stored.Revision, stored.BookId, stored.FileId, stored.SelectedText, stored.NoteText, stored.Color, stored.DeletedAt));
         AssertSameJson(Cfi(3), stored.Locator);
-    }
 
-    [Fact]
-    public async Task SaveAsync_FirstWriteWhenTheIdExists_LosesAndReturnsTheRow()
-    {
-        var (book, stored) = await SavedHighlightAsync();
+        // The second device replays the create: the id exists, so it loses and is shown the stored row.
+        var replay = await _repo.SaveAsync(book.UserId, Edit(stored, "another"), null, Ct);
+        Assert.False(replay.Accepted);
+        Assert.Equal((1L, "a note"), (replay.Current!.Revision, replay.Current.NoteText));
 
-        var result = await _repo.SaveAsync(book.UserId, Edit(stored, "another"), null, Ct);
+        // The first device edits at revision 1 and wins; the edit moves updated_at, the sync feed's watermark.
+        var winner = await _repo.SaveAsync(book.UserId, Edit(stored, "winner"), 1, Ct);
+        Assert.True(winner.Accepted);
+        Assert.Equal((2L, "winner"), (winner.Current!.Revision, winner.Current.NoteText));
+        Assert.True(winner.Current.UpdatedAt > stored.UpdatedAt, "an edit moves updated_at");
 
-        Assert.False(result.Accepted);
-        Assert.Equal((1L, "a note"), (result.Current!.Revision, result.Current.NoteText));
-    }
-
-    [Fact]
-    public async Task SaveAsync_MatchingRevision_WinsAndIncrementsTheRevision()
-    {
-        var (book, stored) = await SavedHighlightAsync();
-
-        var result = await _repo.SaveAsync(book.UserId, Edit(stored, "edited"), 1, Ct);
-
-        Assert.True(result.Accepted);
-        Assert.Equal((2L, "edited"), (result.Current!.Revision, result.Current.NoteText));
-    }
-
-    [Fact]
-    public async Task SaveAsync_StaleRevision_LosesAndReturnsTheWinnersRowIntact()
-    {
-        var (book, stored) = await SavedHighlightAsync();
-        await _repo.SaveAsync(book.UserId, Edit(stored, "winner"), 1, Ct);
-
-        var result = await _repo.SaveAsync(book.UserId, Edit(stored, "stale"), 1, Ct);
-
-        Assert.False(result.Accepted);
-        Assert.Equal((2L, "winner"), (result.Current!.Revision, result.Current.NoteText));
+        // The second device still holds revision 1: it loses and the winner's row stays intact.
+        var stale = await _repo.SaveAsync(book.UserId, Edit(stored, "stale"), 1, Ct);
+        Assert.False(stale.Accepted);
+        Assert.Equal((2L, "winner"), (stale.Current!.Revision, stale.Current.NoteText));
         Assert.Equal("winner", (await _repo.GetAsync(book.UserId, stored.Id, Ct))!.NoteText);
     }
 
+    // Erasing leaves a tombstone the sync feed carries; nothing brings it back.
     [Fact]
-    public async Task SaveAsync_DeletedAnnotationWithItsCurrentRevision_LosesAndStaysDeleted()
-    {
-        var (book, stored) = await SavedHighlightAsync();
-        await _repo.DeleteAsync(book.UserId, stored.Id, Ct);
-
-        var result = await _repo.SaveAsync(book.UserId, Edit(stored, "revived"), 2, Ct);
-
-        Assert.False(result.Accepted);
-        Assert.Equal((2L, "a note"), (result.Current!.Revision, result.Current.NoteText));
-        Assert.NotNull(result.Current.DeletedAt);
-    }
-
-    [Fact]
-    public async Task SaveAsync_UnanchoredQuotation_IsStoredWithNoFileAndNoLocator()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var quotation = Highlight(book);
-        quotation.FileId = null;
-        quotation.Locator = null;
-
-        var result = await _repo.SaveAsync(book.UserId, quotation, null, Ct);
-
-        Assert.True(result.Accepted);
-        Assert.Equal(((Guid?)null, (string?)null, "quoted"), (result.Current!.FileId, result.Current.Locator, result.Current.SelectedText));
-    }
-
-    [Fact]
-    public async Task SaveAsync_LocatorWithoutAFile_IsRefusedByTheCheck()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var highlight = Highlight(book);
-        highlight.FileId = null;
-
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(book.UserId, highlight, null, Ct));
-
-        Assert.Equal((PostgresErrorCodes.CheckViolation, "ck_annotations_locator_file"), (error.SqlState, error.ConstraintName));
-        Assert.Null(await _repo.GetAsync(book.UserId, highlight.Id, Ct));
-    }
-
-    [Fact]
-    public async Task SaveAsync_FirstWriteOnAFileOfAnotherOwnBook_IsRefusedByTheDeferredForeignKey()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var highlight = Highlight(book);
-        highlight.FileId = (await db.NewBookAsync(book.UserId, "Another book")).CurrentFile!.Id;
-
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(book.UserId, highlight, null, Ct));
-
-        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_book_files_user_id_book_id_file_id"),
-            (error.SqlState, error.ConstraintName));
-        Assert.Null(await _repo.GetAsync(book.UserId, highlight.Id, Ct));
-    }
-
-    [Fact]
-    public async Task SaveAsync_UpdateOntoAFileOfAnotherOwnBook_IsRefusedAndKeepsTheStoredRow()
-    {
-        var (book, stored) = await SavedHighlightAsync();
-        var moved = Edit(stored, "moved");
-        moved.FileId = (await db.NewBookAsync(book.UserId, "Another book")).CurrentFile!.Id;
-
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(book.UserId, moved, 1, Ct));
-
-        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_book_files_user_id_book_id_file_id"),
-            (error.SqlState, error.ConstraintName));
-        var read = (await _repo.GetAsync(book.UserId, stored.Id, Ct))!;
-        Assert.Equal((1L, book.CurrentFile!.Id, "a note"), (read.Revision, read.FileId, read.NoteText));
-    }
-
-    [Fact]
-    public async Task SaveAsync_EditNamingAnotherOwnBook_LosesAndKeepsTheStoredRow()
-    {
-        var (book, stored) = await SavedHighlightAsync();
-        var moved = Edit(stored, "moved");
-        moved.BookId = (await db.NewBookAsync(book.UserId, "Another book")).Id;
-        moved.FileId = null;
-        moved.Locator = null;
-
-        var result = await _repo.SaveAsync(book.UserId, moved, 1, Ct);
-
-        Assert.False(result.Accepted);
-        Assert.Equal((1L, book.Id, "a note"), (result.Current!.Revision, result.Current.BookId, result.Current.NoteText));
-    }
-
-    [Fact]
-    public async Task SaveAsync_EntityNamingAnotherUser_IsStoredUnderTheCaller()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        var annotation = Highlight(book);
-        annotation.UserId = bob;
-
-        var result = await _repo.SaveAsync(book.UserId, annotation, null, Ct);
-
-        Assert.Equal(book.UserId, result.Current!.UserId);
-        Assert.Equal(0L, await db.CountAsync("annotations", bob));
-    }
-
-    [Fact]
-    public async Task ListForBookAsync_OwnBook_ReturnsLiveAnnotationsOldestFirst()
+    public async Task DeleteAsync_AReaderErasesAHighlight_LeavesOneTombstoneThatNoEditRevives()
     {
         var (book, first) = await SavedHighlightAsync();
-        var deleted = (await _repo.SaveAsync(book.UserId, Highlight(book), null, Ct)).Current!;
+        var erased = (await _repo.SaveAsync(book.UserId, Highlight(book), null, Ct)).Current!;
         var last = (await _repo.SaveAsync(book.UserId, Highlight(book), null, Ct)).Current!;
-        await _repo.DeleteAsync(book.UserId, deleted.Id, Ct);
 
-        var listed = await _repo.ListForBookAsync(book.UserId, book.Id, Ct);
+        var tombstone = (await _repo.DeleteAsync(book.UserId, erased.Id, Ct))!;
+        var again = (await _repo.DeleteAsync(book.UserId, erased.Id, Ct))!;
 
-        Assert.Equal([first.Id, last.Id], listed.Select(a => a.Id));
-    }
+        // Deleted once: revision bumped once, the second delete returns the same tombstone.
+        Assert.Equal((2L, true), (tombstone.Revision, tombstone.DeletedAt is not null));
+        Assert.Equal((2L, tombstone.DeletedAt), (again.Revision, again.DeletedAt));
+        Assert.True(tombstone.UpdatedAt > erased.UpdatedAt, "a delete moves updated_at");
+        // The book's list shows the live ones, oldest first.
+        Assert.Equal([first.Id, last.Id], (await _repo.ListForBookAsync(book.UserId, book.Id, Ct)).Select(a => a.Id));
 
-    [Fact]
-    public async Task DeleteAsync_LiveAnnotationTwice_ReturnsTheTombstoneBothTimesAndBumpsTheRevisionOnce()
-    {
-        var (book, stored) = await SavedHighlightAsync();
+        // An edit naming the tombstone's current revision loses; the row stays deleted and unedited.
+        var revived = await _repo.SaveAsync(book.UserId, Edit(erased, "revived"), 2, Ct);
+        Assert.False(revived.Accepted);
+        Assert.Equal((2L, "a note"), (revived.Current!.Revision, revived.Current.NoteText));
+        Assert.NotNull(revived.Current.DeletedAt);
 
-        var first = (await _repo.DeleteAsync(book.UserId, stored.Id, Ct))!;
-        var again = (await _repo.DeleteAsync(book.UserId, stored.Id, Ct))!;
-
-        Assert.Equal((2L, true), (first.Revision, first.DeletedAt is not null));
-        Assert.Equal((2L, first.DeletedAt), (again.Revision, again.DeletedAt));
-    }
-
-    [Fact]
-    public async Task DeleteAsync_IdTheUserNeverHad_ReturnsNull()
-    {
-        var book = await db.NewReaderWithBookAsync();
-
+        // An id the reader never had: nothing to erase.
         Assert.Null(await _repo.DeleteAsync(book.UserId, Guid.NewGuid(), Ct));
     }
 
-    // updated_at is the sync feed's watermark: every revisioned write must move it.
     [Fact]
-    public async Task SaveAsyncAndDeleteAsync_LiveAnnotation_EachMoveUpdatedAt()
+    public async Task ListChangedAsync_ADeviceCatchesUp_GetsLiveAndErasedHighlightsInUpdateOrderPageByPage()
     {
-        var (book, stored) = await SavedHighlightAsync();
-
-        var edited = (await _repo.SaveAsync(book.UserId, Edit(stored, "edited"), 1, Ct)).Current!;
-        await _repo.DeleteAsync(book.UserId, stored.Id, Ct);
-        var deleted = (await _repo.GetAsync(book.UserId, stored.Id, Ct))!;
-
-        Assert.True(edited.UpdatedAt > stored.UpdatedAt, "update");
-        Assert.True(deleted.UpdatedAt > edited.UpdatedAt, "delete");
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_LiveAndDeleted_ReturnsBothInUpdateOrder()
-    {
-        var (book, deleted) = await SavedHighlightAsync();
+        var (book, erased) = await SavedHighlightAsync();
         var live = (await _repo.SaveAsync(book.UserId, Highlight(book), null, Ct)).Current!;
-        await _repo.DeleteAsync(book.UserId, deleted.Id, Ct); // now the later of the two
+        await _repo.DeleteAsync(book.UserId, erased.Id, Ct); // now the later of the two
 
         var all = await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct);
         var after = await _repo.ListChangedAsync(book.UserId, live.UpdatedAt, live.Id, 10, Ct);
 
-        Assert.Equal([live.Id, deleted.Id], all.Select(a => a.Id));
+        Assert.Equal([live.Id, erased.Id], all.Select(a => a.Id));
         Assert.NotNull(all[1].DeletedAt);
-        Assert.Equal(deleted.Id, Assert.Single(after).Id);
+        Assert.Equal(erased.Id, Assert.Single(after).Id);
         Assert.Single(await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 1, Ct));
     }
 
-    // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
-
+    // A highlight points at a file of its own book, or at no file at all; the schema refuses the rest.
     [Fact]
-    public async Task ListForBookAsync_AlicesBookAsBob_ReturnsEmpty()
+    public async Task SaveAsync_AHighlightsFileAndLocator_StayOnItsOwnBooksFile()
     {
-        var (alices, _) = await SavedHighlightAsync();
-        var bob = await db.NewReaderAsync();
+        var (book, stored) = await SavedHighlightAsync();
+        var otherBook = await db.NewBookAsync(book.UserId, "Another book");
 
-        Assert.Empty(await _repo.ListForBookAsync(bob, alices.Id, Ct));
+        // A quotation with no position: no file, no locator, stored.
+        var quotation = Highlight(book);
+        quotation.FileId = null;
+        quotation.Locator = null;
+        var quoted = await _repo.SaveAsync(book.UserId, quotation, null, Ct);
+        Assert.True(quoted.Accepted);
+        Assert.Equal(((Guid?)null, (string?)null, "quoted"), (quoted.Current!.FileId, quoted.Current.Locator, quoted.Current.SelectedText));
+
+        // A locator without a file: refused by the check.
+        var unfiled = Highlight(book);
+        unfiled.FileId = null;
+        var check = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(book.UserId, unfiled, null, Ct));
+        Assert.Equal((PostgresErrorCodes.CheckViolation, "ck_annotations_locator_file"), (check.SqlState, check.ConstraintName));
+        Assert.Null(await _repo.GetAsync(book.UserId, unfiled.Id, Ct));
+
+        // A first write on the other book's file: refused by the deferred foreign key.
+        var misfiled = Highlight(book);
+        misfiled.FileId = otherBook.CurrentFile!.Id;
+        var onInsert = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(book.UserId, misfiled, null, Ct));
+        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_book_files_user_id_book_id_file_id"),
+            (onInsert.SqlState, onInsert.ConstraintName));
+        Assert.Null(await _repo.GetAsync(book.UserId, misfiled.Id, Ct));
+
+        // An edit moving the stored highlight onto the other book's file: refused the same way.
+        var moved = Edit(stored, "moved");
+        moved.FileId = otherBook.CurrentFile.Id;
+        var onUpdate = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(book.UserId, moved, 1, Ct));
+        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_book_files_user_id_book_id_file_id"),
+            (onUpdate.SqlState, onUpdate.ConstraintName));
+
+        // An edit naming the other book (no file): a highlight never changes book, so it loses.
+        var rebooked = Edit(stored, "moved");
+        rebooked.BookId = otherBook.Id;
+        rebooked.FileId = null;
+        rebooked.Locator = null;
+        var lost = await _repo.SaveAsync(book.UserId, rebooked, 1, Ct);
+        Assert.False(lost.Accepted);
+        Assert.Equal((1L, book.Id, "a note"), (lost.Current!.Revision, lost.Current.BookId, lost.Current.NoteText));
+
+        var read = (await _repo.GetAsync(book.UserId, stored.Id, Ct))!;
+        Assert.Equal((1L, book.Id, book.CurrentFile!.Id, "a note"), (read.Revision, read.BookId, read.FileId, read.NoteText));
     }
 
+    // Owner isolation: bob, holding alice's ids, never reads, changes or deletes her highlights, nor writes onto her book or file.
     [Fact]
-    public async Task GetAsync_AlicesAnnotationAsBob_ReturnsNull()
+    public async Task EveryMethod_AnotherReaderHoldingAlicesIds_NeverReadsChangesOrDeletesHerHighlights()
     {
-        var (_, alices) = await SavedHighlightAsync();
-        var bob = await db.NewReaderAsync();
-
-        Assert.Null(await _repo.GetAsync(bob, alices.Id, Ct));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData(1L)]
-    public async Task SaveAsync_AlicesAnnotationAsBob_LosesAndChangesNothing(long? expectedRevision)
-    {
-        var (_, alices) = await SavedHighlightAsync();
+        var (alicesBook, alices) = await SavedHighlightAsync();
         var bobsBook = await db.NewReaderWithBookAsync();
-        var takeover = Edit(alices, "bob's");
-        takeover.UserId = bobsBook.UserId;
-        takeover.BookId = bobsBook.Id;
-        takeover.FileId = bobsBook.CurrentFile!.Id;
+        var bob = bobsBook.UserId;
 
-        var result = await _repo.SaveAsync(bobsBook.UserId, takeover, expectedRevision, Ct);
+        Assert.Empty(await _repo.ListForBookAsync(bob, alicesBook.Id, Ct));
+        Assert.Null(await _repo.GetAsync(bob, alices.Id, Ct));
+        Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
 
-        Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
-        var read = (await _repo.GetAsync(alices.UserId, alices.Id, Ct))!;
-        Assert.Equal((1L, "a note", alices.BookId), (read.Revision, read.NoteText, read.BookId));
-    }
+        // Her id onto his own book and file, as a create and as an edit: loses, and he is shown nothing.
+        foreach (var expectedRevision in new long?[] { null, 1 })
+        {
+            var takeover = Edit(alices, "bob's");
+            takeover.UserId = bob;
+            takeover.BookId = bobsBook.Id;
+            takeover.FileId = bobsBook.CurrentFile!.Id;
+            var result = await _repo.SaveAsync(bob, takeover, expectedRevision, Ct);
+            Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
+        }
 
-    // Alice's own book and no file: only the owner filter stops this update.
-    [Fact]
-    public async Task SaveAsync_UnanchoredEditOfAlicesAnnotationAsBob_LosesAndChangesNothing()
-    {
-        var (_, alices) = await SavedHighlightAsync();
-        var bob = await db.NewReaderAsync();
-        var takeover = Edit(alices, "bob's");
-        takeover.UserId = bob;
-        takeover.FileId = null;
-        takeover.Locator = null;
+        // An unanchored edit on her own book: only the owner filter stops it.
+        var unanchored = Edit(alices, "bob's");
+        unanchored.UserId = bob;
+        unanchored.FileId = null;
+        unanchored.Locator = null;
+        var edit = await _repo.SaveAsync(bob, unanchored, 1, Ct);
+        Assert.Equal((false, (Annotation?)null), (edit.Accepted, edit.Current));
 
-        var result = await _repo.SaveAsync(bob, takeover, 1, Ct);
-
-        Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
-        var read = (await _repo.GetAsync(alices.UserId, alices.Id, Ct))!;
-        Assert.Equal((1L, "a note"), (read.Revision, read.NoteText));
-    }
-
-    [Fact]
-    public async Task SaveAsync_FirstWriteOnAlicesBookAsBob_IsRefusedByTheForeignKey()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        var intrusion = Highlight(alices);
+        // A new highlight on her book: refused by the book's foreign key.
+        var intrusion = Highlight(alicesBook);
         intrusion.UserId = bob;
         intrusion.FileId = null;
         intrusion.Locator = null;
+        var onBook = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(bob, intrusion, null, Ct));
+        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_books_user_id_book_id"), (onBook.SqlState, onBook.ConstraintName));
 
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(bob, intrusion, null, Ct));
-
-        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_books_user_id_book_id"), (error.SqlState, error.ConstraintName));
-        Assert.Empty(await _repo.ListForBookAsync(alices.UserId, alices.Id, Ct));
-    }
-
-    [Fact]
-    public async Task SaveAsync_AlicesFileOnBobsBook_IsRefusedByTheDeferredForeignKey()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bobsBook = await db.NewReaderWithBookAsync();
-        var highlight = Highlight(bobsBook);
-        highlight.FileId = alices.CurrentFile!.Id;
-
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(bobsBook.UserId, highlight, null, Ct));
-
+        // His book with her file: refused by the deferred file foreign key.
+        var herFile = Highlight(bobsBook);
+        herFile.FileId = alicesBook.CurrentFile!.Id;
+        var onFile = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(bob, herFile, null, Ct));
         Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_book_files_user_id_book_id_file_id"),
-            (error.SqlState, error.ConstraintName));
-        Assert.Null(await _repo.GetAsync(bobsBook.UserId, highlight.Id, Ct));
-    }
+            (onFile.SqlState, onFile.ConstraintName));
+        Assert.Null(await _repo.GetAsync(bob, herFile.Id, Ct));
 
-    [Fact]
-    public async Task DeleteAsync_AlicesAnnotationAsBob_ReturnsNullAndKeepsItLive()
-    {
-        var (alices, stored) = await SavedHighlightAsync();
-        var bob = await db.NewReaderAsync();
+        Assert.Null(await _repo.DeleteAsync(bob, alices.Id, Ct));
 
-        Assert.Null(await _repo.DeleteAsync(bob, stored.Id, Ct));
-        Assert.Equal(stored.Id, Assert.Single(await _repo.ListForBookAsync(alices.UserId, alices.Id, Ct)).Id);
-    }
+        // A highlight whose entity names alice is stored under the caller, bob.
+        var misnamed = Highlight(bobsBook);
+        misnamed.UserId = alicesBook.UserId;
+        Assert.Equal(bob, (await _repo.SaveAsync(bob, misnamed, null, Ct)).Current!.UserId);
+        Assert.Null(await _repo.GetAsync(alicesBook.UserId, misnamed.Id, Ct));
 
-    [Fact]
-    public async Task ListChangedAsync_OtherUser_SeesNoneOfAlicesAnnotations()
-    {
-        await SavedHighlightAsync();
-        var bob = await db.NewReaderAsync();
-
-        Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
+        // Alice's highlight is untouched and still her only one, live.
+        var read = (await _repo.GetAsync(alicesBook.UserId, alices.Id, Ct))!;
+        Assert.Equal((1L, "a note", alicesBook.Id), (read.Revision, read.NoteText, read.BookId));
+        Assert.Equal(alices.Id, Assert.Single(await _repo.ListForBookAsync(alicesBook.UserId, alicesBook.Id, Ct)).Id);
+        Assert.Equal(1L, await db.CountAsync("annotations", alicesBook.UserId));
     }
 
     private const string AnchorC1 = """{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"c1","prefix":"before ","exact":"Quoted","suffix":" after","startOffset":7,"endOffset":13}}""";
@@ -388,7 +259,7 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
 
     // The highlights page (GET /me/highlights/all in v2 mode): one reader's highlights across their books.
     [Fact]
-    public async Task AReadersHighlightsPage_ListsTheirLiveHighlightsWithBookChapterAndQuote()
+    public async Task ListAllAsync_AReadersHighlightsPage_ListsTheirLiveHighlightsWithBookChapterAndQuote()
     {
         var moby = await BookWithChapterAsync();
         var quoted = await SaveAsync(moby, "Quoted whale", "blue");
@@ -414,5 +285,8 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         AssertSameJson("""{"prefix":"","exact":"Call me","suffix":""}""", page.Items[2].AnchorJson);
         // Searched in the text and the note, by colour, oldest first, a page of one: the total counts all three.
         Assert.Equal((3, quoted.Id), (blueWhales.TotalCount, Assert.Single(blueWhales.Items).Id));
+        // A page past the end is empty yet still carries the total.
+        var pastTheEnd = await _repo.ListAllAsync(moby.UserId, null, null, false, 10, 10, Ct);
+        Assert.Equal((4, 0), (pastTheEnd.TotalCount, pastTheEnd.Items.Count));
     }
 }
