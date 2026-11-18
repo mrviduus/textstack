@@ -17,6 +17,8 @@ public class VocabularyValidationTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private readonly Mock<IVocabularyRepository> _words = new();
+    // A server clock in the past: a client time is measured against it, not against the machine's.
+    private readonly SteppedClock _clock = new() { Now = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero) };
 
     public VocabularyValidationTests()
     {
@@ -27,7 +29,7 @@ public class VocabularyValidationTests
         _words.Setup(w => w.GetWordAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new VocabularyWord());
     }
 
-    private VocabularySyncService Service => new(Mock.Of<ILibraryRepository>(), _words.Object, new SrsEngine());
+    private VocabularySyncService Service => new(Mock.Of<ILibraryRepository>(), _words.Object, new SrsEngine(), _clock);
 
     /// <summary>The refused field, or null when the request got past validation.</summary>
     private static async Task<string?> FieldOf(Task<SyncResult> pending) => (await pending).Body is V2Error { Code: SyncCodes.InvalidPayload } e ? e.Field : null;
@@ -37,7 +39,7 @@ public class VocabularyValidationTests
 
     private Task<string?> Answer(bool? isCorrect = true, int? responseTimeMs = 0, string reviewMode = "multiple_choice", DateTimeOffset? at = null, Guid? operationId = null) =>
         FieldOf(Service.RecordReviewAsync(Guid.NewGuid(),
-            new VocabularyReviewRequest(operationId ?? Guid.NewGuid(), Guid.NewGuid(), reviewMode, isCorrect, responseTimeMs, at ?? DateTimeOffset.UtcNow), Ct));
+            new VocabularyReviewRequest(operationId ?? Guid.NewGuid(), Guid.NewGuid(), reviewMode, isCorrect, responseTimeMs, at ?? _clock.Now), Ct));
 
     [Fact]
     public async Task SaveWordAsync_BlankWordOrMissingLanguage_IsRefusedNamingIt()
@@ -82,7 +84,7 @@ public class VocabularyValidationTests
     [Fact]
     public async Task RecordReviewAsync_ClientTimePastTheSkew_IsRefusedAndWithinItPasses()
     {
-        Assert.Equal("clientRecordedAt", await Answer(at: DateTimeOffset.UtcNow.AddMinutes(6)));
-        Assert.Null(await Answer(at: DateTimeOffset.UtcNow.AddMinutes(4)));
+        Assert.Equal("clientRecordedAt", await Answer(at: _clock.Now.AddMinutes(6)));
+        Assert.Null(await Answer(at: _clock.Now.AddMinutes(4)));
     }
 }
