@@ -28,6 +28,7 @@ RUN corepack enable && corepack prepare --activate
 COPY apps/web/package.json apps/web/
 COPY apps/admin/package.json apps/admin/
 COPY apps/mobile/package.json apps/mobile/
+COPY packages/reader/package.json packages/reader/
 COPY packages/shared/package.json packages/shared/
 
 # node-linker=isolated: the workspace is hoisted for Metro's sake (pnpm-workspace.yaml),
