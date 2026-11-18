@@ -53,8 +53,8 @@ public class ReadingSyncServiceTests
     private static string TextPosition(string chapterSlug) =>
         $$$"""{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"{{{chapterSlug}}}","chapterFraction":0.5}}""";
 
-    private static ReadingStateRequest Write(Guid fileId, long? expectedRevision, string locator = Cfi) =>
-        new(expectedRevision, fileId, Json(locator), 0.4m, null, null, null, DateTimeOffset.UtcNow);
+    private ReadingStateRequest Write(Guid fileId, long? expectedRevision, string locator = Cfi) =>
+        new(expectedRevision, fileId, Json(locator), 0.4m, null, null, null, _clock.Now);
 
     private static ReadingState Stored(long revision, long? resetRevision = null, decimal? frontierFraction = null) => new()
     {
@@ -159,7 +159,7 @@ public class ReadingSyncServiceTests
     [InlineData("ch-1", "no-such", 2L, 0.9, SyncCodes.StaleRevision, 1)]    // the stored frontier is ahead: not why it lost
     [InlineData("ch-1", "ch-1", 2L, null, SyncCodes.StaleRevision, 1)]      // position and frontier in one chapter: asked once
     [InlineData(null, null, 2L, null, SyncCodes.StaleRevision, 0)]          // epub-cfi names no chapter
-    public async Task WriteAsync_LostOnAChapterTheFileLacks_IsChapterNotFound(
+    public async Task WriteAsync_LostWithAChapterInPlay_IsChapterNotFoundOnlyWhenTheStoredChapterIsMissing(
         string? positionChapter, string? frontierChapter, long? storedRevision, double? storedFrontier, string code, int chapterQuestions)
     {
         FileHasChapter("ch-1");
@@ -171,6 +171,10 @@ public class ReadingSyncServiceTests
 
         Assert.Equal((409, code), (result.Status, V2Fakes.Error(result).Code));
         await _chapters.ReceivedWithAnyArgs(chapterQuestions).ExistsAsync(default, default, default!, Ct);
+        // Asked of this user, on the file the write named, by the chapter it named.
+        if (positionChapter is not null) await _chapters.Received(1).ExistsAsync(User, CurrentFile, positionChapter, Arg.Any<CancellationToken>());
+        if (frontierChapter is not null && frontierChapter != positionChapter && chapterQuestions == 2)
+            await _chapters.Received(1).ExistsAsync(User, CurrentFile, frontierChapter, Arg.Any<CancellationToken>());
     }
 
     // #1122: the write's SQL refuses a scheme that does not fit the file; the loss is named here, from the book's current file.
@@ -189,7 +193,7 @@ public class ReadingSyncServiceTests
     [InlineData(TextPositionV1, null, "pdf", 409, null, null)]
     [InlineData(PageName, null, "cbz", 409, null, null)]
     [InlineData(PageName, null, "epub", 409, null, null)]
-    public async Task WriteAsync_LostOnASchemeThatDoesNotFitTheFile_IsInvalidPayload(
+    public async Task WriteAsync_LostWithAScheme_IsInvalidOnlyWhenItDoesNotFitTheFile(
         string locator, string? frontier, string format, int status, string? field, string? why)
     {
         CurrentFileIs(format);
