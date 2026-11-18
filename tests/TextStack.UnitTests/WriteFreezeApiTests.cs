@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using Moq;
+using NSubstitute;
 
 namespace TextStack.UnitTests;
 
@@ -23,8 +23,8 @@ public class WriteFreezeApiTests
     {
         var root = Path.Combine(Path.GetTempPath(), "textstack-write-freeze", Guid.NewGuid().ToString("N"));
         var guest = new UserAccount { Id = Guid.NewGuid(), Email = "freeze@guest.textstack.app", IsGuest = true };
-        var users = new Mock<IUserRepository>();
-        users.Setup(u => u.GetAsync(guest.Id, It.IsAny<CancellationToken>())).ReturnsAsync(guest);
+        var users = Substitute.For<IUserRepository>();
+        users.GetAsync(guest.Id, Arg.Any<CancellationToken>()).Returns(guest);
         try
         {
             await using var api = new WebApplicationFactory<ApiMarker>().WithWebHostBuilder(builder =>
@@ -40,7 +40,7 @@ public class WriteFreezeApiTests
                 {
                     services.RemoveAll<IHostedService>();
                     services.RemoveAll<IUserRepository>();
-                    services.AddSingleton(users.Object);
+                    services.AddSingleton(users);
                 });
             });
             using var client = api.CreateClient();
@@ -55,8 +55,8 @@ public class WriteFreezeApiTests
             client.DefaultRequestHeaders.Authorization = new("Bearer", TestTokens.Token(guest.Id, guestClaim: true));
             using var guestRead = await client.GetAsync("/auth/me", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, guestRead.StatusCode);
-            users.Verify(u => u.TouchActiveAsync(guest.Id, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()),
-                freeze ? Times.Never() : Times.Once());
+            if (freeze) await users.DidNotReceive().TouchActiveAsync(Arg.Any<Guid>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+            else await users.Received(1).TouchActiveAsync(guest.Id, Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
         }
         finally
         {

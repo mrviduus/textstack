@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Moq;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using TextStack.Tts;
+using TextStack.UnitTests.Fakes;
 
 namespace TextStack.UnitTests;
 
@@ -15,105 +17,52 @@ namespace TextStack.UnitTests;
 // not: anonymous callers could spend the Sentry quota.
 public class TtsEndpointsLoggingTests
 {
-    // What the 2026-10-15 outage threw.
-    private static WebSocketException Handshake403() =>
-        new("The server returned status code '403' when status code '101' was expected.");
-
-    [Fact]
-    public async Task Synthesize_EdgeHandshakeRejected_Returns502AndLogsError()
+    private static Exception Upstream(string cause) => cause switch
     {
-        var upstream = Handshake403();
-        var logger = new Mock<ILogger<ITtsService>>();
+        // What the 2026-10-15 outage threw.
+        "handshake 403" => new WebSocketException("The server returned status code '403' when status code '101' was expected."),
+        "voices 403" => new HttpRequestException("Response status code does not indicate success: 403 (Forbidden)."),
+        "empty audio" => new InvalidOperationException("TTS returned empty audio"),
+        "timeout" => new TaskCanceledException(),
+        // #1334: no voice for the lang is the reader's book, not an outage.
+        "no voice" => new TtsNoVoiceException("xh"),
+        _ => throw new ArgumentOutOfRangeException(nameof(cause)),
+    };
 
-        var result = await CallSynthesize(upstream, logger.Object);
-
-        Assert.Equal(502, Assert.IsType<ProblemHttpResult>(result).StatusCode);
-        VerifyLogged(logger, LogLevel.Error, upstream, Times.Once());
-    }
-
-    [Fact]
-    public async Task Synthesize_EmptyAudioFromBadInput_Returns502AndLogsWarningNotError()
+    [Theory]
+    [InlineData("synthesize", "handshake 403", 502, LogLevel.Error)]
+    [InlineData("synthesize", "empty audio", 502, LogLevel.Warning)]
+    [InlineData("synthesize", "timeout", 504, LogLevel.Warning)]
+    [InlineData("synthesize", "no voice", 422, LogLevel.Warning)]
+    [InlineData("timestamps", "handshake 403", 502, LogLevel.Error)]
+    [InlineData("voices", "voices 403", 502, LogLevel.Error)]
+    public async Task TtsEndpoint_UpstreamFails_LoggedAtTheLevelItsCauseDeserves(string endpoint, string cause, int status, LogLevel level)
     {
-        var logger = new Mock<ILogger<ITtsService>>();
+        var upstream = Upstream(cause);
+        var logger = new CapturingLogger<ITtsService>();
+        var tts = Substitute.For<ITtsService>();
+        tts.SynthesizeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>()).ThrowsAsync(upstream);
+        tts.SynthesizeWithTimestampsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>()).ThrowsAsync(upstream);
+        tts.GetVoicesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).ThrowsAsync(upstream);
+        var config = Options.Create(new TtsConfiguration());
 
-        var result = await CallSynthesize(new InvalidOperationException("TTS returned empty audio"), logger.Object);
+        var result = endpoint switch
+        {
+            "synthesize" => await TtsEndpoints.Synthesize(new DefaultHttpContext(), "Hello", "en", null, null, tts, config, logger, CancellationToken.None),
+            "timestamps" => await TtsEndpoints.GetTimestamps(new DefaultHttpContext(), "Hello", "en", null, null, tts, config, logger, CancellationToken.None),
+            "voices" => await TtsEndpoints.GetVoices("en", tts, logger, CancellationToken.None),
+            _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
+        };
 
-        Assert.Equal(502, Assert.IsType<ProblemHttpResult>(result).StatusCode);
-        VerifyLogged(logger, LogLevel.Error, null, Times.Never());
-        VerifyLogged(logger, LogLevel.Warning, null, Times.Once());
+        Assert.Equal(status, Assert.IsType<ProblemHttpResult>(result).StatusCode);
+        // Each endpoint reaches its own upstream call, and only that one.
+        await tts.Received(endpoint == "synthesize" ? 1 : 0).SynthesizeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await tts.Received(endpoint == "timestamps" ? 1 : 0).SynthesizeWithTimestampsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await tts.Received(endpoint == "voices" ? 1 : 0).GetVoicesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        // One entry, at the cause's level: Error reaches Sentry; input-driven Warnings stay out of it.
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(level, entry.Level);
+        if (level == LogLevel.Error)
+            Assert.Same(upstream, entry.Exception); // the outage reaches Sentry with its cause
     }
-
-    [Fact]
-    public async Task Synthesize_UpstreamTimesOut_Returns504AndDoesNotLogError()
-    {
-        var logger = new Mock<ILogger<ITtsService>>();
-
-        var result = await CallSynthesize(new TaskCanceledException(), logger.Object);
-
-        Assert.Equal(504, Assert.IsType<ProblemHttpResult>(result).StatusCode);
-        VerifyLogged(logger, LogLevel.Error, null, Times.Never());
-        VerifyLogged(logger, LogLevel.Warning, null, Times.Once());
-    }
-
-    // #1334: no voice for the lang is the reader's book, not an outage.
-    [Fact]
-    public async Task Synthesize_NoVoiceForLang_Returns422AndLogsWarningNotError()
-    {
-        var logger = new Mock<ILogger<ITtsService>>();
-
-        var result = await CallSynthesize(new TtsNoVoiceException("xh"), logger.Object);
-
-        Assert.Equal(422, Assert.IsType<ProblemHttpResult>(result).StatusCode);
-        VerifyLogged(logger, LogLevel.Error, null, Times.Never());
-        VerifyLogged(logger, LogLevel.Warning, null, Times.Once());
-    }
-
-    [Fact]
-    public async Task GetTimestamps_EdgeHandshakeRejected_Returns502AndLogsError()
-    {
-        var upstream = Handshake403();
-        var logger = new Mock<ILogger<ITtsService>>();
-        var tts = new Mock<ITtsService>();
-        tts.Setup(t => t.SynthesizeWithTimestampsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<double>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(upstream);
-
-        var result = await TtsEndpoints.GetTimestamps(
-            new DefaultHttpContext(), "Hello", "en", null, null,
-            tts.Object, Options.Create(new TtsConfiguration()), logger.Object, CancellationToken.None);
-
-        Assert.Equal(502, Assert.IsType<ProblemHttpResult>(result).StatusCode);
-        VerifyLogged(logger, LogLevel.Error, upstream, Times.Once());
-    }
-
-    [Fact]
-    public async Task GetVoices_UpstreamFails_Returns502AndLogsError()
-    {
-        var upstream = new HttpRequestException("Response status code does not indicate success: 403 (Forbidden).");
-        var logger = new Mock<ILogger<ITtsService>>();
-        var tts = new Mock<ITtsService>();
-        tts.Setup(t => t.GetVoicesAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>())).ThrowsAsync(upstream);
-
-        var result = await TtsEndpoints.GetVoices("en", tts.Object, logger.Object, CancellationToken.None);
-
-        Assert.Equal(502, Assert.IsType<ProblemHttpResult>(result).StatusCode);
-        VerifyLogged(logger, LogLevel.Error, upstream, Times.Once());
-    }
-
-    private static Task<IResult> CallSynthesize(Exception thrown, ILogger<ITtsService> logger)
-    {
-        var tts = new Mock<ITtsService>();
-        tts.Setup(t => t.SynthesizeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<double>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(thrown);
-        return TtsEndpoints.Synthesize(
-            new DefaultHttpContext(), "Hello", "en", null, null,
-            tts.Object, Options.Create(new TtsConfiguration()), logger, CancellationToken.None);
-    }
-
-    private static void VerifyLogged(Mock<ILogger<ITtsService>> logger, LogLevel level, Exception? ex, Times times) =>
-        logger.Verify(l => l.Log(
-            level,
-            It.IsAny<EventId>(),
-            It.IsAny<It.IsAnyType>(),
-            It.Is<Exception?>(e => ex == null || e == ex),
-            It.IsAny<Func<It.IsAnyType, Exception?, string>>()), times);
 }

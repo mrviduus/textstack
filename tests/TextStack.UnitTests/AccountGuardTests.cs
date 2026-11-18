@@ -5,7 +5,7 @@ using Domain.Enums;
 using Domain.Identity;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Moq;
+using NSubstitute;
 
 namespace TextStack.UnitTests;
 
@@ -28,13 +28,13 @@ public class AccountGuardTests
             var http = Request(admin ? "/admin/auth/me/" : "/auth/me/", tokens);
             if (admin) http.Request.Headers.Cookie = "admin_access_token=" + raw;
             else http.Request.Headers.Authorization = "Bearer " + raw;
-            var users = new Mock<IUserRepository>();
-            users.Setup(u => u.GetAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
-            var auth = new Mock<IAuthService>();
-            auth.Setup(a => a.ValidateAccessTokenIdentity(It.IsAny<string>())).Returns((string value) => tokens.ValidateAccessToken(value));
+            var users = Substitute.For<IUserRepository>();
+            users.GetAsync(id, Arg.Any<CancellationToken>()).Returns(account);
+            var auth = Substitute.For<IAuthService>();
+            auth.ValidateAccessTokenIdentity(Arg.Any<string>()).Returns(c => tokens.ValidateAccessToken(c.Arg<string>()));
             var reached = false;
 
-            await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }).InvokeAsync(http, auth.Object, users.Object);
+            await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }).InvokeAsync(http, auth, users);
 
             Assert.Equal(millis == 700, reached);
             Assert.Equal(millis == 700 ? 200 : 401, http.Response.StatusCode);
@@ -50,12 +50,12 @@ public class AccountGuardTests
         var http = Request(path, tokens);
         http.Request.Method = path == "/auth/guest" ? "POST" : "GET";
         http.Request.Headers.Authorization = "Bearer " + tokens.MintAccessToken(Guid.NewGuid(), "gone@test", null, false);
-        var auth = new Mock<IAuthService>();
-        auth.Setup(a => a.ValidateAccessTokenIdentity(It.IsAny<string>())).Returns((string value) => tokens.ValidateAccessToken(value));
-        var users = new Mock<IUserRepository>(); // every account is gone
+        var auth = Substitute.For<IAuthService>();
+        auth.ValidateAccessTokenIdentity(Arg.Any<string>()).Returns(c => tokens.ValidateAccessToken(c.Arg<string>()));
+        var users = Substitute.For<IUserRepository>(); // every account is gone
         var reached = false;
 
-        await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }).InvokeAsync(http, auth.Object, users.Object);
+        await new AccountGuard(_ => { reached = true; return Task.CompletedTask; }).InvokeAsync(http, auth, users);
 
         Assert.Equal(expectedReached, reached);
         Assert.Equal(expectedReached ? 200 : 401, http.Response.StatusCode);

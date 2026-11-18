@@ -9,7 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Moq;
+using NSubstitute;
 
 namespace TextStack.UnitTests;
 
@@ -37,13 +37,14 @@ public class IdentityMiddlewareTests
     [InlineData(false)]
     public async Task GuestActivity_GuestOrAccountToken_StampsGuestsOnly(bool isGuest)
     {
-        var users = new Mock<IUserRepository>();
+        var users = Substitute.For<IUserRepository>();
         var userId = Guid.NewGuid();
-        var http = Request(TestTokens.Token(userId, guestClaim: isGuest), s => s.AddSingleton(users.Object));
+        var http = Request(TestTokens.Token(userId, guestClaim: isGuest), s => s.AddSingleton(users));
 
         await new GuestActivityMiddleware(_ => Task.CompletedTask).InvokeAsync(http, Auth, new MemoryCache(new MemoryCacheOptions()), NullLogger<GuestActivityMiddleware>.Instance, TimeProvider.System);
 
-        users.Verify(u => u.TouchActiveAsync(userId, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), isGuest ? Times.Once() : Times.Never());
+        if (isGuest) await users.Received(1).TouchActiveAsync(userId, Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+        else await users.DidNotReceive().TouchActiveAsync(Arg.Any<Guid>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -53,14 +54,15 @@ public class IdentityMiddlewareTests
     {
         var lastUsed = stale ? DateTimeOffset.UtcNow - McpKeys.LastUsedWriteInterval - TimeSpan.FromMinutes(1) : DateTimeOffset.UtcNow.AddMinutes(-1);
         var key = new McpConnectKey { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), LastUsedAt = lastUsed };
-        var keys = new Mock<IMcpKeyRepository>();
-        keys.Setup(k => k.GetLiveByHashAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(key);
+        var keys = Substitute.For<IMcpKeyRepository>();
+        keys.GetLiveByHashAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(key);
         var http = Request(McpKeys.Generate());
 
-        await new McpKeyAuthMiddleware(_ => Task.CompletedTask).InvokeAsync(http, keys.Object, Mock.Of<IOAuthRepository>(), new ConfigurationBuilder().Build(), TimeProvider.System);
+        await new McpKeyAuthMiddleware(_ => Task.CompletedTask).InvokeAsync(http, keys, Substitute.For<IOAuthRepository>(), new ConfigurationBuilder().Build(), TimeProvider.System);
 
         Assert.Equal(key.UserId, http.Items[McpKeyAuthMiddleware.UserIdItemKey]);
-        keys.Verify(k => k.TouchAsync(key.Id, It.IsAny<CancellationToken>()), stale ? Times.Once() : Times.Never());
+        if (stale) await keys.Received(1).TouchAsync(key.Id, Arg.Any<CancellationToken>());
+        else await keys.DidNotReceive().TouchAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
@@ -74,12 +76,10 @@ public class IdentityMiddlewareTests
     public async Task McpKeyAuth_Frozen_AuthenticatesWithoutWritingUseStamp(bool oauthToken)
     {
         var userId = Guid.NewGuid();
-        var keys = new Mock<IMcpKeyRepository>();
-        var oauth = new Mock<IOAuthRepository>();
-        keys.Setup(k => k.GetLiveByHashAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new McpConnectKey { Id = Guid.NewGuid(), UserId = userId });
-        oauth.Setup(o => o.GetByAccessTokenAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new OAuthTokenGrant { Id = Guid.NewGuid(), UserId = userId });
+        var keys = Substitute.For<IMcpKeyRepository>();
+        var oauth = Substitute.For<IOAuthRepository>();
+        keys.GetLiveByHashAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new McpConnectKey { Id = Guid.NewGuid(), UserId = userId });
+        oauth.GetByAccessTokenAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>()).Returns(new OAuthTokenGrant { Id = Guid.NewGuid(), UserId = userId });
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             [WriteFreezeMiddleware.ConfigurationKey] = "true",
@@ -88,12 +88,12 @@ public class IdentityMiddlewareTests
         var reached = false;
 
         await new McpKeyAuthMiddleware(_ => { reached = true; return Task.CompletedTask; })
-            .InvokeAsync(http, keys.Object, oauth.Object, config, TimeProvider.System);
+            .InvokeAsync(http, keys, oauth, config, TimeProvider.System);
 
         Assert.True(reached);
         Assert.Equal(userId, http.Items[McpKeyAuthMiddleware.UserIdItemKey]);
-        keys.Verify(k => k.TouchAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never());
-        oauth.Verify(o => o.TouchAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never());
+        await keys.DidNotReceive().TouchAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await oauth.DidNotReceive().TouchAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
