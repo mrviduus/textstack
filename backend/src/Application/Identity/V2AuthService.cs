@@ -50,10 +50,10 @@ public sealed class V2AuthService(
             }, ct) ?? await users.GetByGoogleSubjectAsync(google.Subject, ct);
         else
         {
-            // A photo the reader uploaded (a stored path, not a URL) wins over Google's.
-            var picture = user.Picture is { } own && !own.StartsWith("http") ? own : google.Picture;
+            // A photo the reader uploaded wins over Google's.
+            var picture = UserAccount.IsStoredPicture(user.Picture) ? user.Picture : google.Picture;
             if (user.Email != google.Email || user.Name != google.Name || user.Picture != picture)
-                // Another account holds the new email: sign in as the account is.
+                // No account back: another account holds the new email, so sign in as the account is.
                 user = (await users.UpdateProfileAsync(user.Id, google.Email, google.Name, picture, ct)).Account ?? user;
         }
 
