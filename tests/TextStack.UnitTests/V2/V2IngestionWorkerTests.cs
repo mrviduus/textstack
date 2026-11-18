@@ -116,7 +116,9 @@ public sealed class V2IngestionWorkerTests : IDisposable
         await _jobs.Received(1).FailAsync(_job.Id, 2, error, format, Arg.Any<CancellationToken>());
         await _jobs.DidNotReceiveWithAnyArgs().SucceedAsync(default, default, default, Ct);
         await _chapters.DidNotReceiveWithAnyArgs().ReplaceForFileAsync(default, default, default, default!, Ct);
-        if (!extracted)
+        if (extracted)
+            await _extractor.ReceivedWithAnyArgs(1).ExtractAsync(default!, Ct);
+        else
             await _extractor.DidNotReceiveWithAnyArgs().ExtractAsync(default!, Ct);
     }
 
@@ -204,8 +206,7 @@ public sealed class V2IngestionWorkerTests : IDisposable
         Extracts([Unit("One", 0)]);
         var sweeps = 0;
         _files.When(f => f.SweepStaleParts(Arg.Any<DateTimeOffset>())).Do(_ => Interlocked.Increment(ref sweeps));
-        var services = new ServiceCollection().AddSingleton(new V2IngestionService(
-            _jobs, _library, _chapters, _files, _registry, NullLogger<V2IngestionService>.Instance)).BuildServiceProvider();
+        var services = new ServiceCollection().AddSingleton(Service()).BuildServiceProvider();
         using var worker = new V2IngestionWorker(services, NullLogger<V2IngestionWorker>.Instance) { SweepEvery = TimeSpan.FromMilliseconds(20) };
 
         await worker.StartAsync(Ct);

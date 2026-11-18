@@ -47,27 +47,26 @@ public class RollingSpendTrackerTests
         Assert.Equal(1.0m, t.SpentTodayUsd("explain"));
     }
 
-    /// <summary>A restart seeds today's spend from the sampled traces (scaled by 1/rate) once; a failing database seeds 0.</summary>
+    /// <summary>A restart seeds today's spend (traces since UTC midnight, scaled by 1/rate) once; a failing database seeds 0.</summary>
     [Theory]
     [InlineData(0.1, false, "1.0")]   // 0.10 traced at a 10% sample → 1.00 estimated
     [InlineData(1.0, false, "0.1")]   // traced in full → unscaled
-    [InlineData(0.1, true, "0")]    // database down → seed swallowed, starts at 0
-    public void SpentTodayUsd_AfterARestart_SeedsTodaysSampledSpendOnce(double sampleRate, bool databaseDown, string seededUsd)
+    [InlineData(null, false, "0.2")]  // feature not listed → the default rate (0.5) scales it
+    [InlineData(0.1, true, "0")]      // database down → seed swallowed, starts at 0
+    public void SpentTodayUsd_AfterARestart_SeedsTodaysSampledSpendOnce(double? featureRate, bool databaseDown, string seededUsd)
     {
         var seeded = decimal.Parse(seededUsd, System.Globalization.CultureInfo.InvariantCulture);
-        var source = new FakeSpendSource(databaseDown ? null :
-        [
-            new("explain", 0.05m, Day1),
-            new("explain", 0.05m, Day1),
-            new("explain", 9m, Day1.AddDays(-1)), // yesterday's: not today's spend
-        ]);
-        var tracing = new TracingOptions(1.0, new Dictionary<string, double> { ["explain"] = sampleRate });
+        var source = new FakeSpendSource(databaseDown ? null : [new("explain", 0.05m), new("explain", 0.05m)]);
+        var rates = new Dictionary<string, double> { ["translate"] = 0.01 };
+        if (featureRate is { } rate) rates["explain"] = rate;
+        var tracing = new TracingOptions(DefaultSampleRate: 0.5, rates);
         var t = Build(source: source, tracing: tracing);
 
         Assert.Equal(seeded, t.SpentTodayUsd("explain"));
         t.Record("explain", 1.0m);
         Assert.Equal(seeded + 1.0m, t.SpentTodayUsd("explain")); // live records on top, seed not re-applied
         Assert.Equal(1, source.Calls);
+        Assert.Equal(new DateTimeOffset(2026, 6, 18, 0, 0, 0, TimeSpan.Zero), source.Since); // today's UTC midnight, not a rolling window
     }
 
     [Fact]
@@ -143,19 +142,21 @@ public class RollingSpendTrackerTests
             Dispatch = inlineAlerts ? work => work() : work => Task.Run(work),
         };
 
-    private sealed record TraceRow(string Feature, decimal CostUsd, DateTimeOffset At);
+    private sealed record TraceRow(string Feature, decimal CostUsd);
 
     /// <summary>The V2 traces' spend sum (V2LlmTraceWriter in production); <c>null</c> rows = a failing database.</summary>
     private sealed class FakeSpendSource(List<TraceRow>? traces) : ILlmSpendSource
     {
         private int _calls;
         public int Calls => Volatile.Read(ref _calls);
+        public DateTimeOffset? Since { get; private set; }
 
         public decimal SampledCostSince(string featureTag, DateTimeOffset since)
         {
             Interlocked.Increment(ref _calls);
+            Since = since;
             if (traces is null) throw new InvalidOperationException("db down");
-            return traces.Where(t => t.Feature == featureTag && t.At >= since).Sum(t => t.CostUsd);
+            return traces.Where(t => t.Feature == featureTag).Sum(t => t.CostUsd);
         }
     }
 }
