@@ -276,4 +276,3 @@ visitor indistinguishable from a reader's.
 - `tests/TextStack.IntegrationTests/GuestSessionEndpointTests.cs`, `GuestMergeDurabilityTests.cs`,
   `GuestMergeConflictTests.cs`, `GuestMergeSkipReportingTests.cs`,
   `GuestEnrichmentCapEnforcementTests.cs`
-- `internal/qa-scenarios/QA-005-guest-loop.md` — the wiring no runner reaches

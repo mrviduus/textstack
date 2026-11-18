@@ -48,7 +48,7 @@ as an opaque JSON array ≤ 256 KB (`SyncValidation.Toc`), never written by any 
 ### MCP (`TextStack.Ai.Mcp`)
 | Tool / part | Under A + TOC |
 |---|---|
-| `get_my_chapter` | **deleted**: `McpToolCatalog`, `McpManifest`, 4 count tests (17), `McpBridgeCore` instructions ("Read books with get_my_book / get_my_chapter"), `McpReadToolsTests`, `NativeIdentityApiTests`, `README`, `docs/reference/mcp.md`, `internal/claude/operations.md`, `assistant-handoff.md`, `chapter-review.md` |
+| `get_my_chapter` | **deleted**: `McpToolCatalog`, `McpManifest`, 4 count tests (17), `McpBridgeCore` instructions ("Read books with get_my_book / get_my_chapter"), `McpReadToolsTests`, `NativeIdentityApiTests`, `README`, `docs/reference/mcp.md`, `.claude/skills/operations/SKILL.md` |
 | `get_my_book` | chapters from `GET …/chapters` (toc): key, order, title; status "Ready"; no word counts; says "ask the user to share a chapter" when asked for text |
 | `save_insight` / `get_my_insights` | key checked against toc |
 | `save_my_highlight` | finds chapter in toc; writes quote-only `textstack-anchor-v1` (shown as a quotation, never drawn) |
@@ -71,8 +71,8 @@ Extraction.Tests (move `Fixtures/frankenstein.epub` first: `docs/start/run-3-ope
 Persistence (`BookChapterRepositoryTests`, `IngestionJobRepositoryTests`, `MergeReparentTests`), Integration
 (`V2ContentEndpointTests`, `V2FeedEndpointTests`, `V2TransitionalLocatorEndpointTests`, `V2ApiFixture`), e2e
 `v2-sync.spec.ts` (waits for worker chapters) and CI "Extraction tests" step. Docs: CLAUDE.md (Worker line,
-libraries, test list, "Extraction Pipeline", "MCP has 18 tools" rule), `architecture/index.md`, `key-files.md`,
-`testing.md`, `feat-0003`, `v2-sync-protocol.md` (toc writer), `m6-deletion-plan.md` D8, ADR-012/031/032.
+libraries, test list, "Extraction Pipeline", "MCP has 18 tools" rule), `architecture/index.md`, `backend/CLAUDE.md`
+(key files, "Extraction"), `guides/testing.md`, `v2-sync-protocol.md` (toc writer), `m6-deletion-plan.md` D8, ADR-012/031/032.
 
 ## 2. Phases
 

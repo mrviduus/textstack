@@ -67,6 +67,17 @@ sandboxed frame (`/:lang/library/my/:id/read`):
 - Progress: `PUT /me/v2/books/{id}/reading-state` (account or guest session).
 - EPUB, MOBI, AZW3, FB2, CBZ and PDF ([ADR-029](adr/ADR-029-foliate-for-v2-epub.md)).
 
+## Typography
+
+- **TextStack**: wordmark, headings, book titles and the serif reading mode.
+- **Source Sans 3**: interface text and the sans reading mode (SIL OFL, Adobe's release).
+- **OpenDyslexic**: accessibility option.
+
+Web: `--font-serif` / `--font-sans` in `apps/web/src/styles/theme.css`; TextStack as WOFF2 `@font-face`
+(`apps/web/src/assets/fonts/`, `font-display: swap`, content-hashed under `/assets/`, one-year immutable cache);
+Source Sans 3 via Google Fonts. Mobile bundles the TTFs for native screens in `apps/mobile/assets/fonts/`; the
+reader's fonts are the V2 page's (`apps/mobile/src/lib/v2reader/README.md`, "Reading settings").
+
 ## Key directories (`apps/web/src/`)
 
 ```

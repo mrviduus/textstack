@@ -119,7 +119,7 @@ What reaches the owner, and what deliberately does not exist.
 | Errors | Sentry, one project (`dotnet-aspnetcore`), filtered by the `service` tag: `api`, `worker`, `mcp-server` | api, worker, mcp-server: anything logged at Error (the API's unhandled exceptions arrive through `ExceptionMiddleware`'s `LogError`). mcp-server logs one when a tool's mapping breaks — before 2026-10-07 that branch reported nothing. |
 | Request traces | Sentry, API only: 20 % of `http.server` (`SentryBootstrap` default; compose does not forward `Sentry__TracesSampleRate`), every AI agent run, never `/health` | Latency and the AI routing spans. No other service sends transactions. |
 | Mobile crashes | Sentry project `textstack-mobile` | The reader app (its own scrubber, `apps/mobile/src/lib/sentryScrub.ts`) |
-| Uptime | `health-check.yml` every 5 min (GitHub email); UptimeRobot (see `internal/ops/uptime-monitoring.md`) | Both hosts, API body, readiness, schema |
+| Uptime | `health-check.yml` every 5 min (GitHub email); UptimeRobot (see [`uptime-monitoring.md`](../internal/ops/uptime-monitoring.md)) | Both hosts, API body, readiness, schema |
 | Metrics | **none in production** | — |
 
 **OpenTelemetry is off in production.** Traces, metrics and logs are exported over OTLP only when
@@ -250,7 +250,7 @@ environment reports nothing on any service.
 | Which server values the web scan treats as secret | `deploy.yml` "Secret scan web dist" (the awk name filter) |
 | An action version | Let Dependabot do it; by hand: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, keep the `# vX.Y` comment |
 | A pulled image version | `docker-compose.yml` `image: name:tag@sha256:…` (Dependabot weekly); restic/scanner/Makefile by hand |
-| Pre-deploy backup | `deploy.yml` step "Pre-deploy backup" (before the web swap or build); nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../../internal/ops/backup.md) |
+| Pre-deploy backup | `deploy.yml` step "Pre-deploy backup" (before the web swap or build); nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../internal/ops/backup.md) |
 | Rollback | Actions → Deploy → Run workflow → `rollback_commit` = a SHA on main |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |
 | GHCR retention | `ghcr-retention.yml` env (`KEEP_NEWEST`, `KEEP_DAYS`, `DEPLOYS`, `MAX_DELETE`, `PACKAGES` = `SERVICES` in `images.yml` + `web`); rules in `scripts/ghcr-retention.mjs`. Preview: Actions → GHCR retention → Run workflow (dry run is the default) |

@@ -53,6 +53,7 @@ on:
     branches: [main]
     paths:
       - 'apps/mobile/**'
+      - '!apps/mobile/CLAUDE.md'   # the Claude Code guide; never in the bundle
       - 'packages/**'          # consumed from source by Metro, so it ships in the bundle
       # The fingerprint resolves through the workspace root, so these two move the
       # mobile runtime without a single file under apps/mobile changing — the pnpm

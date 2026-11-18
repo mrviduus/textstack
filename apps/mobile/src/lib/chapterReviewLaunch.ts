@@ -1,5 +1,5 @@
 /**
- * Mobile glue for "Review chapter" (internal/features/chapter-review.md §12). The decisions —
+ * Mobile glue for "Review chapter" (ADR-016; the original spec is in git history). The decisions —
  * which chat opens, what the brief says — are pure and live in `@textstack/shared`
  * (`lib/chapterReview.ts`); this file only remembers the reader's Claude/ChatGPT pick on this device
  * and caches the reader's grants.

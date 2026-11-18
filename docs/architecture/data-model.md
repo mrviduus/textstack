@@ -91,4 +91,4 @@ a schema behind the Api's build shows as `/health/ready` 503. How to add one: [d
 
 ## See also
 
-- [../internal/ops/backup.md](../../internal/ops/backup.md) — backup + restore drill
+- [../internal/ops/backup.md](../internal/ops/backup.md) — backup + restore drill

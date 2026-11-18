@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const REPO = fileURLToPath(new URL('../../', import.meta.url))
 const DOCS = path.join(REPO, 'docs')
 const GITHUB = 'https://github.com/mrviduus/textstack'
-// Not site pages: working notes on their way to /internal (#1275).
+// Not site pages: the maintainer's notes (docs/internal/: V2 plan, runbooks, postmortems) and STATUS (#1275).
 const HIDDEN = /^(internal\/|STATUS\.md$)/
 
 /** docs-relative file → page id: README.md → index, stories/index.md → stories. */

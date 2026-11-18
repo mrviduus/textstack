@@ -1,6 +1,16 @@
 # Mobile app
 
-Read when the task touches this area. Updated for M6 (2026-11-17): the catalog screens, the legacy reader and its SQLite chapter loaders are gone.
+Loaded when working under `apps/mobile/`. Updated for M6 (2026-11-17): the catalog screens, the legacy reader and its SQLite chapter loaders are gone.
+
+### Key files
+
+| Area | Path |
+|------|------|
+| Reader page (both hosts) | `apps/mobile/src/lib/v2reader/` (`build.mjs`, `page.mjs`, `v2ReaderPage.generated.ts`, README) |
+| Reader host, Android | `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx`, `apps/mobile/app/my-books/read/` |
+| Local library + sync | `apps/mobile/src/lib/v2reader/localLibrary.ts`, `sync.ts` |
+| Guest session | `apps/mobile/src/lib/guestSession.ts`, `src/components/SessionGate.tsx` |
+| App, API, contexts, e2e | `apps/mobile/app/`, `apps/mobile/src/lib/api.ts`, `apps/mobile/src/context/`, `apps/mobile/e2e/` |
 
 ### Mobile App Architecture
 

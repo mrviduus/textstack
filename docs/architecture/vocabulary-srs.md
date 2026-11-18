@@ -12,7 +12,7 @@ Review page → GET /me/v2/vocabulary/due → SRS queue (due words)
 ```
 
 The server owns the word key (`WordKeys`) and the schedule; protocol in
-[`v2-sync-protocol.md`](../../docs/internal/v2/v2-sync-protocol.md) "Payloads → Vocabulary".
+[`v2-sync-protocol.md`](../internal/v2/v2-sync-protocol.md) "Payloads → Vocabulary".
 
 ## SRS Stages
 
@@ -62,5 +62,5 @@ yet ([#1366](https://github.com/mrviduus/textstack/issues/1366)).
 
 ## Database
 
-Tables: [data model](../../docs/architecture/data-model.md) — `vocabulary_words`, `vocabulary_examples`,
+Tables: [data model](data-model.md) — `vocabulary_words`, `vocabulary_examples`,
 `vocabulary_reviews`.

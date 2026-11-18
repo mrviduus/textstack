@@ -26,7 +26,7 @@ The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs b
 |------|-----|
 | The PR | **Title** = one scannable line. **One area label** (`reading`, `library`, `highlights`, `vocabulary`, `assistant`, `account`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
 | `CHANGELOG.md` | **Frozen.** History up to the switch; never add to it. Older halves live in git history only. |
-| `internal/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
+| `docs/internal/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
 | `docs/STATUS.md` | Where the project is *now*: in flight, deliberately-not-doing. Links to issues; never copies them. |
 | GitHub issues | **Every open item** (bug, review finding, deferred work), one issue each, labelled. A PR closes it with `Fixes #N`. Public: nothing private. Old STATUS items move to an issue when someone touches them. |
 
@@ -231,12 +231,21 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 - **Docs, comments, ADRs, commits, PRs: English only.** Cyrillic is allowed only as real input data (tests, fixtures, seed migrations, translation examples).
 - **Never deploy by SSH.** Deploy = merge to `main`; break-glass `gh workflow run deploy.yml`.
 
-## Reference — read when the task touches it
+## Area guides and key files
 
-| Topic | File |
-|---|---|
-| Features: user books, translate/explain/TTS, vocabulary SRS, guests, auth | [`internal/claude/features.md`](internal/claude/features.md) |
-| Every API route group | [`internal/claude/api-endpoints.md`](internal/claude/api-endpoints.md) |
-| Where things live (key files table) | [`internal/claude/key-files.md`](internal/claude/key-files.md) |
-| Mobile: Expo, offline, reading path, Play/OTA release | [`internal/claude/mobile.md`](internal/claude/mobile.md) |
-| CI/CD, deployment, nginx, MCP server, telemetry | [`internal/claude/operations.md`](internal/claude/operations.md) |
+Area guides load on their own: `backend/CLAUDE.md` (key files, every API route) and `apps/mobile/CLAUDE.md` (Expo, offline, Play/OTA release) when working there; procedures and topic guides are skills in `.claude/skills/` (`features`, `operations`, `add-entity`, `add-tool`). Runbooks and postmortems: `docs/internal/ops/`, `docs/internal/incidents/`.
+
+| Area | Path |
+|------|------|
+| Reader host, web | `apps/web/src/pages/V2ReaderPage.tsx`, `apps/web/src/components/reader/V2ReaderHost.tsx`, `apps/web/src/lib/v2ReaderSync.ts` |
+| Shared client + locators | `packages/shared/src/api/v2.ts`, `packages/shared/src/reader/v2PageEntry.ts` |
+| Guest policy | `packages/shared/src/lib/capabilities.ts` |
+| Web contexts, pages | `apps/web/src/context/`, `apps/web/src/pages/` |
+| Library (web) | `apps/web/src/pages/LibraryPage.tsx`, `UserBookDetailPage.tsx` |
+| Vocabulary (web) | `apps/web/src/pages/VocabularyPage.tsx`, `VocabularyReviewPage.tsx`, `apps/web/src/components/vocabulary/` |
+| Highlights (web) | `apps/web/src/pages/HighlightsPage.tsx` |
+| TTS (web) | `apps/web/src/hooks/useTts.ts` |
+| Changelog page | `apps/web/src/lib/changelog.ts`, `apps/web/src/pages/ChangelogPage.tsx` |
+| Admin shell | `apps/admin/src/pages/` (login, home) |
+| nginx | `infra/nginx/textstack.conf` |
+| Workflows | `.github/workflows/` (`ci.yml`, `deploy.yml`, `backup.yml`, `restore-drill.yml`, `health-check.yml`, `images.yml`) |

@@ -158,4 +158,4 @@ Docker Compose automatically reads `.env` file in the project root.
 ## See Also
 
 - [Local Development](../start/run-locally.md)
-- [Production Deployment](../../internal/ops/deployment.md)
+- [Production Deployment](../internal/ops/deployment.md)

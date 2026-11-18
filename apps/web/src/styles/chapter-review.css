@@ -1,4 +1,4 @@
-/* Chapter review (docs/internal/features/chapter-review.md §12): the action at the end of each chapter row,
+/* Chapter review (ADR-016; the original spec is in git history): the action at the end of each chapter row,
    the connect dialog, and the summary page. */
 
 .book-chapters__row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--color-border); }
@@ -70,7 +70,7 @@ html.dark .chapter-review__rule { background: #3a3210; color: #fff3c4; }
 .chapter-review__quote-link { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
 .chapter-review__quote-link:hover { text-decoration-style: solid; }
 
-/* Chapter questions: Practice card + session (chapter-review.md §11) */
+/* Chapter questions: Practice card + session (ADR-016) */
 .chapter-questions-card { flex-direction: row; align-items: center; justify-content: space-between; margin-top: 1rem; }
 .chapter-questions-card__text { display: flex; flex-direction: column; gap: 2px; }
 .chapter-questions-card__due { font-size: 0.875rem; color: var(--color-text-secondary); }

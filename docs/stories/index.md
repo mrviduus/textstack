@@ -94,7 +94,7 @@ Existing picture: the "Read a chapter" scenario of the architecture map.
 **Words:** the list is the *vocabulary*, one item is a *word*, the practice is a *review*.
 "Flashcards" is one way to do a review, not another name for it.
 
-Sources: `v2-target-model.md` story 1 and the vocabulary row (owner), `vocabulary-srs.md`.
+Sources: `v2-target-model.md` story 1 and the vocabulary row (owner), [vocabulary-srs.md](../architecture/vocabulary-srs.md).
 Existing picture: flow 6b in the system map of the 2026-10 review.
 
 ---
@@ -147,7 +147,7 @@ Existing picture: none.
 Assistant already has.
 
 Sources: `mcp-discussion-checkpoints.md` "Domain story" (owner, 2026-10-29), `v2-target-model.md`
-story 2 and 3, `assistant-handoff.md`.
+story 2 and 3, the assistant-handoff log (git history).
 Existing picture: the assistant scenario of the architecture map.
 
 ---
@@ -187,7 +187,7 @@ Existing picture: none.
 **Words:** the reader *downloads* a book to keep it on the device, and reads *offline* when there
 is no network. Two words for two things. (owner)
 
-Sources: the reading-path rule in `CLAUDE.md`, `internal/claude/mobile.md` "Offline".
+Sources: the reading-path rule in `CLAUDE.md`, `apps/mobile/CLAUDE.md`.
 Existing picture: none.
 
 ---

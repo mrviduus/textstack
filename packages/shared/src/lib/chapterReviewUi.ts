@@ -1,5 +1,5 @@
 /**
- * Chapter review — the chapter-row gate (PR 3, chapter-review.md §12). Kept out of `chapterReview.ts` (the brief builders) on purpose.
+ * Chapter review — the chapter-row gate (PR 3, ADR-016). Kept out of `chapterReview.ts` (the brief builders) on purpose.
  */
 // Front/back matter. Anchored on the whole title after optional numbering ("1.", "IV -", "Chapter 3:").
 // ponytail: English titles only; add other languages when a non-English book asks for it.

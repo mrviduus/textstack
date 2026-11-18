@@ -5,8 +5,8 @@ rotating refresh token. Web keeps both in HttpOnly cookies; mobile (`X-Client: m
 the response body and stores them in SecureStore.
 
 Checked against code 2026-11-17. Guest posture and its rejected alternatives:
-[ADR-014](../../docs/architecture/adr/ADR-014-guest-sessions.md). Admin auth is separate
-(`admin_access_token` cookie, `AdminAuthMiddleware`) — see [security.md](../security.md).
+[ADR-014](adr/ADR-014-guest-sessions.md). Admin sign-in is separate (the admin panel) and is not covered here.
+Cookies, CORS, rate limits: [security.md](security.md).
 
 ## Flow
 
@@ -58,7 +58,7 @@ cookies, re-set on every refresh so an active session slides).
 
 The sync API under `/me/v2` (`V2Endpoints.cs`): library, reading state, annotations (highlights, notes
 and bookmarks are all annotations), vocabulary, shares/checkpoints/insights. Routes:
-[api-endpoints.md](../claude/api-endpoints.md).
+[`backend/CLAUDE.md`](../../backend/CLAUDE.md) "API endpoints".
 
 ## Database
 

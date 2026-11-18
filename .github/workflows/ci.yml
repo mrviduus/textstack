@@ -83,7 +83,7 @@ jobs:
   # `if:` below starts with `!cancelled()` and the fail-open clause: without them
   # a broken `changes` job would skip all four and let the PR merge green.
   #
-  # Areas: `docs/**`, `internal/**`, `site/**` (the docs site, #1275) and root-level *.md touch nothing. Markdown INSIDE a code
+  # Areas: `docs/**`, `site/**` (the docs site, #1275) and root-level *.md touch nothing. Markdown INSIDE a code
   # directory is that directory's (Application embeds ChapterReview/ReviewMethod.md;
   # the MCP package ships its README). Anything shared or unrecognised —
   # packages/, scripts/, .github/, root package/lock files, .nvmrc — is
@@ -128,8 +128,9 @@ jobs:
             esac
             case "$f" in
               '') ;;
+              # Working notes and Claude Code guides: hidden from the site, read by no build or test.
+              docs/internal/*|.claude/*|*/CLAUDE.md) ;;
               docs/*|site/*) docs=true ;;
-              internal/*) ;;
               # Another workflow, a form, a repo page: no job here builds or tests it.
               # ci.yml itself stays everything, and so do the compose overrides.
               .github/workflows/ci.yml) everything ;;

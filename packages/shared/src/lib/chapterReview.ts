@@ -1,6 +1,6 @@
 /**
  * "Review chapter" — the pure half of the button and the summary page, shared by web and mobile.
- * Spec: internal/features/chapter-review.md §12. The review itself runs in the reader's own Claude or
+ * Decision: ADR-016 (the original spec is in git history). The review itself runs in the reader's own Claude or
  * ChatGPT over MCP (get_chapter_review → save_chapter_review); we only open the chat and show what
  * came back.
  */
