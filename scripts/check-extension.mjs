@@ -2,7 +2,7 @@
 //
 // The extension's checks, actually run.
 //
-// extension/README.md documents a `node --check` loop and asks the developer to
+// apps/browser-extension/README.md documents a `node --check` loop and asks the developer to
 // remember it before committing. Nothing in .github/workflows mentions the
 // folder, so for the life of the extension nothing has enforced it — the same
 // shape as the SSG rebuild that reported success while writing nowhere, and the
@@ -28,10 +28,10 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const EXT = join(ROOT, 'extension')
+const EXT = join(ROOT, 'apps', 'browser-extension')
 const problems = []
 
-/** Every .js under extension/, recursively. */
+/** Every .js under apps/browser-extension/, recursively. */
 function scripts(dir = EXT) {
   return readdirSync(dir).flatMap(name => {
     const full = join(dir, name)
@@ -45,7 +45,7 @@ for (const file of scripts()) {
   const rel = file.slice(ROOT.length + 1)
   try {
     // Piped through stdin with an explicit --input-type, NOT `node --check
-    // <path>`. That is what extension/README.md documents, and on Node 24 it
+    // <path>`. That is what apps/browser-extension/README.md documents, and on Node 24 it
     // exits 0 on a file containing `const x = ;` — module-syntax detection
     // swallows the parse error rather than reporting it. The documented gate
     // would have passed anything put in front of it. Verified by hand both
@@ -65,7 +65,7 @@ let manifest
 try {
   manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
 } catch (e) {
-  problems.push(`extension/manifest.json does not parse: ${e.message}`)
+  problems.push(`apps/browser-extension/manifest.json does not parse: ${e.message}`)
 }
 
 if (manifest) {
@@ -79,7 +79,7 @@ if (manifest) {
 
   for (const rel of new Set(referenced)) {
     if (!existsSync(join(EXT, rel))) {
-      problems.push(`extension/manifest.json names "${rel}", which does not exist`)
+      problems.push(`apps/browser-extension/manifest.json names "${rel}", which does not exist`)
     }
   }
 
@@ -87,7 +87,7 @@ if (manifest) {
   for (const host of manifest.host_permissions ?? []) {
     if (/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(host)) {
       problems.push(
-        `extension/manifest.json still grants "${host}". The README asks for this during local ` +
+        `apps/browser-extension/manifest.json still grants "${host}". The README asks for this during local ` +
         `development and for its removal before packaging — remove it before merging.`
       )
     }

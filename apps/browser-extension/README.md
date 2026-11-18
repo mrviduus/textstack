@@ -19,7 +19,7 @@ Clips are private; the server enforces per-user ownership.
 
 1. Open `chrome://extensions`.
 2. Toggle **Developer mode** (top-right).
-3. Click **Load unpacked** and select this `extension/` folder.
+3. Click **Load unpacked** and select this `apps/browser-extension/` folder.
 4. Pin the toolbar icon, open the popup, click **Connect to TextStack** — a tab
    opens in the web app; approve the shown code while signed in there.
 
