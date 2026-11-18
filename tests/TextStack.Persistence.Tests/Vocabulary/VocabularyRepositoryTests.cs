@@ -57,7 +57,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     // Plan §4.4: one card per word across books; v2-sync-protocol.md: translation and definition are used
     // only when the card is created.
     [Fact]
-    public async Task SaveWordAsync_SameWordFromTwoBooks_KeepsOneCardItsScheduleAndTranslationWithTwoExamples()
+    public async Task SaveWordAsync_SameWordSavedTwice_KeepsOneCardItsScheduleAndFirstTranslation()
     {
         var user = await db.NewReaderAsync();
 
@@ -86,12 +86,18 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         Assert.Equal(1, read.Stage);
         Assert.Equal(["Sentence A.", "Sentence B."], read.Examples.Select(e => e.Sentence));
 
+        // A card saved with no translation keeps none when saved again with one.
+        var bare = await SavedWordAsync(user, key: "bow");
+        var bareAgain = await _repo.SaveWordAsync(user, Word(user, "лук", "bow"), Ct);
+        Assert.Equal((WordSaveOutcome.Existing, bare.Id, (string?)null, 1L, bare.UpdatedAt),
+            (bareAgain.Outcome, bareAgain.Word!.Id, bareAgain.Word.Translation, bareAgain.Word.Revision, bareAgain.Word.UpdatedAt));
+
         // A client id that already names another of the reader's cards writes nothing.
         var clash = Word(user, key: "arrow");
         clash.Id = card.Id;
         var conflict = await _repo.SaveWordAsync(user, clash, Ct);
         Assert.Equal((WordSaveOutcome.IdConflict, (VocabularyWord?)null), (conflict.Outcome, conflict.Word));
-        Assert.Equal(1L, await db.CountAsync("vocabulary_words", user));
+        Assert.Equal(2L, await db.CountAsync("vocabulary_words", user));
     }
 
     [Fact]
