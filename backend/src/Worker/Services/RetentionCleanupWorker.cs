@@ -14,7 +14,8 @@ namespace Worker.Services;
 /// </summary>
 public class RetentionCleanupWorker(
     IServiceScopeFactory scopeFactory,
-    ILogger<RetentionCleanupWorker> logger) : BackgroundService
+    ILogger<RetentionCleanupWorker> logger,
+    TimeProvider? clock = null) : BackgroundService
 {
     // Daily: expired rows are harmless (every reader filters on expiry) but accumulate forever.
     private static readonly TimeSpan Interval = TimeSpan.FromHours(24);
@@ -56,7 +57,7 @@ public class RetentionCleanupWorker(
         using var scope = scopeFactory.CreateScope();
         var services = scope.ServiceProvider;
 
-        var now = DateTimeOffset.UtcNow;
+        var now = (clock ?? TimeProvider.System).GetUtcNow();
         // A day past expiry: nothing reads an expired token (refresh filters on expiry, reuse detection
         // reads live rows only), and an in-flight request never races the sweep.
         var tokenCutoff = now - TokenGrace;

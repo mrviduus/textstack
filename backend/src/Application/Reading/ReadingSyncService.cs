@@ -16,7 +16,8 @@ namespace Application.Reading;
 /// A removed book still accepts state and sessions (owner decision 11).
 /// </summary>
 public sealed class ReadingSyncService(
-    ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions, IBookChapterRepository chapters)
+    ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions, IBookChapterRepository chapters,
+    TimeProvider? clock = null)
 {
     public async Task<SyncResult> GetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
@@ -112,7 +113,7 @@ public sealed class ReadingSyncService(
     {
         var invalid = ClientId(clientSessionId, "clientSessionId") ?? Required(r.StartedAt, "startedAt") ?? Required(r.EndedAt, "endedAt")
             ?? (r.EndedAt < r.StartedAt ? SyncResult.Invalid("endedAt", "endedAt is before startedAt.") : null)
-            ?? NotFuture(r.EndedAt, DateTimeOffset.UtcNow, "endedAt")
+            ?? NotFuture(r.EndedAt, (clock ?? TimeProvider.System).GetUtcNow(), "endedAt")
             ?? (r.DurationSeconds >= 0 ? null : SyncResult.Invalid("durationSeconds", "durationSeconds must be zero or more."))
             ?? (r.WordsRead >= 0 ? null : SyncResult.Invalid("wordsRead", "wordsRead must be zero or more."))
             ?? Fraction(r.StartPercent, "startPercent") ?? Fraction(r.EndPercent, "endPercent");

@@ -22,8 +22,11 @@ namespace Worker.Services;
 /// </summary>
 public sealed class V2IngestionService(
     IIngestionJobRepository jobs, ILibraryRepository library, IBookChapterRepository chapters,
-    ILibraryFileStore files, IExtractorRegistry extractors, ILogger<V2IngestionService> logger)
+    ILibraryFileStore files, IExtractorRegistry extractors, ILogger<V2IngestionService> logger,
+    TimeProvider? clock = null)
 {
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
     private const int MaxAttempts = IngestionRetry.MaxAttempts;
     // A Processing job not touched this long is taken to be abandoned (a worker that died mid-job).
     private static readonly TimeSpan StuckAfter = TimeSpan.FromMinutes(2);
@@ -134,7 +137,7 @@ public sealed class V2IngestionService(
     /// </summary>
     public async Task SweepAsync(CancellationToken ct)
     {
-        files.SweepStaleParts(DateTimeOffset.UtcNow);
+        files.SweepStaleParts(_clock.GetUtcNow());
         IngestionMetrics.SetStuckJobs("v2_ingestion", await jobs.CountStuckAsync(StuckAfter, ct));
     }
 
@@ -147,7 +150,7 @@ public sealed class V2IngestionService(
     public async Task SweepOrphansAsync(CancellationToken ct)
     {
         var referenced = await library.AllStorageKeysAsync(ct);
-        var cutoff = DateTimeOffset.UtcNow - OrphanAge;
+        var cutoff = _clock.GetUtcNow() - OrphanAge;
         foreach (var key in files.EnumerateLibraryFilesOlderThan(cutoff))
             if (!referenced.Contains(key) && !files.TryDelete(key))
                 logger.LogWarning("Could not delete orphan V2 bytes at {StorageKey}; retried next sweep", key);

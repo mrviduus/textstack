@@ -38,6 +38,8 @@ public class RetentionCleanupTests
     public async Task CleanupAsync_CredentialSweeps_EachGetsADayPastNow()
     {
         // The identity ports sweep with the cutoff they are given (their contract tests); the grace is the worker's.
+        var clock = new SteppedClock();
+        var cutoff = clock.Now - RetentionCleanupWorker.TokenGrace;
         var sessions = new Mock<ISessionTokenRepository>();
         var devices = new Mock<IDeviceLoginRepository>();
         var oauth = new Mock<IOAuthRepository>();
@@ -49,19 +51,16 @@ public class RetentionCleanupTests
             .AddScoped(_ => devices.Object)
             .AddScoped(_ => oauth.Object)
             .BuildServiceProvider();
-        using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance);
-        var before = DateTimeOffset.UtcNow - RetentionCleanupWorker.TokenGrace;
+        using var worker = new RetentionCleanupWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<RetentionCleanupWorker>.Instance, clock);
 
         await worker.StartAsync(TestContext.Current.CancellationToken);
         await lastSweep.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await worker.StopAsync(TestContext.Current.CancellationToken);
 
-        var after = DateTimeOffset.UtcNow - RetentionCleanupWorker.TokenGrace;
-        Func<DateTimeOffset, bool> atGrace = cutoff => cutoff >= before && cutoff <= after;
-        sessions.Verify(s => s.DeleteExpiredSessionsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
-        sessions.Verify(s => s.DeleteExpiredPasswordResetsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
-        devices.Verify(d => d.DeleteExpiredAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
-        oauth.Verify(o => o.DeleteDeadGrantsAsync(It.Is<DateTimeOffset>(c => atGrace(c)), It.IsAny<CancellationToken>()), Times.Once);
+        sessions.Verify(s => s.DeleteExpiredSessionsAsync(cutoff, It.IsAny<CancellationToken>()), Times.Once);
+        sessions.Verify(s => s.DeleteExpiredPasswordResetsAsync(cutoff, It.IsAny<CancellationToken>()), Times.Once);
+        devices.Verify(d => d.DeleteExpiredAsync(cutoff, It.IsAny<CancellationToken>()), Times.Once);
+        oauth.Verify(o => o.DeleteDeadGrantsAsync(cutoff, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
