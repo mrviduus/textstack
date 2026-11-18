@@ -92,25 +92,27 @@ public class OAuthTests
     // ── scope / resource / tokens ───────────────────────────────────────────────
 
     [Fact]
-    public void GrantedScope_TokenRequest_AlwaysLibraryOnlyForTheMcpResource()
+    public void GrantedScope_TokenRequest_AlwaysLibraryOfflineAccessEchoed()
     {
         // One permission: anything else asked for is dropped, offline_access is echoed.
         Assert.Equal("library", OAuth.GrantedScope(null));
         Assert.Equal("library", OAuth.GrantedScope("openid read write"));
         Assert.Equal("library offline_access", OAuth.GrantedScope("library offline_access"));
         Assert.Equal("library offline_access", OAuth.GrantedScope("offline_access"));
-
-        // RFC 8707: absent = the only resource; a trailing slash is tolerated; nothing else is.
-        const string mcp = "https://textstack.app/mcp";
-        Assert.True(OAuth.ResourceMatches(null, mcp));
-        Assert.True(OAuth.ResourceMatches("https://textstack.app/mcp", mcp));
-        Assert.True(OAuth.ResourceMatches("https://textstack.app/mcp/", mcp));
-        Assert.False(OAuth.ResourceMatches("https://textstack.app/api", mcp));
-        Assert.False(OAuth.ResourceMatches("https://evil.example/mcp", mcp));
     }
 
+    // RFC 8707: absent = the only resource; a trailing slash is tolerated; nothing else is.
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("https://textstack.app/mcp", true)]
+    [InlineData("https://textstack.app/mcp/", true)]
+    [InlineData("https://textstack.app/api", false)]
+    [InlineData("https://evil.example/mcp", false)]
+    public void ResourceMatches_TokenRequestNamesResource_OnlyTheMcpEndpoint(string? requested, bool expected) =>
+        Assert.Equal(expected, OAuth.ResourceMatches(requested, "https://textstack.app/mcp"));
+
     [Fact]
-    public void NewToken_AccessTokenIssued_UniqueTsoBearerLivingAnHour()
+    public void NewToken_AccessTokenIssued_UniquePrefixedLivingAnHour()
     {
         var a = OAuth.NewToken(OAuth.AccessTokenPrefix);
         var b = OAuth.NewToken(OAuth.AccessTokenPrefix);
@@ -120,18 +122,22 @@ public class OAuthTests
         Assert.NotEqual(a, b);
         Assert.NotEqual(DeviceCodes.HashToken(a), DeviceCodes.HashToken(b));
 
-        // The middleware recognises a bearer by prefix alone, before any DB work.
         Assert.True(OAuth.LooksLikeAccessToken(a));
-        Assert.True(OAuth.LooksLikeAccessToken("tso_abc"));
-        Assert.False(OAuth.LooksLikeAccessToken("tsk_abc"));
-        Assert.False(OAuth.LooksLikeAccessToken("tsr_abc")); // a refresh token is never a bearer
-        Assert.False(OAuth.LooksLikeAccessToken("eyJhbGciOi.x.y"));
-        Assert.False(OAuth.LooksLikeAccessToken(null));
 
         // Owner decision.
         Assert.Equal(TimeSpan.FromHours(1), OAuth.AccessTokenLifetime);
         Assert.Equal(TimeSpan.FromDays(90), OAuth.RefreshTokenLifetime);
     }
+
+    // The middleware recognises a bearer by prefix alone, before any DB work.
+    [Theory]
+    [InlineData("tso_abc", true)]
+    [InlineData("tsk_abc", false)]
+    [InlineData("tsr_abc", false)]  // a refresh token is never a bearer
+    [InlineData("eyJhbGciOi.x.y", false)]
+    [InlineData(null, false)]
+    public void LooksLikeAccessToken_BearerPresented_OnlyTheAccessTokenPrefix(string? token, bool expected) =>
+        Assert.Equal(expected, OAuth.LooksLikeAccessToken(token));
 
     // ── CIMD SSRF guard ─────────────────────────────────────────────────────────
 
@@ -166,6 +172,8 @@ public class OAuthTests
         { "https://[::1]/client.json", "not public" },
         { "https://169.254.169.254/latest/meta-data", "not public" },
         { "https://u:p@example.com/client.json", "userinfo" },
+        { "https://example.com/client.json#frag", "a fragment" },
+        { "not a url", "not a URL" },
         { "https://example.com/" + new string('a', 600), "too long" },
     };
 
@@ -220,8 +228,9 @@ public class OAuthTests
         var ct = TestContext.Current.CancellationToken;
         var valid = $$"""{"client_id":"{{Url}}","client_name":"ChatGPT","redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"]}""";
         var oversized = $$"""{"client_id":"{{Url}}","redirect_uris":["https://claude.ai/cb"],"pad":"{{new string('x', 20_000)}}"}""";
+        StubHandler stub = null!;
         Task<(ClientMetadataFetcher.Document? Doc, string? Error)> Fetch(HttpStatusCode status, string body, bool sendLength = true) =>
-            new ClientMetadataFetcher(new HttpClient(new StubHandler(status, body, sendLength))).FetchAsync(Url, ct);
+            new ClientMetadataFetcher(new HttpClient(stub = new StubHandler(status, body, sendLength))).FetchAsync(Url, ct);
 
         using (var handler = ClientMetadataFetcher.CreateHandler())
         {
@@ -234,9 +243,11 @@ public class OAuthTests
         Assert.Null(error);
         Assert.Equal("ChatGPT", doc!.ClientName);
 
+        // A 302 pointing at the metadata endpoint is refused, not followed.
         (doc, error) = await Fetch(HttpStatusCode.Found, "");
         Assert.Null(doc);
         Assert.Contains("302", error);
+        Assert.Equal(1, stub.Requests);
 
         // Too large whether the server announces it or streams it without a length.
         (doc, error) = await Fetch(HttpStatusCode.OK, oversized);
@@ -254,13 +265,18 @@ public class OAuthTests
 
     private sealed class StubHandler(HttpStatusCode status, string body, bool sendLength = true) : HttpMessageHandler
     {
+        public int Requests { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            Requests++;
             HttpContent content = sendLength
                 ? new StringContent(body, Encoding.UTF8, "application/json")
                 : new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(body))); // no Content-Length hint
             if (!sendLength) content.Headers.ContentLength = null;
-            return Task.FromResult(new HttpResponseMessage(status) { Content = content });
+            var response = new HttpResponseMessage(status) { Content = content };
+            if (status == HttpStatusCode.Found) response.Headers.Location = new Uri("http://169.254.169.254/latest/meta-data");
+            return Task.FromResult(response);
         }
     }
 }
