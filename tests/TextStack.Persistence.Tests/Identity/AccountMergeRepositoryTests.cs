@@ -62,50 +62,48 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         FROM discussion_checkpoints WHERE user_id = @userId
         """, new { userId });
 
-    private Task<List<(Guid Id, bool IsCurrent)>> FilesAsync(Guid userId) =>
-        RowsAsync<(Guid, bool)>("SELECT id, is_current FROM book_files WHERE user_id = @userId", new { userId });
 
-    // ===== Outcomes =====
+    private Task<List<(Guid Id, bool IsCurrent)>> FilesAsync(Guid userId, Guid bookId) =>
+        RowsAsync<(Guid, bool)>("SELECT id, is_current FROM book_files WHERE user_id = @userId AND book_id = @bookId", new { userId, bookId });
 
-    [Fact]
-    public async Task MergeAsync_GuestAbsent_NoGuest()
+    private Task<long> TouchedSinceAsync(string table, Guid userId, DateTimeOffset since) =>
+        ScalarAsync<long>($"SELECT count(*) FROM {table} WHERE user_id = @userId AND updated_at > @since", new { userId, since });
+
+    // ===== Who is merged =====
+
+    /// <summary>Who signs in as whom: the guest's side, then the target.</summary>
+    public enum Target { Account, AccountStillFlaggedAGuest, TheGuestItself, Missing }
+
+    public static TheoryData<bool, bool, Target, AccountMergeOutcome, long, long, long, bool?> WhoCases => new()
     {
-        Assert.Equal(AccountMergeOutcome.NoGuest, (await MergeAsync(Guid.NewGuid(), await db.NewReaderAsync())).Outcome);
-    }
-
-    public static TheoryData<string> RefusedCases => ["NotGuest", "SameId", "NoAccount"];
-
-    [Theory, MemberData(nameof(RefusedCases))]
-    public async Task MergeAsync_NotAGuestIntoAnAccount_RefusedAndNothingMoves(string refused)
-    {
-        var guest = await db.NewReaderAsync(isGuest: refused != "NotGuest");
-        var account = refused switch { "SameId" => guest, "NoAccount" => Guid.NewGuid(), _ => await db.NewReaderAsync() };
-        await db.NewBookAsync(guest);
-
-        Assert.Equal(AccountMergeOutcome.Refused, (await MergeAsync(guest, account)).Outcome);
-        Assert.Equal((1L, 1L), (await db.CountAsync("books", guest), await ScalarAsync<long>("SELECT count(*) FROM users WHERE id = @guest", new { guest })));
-    }
-
-    [Fact]
-    public async Task MergeAsync_AccountStillFlaggedAGuest_MergedAndTheFlagCleared()
-    {
+        // guest exists, is a guest, target → outcome, guest's books, account's books, guest rows left, account's is_guest after
+        { false, true, Target.Account, AccountMergeOutcome.NoGuest, 0, 0, 0, false },
+        { true, false, Target.Account, AccountMergeOutcome.Refused, 1, 0, 1, false },
+        { true, true, Target.TheGuestItself, AccountMergeOutcome.Refused, 1, 1, 1, true },
+        { true, true, Target.Missing, AccountMergeOutcome.Refused, 1, 0, 1, null },
         // A guest promoted in place whose promotion did not reach V2: the caller signed it in as an account.
-        var (guest, account) = (await db.NewReaderAsync(isGuest: true), await db.NewReaderAsync(isGuest: true));
-        await db.NewBookAsync(guest);
+        { true, true, Target.AccountStillFlaggedAGuest, AccountMergeOutcome.Merged, 0, 1, 0, false },
+    };
 
-        Assert.Equal(AccountMergeOutcome.Merged, (await MergeAsync(guest, account)).Outcome);
-        Assert.Equal((false, 1L), (await ScalarAsync<bool>("SELECT is_guest FROM users WHERE id = @account", new { account }), await db.CountAsync("books", account)));
-    }
-
-    [Fact]
-    public async Task MergeAsync_RunTwice_SecondIsNoGuest()
+    [Theory, MemberData(nameof(WhoCases))]
+    public async Task MergeAsync_WhoSignsInAsWhom_OnlyAGuestMergesIntoAnotherUserAndARefusalMovesNothing(
+        bool guestExists, bool isGuest, Target target, AccountMergeOutcome outcome, long guestBooks, long accountBooks, long guestRows, bool? accountIsGuest)
     {
-        var (guest, account) = await PairAsync();
-        await db.NewBookAsync(guest);
+        var guest = guestExists ? await db.NewReaderAsync(isGuest) : Guid.NewGuid();
+        if (guestExists) await db.NewBookAsync(guest);
+        var account = target switch
+        {
+            Target.TheGuestItself => guest,
+            Target.Missing => Guid.NewGuid(),
+            Target.AccountStillFlaggedAGuest => await db.NewReaderAsync(isGuest: true),
+            _ => await db.NewReaderAsync(),
+        };
 
-        await MergeAsync(guest, account);
-
-        Assert.Equal(AccountMergeOutcome.NoGuest, (await MergeAsync(guest, account)).Outcome);
+        Assert.Equal(outcome, (await MergeAsync(guest, account)).Outcome);
+        Assert.Equal((guestBooks, accountBooks, guestRows, accountIsGuest), (
+            await db.CountAsync("books", guest), await db.CountAsync("books", account),
+            await ScalarAsync<long>("SELECT count(*) FROM users WHERE id = @guest", new { guest }),
+            await ScalarAsync<bool?>("SELECT is_guest FROM users WHERE id = @account", new { account })));
     }
 
     [Fact]
@@ -121,104 +119,121 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         Assert.Equal(1L, await db.CountAsync("books", account));
     }
 
-    // ===== Every table =====
+    // ===== Everything moves =====
 
     [Fact]
-    public async Task MergeAsync_NothingMatches_EveryRowMovesWithItsIdCredentialsDieTheGuestIsGone()
+    public async Task MergeAsync_GuestHoldingEverythingTheAccountHasNot_EveryRowMovesOnceWithItsIdCredentialsDieAndTheGuestIsGone()
     {
         var (guest, account) = await PairAsync();
         var carol = await db.NewReaderAsync();
         var (book, _) = await db.SeedEverythingAsync(guest);
         await db.SeedEverythingAsync(carol);
-        await db.ExecAsync("UPDATE vocabulary_words SET word_key = 'other' WHERE user_id = @guest", new { guest });
+        string[] fed = ["books", "reading_state", "annotations", "vocabulary_words"];
+        // The seed's connect key is refused to a guest (#1120); one minted before that must die with it too.
+        await db.ExecAsync("""
+            INSERT INTO mcp_access_keys (id, user_id, name, key_hash, prefix, created_at) VALUES (gen_random_uuid(), @guest, 'older', @hash, 'tsk_gu', now());
+            UPDATE vocabulary_words SET word_key = 'other', updated_at = now() - interval '1 day' WHERE user_id = @guest;
+            UPDATE books SET updated_at = now() - interval '1 day' WHERE user_id = @guest;
+            UPDATE reading_state SET updated_at = now() - interval '1 day' WHERE user_id = @guest;
+            UPDATE annotations SET updated_at = now() - interval '1 day' WHERE user_id = @guest
+            """, new { guest, hash = NewHash() });
+        var since = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var tables = await db.UserTablesAsync();
+
+        // A merge its caller rolls back leaves both users as they were.
+        await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
+        await using (var tx = await conn.BeginTransactionAsync(Ct))
+        {
+            Assert.Equal(AccountMergeOutcome.Merged, (await _repo.MergeAsync(guest, account, tx, Ct)).Outcome);
+            await tx.RollbackAsync(Ct);
+        }
+        foreach (var table in tables)
+            Assert.Equal((table, Seeded(table), 0L), (table, await db.CountAsync(table, guest), await db.CountAsync(table, account)));
+        foreach (var table in fed)
+            Assert.Equal((table, 0L), (table, await TouchedSinceAsync(table, guest, since)));
 
         var merged = await MergeAsync(guest, account);
 
         Assert.Equal((AccountMergeOutcome.Merged, 0, 0, 0), (merged.Outcome, merged.Books.Count, merged.Words.Count, merged.DroppedDuplicates));
-        foreach (var table in await db.UserTablesAsync())
+        foreach (var table in tables)
         {
-            // The trace keeps the guest's id: no FK by design (ADR-031).
+            // The trace keeps the guest's id: no FK by design (ADR-031). Carol's rows are not touched.
             var (guestLeft, moved) = table == "llm_traces" ? (1L, 0L) : (0L, Dying.Contains(table) ? 0L : Seeded(table));
             Assert.Equal((table, guestLeft, moved, Seeded(table)),
                 (table, await db.CountAsync(table, guest), await db.CountAsync(table, account), await db.CountAsync(table, carol)));
         }
         Assert.Equal(0L, await ScalarAsync<long>("SELECT count(*) FROM users WHERE id = @guest", new { guest }));
         Assert.Equal(book.Id, await ScalarAsync<Guid>("SELECT id FROM books WHERE user_id = @account", new { account }));
+        // The account's other devices pull by updated_at: every moved root is stamped now.
+        foreach (var table in fed)
+            Assert.Equal((table, 1L), (table, await TouchedSinceAsync(table, account, since)));
+        // Run again (a retried sign-in): the guest is gone, nothing more happens.
+        Assert.Equal(AccountMergeOutcome.NoGuest, (await MergeAsync(guest, account)).Outcome);
     }
 
-    [Theory]
-    [InlineData("vocabulary_examples", 0)]
-    [InlineData("vocabulary_reviews", 0)]
-    [InlineData("shared_chapters", 1)]
-    [InlineData("discussion_checkpoints", 1)]
-    public async Task MergeAsync_OperationIdBothHold_GuestCopyDroppedAccountKeptAnomalyCounted(string table, int anomalies)
+    public static TheoryData<string, string, string, int> DuplicateCases => new()
+    {
+        // table, the key both sides hold, which of the user's rows, payload anomalies counted
+        { "vocabulary_examples", "operation_id", "", 0 },
+        { "vocabulary_reviews", "operation_id", "", 0 },
+        { "shared_chapters", "operation_id", "", 1 },
+        { "discussion_checkpoints", "operation_id", "", 1 },
+        // A session has no payload hash: its client_session_id is the whole identity.
+        { "reading_sessions", "client_session_id", "AND book_id IS NULL", 0 },
+    };
+
+    [Theory, MemberData(nameof(DuplicateCases))]
+    public async Task MergeAsync_OneDevicePushedTheSameEntryAsBoth_AccountCopyKeptGuestCopyDroppedAnomalyCounted(string table, string key, string scope, int anomalies)
     {
         var (guest, account) = await PairAsync();
         await db.SeedEverythingAsync(guest);
         await db.SeedEverythingAsync(account);
-        var kept = await ScalarAsync<Guid>($"SELECT id FROM {table} WHERE user_id = @account", new { account });
-        await db.ExecAsync($"UPDATE {table} SET operation_id = (SELECT operation_id FROM {table} WHERE user_id = @account) WHERE user_id = @guest", new { guest, account });
+        var kept = await ScalarAsync<Guid>($"SELECT id FROM {table} WHERE user_id = @account {scope}", new { account });
+        await db.ExecAsync($"UPDATE {table} SET {key} = (SELECT {key} FROM {table} WHERE user_id = @account {scope}) WHERE user_id = @guest {scope}", new { guest, account });
 
         var merged = await MergeAsync(guest, account);
 
         Assert.Equal((1, anomalies), (merged.DroppedDuplicates, merged.HashAnomalies));
-        Assert.Equal(kept, await ScalarAsync<Guid>($"SELECT id FROM {table} WHERE user_id = @account", new { account }));
+        Assert.Equal(2 * Seeded(table) - 1, await db.CountAsync(table, account));
+        Assert.Contains(kept, await RowsAsync<Guid>($"SELECT id FROM {table} WHERE user_id = @account {scope}", new { account }));
     }
 
-    [Fact]
-    public async Task MergeAsync_ClientSessionIdBothHold_GuestCopyDropped()
-    {
-        var (guest, account) = await PairAsync();
-        await db.SeedEverythingAsync(guest);
-        await db.SeedEverythingAsync(account);
-        await db.ExecAsync("""
-            UPDATE reading_sessions SET client_session_id = (SELECT client_session_id FROM reading_sessions WHERE user_id = @account AND book_id IS NULL)
-            WHERE user_id = @guest AND book_id IS NULL
-            """, new { guest, account });
-
-        var merged = await MergeAsync(guest, account);
-
-        Assert.Equal((1, 0), (merged.DroppedDuplicates, merged.HashAnomalies));
-        Assert.Equal(3L, await db.CountAsync("reading_sessions", account));
-    }
+    // ===== Library =====
 
     [Fact]
-    public async Task MergeAsync_MatchedGuestBookWithStoredBytes_ReleasesTheSupersededAndDuplicateKeys()
-    {
-        var (guest, account) = await PairAsync();
-        var theirs = await db.NewBookAsync(guest);
-        var oldVersion = theirs.CurrentFile!.Id;
-        var current = (await db.ReplaceFileAsync(theirs)).Current!;
-        // Bytes on both guest versions (an old one as a pre-M2.6 row could hold), and an unmatched book's that must stay.
-        var kept = await db.NewBookAsync(guest);
-        await db.ExecAsync("UPDATE book_files SET server_storage_key = 'k-' || id WHERE user_id = @guest", new { guest });
-        await db.NewBookAsync(account, sha256: current.Sha256);
-
-        var merged = await MergeAsync(guest, account);
-
-        Assert.Equal(new[] { $"k-{oldVersion}", $"k-{current.Id}" }.Order(), merged.ReleasedKeys.Order());
-        Assert.Null(await ScalarAsync<string?>("SELECT server_storage_key FROM book_files WHERE id = @oldVersion", new { oldVersion }));
-        Assert.Equal($"k-{kept.CurrentFile!.Id}", await ScalarAsync<string>("SELECT server_storage_key FROM book_files WHERE id = @id", new { id = kept.CurrentFile.Id }));
-    }
-
-    [Fact]
-    public async Task MergeAsync_SameBytesLiveBooks_AccountBookKeptGuestChildrenOnItOldVersionsNonCurrent()
+    public async Task MergeAsync_GuestBookTheAccountAlreadyHas_MergesIntoItsOldestCopyWithEverythingOnItAndTheBytesReleased()
     {
         var (guest, account) = await PairAsync();
         var (theirs, share) = await db.SeedEverythingAsync(guest);
         var oldVersion = theirs.CurrentFile!.Id;
         // The seed's annotation, example and share stay anchored in the old version; the guest reads on in the new one.
         var current = (await db.ReplaceFileAsync(theirs)).Current!;
+        // Bytes on both guest versions (an old one as a pre-M2.6 row could hold), and an unmatched book's that must stay.
+        var unmatched = await db.NewBookAsync(guest);
+        await db.ExecAsync("UPDATE book_files SET server_storage_key = 'k-' || id WHERE user_id = @guest", new { guest });
         var ours = await db.NewBookAsync(account, sha256: current.Sha256);
+        // Import refuses a second live book with the same bytes; a replacement can make one.
+        var younger = await db.NewBookAsync(account);
+        await db.ExecAsync("""
+            UPDATE book_files SET sha256 = @sha WHERE user_id = @account AND book_id = @younger;
+            UPDATE books SET updated_at = now() - interval '1 day' WHERE user_id IN (@guest, @account);
+            UPDATE annotations SET updated_at = now() - interval '1 day' WHERE user_id = @guest
+            """, new { sha = current.Sha256, account, younger = younger.Id, guest });
+        var since = DateTimeOffset.UtcNow.AddMinutes(-1);
 
         var merged = await MergeAsync(guest, account);
 
-        Assert.Equal((ours.Id, ours.CurrentFile!.Id), (merged.Books[theirs.Id], merged.Files[current.Id]));
-        Assert.Equal(1L, await db.CountAsync("books", account));
+        Assert.Equal(KeyValuePair.Create(theirs.Id, ours.Id), Assert.Single(merged.Books));
+        Assert.Equal(ours.CurrentFile!.Id, merged.Files[current.Id]);
+        Assert.Equal(new[] { ours.Id, younger.Id, unmatched.Id }.Order(), (await RowsAsync<Guid>("SELECT id FROM books WHERE user_id = @account", new { account })).Order());
         foreach (var table in (string[])["annotations", "vocabulary_examples", "shared_chapters", "discussion_checkpoints", "book_insight", "reading_sessions"])
             Assert.Equal((table, 1L), (table, await db.CountAsync(table, account, ours.Id)));
-        Assert.Equal([(ours.CurrentFile.Id, true), (oldVersion, false)], (await FilesAsync(account)).OrderByDescending(f => f.IsCurrent));
-        Assert.Equal(oldVersion, await ScalarAsync<Guid>("SELECT file_id FROM annotations WHERE user_id = @account", new { account }));
+        Assert.Equal([(ours.CurrentFile.Id, true), (oldVersion, false)], (await FilesAsync(account, ours.Id)).OrderByDescending(f => f.IsCurrent));
+        // The feeds: the merged-into book, the moved one and the moved annotation are stamped now; the younger copy is not.
+        Assert.Equal(new[] { ours.Id, unmatched.Id }.Order(),
+            (await RowsAsync<Guid>("SELECT id FROM books WHERE user_id = @account AND updated_at > @since", new { account, since })).Order());
+        Assert.Equal((ours.Id, oldVersion, true), Assert.Single(await RowsAsync<(Guid, Guid, bool)>(
+            "SELECT book_id, file_id, updated_at > @since FROM annotations WHERE user_id = @account", new { account, since })));
         // Book ids are hashed: the moved appends carry the hash of what the seed wrote, under the account's book.
         var example = new VocabularyExample { Sentence = "A quiver of arrows.", BookId = ours.Id, FileId = oldVersion };
         Assert.Equal(VocabularyPayloads.ExampleSha256(NewWord(account), example),
@@ -228,204 +243,30 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
             await ScalarAsync<string>("SELECT payload_sha256 FROM shared_chapters WHERE user_id = @account", new { account }));
         var checkpoint = Assert.Single(await CheckpointsAsync(account));
         Assert.Equal((share.Id, DiscussionPayloads.CheckpointSha256(checkpoint)), (checkpoint.SharedChapterId, checkpoint.PayloadSha256));
-    }
-
-    [Fact]
-    public async Task MergeAsync_MovedRows_UpdatedAtBumpedForTheFeeds()
-    {
-        var (guest, account) = await PairAsync();
-        await db.SeedEverythingAsync(guest);
-        await db.ExecAsync("""
-            UPDATE books SET updated_at = now() - interval '1 day' WHERE user_id = @guest;
-            UPDATE reading_state SET updated_at = now() - interval '1 day' WHERE user_id = @guest;
-            UPDATE annotations SET updated_at = now() - interval '1 day' WHERE user_id = @guest;
-            UPDATE vocabulary_words SET updated_at = now() - interval '1 day' WHERE user_id = @guest
-            """, new { guest });
-        var since = DateTimeOffset.UtcNow.AddMinutes(-1);
-
-        await MergeAsync(guest, account);
-
-        foreach (var table in (string[])["books", "reading_state", "annotations", "vocabulary_words"])
-            Assert.Equal((table, 1L), (table, await ScalarAsync<long>($"SELECT count(*) FROM {table} WHERE user_id = @account AND updated_at > @since", new { account, since })));
-    }
-
-    // ===== Words =====
-
-    /// <summary>The user's card "quiver" (English) with one example and one answer; returns the card.</summary>
-    private async Task<VocabularyWord> CardWithHistoryAsync(Guid userId, string language = "en")
-    {
-        var vocabulary = new VocabularyRepository(db.DataSource);
-        var card = NewWord(userId, translation: "guest's");
-        card.Language = language;
-        card = (await vocabulary.SaveWordAsync(userId, card, Ct)).Word!;
-        await vocabulary.AddExampleAsync(userId, NewExample(card, "A quiver of arrows."), Ct);
-        await vocabulary.RecordReviewAsync(userId, new()
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            WordId = card.Id,
-            OperationId = Guid.NewGuid(),
-            PayloadSha256 = NewHash(),
-            ReviewMode = "flashcard",
-            IsCorrect = true,
-            ClientRecordedAt = DateTimeOffset.UtcNow,
-        }, c => new Application.Vocabulary.ReviewSchedule(c.Stage + 1, 1m, 0, Retire: false), Ct);
-        return card;
+        // Both matched versions' bytes are released for the caller to delete; the unmatched book keeps its own.
+        Assert.Equal(new[] { $"k-{oldVersion}", $"k-{current.Id}" }.Order(), merged.ReleasedKeys.Order());
+        Assert.Null(await ScalarAsync<string?>("SELECT server_storage_key FROM book_files WHERE id = @oldVersion", new { oldVersion }));
+        Assert.Equal($"k-{unmatched.CurrentFile!.Id}", await ScalarAsync<string>("SELECT server_storage_key FROM book_files WHERE id = @id", new { id = unmatched.CurrentFile.Id }));
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task MergeAsync_SameWordKey_AccountIdSurvivesWithBothHistories(bool accountTombstone, bool guestTombstone)
-    {
-        var (guest, account) = await PairAsync();
-        var theirs = await CardWithHistoryAsync(guest);
-        var vocabulary = new VocabularyRepository(db.DataSource);
-        var ours = (await vocabulary.SaveWordAsync(account, NewWord(account, translation: "account's"), Ct)).Word!;
-        await db.ExecAsync("""
-            UPDATE vocabulary_words SET revision = 5, deleted_at = CASE WHEN @guestTombstone THEN now() END WHERE user_id = @guest;
-            UPDATE vocabulary_words SET revision = 2, deleted_at = CASE WHEN @accountTombstone THEN now() END WHERE user_id = @account
-            """, new { guest, account, guestTombstone, accountTombstone });
-
-        var merged = await MergeAsync(guest, account);
-
-        Assert.Equal(ours.Id, merged.Words[theirs.Id]);
-        var card = (await vocabulary.GetWordAsync(account, ours.Id, Ct))!;
-        // Revived from the guest's live card, or the account's live card as it was.
-        Assert.Equal((6L, accountTombstone ? "guest's" : "account's", (DateTimeOffset?)null), (card.Revision, card.Translation, card.DeletedAt));
-        Assert.Equal((1L, 1L, 1L), (await db.CountAsync("vocabulary_words", account), await db.CountAsync("vocabulary_examples", account), await db.CountAsync("vocabulary_reviews", account)));
-        // A review hashes its card's id: rehashed under the survivor's.
-        var review = Assert.Single(await RowsAsync<VocabularyReview>(
-            "SELECT word_id, review_mode, is_correct, response_time_ms, client_recorded_at, payload_sha256 FROM vocabulary_reviews WHERE user_id = @account", new { account }));
-        Assert.Equal((ours.Id, VocabularyPayloads.ReviewSha256(review)), (review.WordId, review.PayloadSha256));
-    }
-
-    [Fact]
-    public async Task MergeAsync_BothTombstones_AccountTombstoneKeptRevisionPastBoth()
-    {
-        var (guest, account) = await PairAsync();
-        await CardWithHistoryAsync(guest);
-        var ours = (await new VocabularyRepository(db.DataSource).SaveWordAsync(account, NewWord(account, translation: "account's"), Ct)).Word!;
-        await db.ExecAsync("""
-            UPDATE vocabulary_words SET revision = 7, deleted_at = now() WHERE user_id = @guest;
-            UPDATE vocabulary_words SET revision = 3, deleted_at = now() WHERE user_id = @account
-            """, new { guest, account });
-
-        await MergeAsync(guest, account);
-
-        Assert.Equal((8L, true, "account's"), Assert.Single(await RowsAsync<(long, bool, string?)>(
-            "SELECT revision, deleted_at IS NOT NULL, translation FROM vocabulary_words WHERE user_id = @account AND id = @id", new { account, id = ours.Id })));
-    }
-
-    [Fact]
-    public async Task MergeAsync_SameKeyOtherLanguage_NotMatched()
-    {
-        var (guest, account) = await PairAsync();
-        await CardWithHistoryAsync(guest, language: "de");
-        await new VocabularyRepository(db.DataSource).SaveWordAsync(account, NewWord(account), Ct);
-
-        var merged = await MergeAsync(guest, account);
-
-        Assert.Equal((0, 2L), (merged.Words.Count, await db.CountAsync("vocabulary_words", account)));
-    }
-
-    [Fact]
-    public async Task MergeAsync_AccountReplaysAGuestOperationIdDuringTheMerge_FirstRunCollidesSecondMerges()
-    {
-        var (guest, account) = await PairAsync();
-        await CardWithHistoryAsync(guest);
-        var card = (await new VocabularyRepository(db.DataSource).SaveWordAsync(account, NewWord(account, "other"), Ct)).Word!;
-        var op = await ScalarAsync<Guid>("SELECT operation_id FROM vocabulary_examples WHERE user_id = @guest", new { guest });
-        await using var writer = await db.DataSource.OpenConnectionAsync(Ct);
-        await using var write = await writer.BeginTransactionAsync(Ct);
-        await writer.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO vocabulary_examples (id, user_id, word_id, sentence, operation_id, payload_sha256, created_at)
-            VALUES (gen_random_uuid(), @account, @word, 'replayed', @op, @hash, now())
-            """, new { account, word = card.Id, op, hash = NewHash() }, write, cancellationToken: Ct));
-
-        var first = MergeAsync(guest, account);
-        await db.WaitUntilBlockedByAsync(writer, first);
-        await write.CommitAsync(Ct);
-
-        // The snapshot collision a caller retries once.
-        Assert.Equal("23505", (await Assert.ThrowsAsync<PostgresException>(() => first)).SqlState);
-        var second = await MergeAsync(guest, account);
-        Assert.Equal((AccountMergeOutcome.Merged, 1), (second.Outcome, second.DroppedDuplicates));
-        Assert.Equal("replayed", await ScalarAsync<string>("SELECT sentence FROM vocabulary_examples WHERE user_id = @account AND operation_id = @op", new { account, op }));
-    }
-
-    // ===== Book matching =====
-
-    [Fact]
-    public async Task MergeAsync_RemovedGuestBook_NotMatched()
-    {
-        var (guest, account, theirs, _) = await SameBytesAsync();
-        await new LibraryRepository(db.DataSource).RemoveAsync(guest, theirs.Id, Ct);
-
-        var merged = await MergeAsync(guest, account);
-
-        Assert.Equal((0, 2L), (merged.Books.Count, await db.CountAsync("books", account)));
-    }
-
-    [Fact]
-    public async Task MergeAsync_AccountBookRemoved_NotMatched()
-    {
-        var (guest, account, _, ours) = await SameBytesAsync();
-        await new LibraryRepository(db.DataSource).RemoveAsync(account, ours.Id, Ct);
-
-        var merged = await MergeAsync(guest, account);
-
-        Assert.Equal((0, 2L), (merged.Books.Count, await db.CountAsync("books", account)));
-    }
-
-    public static TheoryData<bool> NotCurrentSides => [true, false];
-
-    [Theory, MemberData(nameof(NotCurrentSides))]
-    public async Task MergeAsync_SameBytesInANonCurrentFile_NotMatched(bool guestSide)
-    {
-        var (guest, account) = await PairAsync();
-        // One side holds the bytes only in an old version; the other has them current.
-        var (holder, other) = guestSide ? (guest, account) : (account, guest);
-        var replaced = await db.NewBookAsync(holder);
-        await db.ReplaceFileAsync(replaced);
-        await db.NewBookAsync(other, sha256: replaced.CurrentFile!.Sha256);
-
-        var merged = await MergeAsync(guest, account);
-
-        Assert.Equal((0, 2L), (merged.Books.Count, await db.CountAsync("books", account)));
-    }
-
-    [Fact]
-    public async Task MergeAsync_TwoAccountBooksSameBytes_OldestWins()
-    {
-        var (guest, account, theirs, oldest) = await SameBytesAsync();
-        // Import refuses a second live book with the same bytes; a replacement can make one.
-        var younger = await db.NewBookAsync(account);
-        await db.ExecAsync("UPDATE book_files SET sha256 = @sha WHERE user_id = @account AND book_id = @bookId",
-            new { sha = theirs.CurrentFile!.Sha256, account, bookId = younger.Id });
-
-        Assert.Equal(oldest.Id, (await MergeAsync(guest, account)).Books[theirs.Id]);
-    }
-
-    [Fact]
-    public async Task MergeAsync_MatchedBook_AccountBookAndTheMovedAnnotationBumpedForTheFeeds()
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(false, false, true, false)]
+    [InlineData(false, false, false, true)]
+    public async Task MergeAsync_SameBytesOnlyInARemovedBookOrAnOldVersion_NotMatchedBothBooksKept(
+        bool guestRemoved, bool accountRemoved, bool guestReplaced, bool accountReplaced)
     {
         var (guest, account, theirs, ours) = await SameBytesAsync();
-        await new AnnotationRepository(db.DataSource).SaveAsync(guest,
-            new() { Id = Guid.NewGuid(), UserId = guest, BookId = theirs.Id, FileId = theirs.CurrentFile!.Id, SelectedText = "quoted", Locator = TestJson.Cfi(1) }, null, Ct);
-        await db.ExecAsync("""
-            UPDATE books SET updated_at = now() - interval '1 day' WHERE user_id IN (@guest, @account);
-            UPDATE annotations SET updated_at = now() - interval '1 day' WHERE user_id = @guest
-            """, new { guest, account });
-        var since = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var library = new LibraryRepository(db.DataSource);
+        if (guestReplaced) await db.ReplaceFileAsync(theirs);
+        if (accountReplaced) await db.ReplaceFileAsync(ours);
+        if (guestRemoved) await library.RemoveAsync(guest, theirs.Id, Ct);
+        if (accountRemoved) await library.RemoveAsync(account, ours.Id, Ct);
 
-        await MergeAsync(guest, account);
+        var merged = await MergeAsync(guest, account);
 
-        foreach (var table in (string[])["books", "annotations"])
-            Assert.Equal((table, 1L), (table, await ScalarAsync<long>(
-                $"SELECT count(*) FROM {table} WHERE user_id = @account AND updated_at > @since", new { account, since })));
-        Assert.Equal(ours.Id, await ScalarAsync<Guid>("SELECT book_id FROM annotations WHERE user_id = @account", new { account }));
+        Assert.Equal((0, 2L), (merged.Books.Count, await db.CountAsync("books", account)));
     }
 
     [Fact]
@@ -462,123 +303,174 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         // The merge saw the replacement: the guest book's bytes changed, so it no longer matches and
         // moves with both its versions, the new one current.
         Assert.Empty((await merge).Books);
-        Assert.Equal([(replaced.Current!.Id, true), (theirs.CurrentFile.Id, false)],
-            (await FilesAsync(account)).Where(f => f.Id == replaced.Current.Id || f.Id == theirs.CurrentFile.Id).OrderByDescending(f => f.IsCurrent));
+        Assert.Equal([(replaced.Current!.Id, true), (theirs.CurrentFile.Id, false)], (await FilesAsync(account, theirs.Id)).OrderByDescending(f => f.IsCurrent));
     }
 
-    // ===== Reading state =====
+    // ===== Vocabulary =====
+
+    /// <summary>The user's card "quiver" (English) with one example and one answer; returns the card.</summary>
+    private async Task<VocabularyWord> CardWithHistoryAsync(Guid userId)
+    {
+        var vocabulary = new VocabularyRepository(db.DataSource);
+        var card = (await vocabulary.SaveWordAsync(userId, NewWord(userId, translation: "guest's"), Ct)).Word!;
+        await vocabulary.AddExampleAsync(userId, NewExample(card, "A quiver of arrows."), Ct);
+        await vocabulary.RecordReviewAsync(userId, new()
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            WordId = card.Id,
+            OperationId = Guid.NewGuid(),
+            PayloadSha256 = NewHash(),
+            ReviewMode = "flashcard",
+            IsCorrect = true,
+            ClientRecordedAt = DateTimeOffset.UtcNow,
+        }, c => new Application.Vocabulary.ReviewSchedule(c.Stage + 1, 1m, 0, Retire: false), Ct);
+        return card;
+    }
+
+    [Theory]
+    [InlineData(false, false, "account's", false)]
+    [InlineData(true, false, "guest's", false)]
+    [InlineData(false, true, "account's", false)]
+    [InlineData(true, true, "account's", true)]
+    public async Task MergeAsync_BothHoldTheWord_AccountCardSurvivesWithBothHistoriesRevisionPastBoth(
+        bool accountTombstone, bool guestTombstone, string translation, bool deleted)
+    {
+        var (guest, account) = await PairAsync();
+        var theirs = await CardWithHistoryAsync(guest);
+        var vocabulary = new VocabularyRepository(db.DataSource);
+        var ours = (await vocabulary.SaveWordAsync(account, NewWord(account, translation: "account's"), Ct)).Word!;
+        // The same key in another language is another word.
+        var german = NewWord(account);
+        german.Language = "de";
+        await vocabulary.SaveWordAsync(account, german, Ct);
+        await db.ExecAsync("""
+            UPDATE vocabulary_words SET revision = 5, deleted_at = CASE WHEN @guestTombstone THEN now() END WHERE user_id = @guest;
+            UPDATE vocabulary_words SET revision = 2, deleted_at = CASE WHEN @accountTombstone THEN now() END WHERE user_id = @account AND id = @id
+            """, new { guest, account, id = ours.Id, guestTombstone, accountTombstone });
+
+        var merged = await MergeAsync(guest, account);
+
+        Assert.Equal(KeyValuePair.Create(theirs.Id, ours.Id), Assert.Single(merged.Words));
+        // Revived from the guest's live card, or the account's card as it was; a revision past both either way.
+        Assert.Equal((6L, deleted, translation), Assert.Single(await RowsAsync<(long, bool, string?)>(
+            "SELECT revision, deleted_at IS NOT NULL, translation FROM vocabulary_words WHERE user_id = @account AND id = @id", new { account, id = ours.Id })));
+        Assert.Equal((2L, 1L, 1L), (await db.CountAsync("vocabulary_words", account), await db.CountAsync("vocabulary_examples", account), await db.CountAsync("vocabulary_reviews", account)));
+        // A review hashes its card's id: rehashed under the survivor's.
+        var review = Assert.Single(await RowsAsync<VocabularyReview>(
+            "SELECT word_id, review_mode, is_correct, response_time_ms, client_recorded_at, payload_sha256 FROM vocabulary_reviews WHERE user_id = @account", new { account }));
+        Assert.Equal((ours.Id, VocabularyPayloads.ReviewSha256(review)), (review.WordId, review.PayloadSha256));
+    }
+
+    [Fact]
+    public async Task MergeAsync_AccountReplaysAGuestOperationIdDuringTheMerge_FirstRunCollidesSecondMerges()
+    {
+        var (guest, account) = await PairAsync();
+        await CardWithHistoryAsync(guest);
+        var card = (await new VocabularyRepository(db.DataSource).SaveWordAsync(account, NewWord(account, "other"), Ct)).Word!;
+        var op = await ScalarAsync<Guid>("SELECT operation_id FROM vocabulary_examples WHERE user_id = @guest", new { guest });
+        await using var writer = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var write = await writer.BeginTransactionAsync(Ct);
+        await writer.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO vocabulary_examples (id, user_id, word_id, sentence, operation_id, payload_sha256, created_at)
+            VALUES (gen_random_uuid(), @account, @word, 'replayed', @op, @hash, now())
+            """, new { account, word = card.Id, op, hash = NewHash() }, write, cancellationToken: Ct));
+
+        var first = MergeAsync(guest, account);
+        await db.WaitUntilBlockedByAsync(writer, first);
+        await write.CommitAsync(Ct);
+
+        // The snapshot collision a caller retries once.
+        Assert.Equal("23505", (await Assert.ThrowsAsync<PostgresException>(() => first)).SqlState);
+        var second = await MergeAsync(guest, account);
+        Assert.Equal((AccountMergeOutcome.Merged, 1), (second.Outcome, second.DroppedDuplicates));
+        Assert.Equal("replayed", await ScalarAsync<string>("SELECT sentence FROM vocabulary_examples WHERE user_id = @account AND operation_id = @op", new { account, op }));
+    }
+
+    // ===== Reading position =====
 
     private static ReadingState State(Guid fileId, decimal fraction, DateTimeOffset at) =>
         new() { FileId = fileId, CurrentLocator = TestJson.Cfi((int)(fraction * 100)), BookFraction = fraction, ClientRecordedAt = at };
 
-    /// <summary>Matched books, each read: the guest's at 0.3 written at <paramref name="guestAt"/>, the account's at 0.8 then back to <paramref name="accountBack"/>.</summary>
-    private async Task<(Guid Guest, Guid Account, Guid AccountBook)> BothReadAsync(DateTimeOffset guestAt, bool resetAccount = false, decimal accountBack = 0.2m)
+    private Task<ReadingState?> StateAsync(Guid userId, Guid bookId) => new ReadingStateRepository(db.DataSource).GetAsync(userId, bookId, Ct);
+
+    public static TheoryData<bool, bool, decimal, bool, decimal, decimal, long, long?> BothReadCases => new()
+    {
+        // guest newer, account reset, account went back to, guest completed → position, frontier, revision, reset revision
+        { true, false, 0.2m, false, 0.3m, 0.8m, 3, null },
+        // The reset cleared the account's frontier; the guest's 0.3 is the furthest left.
+        { false, true, 0.2m, false, 0.2m, 0.3m, 4, 3 },
+        // The frontier never falls below the winner's position.
+        { false, true, 0.5m, false, 0.5m, 0.5m, 4, 3 },
+        // Completion follows the winner, not the older side.
+        { false, false, 0.2m, true, 0.2m, 0.8m, 3, null },
+    };
+
+    /// <summary>Matched books, each read: the guest's at 0.3, the account's at 0.8 then back to <c>accountBack</c>, maybe reset.</summary>
+    [Theory, MemberData(nameof(BothReadCases))]
+    public async Task MergeAsync_BothReadTheBook_NewerPositionWinsFrontierIsTheFurthestRevisionPastBoth(
+        bool guestNewer, bool resetAccount, decimal accountBack, bool guestCompleted, decimal position, decimal frontier, long revision, long? resetRevision)
     {
         var (guest, account, theirs, ours) = await SameBytesAsync();
         var states = new ReadingStateRepository(db.DataSource);
         var now = DateTimeOffset.UtcNow.AddMinutes(-10);
-        await states.AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.3m, guestAt), null, default, Ct);
+        await states.AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.3m, guestNewer ? DateTimeOffset.UtcNow : DateTimeOffset.UtcNow.AddHours(-1)), null, default, Ct);
         await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile!.Id, 0.8m, now), null, default, Ct);
         var back = await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile.Id, accountBack, now.AddMinutes(1)), 1, default, Ct);
         if (resetAccount) await states.ResetAsync(account, ours.Id, back.Current!.Revision, Ct);
-        return (guest, account, ours.Id);
-    }
-
-    private Task<ReadingState?> StateAsync(Guid userId, Guid bookId) => new ReadingStateRepository(db.DataSource).GetAsync(userId, bookId, Ct);
-
-    [Fact]
-    public async Task MergeAsync_ReadingStateGuestNewer_GuestPositionFrontierIsTheMaxRevisionPastBoth()
-    {
-        var (guest, account, book) = await BothReadAsync(DateTimeOffset.UtcNow);
-
-        await MergeAsync(guest, account);
-
-        var state = (await StateAsync(account, book))!;
-        Assert.Equal((0.3m, 0.8m, 3L, (long?)null), (state.BookFraction, state.FrontierFraction, state.Revision, state.ResetRevision));
-    }
-
-    [Fact]
-    public async Task MergeAsync_ReadingStateAccountNewerAndReset_AccountPositionAndResetKept()
-    {
-        var (guest, account, book) = await BothReadAsync(DateTimeOffset.UtcNow.AddHours(-1), resetAccount: true);
-
-        await MergeAsync(guest, account);
-
-        // The reset cleared the account's frontier; the guest's 0.3 is the furthest left.
-        var state = (await StateAsync(account, book))!;
-        Assert.Equal((0.2m, 0.3m, 4L, (long?)3), (state.BookFraction, state.FrontierFraction, state.Revision, state.ResetRevision));
-    }
-
-    [Fact]
-    public async Task MergeAsync_ReadingStateAccountWinsAfterAReset_FrontierNeverBelowItsPosition()
-    {
-        // The account's reset left no frontier at 0.5; the guest's older frontier is 0.3.
-        var (guest, account, book) = await BothReadAsync(DateTimeOffset.UtcNow.AddHours(-1), resetAccount: true, accountBack: 0.5m);
-
-        await MergeAsync(guest, account);
-
-        var state = (await StateAsync(account, book))!;
-        Assert.Equal((0.5m, 0.5m), (state.BookFraction, state.FrontierFraction));
-    }
-
-    [Fact]
-    public async Task MergeAsync_ReadingStateOlderSideCompleted_CompletionFollowsTheWinner()
-    {
-        var (guest, account, book) = await BothReadAsync(DateTimeOffset.UtcNow.AddHours(-1));
-        await db.ExecAsync("UPDATE reading_state SET completed_at = now() WHERE user_id = @guest", new { guest });
-
-        await MergeAsync(guest, account);
-
-        Assert.Null((await StateAsync(account, book))!.CompletedAt);
-    }
-
-    [Fact]
-    public async Task MergeAsync_ReadingStateOnlyGuest_MovesAsItIsOntoTheAccountFile()
-    {
-        var (guest, account, theirs, ours) = await SameBytesAsync();
-        await new ReadingStateRepository(db.DataSource).AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.4m, DateTimeOffset.UtcNow), null, default, Ct);
+        if (guestCompleted)
+        {
+            await db.ExecAsync("UPDATE reading_state SET completed_at = now() WHERE user_id = @guest", new { guest });
+            Assert.NotNull((await StateAsync(guest, theirs.Id))!.CompletedAt);
+        }
 
         await MergeAsync(guest, account);
 
         var state = (await StateAsync(account, ours.Id))!;
-        Assert.Equal((ours.CurrentFile!.Id, 0.4m, 1L), (state.FileId, state.BookFraction, state.Revision));
+        Assert.Equal((position, frontier, revision, resetRevision, (DateTimeOffset?)null),
+            (state.BookFraction, state.FrontierFraction, state.Revision, state.ResetRevision, state.CompletedAt));
     }
 
     [Fact]
-    public async Task MergeAsync_GuestStateOnASupersededFile_Dropped()
+    public async Task MergeAsync_PositionsAcrossFileVersions_OnlyAPositionInTheCurrentFileCounts()
     {
         var (guest, account) = await PairAsync();
-        var theirs = await db.NewBookAsync(guest);
-        var old = theirs.CurrentFile!.Id;
-        var current = (await db.ReplaceFileAsync(theirs)).Current!;
+        var states = new ReadingStateRepository(db.DataSource);
+
+        // Only the guest read it: the position moves as it is, onto the account's file.
+        var onlyGuest = await db.NewBookAsync(guest);
+        var onlyGuestOurs = await db.NewBookAsync(account, sha256: onlyGuest.CurrentFile!.Sha256);
+        await states.AdvanceAsync(guest, onlyGuest.Id, State(onlyGuest.CurrentFile.Id, 0.4m, DateTimeOffset.UtcNow), null, default, Ct);
+
+        // The guest's position is in a version it replaced: its locators mean nothing in the account's file.
+        var superseded = await db.NewBookAsync(guest);
+        var old = superseded.CurrentFile!.Id;
+        var current = (await db.ReplaceFileAsync(superseded)).Current!;
         await db.ExecAsync("""
             INSERT INTO reading_state (user_id, book_id, file_id, current_locator, book_fraction, client_recorded_at)
             VALUES (@guest, @book, @old, CAST(@loc AS jsonb), 0.3, now())
-            """, new { guest, book = theirs.Id, old, loc = TestJson.Cfi(3) });
-        await db.NewBookAsync(account, sha256: current.Sha256);
+            """, new { guest, book = superseded.Id, old, loc = TestJson.Cfi(3) });
+        Assert.NotNull(await StateAsync(guest, superseded.Id));
+        var supersededOurs = await db.NewBookAsync(account, sha256: current.Sha256);
 
-        await MergeAsync(guest, account);
-
-        Assert.Equal(0L, await db.CountAsync("reading_state", account));
-    }
-
-    [Fact]
-    public async Task MergeAsync_AccountStateOnAnOldVersion_GuestStateTakesItsPlaceWithARevisionPastIt()
-    {
-        var (guest, account) = await PairAsync();
-        var ours = await db.NewBookAsync(account);
-        var states = new ReadingStateRepository(db.DataSource);
-        await states.AdvanceAsync(account, ours.Id, State(ours.CurrentFile!.Id, 0.9m, DateTimeOffset.UtcNow), null, default, Ct);
-        await db.ExecAsync("UPDATE reading_state SET revision = 4 WHERE user_id = @account", new { account });
+        // The account's position is on an old version (a stale device holds it): the guest's takes its place, a revision past it.
+        var stale = await db.NewBookAsync(account);
+        await states.AdvanceAsync(account, stale.Id, State(stale.CurrentFile!.Id, 0.9m, DateTimeOffset.UtcNow), null, default, Ct);
+        await db.ExecAsync("UPDATE reading_state SET revision = 4 WHERE user_id = @account AND book_id = @book", new { account, book = stale.Id });
         // A replacement by the use case would delete the state; here it stays on the old version.
-        var current = (await db.ReplaceFileAsync(ours)).Current!;
-        var theirs = await db.NewBookAsync(guest, sha256: current.Sha256);
-        await states.AdvanceAsync(guest, theirs.Id, State(theirs.CurrentFile!.Id, 0.2m, DateTimeOffset.UtcNow.AddHours(-1)), null, default, Ct);
+        var staleCurrent = (await db.ReplaceFileAsync(stale)).Current!;
+        var staleTheirs = await db.NewBookAsync(guest, sha256: staleCurrent.Sha256);
+        await states.AdvanceAsync(guest, staleTheirs.Id, State(staleTheirs.CurrentFile!.Id, 0.2m, DateTimeOffset.UtcNow.AddHours(-1)), null, default, Ct);
 
-        await MergeAsync(guest, account);
+        var merged = await MergeAsync(guest, account);
 
-        var state = (await StateAsync(account, ours.Id))!;
-        Assert.Equal((current.Id, 0.2m, 5L), (state.FileId, state.BookFraction, state.Revision));
+        Assert.Equal(3, merged.Books.Count);
+        var moved = (await StateAsync(account, onlyGuestOurs.Id))!;
+        Assert.Equal((onlyGuestOurs.CurrentFile!.Id, 0.4m, 1L), (moved.FileId, moved.BookFraction, moved.Revision));
+        Assert.Null(await StateAsync(account, supersededOurs.Id));
+        var replaced = (await StateAsync(account, stale.Id))!;
+        Assert.Equal((staleCurrent.Id, 0.2m, 5L), (replaced.FileId, replaced.BookFraction, replaced.Revision));
+        Assert.Equal(2L, await db.CountAsync("reading_state", account));
     }
 
     // ===== Discussion =====
@@ -626,30 +518,23 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task MergeAsync_DroppedShareOnAMatchedBook_GuestCheckpointRelinkedToTheAccountsShare()
+    public async Task MergeAsync_GuestShareTheAccountAlsoPushed_GuestCheckpointFollowsTheAccountsShareOnlyOnTheSameBook()
     {
         var (guest, account, theirs, ours) = await SameBytesAsync();
-        var accountShare = NewShare(ours);
-        await new SharedChapterRepository(db.DataSource).ShareAsync(accountShare, Ct);
-        var (_, checkpoint) = await SharedAsync(theirs, accountShare.OperationId);
+        var sameBook = NewShare(ours);
+        await new SharedChapterRepository(db.DataSource).ShareAsync(sameBook, Ct);
+        var (_, relinked) = await SharedAsync(theirs, sameBook.OperationId);
+        var (otherBook, _) = await SharedAsync(await db.NewBookAsync(account));
+        var (_, unlinked) = await SharedAsync(await db.NewBookAsync(guest), otherBook.OperationId);
 
         var merged = await MergeAsync(guest, account);
 
-        var c = (await CheckpointsAsync(account)).Single(c => c.Id == checkpoint);
-        Assert.Equal((1, accountShare.Id, DiscussionPayloads.CheckpointSha256(c)), (merged.DroppedDuplicates, c.SharedChapterId, c.PayloadSha256));
-    }
-
-    [Fact]
-    public async Task MergeAsync_DroppedShareOnAnotherBook_GuestCheckpointUnlinkedAndRehashed()
-    {
-        var (guest, account) = await PairAsync();
-        var (accountShare, _) = await SharedAsync(await db.NewBookAsync(account));
-        var (_, checkpoint) = await SharedAsync(await db.NewBookAsync(guest), accountShare.OperationId);
-
-        await MergeAsync(guest, account);
-
-        var c = (await CheckpointsAsync(account)).Single(c => c.Id == checkpoint);
-        Assert.Equal(((Guid?)null, DiscussionPayloads.CheckpointSha256(c)), (c.SharedChapterId, c.PayloadSha256));
+        Assert.Equal(2, merged.DroppedDuplicates);
+        var checkpoints = await CheckpointsAsync(account);
+        var r = checkpoints.Single(c => c.Id == relinked);
+        Assert.Equal((sameBook.Id, DiscussionPayloads.CheckpointSha256(r)), (r.SharedChapterId, r.PayloadSha256));
+        var u = checkpoints.Single(c => c.Id == unlinked);
+        Assert.Equal(((Guid?)null, DiscussionPayloads.CheckpointSha256(u)), (u.SharedChapterId, u.PayloadSha256));
     }
 
     // ===== Identity =====
@@ -669,36 +554,19 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         Assert.Equal(expected, await ScalarAsync<string>("SELECT native_language FROM users WHERE id = @account", new { account }));
     }
 
-    [Fact]
-    public async Task HoldsNothingDurableAsync_EmptyGuest_True()
-    {
-        Assert.True(await _repo.HoldsNothingDurableAsync(await db.NewReaderAsync(isGuest: true), Ct));
-    }
-
-    [Fact]
-    public async Task HoldsNothingDurableAsync_GuestWithABook_False()
-    {
-        var guest = await db.NewReaderAsync(isGuest: true);
-        await db.NewBookAsync(guest);
-
-        Assert.False(await _repo.HoldsNothingDurableAsync(guest, Ct));
-    }
-
-    [Fact]
-    public async Task HoldsNothingDurableAsync_GuestWithAWordOnly_False()
+    [Theory]
+    [InlineData(false, false, false, true)]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, false, false)]
+    // Another guest's book does not count for this one.
+    [InlineData(false, false, true, true)]
+    public async Task HoldsNothingDurableAsync_WhatTheGuestHolds_OnlyItsOwnBookOrWordCounts(bool book, bool word, bool anothersBook, bool expected)
     {
         var guest = await db.NewReaderAsync(isGuest: true);
-        await new VocabularyRepository(db.DataSource).SaveWordAsync(guest, NewWord(guest), Ct);
+        if (book) await db.NewBookAsync(guest);
+        if (word) await new VocabularyRepository(db.DataSource).SaveWordAsync(guest, NewWord(guest), Ct);
+        if (anothersBook) await db.NewBookAsync(await db.NewReaderAsync(isGuest: true));
 
-        Assert.False(await _repo.HoldsNothingDurableAsync(guest, Ct));
-    }
-
-    [Fact]
-    public async Task HoldsNothingDurableAsync_BobsBook_DoesNotCountForAlice()
-    {
-        var (alice, bob) = (await db.NewReaderAsync(isGuest: true), await db.NewReaderAsync(isGuest: true));
-        await db.NewBookAsync(bob);
-
-        Assert.True(await _repo.HoldsNothingDurableAsync(alice, Ct));
+        Assert.Equal(expected, await _repo.HoldsNothingDurableAsync(guest, Ct));
     }
 }
