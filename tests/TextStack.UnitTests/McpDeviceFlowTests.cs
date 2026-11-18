@@ -1,29 +1,24 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextStack.Ai.Mcp.Auth;
+using TextStack.UnitTests.Fakes;
 
 namespace TextStack.UnitTests;
 
 /// <summary>
-/// AI-050b — the CLI-side device-flow token provider + token cache.
-///
-/// Verifies (all against a fake HttpMessageHandler, no network, temp-dir cache):
-///   • first call (no creds) returns Pending IMMEDIATELY without blocking on the poll;
-///   • the background poll honors authorization_pending then caches on 200 →
-///     a later GetTokenAsync returns Authorized;
-///   • a cached-but-expired access token + valid refresh → body-based refresh →
-///     Authorized (asserting the refresh request shape);
-///   • refresh 401 → falls through to a fresh device flow (Pending);
-///   • local JWT exp decode: future → not expired, past/garbage → expired;
-///   • TokenCache round-trips and writes 0600 on Unix; world-readable file ignored.
-///
-/// Introduces NO ITool (the tool-set assertions in StarterToolsTests stay green).
+/// The MCP stdio host signs the assistant in with a device code (AI-050b): the first
+/// call answers at once with a code to approve, a background poll caches the token
+/// once the reader approves, the cached token is refreshed before it expires, and a
+/// revoked refresh token starts a new sign-in. The token file is owner-only.
+/// All against fake HTTP handlers and a temp-dir cache; no network.
 /// </summary>
-public class McpDeviceFlowTests
+public class McpDeviceFlowTests : IDisposable
 {
     private const string SiteHost = "textstack.test";
+    private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
     // A scripted handler: returns queued responses in order, repeating the last.
     private sealed class ScriptedHandler : HttpMessageHandler
@@ -47,364 +42,9 @@ public class McpDeviceFlowTests
         }
     }
 
-    // A thread-safe handler that records every request path (for concurrency
-    // probes) and answers by path: device/code → one device code, device/token →
-    // a configurable outcome. Unlike ScriptedHandler it has no shared mutable
-    // Queue, so it is safe under truly-parallel callers.
-    private sealed class PathHandler : HttpMessageHandler
-    {
-        private readonly Func<HttpRequestMessage, HttpResponseMessage> _tokenResponse;
-        private int _deviceCodeCount;
-        private int _tokenCount;
-        public int DeviceCodeCount => Volatile.Read(ref _deviceCodeCount);
-        public int TokenCount => Volatile.Read(ref _tokenCount);
-
-        public PathHandler(Func<HttpRequestMessage, HttpResponseMessage> tokenResponse)
-            => _tokenResponse = tokenResponse;
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var path = request.RequestUri!.AbsolutePath;
-            if (path == "/auth/device/code")
-            {
-                Interlocked.Increment(ref _deviceCodeCount);
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(
-                        """{"device_code":"DC","user_code":"UC","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=UC","expires_in":600,"interval":1}""",
-                        Encoding.UTF8, "application/json"),
-                });
-            }
-            Interlocked.Increment(ref _tokenCount);
-            return Task.FromResult(_tokenResponse(request));
-        }
-    }
-
-    private static Func<HttpRequestMessage, HttpResponseMessage> Resp(HttpStatusCode status, string json) =>
-        _ => new HttpResponseMessage(status)
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json"),
-        };
-
-    private static DeviceFlowTokenProvider Build(ScriptedHandler handler, TokenCache cache)
-    {
-        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
-        http.DefaultRequestHeaders.Host = SiteHost;
-        return new DeviceFlowTokenProvider(
-            http, cache, NullLogger<DeviceFlowTokenProvider>.Instance,
-            time: null, minPollInterval: TimeSpan.FromMilliseconds(5));
-    }
-
-    private static TokenCache TempCache() =>
-        new(Path.Combine(Path.GetTempPath(), "ts-mcp-" + Guid.NewGuid().ToString("N") + ".json"));
-
-    // Hand-crafted UNSIGNED JWT: header.payload.sig with a base64url exp claim.
-    private static string Jwt(long expUnix)
-    {
-        static string B64Url(string s) =>
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-        var header = B64Url("""{"alg":"none","typ":"JWT"}""");
-        var payload = B64Url($$"""{"sub":"u1","exp":{{expUnix}}}""");
-        return $"{header}.{payload}.sig";
-    }
-
-    private static long FutureExp => DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
-    private static long PastExp => DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds();
-
-    // ── 1. first call → Pending immediately, no block on the poll ─────────────────
-
-    [Fact]
-    public async Task GetTokenAsync_NoCache_ReturnsPendingImmediately_WithoutBlocking()
-    {
-        var handler = new ScriptedHandler(
-        [
-            // /auth/device/code
-            Resp(HttpStatusCode.OK,
-                """{"device_code":"DC","user_code":"WDJB-MQXR","verification_uri":"https://textstack.app/device","verification_uri_complete":"https://textstack.app/device?code=WDJB-MQXR","expires_in":600,"interval":1}"""),
-            // /auth/device/token (poll) — keep pending forever
-            Resp(HttpStatusCode.BadRequest, """{"error":"authorization_pending"}"""),
-        ]);
-        var provider = Build(handler, TempCache());
-
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        var result = await provider.GetTokenAsync(CancellationToken.None);
-        sw.Stop();
-
-        var pending = Assert.IsType<TokenResult.Pending>(result);
-        Assert.Equal("https://textstack.app/device", pending.VerificationUri);
-        Assert.Equal("WDJB-MQXR", pending.UserCode);
-        // Returned promptly — did not wait on the (1s+) poll interval.
-        Assert.True(sw.ElapsedMilliseconds < 800, $"GetTokenAsync blocked for {sw.ElapsedMilliseconds}ms");
-    }
-
-    // ── 2. background poll: pending ×2 then 200 → later call Authorized ───────────
-
-    [Fact]
-    public async Task BackgroundPoll_PendingThenApproved_LaterCallReturnsAuthorized()
-    {
-        var access = Jwt(FutureExp);
-        var handler = new ScriptedHandler(
-        [
-            Resp(HttpStatusCode.OK,
-                """{"device_code":"DC","user_code":"UC","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=UC","expires_in":600,"interval":1}"""),
-            Resp(HttpStatusCode.BadRequest, """{"error":"authorization_pending"}"""),
-            Resp(HttpStatusCode.BadRequest, """{"error":"authorization_pending"}"""),
-            Resp(HttpStatusCode.OK,
-                $$"""{"access_token":"{{access}}","refresh_token":"RT","token_type":"Bearer"}"""),
-        ]);
-        var provider = Build(handler, TempCache());
-
-        var first = await provider.GetTokenAsync(CancellationToken.None);
-        Assert.IsType<TokenResult.Pending>(first);
-
-        await provider.WaitForBackgroundPollAsync();
-
-        var second = await provider.GetTokenAsync(CancellationToken.None);
-        var authorized = Assert.IsType<TokenResult.Authorized>(second);
-        Assert.Equal(access, authorized.AccessToken);
-
-        // device/code + 3 polls = 4 requests.
-        Assert.Equal("/auth/device/code", handler.Requests[0].RequestUri!.AbsolutePath);
-        Assert.Equal("/auth/device/token", handler.Requests[1].RequestUri!.AbsolutePath);
-    }
-
-    // ── 3. expired access + valid refresh → body-based refresh → Authorized ───────
-
-    [Fact]
-    public async Task GetTokenAsync_ExpiredAccess_ValidRefresh_RefreshesAndAuthorizes()
-    {
-        var cache = TempCache();
-        cache.Write(new CachedTokens(Jwt(PastExp), "REFRESH-ME", DateTimeOffset.UtcNow.AddHours(-1)));
-
-        var newAccess = Jwt(FutureExp);
-        var handler = new ScriptedHandler(
-        [
-            Resp(HttpStatusCode.OK, $$"""{"accessToken":"{{newAccess}}","refreshToken":"NEW-RT"}"""),
-        ]);
-        var provider = Build(handler, cache);
-
-        var result = await provider.GetTokenAsync(CancellationToken.None);
-
-        var authorized = Assert.IsType<TokenResult.Authorized>(result);
-        Assert.Equal(newAccess, authorized.AccessToken);
-
-        // Hit the body-based mobile refresh with the cached refresh token.
-        Assert.Equal("/auth/refresh-mobile", handler.Requests[0].RequestUri!.AbsolutePath);
-        var sent = JsonDocument.Parse(handler.Bodies[0]!).RootElement;
-        Assert.Equal("REFRESH-ME", sent.GetProperty("refreshToken").GetString());
-
-        File.Delete(cache.Path);
-    }
-
-    // ── 4. refresh 401 → falls through to a fresh device flow (Pending) ───────────
-
-    [Fact]
-    public async Task GetTokenAsync_RefreshRejected_FallsThroughToDeviceFlow()
-    {
-        var cache = TempCache();
-        cache.Write(new CachedTokens(Jwt(PastExp), "STALE-RT", DateTimeOffset.UtcNow.AddHours(-1)));
-
-        var handler = new ScriptedHandler(
-        [
-            // refresh-mobile → 401
-            Resp(HttpStatusCode.Unauthorized, ""),
-            // device/code
-            Resp(HttpStatusCode.OK,
-                """{"device_code":"DC","user_code":"UC2","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=UC2","expires_in":600,"interval":1}"""),
-            Resp(HttpStatusCode.BadRequest, """{"error":"authorization_pending"}"""),
-        ]);
-        var provider = Build(handler, cache);
-
-        var result = await provider.GetTokenAsync(CancellationToken.None);
-
-        var pending = Assert.IsType<TokenResult.Pending>(result);
-        Assert.Equal("UC2", pending.UserCode);
-        Assert.Equal("/auth/refresh-mobile", handler.Requests[0].RequestUri!.AbsolutePath);
-        Assert.Equal("/auth/device/code", handler.Requests[1].RequestUri!.AbsolutePath);
-
-        File.Delete(cache.Path);
-    }
-
-    // ── 5. local JWT exp decode ───────────────────────────────────────────────────
-
-    [Fact]
-    public void ReadExp_FutureExp_ParsesToFutureInstant()
-    {
-        var exp = DeviceFlowTokenProvider.ReadExp(Jwt(FutureExp));
-        Assert.NotNull(exp);
-        Assert.True(exp!.Value > DateTimeOffset.UtcNow);
-    }
-
-    [Fact]
-    public void ReadExp_PastExp_ParsesToPastInstant()
-    {
-        var exp = DeviceFlowTokenProvider.ReadExp(Jwt(PastExp));
-        Assert.NotNull(exp);
-        Assert.True(exp!.Value < DateTimeOffset.UtcNow);
-    }
-
-    [Theory]
-    [InlineData("not-a-jwt")]
-    [InlineData("only.two")]
-    [InlineData("aaa.!!!notbase64!!!.ccc")]
-    [InlineData("")]
-    public void ReadExp_Garbage_ReturnsNull_TreatedExpired(string jwt)
-    {
-        Assert.Null(DeviceFlowTokenProvider.ReadExp(jwt));
-    }
-
-    [Fact]
-    public void ReadExp_NoExpClaim_ReturnsNull()
-    {
-        static string B64Url(string s) =>
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        var jwt = $"{B64Url("{}")}.{B64Url("""{"sub":"u1"}""")}.sig";
-
-        Assert.Null(DeviceFlowTokenProvider.ReadExp(jwt));
-    }
-
-    [Fact]
-    public async Task GetTokenAsync_CachedUnexpiredAccess_ReturnsAuthorized_NoHttp()
-    {
-        var cache = TempCache();
-        var access = Jwt(FutureExp);
-        cache.Write(new CachedTokens(access, "RT", DateTimeOffset.UtcNow.AddHours(1)));
-
-        var handler = new ScriptedHandler([Resp(HttpStatusCode.InternalServerError, "")]);
-        var provider = Build(handler, cache);
-
-        var result = await provider.GetTokenAsync(CancellationToken.None);
-
-        var authorized = Assert.IsType<TokenResult.Authorized>(result);
-        Assert.Equal(access, authorized.AccessToken);
-        Assert.Empty(handler.Requests); // never touched the network
-
-        File.Delete(cache.Path);
-    }
-
-    // ── 6. TokenCache round-trip + perms ──────────────────────────────────────────
-
-    [Fact]
-    public void TokenCache_WriteThenRead_RoundTrips()
-    {
-        var cache = TempCache();
-        var tokens = new CachedTokens("AT", "RT", DateTimeOffset.UnixEpoch.AddSeconds(1_700_000_000));
-
-        cache.Write(tokens);
-        var read = cache.Read();
-
-        Assert.NotNull(read);
-        Assert.Equal("AT", read!.AccessToken);
-        Assert.Equal("RT", read.RefreshToken);
-        Assert.Equal(tokens.AccessExpiresAt, read.AccessExpiresAt);
-
-        File.Delete(cache.Path);
-    }
-
-    [Fact]
-    public void TokenCache_Write_SetsOwnerOnlyMode_OnUnix()
-    {
-        var cache = TempCache();
-        cache.Write(new CachedTokens("AT", "RT", DateTimeOffset.UtcNow));
-
-        if (!OperatingSystem.IsWindows())
-        {
-            var mode = File.GetUnixFileMode(cache.Path);
-            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, mode);
-        }
-
-        File.Delete(cache.Path);
-    }
-
-    [Fact]
-    public void TokenCache_Read_MissingFile_ReturnsNull()
-    {
-        var cache = TempCache();
-        Assert.Null(cache.Read());
-    }
-
-    [Fact]
-    public void TokenCache_Read_WorldReadableFile_IsIgnored_OnUnix()
-    {
-        if (OperatingSystem.IsWindows())
-            return; // perms model differs; covered by the owner-only test on Unix
-
-        var cache = TempCache();
-        cache.Write(new CachedTokens("AT", "RT", DateTimeOffset.UtcNow));
-        // Loosen perms to simulate a leaked secret.
-        File.SetUnixFileMode(cache.Path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.OtherRead);
-
-        // Treated as no cache (refuse a world-readable secret).
-        Assert.Null(cache.Read());
-
-        File.Delete(cache.Path);
-    }
-
-    [Fact]
-    public void TokenCache_ResolvePath_PrefersExplicitOverride()
-    {
-        Assert.Equal("/tmp/custom.json", TokenCache.ResolvePath("/tmp/custom.json"));
-    }
-
-    [Fact]
-    public void TokenCache_Read_WorldWritableFile_IsIgnored_OnUnix()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        var cache = TempCache();
-        cache.Write(new CachedTokens("AT", "RT", DateTimeOffset.UtcNow));
-        // Group-writable is just as dangerous as world-readable — refuse it too.
-        File.SetUnixFileMode(cache.Path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupWrite);
-
-        Assert.Null(cache.Read());
-
-        File.Delete(cache.Path);
-    }
-
-    // ── concurrency / single-flight ───────────────────────────────────────────────
-
-    // Many tool calls arrive at once with no creds. EXACTLY one device flow must
-    // start (one /auth/device/code, one background poller). The single-flight slot
-    // for the device-code POST is now claimed UNDER the lock BEFORE the network call,
-    // so concurrent first-callers share ONE request and all return the SAME Pending.
-    [Fact]
-    public async Task GetTokenAsync_ConcurrentFirstCallers_StartExactlyOneDeviceFlow()
-    {
-        var handler = new PathHandler(
-            _ => new HttpResponseMessage(HttpStatusCode.BadRequest)
-            {
-                Content = new StringContent(
-                    """{"error":"authorization_pending"}""", Encoding.UTF8, "application/json"),
-            });
-        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
-        var provider = new DeviceFlowTokenProvider(
-            http, TempCache(), NullLogger<DeviceFlowTokenProvider>.Instance,
-            time: null, minPollInterval: TimeSpan.FromMilliseconds(5));
-
-        // Fire 20 callers as parallel as the thread pool allows.
-        var tasks = Enumerable.Range(0, 20)
-            .Select(_ => Task.Run(() => provider.GetTokenAsync(CancellationToken.None)))
-            .ToArray();
-        var results = await Task.WhenAll(tasks);
-
-        // All callers see Pending with the SAME, non-empty user code (one flow).
-        Assert.All(results, r => Assert.IsType<TokenResult.Pending>(r));
-        var codes = results.Cast<TokenResult.Pending>().Select(p => p.UserCode).Distinct().ToList();
-        Assert.Single(codes);
-        Assert.False(string.IsNullOrEmpty(codes[0]));
-
-        // The invariant under test: exactly ONE device flow was started.
-        Assert.Equal(1, handler.DeviceCodeCount);
-    }
-
-    // A handler whose /auth/device/code POST blocks on a gate before responding, so a
-    // test can land a SECOND caller while the first POST is mid-flight and prove they
-    // share the one request. /auth/device/token always answers authorization_pending.
-    private sealed class GatedDeviceCodeHandler : HttpMessageHandler
+    // Thread-safe, answers by path: device/code → one code, device/token → pending.
+    // Optionally holds the device/code POST on a gate so a second caller lands mid-flight.
+    private sealed class PathHandler(bool gated = false) : HttpMessageHandler
     {
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -415,56 +55,20 @@ public class McpDeviceFlowTests
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (request.RequestUri!.AbsolutePath == "/auth/device/code")
+            if (request.RequestUri!.AbsolutePath != "/auth/device/code")
+                return Json(HttpStatusCode.BadRequest, Pending);
+
+            Interlocked.Increment(ref _deviceCodeCount);
+            if (gated)
             {
-                Interlocked.Increment(ref _deviceCodeCount);
                 _entered.TrySetResult();
-                await _release.Task; // block until the test lets the POST complete
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(
-                        """{"device_code":"DC","user_code":"GATED-UC","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=GATED-UC","expires_in":600,"interval":1}""",
-                        Encoding.UTF8, "application/json"),
-                };
+                await _release.Task;
             }
-            return new HttpResponseMessage(HttpStatusCode.BadRequest)
-            {
-                Content = new StringContent(
-                    """{"error":"authorization_pending"}""", Encoding.UTF8, "application/json"),
-            };
+            return Json(HttpStatusCode.OK, DeviceCode("UC"));
         }
     }
 
-    // A caller arriving WHILE the device-code POST is still in flight joins the same
-    // single-flight request: it gets the real user_code (not a half-state) and only
-    // ONE /auth/device/code is ever issued.
-    [Fact]
-    public async Task GetTokenAsync_SecondCallerDuringInFlightPost_SharesOneRequest()
-    {
-        var handler = new GatedDeviceCodeHandler();
-        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
-        var provider = new DeviceFlowTokenProvider(
-            http, TempCache(), NullLogger<DeviceFlowTokenProvider>.Instance,
-            time: null, minPollInterval: TimeSpan.FromMilliseconds(5));
-
-        // First caller starts the POST and blocks inside the handler.
-        var first = Task.Run(() => provider.GetTokenAsync(CancellationToken.None));
-        await handler.Entered; // POST is now in flight
-
-        // Second caller arrives mid-flight — must join, not start a new POST.
-        var second = Task.Run(() => provider.GetTokenAsync(CancellationToken.None));
-
-        handler.Release(); // let the shared POST complete
-        var r1 = Assert.IsType<TokenResult.Pending>(await first);
-        var r2 = Assert.IsType<TokenResult.Pending>(await second);
-
-        Assert.Equal("GATED-UC", r1.UserCode);
-        Assert.Equal("GATED-UC", r2.UserCode);
-        Assert.Equal(1, handler.DeviceCodeCount);
-    }
-
-    // A handler whose /auth/device/code POST FAILS the first time (500) then succeeds,
-    // to prove the single-flight slot is cleared on failure and the next call retries.
+    // device/code fails (500) the first time, then succeeds.
     private sealed class FlakyDeviceCodeHandler : HttpMessageHandler
     {
         private int _deviceCodeCount;
@@ -472,177 +76,15 @@ public class McpDeviceFlowTests
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (request.RequestUri!.AbsolutePath == "/auth/device/code")
-            {
-                var n = Interlocked.Increment(ref _deviceCodeCount);
-                if (n == 1)
-                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(
-                        """{"device_code":"DC","user_code":"RETRY-UC","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=RETRY-UC","expires_in":600,"interval":1}""",
-                        Encoding.UTF8, "application/json"),
-                });
-            }
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
-            {
-                Content = new StringContent(
-                    """{"error":"authorization_pending"}""", Encoding.UTF8, "application/json"),
-            });
+            if (request.RequestUri!.AbsolutePath != "/auth/device/code")
+                return Task.FromResult(Json(HttpStatusCode.BadRequest, Pending));
+            return Task.FromResult(Interlocked.Increment(ref _deviceCodeCount) == 1
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : Json(HttpStatusCode.OK, DeviceCode("RETRY-UC")));
         }
     }
 
-    // A failed device-code POST must clear the single-flight slot so a SUBSEQUENT
-    // GetTokenAsync re-initiates (issues a new /auth/device/code) instead of wedging
-    // on the faulted task.
-    [Fact]
-    public async Task GetTokenAsync_DeviceCodePostFails_ClearsSlot_LaterCallRetries()
-    {
-        var handler = new FlakyDeviceCodeHandler();
-        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
-        var provider = new DeviceFlowTokenProvider(
-            http, TempCache(), NullLogger<DeviceFlowTokenProvider>.Instance,
-            time: null, minPollInterval: TimeSpan.FromMilliseconds(5));
-
-        // First call: POST 500 → Failed (slot cleared).
-        var first = await provider.GetTokenAsync(CancellationToken.None);
-        Assert.IsType<TokenResult.Failed>(first);
-
-        // Second call: not wedged — re-initiates and gets a real Pending code.
-        var second = await provider.GetTokenAsync(CancellationToken.None);
-        Assert.Equal("RETRY-UC", Assert.IsType<TokenResult.Pending>(second).UserCode);
-        Assert.Equal(2, handler.DeviceCodeCount);
-    }
-
-    // ── lifecycle: terminal error clears in-flight so a later call re-initiates ────
-
-    [Fact]
-    public async Task BackgroundPoll_AccessDenied_ClearsInFlight_LaterCallReinitiates()
-    {
-        var handler = new ScriptedHandler(
-        [
-            Resp(HttpStatusCode.OK,
-                """{"device_code":"DC","user_code":"UC1","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=UC1","expires_in":600,"interval":1}"""),
-            // poll → access_denied (terminal)
-            Resp(HttpStatusCode.BadRequest, """{"error":"access_denied"}"""),
-            // a SECOND device/code for the later, re-initiated flow
-            Resp(HttpStatusCode.OK,
-                """{"device_code":"DC2","user_code":"UC2","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=UC2","expires_in":600,"interval":1}"""),
-            Resp(HttpStatusCode.BadRequest, """{"error":"authorization_pending"}"""),
-        ]);
-        var provider = Build(handler, TempCache());
-
-        var first = await provider.GetTokenAsync(CancellationToken.None);
-        Assert.Equal("UC1", Assert.IsType<TokenResult.Pending>(first).UserCode);
-
-        // Wait for the poll to hit access_denied and clear in-flight.
-        await provider.WaitForBackgroundPollAsync();
-
-        // A later call must NOT be wedged on the dead flow — it re-initiates.
-        var second = await provider.GetTokenAsync(CancellationToken.None);
-        Assert.Equal("UC2", Assert.IsType<TokenResult.Pending>(second).UserCode);
-    }
-
-    // ── expired_token is terminal → in-flight cleared → later call re-initiates ───
-
-    [Fact]
-    public async Task BackgroundPoll_ExpiredToken_ClearsInFlight_LaterCallReinitiates()
-    {
-        var handler = new ScriptedHandler(
-        [
-            Resp(HttpStatusCode.OK,
-                """{"device_code":"DC","user_code":"UC1","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=UC1","expires_in":600,"interval":1}"""),
-            // poll → expired_token (terminal)
-            Resp(HttpStatusCode.BadRequest, """{"error":"expired_token"}"""),
-            // second device/code for the re-initiated flow
-            Resp(HttpStatusCode.OK,
-                """{"device_code":"DC2","user_code":"UC2","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code=UC2","expires_in":600,"interval":1}"""),
-            Resp(HttpStatusCode.BadRequest, """{"error":"authorization_pending"}"""),
-        ]);
-        var provider = Build(handler, TempCache());
-
-        var first = await provider.GetTokenAsync(CancellationToken.None);
-        Assert.IsType<TokenResult.Pending>(first);
-        await provider.WaitForBackgroundPollAsync();
-
-        // expired_token is terminal → in-flight cleared → re-initiate (new code).
-        var second = await provider.GetTokenAsync(CancellationToken.None);
-        Assert.Equal("UC2", Assert.IsType<TokenResult.Pending>(second).UserCode);
-    }
-
-    // ── refresh rotation: the NEW refresh token is cached ─────────────────────────
-
-    [Fact]
-    public async Task GetTokenAsync_Refresh_PersistsRotatedRefreshToken()
-    {
-        var cache = TempCache();
-        cache.Write(new CachedTokens(Jwt(PastExp), "OLD-RT", DateTimeOffset.UtcNow.AddHours(-1)));
-
-        var newAccess = Jwt(FutureExp);
-        var handler = new ScriptedHandler(
-        [
-            Resp(HttpStatusCode.OK, $$"""{"accessToken":"{{newAccess}}","refreshToken":"ROTATED-RT"}"""),
-        ]);
-        var provider = Build(handler, cache);
-
-        await provider.GetTokenAsync(CancellationToken.None);
-
-        // The rotated refresh token must be persisted (not the stale one).
-        var persisted = cache.Read();
-        Assert.NotNull(persisted);
-        Assert.Equal("ROTATED-RT", persisted!.RefreshToken);
-        Assert.Equal(newAccess, persisted.AccessToken);
-
-        File.Delete(cache.Path);
-    }
-
-    // ── refresh response without a new refresh token keeps the old one ────────────
-
-    [Fact]
-    public async Task GetTokenAsync_Refresh_NoNewRefreshToken_KeepsOld()
-    {
-        var cache = TempCache();
-        cache.Write(new CachedTokens(Jwt(PastExp), "KEEP-RT", DateTimeOffset.UtcNow.AddHours(-1)));
-
-        var newAccess = Jwt(FutureExp);
-        var handler = new ScriptedHandler(
-        [
-            // Server omits refreshToken on refresh — provider must keep the old one.
-            Resp(HttpStatusCode.OK, $$"""{"accessToken":"{{newAccess}}"}"""),
-        ]);
-        var provider = Build(handler, cache);
-
-        await provider.GetTokenAsync(CancellationToken.None);
-
-        var persisted = cache.Read();
-        Assert.NotNull(persisted);
-        Assert.Equal("KEEP-RT", persisted!.RefreshToken);
-
-        File.Delete(cache.Path);
-    }
-
-    // ── cancellation propagates (not swallowed into Pending/Failed) ───────────────
-
-    [Fact]
-    public async Task GetTokenAsync_CallerCancelled_DuringRefresh_Propagates()
-    {
-        var cache = TempCache();
-        cache.Write(new CachedTokens(Jwt(PastExp), "RT", DateTimeOffset.UtcNow.AddHours(-1)));
-
-        using var cts = new CancellationTokenSource();
-        // Handler that observes cancellation and throws OCE bound to the token.
-        var handler = new CancelObservingHandler(cts);
-        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
-        var provider = new DeviceFlowTokenProvider(
-            http, cache, NullLogger<DeviceFlowTokenProvider>.Instance,
-            time: null, minPollInterval: TimeSpan.FromMilliseconds(5));
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => provider.GetTokenAsync(cts.Token));
-
-        File.Delete(cache.Path);
-    }
-
+    // Cancels the caller's token as the request goes out, then observes it.
     private sealed class CancelObservingHandler(CancellationTokenSource cts) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -653,26 +95,304 @@ public class McpDeviceFlowTests
         }
     }
 
-    // ── base64url payload without '=' padding decodes (exp still read) ────────────
+    private const string Pending = """{"error":"authorization_pending"}""";
+
+    private static string DeviceCode(string userCode, string deviceCode = "DC") =>
+        $$"""{"device_code":"{{deviceCode}}","user_code":"{{userCode}}","verification_uri":"https://x/device","verification_uri_complete":"https://x/device?code={{userCode}}","expires_in":600,"interval":1}""";
+
+    private static HttpResponseMessage Json(HttpStatusCode status, string json) =>
+        new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    private static Func<HttpRequestMessage, HttpResponseMessage> Resp(HttpStatusCode status, string json) =>
+        _ => Json(status, json);
+
+    private static DeviceFlowTokenProvider Build(
+        HttpMessageHandler handler, TokenCache cache, ILogger<DeviceFlowTokenProvider>? logger = null)
+    {
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example/") };
+        http.DefaultRequestHeaders.Host = SiteHost;
+        return new DeviceFlowTokenProvider(
+            http, cache, logger ?? NullLogger<DeviceFlowTokenProvider>.Instance,
+            time: null, minPollInterval: TimeSpan.FromMilliseconds(5));
+    }
+
+    // Every token file a test creates is deleted even when the test fails.
+    private readonly List<string> _tempFiles = [];
+
+    private TokenCache TempCache()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "ts-mcp-" + Guid.NewGuid().ToString("N") + ".json");
+        _tempFiles.Add(path);
+        return new TokenCache(path);
+    }
+
+    public void Dispose() => _tempFiles.ForEach(File.Delete);
+
+    private static string B64Url(string s) =>
+        Convert.ToBase64String(Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    // Hand-crafted UNSIGNED JWT with an exp claim.
+    private static string Jwt(long expUnix, string sub = "u1") =>
+        $"{B64Url("""{"alg":"none","typ":"JWT"}""")}.{B64Url($$"""{"sub":"{{sub}}","exp":{{expUnix}}}""")}.sig";
+
+    private static string JwtIn(TimeSpan fromNow) => Jwt(DateTimeOffset.UtcNow.Add(fromNow).ToUnixTimeSeconds());
 
     [Fact]
-    public void ReadExp_Base64UrlPayloadNoPadding_DecodesExp()
+    public async Task GetTokenAsync_FirstSignIn_ShowsCodeAtOnceThenAuthorizesOnceApproved()
     {
-        // Build a payload whose base64url length forces a non-zero %4 remainder
-        // (no '=' padding present) to exercise Base64UrlDecode's padding logic.
-        var exp = DeviceFlowTokenProvider.ReadExp(Jwt(FutureExp));
-        Assert.NotNull(exp);
+        var access = JwtIn(TimeSpan.FromHours(1));
+        var handler = new ScriptedHandler(
+        [
+            Resp(HttpStatusCode.OK, DeviceCode("WDJB-MQXR", deviceCode: "SECRET-DC")),
+            Resp(HttpStatusCode.BadRequest, Pending),
+            Resp(HttpStatusCode.BadRequest, Pending),
+            Resp(HttpStatusCode.OK, $$"""{"access_token":"{{access}}","refresh_token":"SECRET-RT","token_type":"Bearer"}"""),
+        ]);
+        var cache = TempCache();
+        var logger = new CapturingLogger<DeviceFlowTokenProvider>();
+        var provider = Build(handler, cache, logger);
+
+        var first = await provider.GetTokenAsync(CancellationToken.None);
+        var pending = Assert.IsType<TokenResult.Pending>(first);
+        Assert.Equal("https://x/device", pending.VerificationUri);
+        Assert.Equal("WDJB-MQXR", pending.UserCode);
+
+        await provider.WaitForBackgroundPollAsync();
+
+        var second = await provider.GetTokenAsync(CancellationToken.None);
+        Assert.Equal(access, Assert.IsType<TokenResult.Authorized>(second).AccessToken);
+        Assert.Equal(
+            ["/auth/device/code", "/auth/device/token", "/auth/device/token", "/auth/device/token"],
+            handler.Requests.Select(r => r.RequestUri!.AbsolutePath));
+        Assert.Contains("SECRET-DC", handler.Bodies[1]);
+
+        // The approved tokens are on disk, readable by the owner only.
+        var saved = cache.Read();
+        Assert.NotNull(saved);
+        Assert.Equal(access, saved!.AccessToken);
+        Assert.Equal("SECRET-RT", saved.RefreshToken);
+        if (!OperatingSystem.IsWindows())
+            Assert.Equal(OwnerOnly, File.GetUnixFileMode(cache.Path));
+
+        // The log tells the reader where to go, and never carries a secret.
+        var logs = logger.Entries.Select(e => e.Message).ToList();
+        Assert.Contains(logs, m => m.Contains("https://x/device") && m.Contains("WDJB-MQXR"));
+        Assert.DoesNotContain(logs, m => m.Contains("SECRET-DC") || m.Contains("SECRET-RT") || m.Contains(access));
     }
 
     [Fact]
-    public void ReadExp_ExpAsNumericString_Parses()
+    public async Task GetTokenAsync_FirstSignIn_AnswersWithoutWaitingForApproval()
     {
-        static string B64Url(string s) =>
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        var future = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
-        var jwt = $"{B64Url("{}")}.{B64Url($$"""{"exp":"{{future}}"}""")}.sig";
+        var handler = new ScriptedHandler(
+        [
+            Resp(HttpStatusCode.OK, DeviceCode("UC")),
+            Resp(HttpStatusCode.BadRequest, Pending),
+        ]);
+        var provider = Build(handler, TempCache());
 
-        var exp = DeviceFlowTokenProvider.ReadExp(jwt);
-        Assert.NotNull(exp);
+        // The tool call never waits on the (1s) poll for the reader approving in a browser.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await provider.GetTokenAsync(CancellationToken.None);
+        sw.Stop();
+
+        Assert.IsType<TokenResult.Pending>(result);
+        Assert.True(sw.ElapsedMilliseconds < 800, $"GetTokenAsync blocked for {sw.ElapsedMilliseconds}ms");
+    }
+
+    // 60s left is outside the 30s refresh margin.
+    [Theory]
+    [InlineData(3600)]
+    [InlineData(60)]
+    public async Task GetTokenAsync_SavedSignInStillValid_UsedWithoutNetwork(int expiresIn)
+    {
+        var cache = TempCache();
+        var access = JwtIn(TimeSpan.FromSeconds(expiresIn));
+        cache.Write(new CachedTokens(access, "OLD-RT", DateTimeOffset.UtcNow.AddSeconds(expiresIn)));
+        var handler = new ScriptedHandler([Resp(HttpStatusCode.InternalServerError, "")]);
+        var provider = Build(handler, cache);
+
+        var result = await provider.GetTokenAsync(CancellationToken.None);
+
+        Assert.Equal(access, Assert.IsType<TokenResult.Authorized>(result).AccessToken);
+        Assert.Empty(handler.Requests);
+    }
+
+    // expiresIn is the saved access token's lifetime; 20s is inside the 30s refresh margin.
+    [Theory]
+    [InlineData(20, "ROTATED-RT", "ROTATED-RT")]
+    [InlineData(-3600, "ROTATED-RT", "ROTATED-RT")]
+    [InlineData(-3600, null, "OLD-RT")]
+    public async Task GetTokenAsync_SavedSignInNearExpiry_RefreshedAndSaved(
+        int expiresIn, string? serverRefreshToken, string expectedSavedRefreshToken)
+    {
+        var cache = TempCache();
+        var oldAccess = JwtIn(TimeSpan.FromSeconds(expiresIn));
+        cache.Write(new CachedTokens(oldAccess, "OLD-RT", DateTimeOffset.UtcNow.AddSeconds(expiresIn)));
+
+        var newAccess = JwtIn(TimeSpan.FromHours(1));
+        var refreshBody = serverRefreshToken is null
+            ? $$"""{"accessToken":"{{newAccess}}"}"""
+            : $$"""{"accessToken":"{{newAccess}}","refreshToken":"{{serverRefreshToken}}"}""";
+        var handler = new ScriptedHandler([Resp(HttpStatusCode.OK, refreshBody)]);
+        var provider = Build(handler, cache);
+
+        var result = await provider.GetTokenAsync(CancellationToken.None);
+
+        Assert.Equal(newAccess, Assert.IsType<TokenResult.Authorized>(result).AccessToken);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("/auth/refresh-mobile", request.RequestUri!.AbsolutePath);
+        Assert.Equal("OLD-RT", JsonDocument.Parse(handler.Bodies[0]!).RootElement.GetProperty("refreshToken").GetString());
+
+        var saved = cache.Read();
+        Assert.NotNull(saved);
+        Assert.Equal(newAccess, saved!.AccessToken);
+        Assert.Equal(expectedSavedRefreshToken, saved.RefreshToken);
+    }
+
+    [Fact]
+    public async Task GetTokenAsync_RefreshTokenRevoked_StartsNewSignIn()
+    {
+        var cache = TempCache();
+        cache.Write(new CachedTokens(JwtIn(TimeSpan.FromHours(-1)), "STALE-RT", DateTimeOffset.UtcNow.AddHours(-1)));
+        var handler = new ScriptedHandler(
+        [
+            Resp(HttpStatusCode.Unauthorized, ""),
+            Resp(HttpStatusCode.OK, DeviceCode("UC2")),
+            Resp(HttpStatusCode.BadRequest, Pending),
+        ]);
+        var provider = Build(handler, cache);
+
+        var result = await provider.GetTokenAsync(CancellationToken.None);
+
+        Assert.Equal("UC2", Assert.IsType<TokenResult.Pending>(result).UserCode);
+        Assert.Equal("/auth/refresh-mobile", handler.Requests[0].RequestUri!.AbsolutePath);
+        Assert.Equal("/auth/device/code", handler.Requests[1].RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task GetTokenAsync_CallerCancelledDuringRefresh_Propagates()
+    {
+        var cache = TempCache();
+        cache.Write(new CachedTokens(JwtIn(TimeSpan.FromHours(-1)), "RT", DateTimeOffset.UtcNow.AddHours(-1)));
+        using var cts = new CancellationTokenSource();
+        var provider = Build(new CancelObservingHandler(cts), cache);
+
+        // Not swallowed into Pending / Failed.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.GetTokenAsync(cts.Token));
+    }
+
+    [Theory]
+    [InlineData("access_denied")]
+    [InlineData("expired_token")]
+    public async Task BackgroundPoll_SignInRefused_NextCallStartsFreshSignIn(string terminalError)
+    {
+        var handler = new ScriptedHandler(
+        [
+            Resp(HttpStatusCode.OK, DeviceCode("UC1")),
+            Resp(HttpStatusCode.BadRequest, $$"""{"error":"{{terminalError}}"}"""),
+            Resp(HttpStatusCode.OK, DeviceCode("UC2", deviceCode: "DC2")),
+            Resp(HttpStatusCode.BadRequest, Pending),
+        ]);
+        var provider = Build(handler, TempCache());
+
+        var first = await provider.GetTokenAsync(CancellationToken.None);
+        Assert.Equal("UC1", Assert.IsType<TokenResult.Pending>(first).UserCode);
+        await provider.WaitForBackgroundPollAsync();
+
+        // Not wedged on the dead flow: a new code.
+        var second = await provider.GetTokenAsync(CancellationToken.None);
+        Assert.Equal("UC2", Assert.IsType<TokenResult.Pending>(second).UserCode);
+    }
+
+    [Fact]
+    public async Task GetTokenAsync_DeviceCodeRequestFails_ReportsFailureAndRetriesNextCall()
+    {
+        var handler = new FlakyDeviceCodeHandler();
+        var provider = Build(handler, TempCache());
+
+        var first = await provider.GetTokenAsync(CancellationToken.None);
+        Assert.Contains("could not reach TextStack", Assert.IsType<TokenResult.Failed>(first).Message);
+
+        var second = await provider.GetTokenAsync(CancellationToken.None);
+        Assert.Equal("RETRY-UC", Assert.IsType<TokenResult.Pending>(second).UserCode);
+        Assert.Equal(2, handler.DeviceCodeCount);
+    }
+
+    [Fact]
+    public async Task GetTokenAsync_ConcurrentFirstCallers_StartExactlyOneDeviceFlow()
+    {
+        var handler = new PathHandler();
+        var provider = Build(handler, TempCache());
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 20)
+            .Select(_ => Task.Run(() => provider.GetTokenAsync(CancellationToken.None))));
+
+        Assert.All(results, r => Assert.IsType<TokenResult.Pending>(r));
+        var codes = results.Cast<TokenResult.Pending>().Select(p => p.UserCode).Distinct().ToList();
+        Assert.Equal("UC", Assert.Single(codes));
+        Assert.Equal(1, handler.DeviceCodeCount);
+    }
+
+    [Fact]
+    public async Task GetTokenAsync_SecondCallerDuringInFlightPost_SharesOneRequest()
+    {
+        var handler = new PathHandler(gated: true);
+        var provider = Build(handler, TempCache());
+
+        var first = Task.Run(() => provider.GetTokenAsync(CancellationToken.None));
+        await handler.Entered; // POST is in flight
+        var second = Task.Run(() => provider.GetTokenAsync(CancellationToken.None));
+        handler.Release();
+
+        Assert.Equal("UC", Assert.IsType<TokenResult.Pending>(await first).UserCode);
+        Assert.Equal("UC", Assert.IsType<TokenResult.Pending>(await second).UserCode);
+        Assert.Equal(1, handler.DeviceCodeCount);
+    }
+
+    // 4102444800 = 2100-01-01, 946684800 = 2000-01-01. "%4" = unpadded base64url payload
+    // length mod 4, i.e. which padding Base64UrlDecode restores. Null = unreadable → expired.
+    public static TheoryData<string, long?> TokenShapes => new()
+    {
+        { Jwt(4102444800, sub: "u12"), 4102444800 }, // %4 == 0, no padding
+        { Jwt(4102444800), 4102444800 }, // %4 == 3, one "=" restored
+        { Jwt(946684800), 946684800 }, // %4 == 2, "==" restored
+        { $"{B64Url("{}")}.{B64Url("""{"exp":"4102444800"}""")}.sig", 4102444800 }, // exp as a numeric string
+        { $"{B64Url("{}")}.{B64Url("""{"sub":"u1"}""")}.sig", null },
+        { $"{B64Url("{}")}.{B64Url("""{"exp":true}""")}.sig", null },
+        { "not-a-jwt", null },
+        { "only.two", null },
+        { "aaa.!!!notbase64!!!.ccc", null },
+        { "", null },
+    };
+
+    [Theory]
+    [MemberData(nameof(TokenShapes))]
+    public void ReadExp_TokenShapes_ReadsExpiryOrNull(string jwt, long? expectedExp)
+    {
+        Assert.Equal(expectedExp, DeviceFlowTokenProvider.ReadExp(jwt)?.ToUnixTimeSeconds());
+    }
+
+    [Theory]
+    [InlineData(UnixFileMode.OtherRead)]
+    [InlineData(UnixFileMode.GroupWrite)]
+    public void TokenCache_SavedTokens_OwnerOnlyAndLooseFileRefused(UnixFileMode loosened)
+    {
+        Assert.Equal("/tmp/custom.json", TokenCache.ResolvePath("/tmp/custom.json"));
+
+        var cache = TempCache();
+        Assert.Null(cache.Read()); // nothing saved yet
+
+        var tokens = new CachedTokens("AT", "RT", DateTimeOffset.UnixEpoch.AddSeconds(1_700_000_000));
+        cache.Write(tokens);
+        Assert.Equal(tokens, cache.Read());
+
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Equal(OwnerOnly, File.GetUnixFileMode(cache.Path));
+
+            // A file others can read or write may have leaked: re-sign-in instead.
+            File.SetUnixFileMode(cache.Path, OwnerOnly | loosened);
+            Assert.Null(cache.Read());
+        }
     }
 }
