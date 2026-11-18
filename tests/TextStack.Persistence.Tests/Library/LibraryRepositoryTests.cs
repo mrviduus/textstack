@@ -14,104 +14,84 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
 
     private static BookMetadata Metadata(string title) => new(title, "An author", "en", "About it", "fiction", 1999, ["classic"]);
 
+    private static BookChapter Chapter(string key, int number, int? words) => new()
+    {
+        Id = Guid.NewGuid(),
+        ChapterKey = key,
+        ChapterNumber = number,
+        Title = key,
+        Html = "<p>x</p>",
+        PlainText = "x",
+        WordCount = words,
+    };
+
     [Fact]
-    public async Task ImportAsync_NewBook_StoresBookWithItsCurrentFile()
+    public async Task ImportAsync_ReaderImportsABookThenSendsTheImportAgain_GetsTheSameBookBack()
     {
         var user = await db.NewReaderAsync();
         var book = new Book { Id = Guid.NewGuid(), Title = "A book", Tags = ["fiction"] };
         var file = NewFile(user, book.Id);
 
-        var result = await _repo.ImportAsync(user, book, file, Ct);
+        var created = await _repo.ImportAsync(user, book, file, Ct);
 
-        Assert.Equal(ImportOutcome.Created, result.Outcome);
+        Assert.Equal(ImportOutcome.Created, created.Outcome);
         var read = (await _repo.GetAsync(user, book.Id, Ct))!;
         Assert.Equal((book.Id, "A book", (DateTimeOffset?)null, 1L), (read.Id, read.Title, read.RemovedAt, read.Revision));
         Assert.Equal(["fiction"], read.Tags);
         Assert.Equal((file.Id, user, book.Id, file.Sha256, true), (read.CurrentFile!.Id, read.CurrentFile.UserId,
             read.CurrentFile.BookId, read.CurrentFile.Sha256, read.CurrentFile.IsCurrent));
-        Assert.Equal(result.Book!.CurrentFile!.Id, read.CurrentFile.Id);
-    }
+        Assert.Equal(created.Book!.CurrentFile!.Id, read.CurrentFile.Id);
 
-    [Fact]
-    public async Task ImportAsync_FileClaimingAnotherBook_Throws()
-    {
-        var user = await db.NewReaderAsync();
-        var book = new Book { Id = Guid.NewGuid(), Title = "A book" };
-
-        await Assert.ThrowsAsync<ArgumentException>(() => _repo.ImportAsync(user, book, NewFile(user, Guid.NewGuid()), Ct));
-        Assert.Null(await _repo.GetAsync(user, book.Id, Ct));
-    }
-
-    [Fact]
-    public async Task ImportAsync_SameImportAgain_ReplaysTheStoredBook()
-    {
-        var book = await db.NewReaderWithBookAsync();
-
-        var replay = await _repo.ImportAsync(book.UserId, new Book { Id = book.Id, Title = "renamed" }, book.CurrentFile!, Ct);
-
+        // A retry replays the stored book; the retry's own fields do not overwrite it.
+        var replay = await _repo.ImportAsync(user, new Book { Id = book.Id, Title = "renamed" }, file, Ct);
         Assert.Equal((ImportOutcome.Replayed, "A book"), (replay.Outcome, replay.Book!.Title));
-        Assert.Equal(1L, await db.CountAsync("books", book.UserId));
-    }
-
-    [Fact]
-    public async Task ImportAsync_ReplayAfterAReplacement_ReplaysTheStoredBook()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var replaced = await db.ReplaceFileAsync(book);
-
-        var replay = await _repo.ImportAsync(book.UserId, new Book { Id = book.Id, Title = "A book" }, book.CurrentFile!, Ct);
+        Assert.Equal(1L, await db.CountAsync("books", user));
 
         // The superseded file is still a version of the book: not an id_conflict that would mint a duplicate book.
-        Assert.Equal((ImportOutcome.Replayed, replaced.Current!.Id), (replay.Outcome, replay.Book!.CurrentFile!.Id));
+        var replaced = await db.ReplaceFileAsync(read);
+        var late = await _repo.ImportAsync(user, new Book { Id = book.Id, Title = "A book" }, file, Ct);
+        Assert.Equal((ImportOutcome.Replayed, replaced.Current!.Id), (late.Outcome, late.Book!.CurrentFile!.Id));
     }
 
     [Fact]
-    public async Task ImportAsync_OwnBookIdWithAFileThatIsNotItsVersion_IsIdConflict()
+    public async Task ImportAsync_IdsThatBelongToSomethingElse_AreRefusedAndStoreNothing()
     {
         var book = await db.NewReaderWithBookAsync();
+        var user = book.UserId;
 
-        var result = await _repo.ImportAsync(book.UserId, new Book { Id = book.Id, Title = "A book" }, NewFile(book.UserId, book.Id), Ct);
+        // A file that claims another book is a caller bug.
+        var orphan = new Book { Id = Guid.NewGuid(), Title = "A book" };
+        await Assert.ThrowsAsync<ArgumentException>(() => _repo.ImportAsync(user, orphan, NewFile(user, Guid.NewGuid()), Ct));
+        Assert.Null(await _repo.GetAsync(user, orphan.Id, Ct));
 
-        Assert.Equal((ImportOutcome.IdConflict, (Book?)null), (result.Outcome, result.Book));
-        Assert.Equal(1L, await db.CountAsync("book_files", book.UserId, book.Id));
+        // The reader's own book id with a file that is not one of its versions.
+        var sameId = await _repo.ImportAsync(user, new Book { Id = book.Id, Title = "A book" }, NewFile(user, book.Id), Ct);
+        Assert.Equal((ImportOutcome.IdConflict, (Book?)null), (sameId.Outcome, sameId.Book));
+        Assert.Equal(1L, await db.CountAsync("book_files", user, book.Id));
+
+        // A new book id with the file id of an existing book.
+        var newId = Guid.NewGuid();
+        var file = NewFile(user, newId);
+        file.Id = book.CurrentFile!.Id;
+        Assert.Equal(ImportOutcome.IdConflict, (await _repo.ImportAsync(user, new Book { Id = newId, Title = "A book" }, file, Ct)).Outcome);
+        Assert.Null(await _repo.GetAsync(user, newId, Ct));
     }
 
     [Fact]
-    public async Task ImportAsync_FileIdOfAnotherBook_IsIdConflictAndStoresNothing()
-    {
-        var other = await db.NewReaderWithBookAsync();
-        var bookId = Guid.NewGuid();
-        var file = NewFile(other.UserId, bookId);
-        file.Id = other.CurrentFile!.Id;
-
-        var result = await _repo.ImportAsync(other.UserId, new Book { Id = bookId, Title = "A book" }, file, Ct);
-
-        Assert.Equal(ImportOutcome.IdConflict, result.Outcome);
-        Assert.Null(await _repo.GetAsync(other.UserId, bookId, Ct));
-    }
-
-    [Fact]
-    public async Task ImportAsync_BytesOfALiveBook_IsDuplicateFileWithThatBook()
+    public async Task ImportAsync_BytesAlreadyInTheLibrary_AreADuplicateUntilThatBookIsRemoved()
     {
         var first = await db.NewReaderWithBookAsync();
-        var bookId = Guid.NewGuid();
+        var (user, sha256) = (first.UserId, first.CurrentFile!.Sha256);
+        var again = Guid.NewGuid();
 
-        var result = await _repo.ImportAsync(first.UserId, new Book { Id = bookId, Title = "Again" }, NewFile(first.UserId, bookId, first.CurrentFile!.Sha256), Ct);
+        var duplicate = await _repo.ImportAsync(user, new Book { Id = again, Title = "Again" }, NewFile(user, again, sha256), Ct);
 
-        Assert.Equal((ImportOutcome.DuplicateFile, first.Id), (result.Outcome, result.Book!.Id));
-        Assert.Null(await _repo.GetAsync(first.UserId, bookId, Ct));
-    }
+        Assert.Equal((ImportOutcome.DuplicateFile, first.Id), (duplicate.Outcome, duplicate.Book!.Id));
+        Assert.Null(await _repo.GetAsync(user, again, Ct));
 
-    [Fact]
-    public async Task ImportAsync_BytesOfARemovedBook_ImportsANewBook()
-    {
-        var removed = await db.NewReaderWithBookAsync();
-        await _repo.RemoveAsync(removed.UserId, removed.Id, Ct);
-        var bookId = Guid.NewGuid();
-
-        var result = await _repo.ImportAsync(removed.UserId, new Book { Id = bookId, Title = "Again" }, NewFile(removed.UserId, bookId, removed.CurrentFile!.Sha256), Ct);
-
-        Assert.Equal(ImportOutcome.Created, result.Outcome);
+        await _repo.RemoveAsync(user, first.Id, Ct);
+        Assert.Null(await _repo.FindBySha256Async(user, sha256, Ct));
+        Assert.Equal(ImportOutcome.Created, (await _repo.ImportAsync(user, new Book { Id = again, Title = "Again" }, NewFile(user, again, sha256), Ct)).Outcome);
     }
 
     [Fact]
@@ -141,344 +121,188 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task UpdateMetadataAsync_MatchingRevision_WritesEveryFieldAndBumpsRevisionAndUpdatedAt()
+    public async Task UpdateMetadataAsync_ReaderEditsTheBookFromTwoDevices_FirstEditWinsTheStaleOneGetsTheStoredBook()
     {
         var book = await db.NewReaderWithBookAsync();
 
-        var result = await _repo.UpdateMetadataAsync(book.UserId, book.Id, Metadata("Renamed"), 1, Ct);
+        var first = await _repo.UpdateMetadataAsync(book.UserId, book.Id, Metadata("Renamed"), 1, Ct);
 
-        Assert.True(result.Accepted);
+        Assert.True(first.Accepted);
         var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
         Assert.Equal(("Renamed", "An author", "en", "About it", "fiction", 1999, 2L),
             (read.Title, read.Author, read.Language, read.Description, read.Genre, read.PublishedYear, read.Revision));
         Assert.Equal(["classic"], read.Tags);
         Assert.True(read.UpdatedAt > book.UpdatedAt);
-        Assert.Equal(book.CurrentFile!.Id, result.Current!.CurrentFile!.Id);
-    }
-
-    [Fact]
-    public async Task UpdateMetadataAsync_StaleRevision_LosesAndReturnsTheStoredBook()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.UpdateMetadataAsync(book.UserId, book.Id, Metadata("First edit"), 1, Ct);
+        Assert.Equal(book.CurrentFile!.Id, first.Current!.CurrentFile!.Id);
 
         var stale = await _repo.UpdateMetadataAsync(book.UserId, book.Id, Metadata("Second edit"), 1, Ct);
-
         Assert.False(stale.Accepted);
-        Assert.Equal(("First edit", 2L), (stale.Current!.Title, stale.Current.Revision));
+        Assert.Equal(("Renamed", 2L), (stale.Current!.Title, stale.Current.Revision));
+
+        // Saving checkpoints is a setting, not an edit: writing the stored value touches nothing.
+        var setting = (await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, false, Ct))!;
+        Assert.Equal((false, read.UpdatedAt), (setting.CheckpointSavingEnabled, setting.UpdatedAt));
     }
 
     [Fact]
-    public async Task SetCheckpointSavingAsync_OwnRemovedBook_FlipsItAndBumpsUpdatedAtNotRevision()
+    public async Task RemoveAsync_ReaderRemovesABookThenRestoresIt_TheRemovedBookIsKeptButRefusesEdits()
     {
         var book = await db.NewReaderWithBookAsync();
-        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
-        var removed = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
+        var user = book.UserId;
 
-        var written = (await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, true, Ct))!;
+        Assert.True(await _repo.RemoveAsync(user, book.Id, Ct));
+        Assert.False(await _repo.RemoveAsync(user, book.Id, Ct));
+        Assert.Empty(await _repo.ListAsync(user, Ct));
+        var removed = (await _repo.GetAsync(user, book.Id, Ct))!;
+        Assert.NotNull(removed.RemovedAt);
+        Assert.True(await _repo.ExistsAsync(user, book.Id, Ct));
+        Assert.False(await _repo.ExistsAsync(user, Guid.NewGuid(), Ct));
 
-        var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
-        Assert.Equal((true, 1L, book.CurrentFile!.Id), (read.CheckpointSavingEnabled, read.Revision, written.CurrentFile!.Id));
+        var edit = await _repo.UpdateMetadataAsync(user, book.Id, Metadata("Renamed"), 1, Ct);
+        Assert.False(edit.Accepted);
+        Assert.Equal(("A book", 1L), (edit.Current!.Title, edit.Current.Revision));
+        Assert.NotNull(edit.Current.RemovedAt);
+
+        var replace = await _repo.ReplaceFileAsync(user, book.Id, NewFile(user, book.Id), book.CurrentFile!.Id, null, Ct);
+        Assert.Equal((FileReplaceOutcome.BookRemoved, book.Id), (replace.Outcome, replace.Book!.Id));
+        Assert.Equal(book.CurrentFile.Id, (await _repo.GetAsync(user, book.Id, Ct))!.CurrentFile!.Id);
+
+        // The setting still flips on a removed book: UpdatedAt moves, the revision does not.
+        var written = (await _repo.SetCheckpointSavingAsync(user, book.Id, true, Ct))!;
+        var read = (await _repo.GetAsync(user, book.Id, Ct))!;
+        Assert.Equal((true, 1L, book.CurrentFile.Id), (read.CheckpointSavingEnabled, read.Revision, written.CurrentFile!.Id));
         Assert.Equal((true, read.UpdatedAt), (written.CheckpointSavingEnabled, written.UpdatedAt));
         Assert.True(read.UpdatedAt > removed.UpdatedAt);
+
+        Assert.True(await _repo.RestoreAsync(user, book.Id, Ct));
+        Assert.Equal(book.Id, Assert.Single(await _repo.ListAsync(user, Ct)).Id);
+        Assert.False(await _repo.RestoreAsync(user, book.Id, Ct));
     }
 
     [Fact]
-    public async Task SetCheckpointSavingAsync_TheValueAlreadyStored_LeavesUpdatedAt()
-    {
-        var book = await db.NewReaderWithBookAsync();
-
-        var written = (await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, false, Ct))!;
-
-        Assert.Equal((false, book.UpdatedAt), (written.CheckpointSavingEnabled, written.UpdatedAt));
-    }
-
-    [Fact]
-    public async Task FileFormatAsync_SupersededVersionAnotherBooksFileAndAnotherUser_AreFormatNullNull()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var (superseded, format) = (book.CurrentFile!.Id, book.CurrentFile.Format);
-        await db.ReplaceFileAsync(book);
-        var other = await db.NewBookAsync(book.UserId, "Another book");
-
-        Assert.Equal(format, await _repo.FileFormatAsync(book.UserId, book.Id, superseded, Ct));
-        Assert.Null(await _repo.FileFormatAsync(book.UserId, book.Id, other.CurrentFile!.Id, Ct));
-        Assert.Null(await _repo.FileFormatAsync(await db.NewReaderAsync(), book.Id, superseded, Ct));
-    }
-
-    [Fact]
-    public async Task SetCheckpointSavingAsync_AnotherUsersBook_IsNullAndChangesNothing()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var other = await db.NewReaderAsync();
-
-        Assert.Null(await _repo.SetCheckpointSavingAsync(other, book.Id, true, Ct));
-
-        var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
-        Assert.Equal((false, book.UpdatedAt), (read.CheckpointSavingEnabled, read.UpdatedAt));
-    }
-
-    [Fact]
-    public async Task ExistsAsync_RemovedBookAndAnUnknownId_AreTrueAndFalse()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
-
-        Assert.True(await _repo.ExistsAsync(book.UserId, book.Id, Ct));
-        Assert.False(await _repo.ExistsAsync(book.UserId, Guid.NewGuid(), Ct));
-    }
-
-    [Fact]
-    public async Task GetFileAsync_SupersededVersion_ReturnsIt()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await db.ReplaceFileAsync(book);
-
-        var old = await _repo.GetFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
-
-        Assert.Equal((book.CurrentFile.Id, false), (old!.Id, old.IsCurrent));
-    }
-
-    [Fact]
-    public async Task GetFileAsync_FileOfAnotherBook_ReturnsNull()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var other = await db.NewBookAsync(book.UserId);
-
-        Assert.Null(await _repo.GetFileAsync(book.UserId, book.Id, other.CurrentFile!.Id, Ct));
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_RemovedAndLiveBooks_ReturnsBothInUpdateOrderWithCurrentFiles()
-    {
-        var first = await db.NewReaderWithBookAsync();
-        var second = await db.NewBookAsync(first.UserId);
-        await _repo.RemoveAsync(first.UserId, first.Id, Ct); // now the later of the two
-
-        var all = await _repo.ListChangedAsync(first.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct);
-        var page = await _repo.ListChangedAsync(first.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 1, Ct);
-        var after = await _repo.ListChangedAsync(first.UserId, all[0].UpdatedAt, all[0].Id, 10, Ct);
-
-        Assert.Equal([second.Id, first.Id], all.Select(b => b.Id));
-        Assert.NotNull(all[1].RemovedAt);
-        Assert.All(all, b => Assert.NotNull(b.CurrentFile));
-        Assert.Equal(second.Id, Assert.Single(page).Id);
-        Assert.Equal(first.Id, Assert.Single(after).Id);
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_JobFinishedAfterACursor_BookReentersThePullWithTheNewStatusAndSameRevision()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var jobs = new IngestionJobRepository(db.DataSource);
-        var job = await jobs.EnqueueAsync(book.UserId, book.Id, book.CurrentFile!.Id, Ct);
-        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'processing', attempt_count = 1 WHERE id = @id", new { id = job.Id });
-        var before = Assert.Single(await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
-
-        Assert.True(await jobs.SucceedAsync(job.Id, 1, "epub", Ct));
-
-        var after = Assert.Single(await _repo.ListChangedAsync(book.UserId, before.UpdatedAt, before.Id, 10, Ct));
-        Assert.Equal(("succeeded", before.Revision), (after.CurrentFile!.Ingestion, after.Revision));
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_ExtractedFile_CarriesLatestJobStatusChapterCountAndWordSum()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var (user, file) = (book.UserId, book.CurrentFile!.Id);
-        var jobs = new IngestionJobRepository(db.DataSource);
-        var failed = await jobs.EnqueueAsync(user, book.Id, file, Ct);
-        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'failed', created_at = now() - interval '1 hour' WHERE id = @id", new { id = failed.Id });
-        var latest = await jobs.EnqueueAsync(user, book.Id, file, Ct);
-        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'succeeded' WHERE id = @id", new { id = latest.Id });
-        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(user, book.Id, file,
-            [Chapter("one", 1, 120), Chapter("two", 2, null), Chapter("three", 3, 80)], Ct);
-
-        var read = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
-
-        Assert.Equal(("succeeded", (int?)3, (int?)200), (read.Ingestion, read.ChapterCount, read.WordCount));
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_FileNotExtracted_CarriesNullSummary()
-    {
-        var book = await db.NewReaderWithBookAsync();
-
-        var read = Assert.Single(await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
-
-        Assert.Equal(((string?)null, (int?)null, (int?)null), (read.Ingestion, read.ChapterCount, read.WordCount));
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_ChaptersWithoutWordCounts_CarriesCountAndNullWords()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1, null)], Ct);
-
-        var read = Assert.Single(await _repo.ListChangedAsync(book.UserId, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
-
-        Assert.Equal(((int?)1, (int?)null), (read.ChapterCount, read.WordCount));
-    }
-
-    [Fact]
-    public async Task GetAsync_ExtractedFile_DoesNotReadTheSummary()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(book.UserId, book.Id, book.CurrentFile!.Id, [Chapter("one", 1, 5)], Ct);
-
-        var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!.CurrentFile!;
-
-        Assert.Equal(((int?)null, (int?)null), (read.ChapterCount, read.WordCount));
-    }
-
-    private static BookChapter Chapter(string key, int number, int? words) => new()
-    {
-        Id = Guid.NewGuid(),
-        ChapterKey = key,
-        ChapterNumber = number,
-        Title = key,
-        Html = "<p>x</p>",
-        PlainText = "x",
-        WordCount = words,
-    };
-
-    [Fact]
-    public async Task ListAsync_OwnBooks_ReturnsNotRemovedNewestFirstWithCurrentFiles()
+    public async Task ListAsync_LibraryAndChangeFeed_ListHidesRemovedBooksFeedPagesThemInUpdateOrder()
     {
         var older = await db.NewReaderWithBookAsync();
         var user = older.UserId;
         var removed = await db.NewBookAsync(user);
         var newer = await db.NewBookAsync(user);
-        await _repo.RemoveAsync(user, removed.Id, Ct);
+        await _repo.RemoveAsync(user, removed.Id, Ct); // now the latest change
 
         var books = await _repo.ListAsync(user, Ct);
-
         Assert.Equal([newer.Id, older.Id], books.Select(b => b.Id));
         Assert.All(books, b => Assert.NotNull(b.CurrentFile));
+
+        var all = await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct);
+        var page = await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 2, Ct);
+        var after = await _repo.ListChangedAsync(user, page[^1].UpdatedAt, page[^1].Id, 10, Ct);
+
+        Assert.Equal([older.Id, newer.Id, removed.Id], all.Select(b => b.Id));
+        Assert.NotNull(all[^1].RemovedAt);
+        Assert.All(all, b => Assert.NotNull(b.CurrentFile));
+        Assert.Equal([older.Id, newer.Id], page.Select(b => b.Id));
+        Assert.Equal(removed.Id, Assert.Single(after).Id);
     }
 
     [Fact]
-    public async Task GetAsync_RemovedBook_ReturnsItWithRemovedAt()
+    public async Task ListChangedAsync_BookIsExtracted_FeedCarriesTheLatestJobStatusChapterCountAndWordSum()
     {
         var book = await db.NewReaderWithBookAsync();
-        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
+        var (user, file) = (book.UserId, book.CurrentFile!.Id);
+        var chapters = new BookChapterRepository(db.DataSource);
+        var jobs = new IngestionJobRepository(db.DataSource);
 
-        Assert.NotNull((await _repo.GetAsync(book.UserId, book.Id, Ct))!.RemovedAt);
+        var fresh = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
+        Assert.Equal(((string?)null, (int?)null, (int?)null), (fresh.Ingestion, fresh.ChapterCount, fresh.WordCount));
+
+        var failed = await jobs.EnqueueAsync(user, book.Id, file, Ct);
+        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'failed', created_at = now() - interval '1 hour' WHERE id = @id", new { id = failed.Id });
+        var latest = await jobs.EnqueueAsync(user, book.Id, file, Ct);
+        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'processing', attempt_count = 1 WHERE id = @id", new { id = latest.Id });
+        var before = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
+
+        Assert.True(await jobs.SucceedAsync(latest.Id, 1, "epub", Ct));
+
+        // The finished job re-enters the pull after the cursor, without a new revision.
+        var after = Assert.Single(await _repo.ListChangedAsync(user, before.UpdatedAt, before.Id, 10, Ct));
+        Assert.Equal(("succeeded", before.Revision), (after.CurrentFile!.Ingestion, after.Revision));
+
+        await chapters.ReplaceForFileAsync(user, book.Id, file, [Chapter("one", 1, null)], Ct);
+        var uncounted = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
+        Assert.Equal(((int?)1, (int?)null), (uncounted.ChapterCount, uncounted.WordCount));
+
+        await chapters.ReplaceForFileAsync(user, book.Id, file, [Chapter("one", 1, 120), Chapter("two", 2, null), Chapter("three", 3, 80)], Ct);
+        var read = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
+        Assert.Equal(("succeeded", (int?)3, (int?)200), (read.Ingestion, read.ChapterCount, read.WordCount));
+
+        // Only the feed reads the summary.
+        var got = (await _repo.GetAsync(user, book.Id, Ct))!.CurrentFile!;
+        Assert.Equal(((int?)null, (int?)null), (got.ChapterCount, got.WordCount));
     }
 
     [Fact]
-    public async Task FindBySha256Async_SameBytesInOwnLibrary_ReturnsTheOldestBook()
-    {
-        var first = await db.NewReaderWithBookAsync();
-        // Two books with the same bytes: only a replacement makes them (an import would be a duplicate).
-        var second = await db.NewBookAsync(first.UserId);
-        var sameBytes = NewFile(first.UserId, second.Id, first.CurrentFile!.Sha256);
-        await _repo.ReplaceFileAsync(first.UserId, second.Id, sameBytes, second.CurrentFile!.Id, null, Ct);
-
-        Assert.Equal(first.Id, (await _repo.FindBySha256Async(first.UserId, first.CurrentFile.Sha256, Ct))!.Id);
-    }
-
-    [Fact]
-    public async Task FindBySha256Async_HashOfAReplacedVersion_ReturnsNull()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await db.ReplaceFileAsync(book);
-
-        Assert.Null(await _repo.FindBySha256Async(book.UserId, book.CurrentFile!.Sha256, Ct));
-    }
-
-    [Fact]
-    public async Task FindBySha256Async_RemovedBook_ReturnsNull()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
-
-        Assert.Null(await _repo.FindBySha256Async(book.UserId, book.CurrentFile!.Sha256, Ct));
-    }
-
-    [Fact]
-    public async Task ReplaceFileAsync_CurrentFileNamed_FlipsIsCurrentKeepsTheOldRowAndBumpsTheBook()
+    public async Task ReplaceFileAsync_ReaderReplacesTheFile_OldVersionStaysReadableAsSupersededAndTheReplayIsIdempotent()
     {
         var book = await db.NewReaderWithBookAsync();
-        var replacement = NewFile(book.UserId, book.Id);
+        var (user, old) = (book.UserId, book.CurrentFile!);
+        var other = await db.NewBookAsync(user, "Another book");
+        var replacement = NewFile(user, book.Id);
 
-        var result = await _repo.ReplaceFileAsync(book.UserId, book.Id, replacement, book.CurrentFile!.Id, null, Ct);
+        var result = await _repo.ReplaceFileAsync(user, book.Id, replacement, old.Id, null, Ct);
 
         Assert.Equal((FileReplaceOutcome.Replaced, replacement.Id, true), (result.Outcome, result.Current!.Id, result.Current.IsCurrent));
-        Assert.Equal((book.CurrentFile.Id, false), (result.Superseded!.Id, result.Superseded.IsCurrent));
-        var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
+        Assert.Equal((old.Id, false), (result.Superseded!.Id, result.Superseded.IsCurrent));
+        var read = (await _repo.GetAsync(user, book.Id, Ct))!;
         Assert.Equal(replacement.Id, read.CurrentFile!.Id);
         Assert.True(read.UpdatedAt > book.UpdatedAt);
-        Assert.Equal(2L, await db.CountAsync("book_files", book.UserId, book.Id));
+
+        var replay = await _repo.ReplaceFileAsync(user, book.Id, replacement, old.Id, null, Ct);
+        Assert.Equal((FileReplaceOutcome.Replayed, replacement.Id), (replay.Outcome, replay.Current!.Id));
+        Assert.Equal(2L, await db.CountAsync("book_files", user, book.Id));
+
+        // The superseded version: readable under its book, never under another book or another reader.
+        var superseded = await _repo.GetFileAsync(user, book.Id, old.Id, Ct);
+        Assert.Equal((old.Id, false), (superseded!.Id, superseded.IsCurrent));
+        Assert.Equal(old.Format, await _repo.FileFormatAsync(user, book.Id, old.Id, Ct));
+        Assert.Null(await _repo.GetFileAsync(user, book.Id, other.CurrentFile!.Id, Ct));
+        Assert.Null(await _repo.FileFormatAsync(user, book.Id, other.CurrentFile.Id, Ct));
+        Assert.Null(await _repo.FileFormatAsync(await db.NewReaderAsync(), book.Id, old.Id, Ct));
+
+        // Duplicate lookup sees current files only, and the oldest book when two share bytes.
+        Assert.Null(await _repo.FindBySha256Async(user, old.Sha256, Ct));
+        await _repo.ReplaceFileAsync(user, other.Id, NewFile(user, other.Id, replacement.Sha256), other.CurrentFile.Id, null, Ct);
+        Assert.Equal(book.Id, (await _repo.FindBySha256Async(user, replacement.Sha256, Ct))!.Id);
+
+        await _repo.RemoveAsync(user, book.Id, Ct);
+        var replayAfterRemoval = await _repo.ReplaceFileAsync(user, book.Id, replacement, old.Id, null, Ct);
+        Assert.Equal((FileReplaceOutcome.Replayed, replacement.Id), (replayAfterRemoval.Outcome, replayAfterRemoval.Current!.Id));
     }
 
     [Fact]
-    public async Task ReplaceFileAsync_FileOfAnotherBook_ThrowsAndChangesNothing()
+    public async Task ReplaceFileAsync_FromAStaleOrWrongView_IsRefusedWithTheCurrentFileAndStoresNothing()
     {
         var book = await db.NewReaderWithBookAsync();
+        var (user, first) = (book.UserId, book.CurrentFile!);
+        var other = await db.NewBookAsync(user);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            _repo.ReplaceFileAsync(book.UserId, book.Id, NewFile(book.UserId, Guid.NewGuid()), book.CurrentFile!.Id, null, Ct));
-        Assert.Equal(book.CurrentFile!.Id, (await _repo.GetAsync(book.UserId, book.Id, Ct))!.CurrentFile!.Id);
-    }
+            _repo.ReplaceFileAsync(user, book.Id, NewFile(user, Guid.NewGuid()), first.Id, null, Ct));
+        Assert.Equal(first.Id, (await _repo.GetAsync(user, book.Id, Ct))!.CurrentFile!.Id);
 
-    [Fact]
-    public async Task ReplaceFileAsync_StaleReplacesFileId_IsFileReplacedWithTheCurrentFile()
-    {
-        var book = await db.NewReaderWithBookAsync();
+        var blind = await _repo.ReplaceFileAsync(user, book.Id, NewFile(user, book.Id), null, null, Ct);
+        Assert.Equal((FileReplaceOutcome.FileReplaced, first.Id), (blind.Outcome, blind.Current!.Id));
+
+        var borrowed = NewFile(user, book.Id);
+        borrowed.Id = other.CurrentFile!.Id;
+        Assert.Equal(FileReplaceOutcome.IdConflict, (await _repo.ReplaceFileAsync(user, book.Id, borrowed, first.Id, null, Ct)).Outcome);
+
         var winner = await db.ReplaceFileAsync(book); // another device, offline, replaced it first
 
-        var result = await _repo.ReplaceFileAsync(book.UserId, book.Id, NewFile(book.UserId, book.Id), book.CurrentFile!.Id, null, Ct);
+        var stale = await _repo.ReplaceFileAsync(user, book.Id, NewFile(user, book.Id), first.Id, null, Ct);
+        Assert.Equal((FileReplaceOutcome.FileReplaced, winner.Current!.Id), (stale.Outcome, stale.Current!.Id));
 
-        Assert.Equal((FileReplaceOutcome.FileReplaced, winner.Current!.Id), (result.Outcome, result.Current!.Id));
-        Assert.Equal(2L, await db.CountAsync("book_files", book.UserId, book.Id));
-    }
-
-    [Fact]
-    public async Task ReplaceFileAsync_NoReplacesFileIdOnABookWithAFile_IsFileReplaced()
-    {
-        var book = await db.NewReaderWithBookAsync();
-
-        var result = await _repo.ReplaceFileAsync(book.UserId, book.Id, NewFile(book.UserId, book.Id), null, null, Ct);
-
-        Assert.Equal((FileReplaceOutcome.FileReplaced, book.CurrentFile!.Id), (result.Outcome, result.Current!.Id));
-    }
-
-    [Fact]
-    public async Task ReplaceFileAsync_SameReplacementAgain_ReplaysIt()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var file = NewFile(book.UserId, book.Id);
-        await _repo.ReplaceFileAsync(book.UserId, book.Id, file, book.CurrentFile!.Id, null, Ct);
-
-        var replay = await _repo.ReplaceFileAsync(book.UserId, book.Id, file, book.CurrentFile.Id, null, Ct);
-
-        Assert.Equal((FileReplaceOutcome.Replayed, file.Id), (replay.Outcome, replay.Current!.Id));
-        Assert.Equal(2L, await db.CountAsync("book_files", book.UserId, book.Id));
-    }
-
-    [Fact]
-    public async Task ReplaceFileAsync_ASupersededVersionAgain_IsFileReplaced()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var newer = await db.ReplaceFileAsync(book);
-
-        var result = await _repo.ReplaceFileAsync(book.UserId, book.Id, book.CurrentFile!, newer.Current!.Id, null, Ct);
-
-        Assert.Equal((FileReplaceOutcome.FileReplaced, newer.Current.Id), (result.Outcome, result.Current!.Id));
-    }
-
-    [Fact]
-    public async Task ReplaceFileAsync_FileIdOfAnotherBook_IsIdConflict()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var other = await db.NewBookAsync(book.UserId);
-        var file = NewFile(book.UserId, book.Id);
-        file.Id = other.CurrentFile!.Id;
-
-        var result = await _repo.ReplaceFileAsync(book.UserId, book.Id, file, book.CurrentFile!.Id, null, Ct);
-
-        Assert.Equal(FileReplaceOutcome.IdConflict, result.Outcome);
+        var backToOld = await _repo.ReplaceFileAsync(user, book.Id, first, winner.Current.Id, null, Ct);
+        Assert.Equal((FileReplaceOutcome.FileReplaced, winner.Current.Id), (backToOld.Outcome, backToOld.Current!.Id));
+        Assert.Equal(2L, await db.CountAsync("book_files", user, book.Id));
     }
 
     [Fact]
@@ -516,44 +340,6 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ReplaceFileAsync_RemovedBook_IsBookRemovedAndChangesNothing()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
-
-        var result = await _repo.ReplaceFileAsync(book.UserId, book.Id, NewFile(book.UserId, book.Id), book.CurrentFile!.Id, null, Ct);
-
-        Assert.Equal((FileReplaceOutcome.BookRemoved, book.Id), (result.Outcome, result.Book!.Id));
-        Assert.Equal(book.CurrentFile.Id, (await _repo.GetAsync(book.UserId, book.Id, Ct))!.CurrentFile!.Id);
-    }
-
-    [Fact]
-    public async Task ReplaceFileAsync_ReplayOnABookRemovedSince_IsReplayed()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var file = NewFile(book.UserId, book.Id);
-        await _repo.ReplaceFileAsync(book.UserId, book.Id, file, book.CurrentFile!.Id, null, Ct);
-        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
-
-        var replay = await _repo.ReplaceFileAsync(book.UserId, book.Id, file, book.CurrentFile.Id, null, Ct);
-
-        Assert.Equal((FileReplaceOutcome.Replayed, file.Id), (replay.Outcome, replay.Current!.Id));
-    }
-
-    [Fact]
-    public async Task UpdateMetadataAsync_RemovedBook_LosesWithTheRemovedBook()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
-
-        var result = await _repo.UpdateMetadataAsync(book.UserId, book.Id, Metadata("Renamed"), 1, Ct);
-
-        Assert.False(result.Accepted);
-        Assert.Equal(("A book", 1L), (result.Current!.Title, result.Current.Revision));
-        Assert.NotNull(result.Current.RemovedAt);
-    }
-
-    [Fact]
     public async Task ReplaceFileAsync_InACallersTransactionRolledBack_ChangesNothing()
     {
         var book = await db.NewReaderWithBookAsync();
@@ -566,154 +352,45 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task RemoveAsync_OwnBook_HidesItFromTheList()
+    public async Task EveryMethod_AnotherReaderHoldingAlicesIds_ReadsAndChangesNoneOfHerBooks()
     {
-        var book = await db.NewReaderWithBookAsync();
-
-        Assert.True(await _repo.RemoveAsync(book.UserId, book.Id, Ct));
-        Assert.Empty(await _repo.ListAsync(book.UserId, Ct));
-        Assert.False(await _repo.RemoveAsync(book.UserId, book.Id, Ct));
-    }
-
-    [Fact]
-    public async Task RestoreAsync_RemovedBook_ListsItAgain()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.RemoveAsync(book.UserId, book.Id, Ct);
-
-        Assert.True(await _repo.RestoreAsync(book.UserId, book.Id, Ct));
-        Assert.Equal(book.Id, Assert.Single(await _repo.ListAsync(book.UserId, Ct)).Id);
-        Assert.False(await _repo.RestoreAsync(book.UserId, book.Id, Ct));
-    }
-
-    // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
-
-    [Fact]
-    public async Task ListAsync_OtherUser_SeesNoneOfAlicesBooks()
-    {
-        await db.NewReaderWithBookAsync();
+        var alices = await db.NewReaderWithBookAsync();
+        var (alice, file) = (alices.UserId, alices.CurrentFile!);
         var bob = await db.NewReaderAsync();
 
+        // Reads.
         Assert.Empty(await _repo.ListAsync(bob, Ct));
-    }
-
-    [Fact]
-    public async Task ListChangedAsync_OtherUser_SeesNoneOfAlicesBooks()
-    {
-        await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
         Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
-    }
-
-    [Fact]
-    public async Task GetAsync_AlicesBookAsBob_ReturnsNull()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
         Assert.Null(await _repo.GetAsync(bob, alices.Id, Ct));
-    }
-
-    [Fact]
-    public async Task ExistsAsync_AlicesBookAsBob_IsFalse()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
         Assert.False(await _repo.ExistsAsync(bob, alices.Id, Ct));
-    }
+        Assert.Null(await _repo.GetFileAsync(bob, alices.Id, file.Id, Ct));
+        Assert.Null(await _repo.FindBySha256Async(bob, file.Sha256, Ct));
 
-    [Fact]
-    public async Task GetFileAsync_AlicesFileAsBob_ReturnsNull()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
-        Assert.Null(await _repo.GetFileAsync(bob, alices.Id, alices.CurrentFile!.Id, Ct));
-    }
-
-    [Fact]
-    public async Task FindBySha256Async_AlicesBytesAsBob_ReturnsNull()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
-        Assert.Null(await _repo.FindBySha256Async(bob, alices.CurrentFile!.Sha256, Ct));
-    }
-
-    [Fact]
-    public async Task ImportAsync_AlicesBookIdAsBob_IsIdConflictAndLeavesAlicesBookIntact()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
-        // Her file id too, so only the owner check stands between bob and a "replay" of her book.
-        var file = NewFile(bob, alices.Id);
-        file.Id = alices.CurrentFile!.Id;
-        var result = await _repo.ImportAsync(bob, new Book { Id = alices.Id, Title = "bob's" }, file, Ct);
-
-        Assert.Equal((ImportOutcome.IdConflict, (Book?)null), (result.Outcome, result.Book));
-        var read = (await _repo.GetAsync(alices.UserId, alices.Id, Ct))!;
-        Assert.Equal(("A book", alices.CurrentFile.Id), (read.Title, read.CurrentFile!.Id));
+        // Her book id and her file id: only the owner check stands between bob and a "replay" of her book.
+        var hers = NewFile(bob, alices.Id);
+        hers.Id = file.Id;
+        var stolen = await _repo.ImportAsync(bob, new Book { Id = alices.Id, Title = "bob's" }, hers, Ct);
+        Assert.Equal((ImportOutcome.IdConflict, (Book?)null), (stolen.Outcome, stolen.Book));
         Assert.Empty(await _repo.ListAsync(bob, Ct));
-    }
 
-    [Fact]
-    public async Task ImportAsync_AlicesBytesAsBob_IsNotADuplicate()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        var bookId = Guid.NewGuid();
+        // Her bytes, while her book is live, are not his duplicate.
+        var bobsBook = Guid.NewGuid();
+        Assert.Equal(ImportOutcome.Created, (await _repo.ImportAsync(bob, new Book { Id = bobsBook, Title = "bob's" }, NewFile(bob, bobsBook, file.Sha256), Ct)).Outcome);
 
-        var result = await _repo.ImportAsync(bob, new Book { Id = bookId, Title = "bob's" }, NewFile(bob, bookId, alices.CurrentFile!.Sha256), Ct);
+        var edit = await _repo.UpdateMetadataAsync(bob, alices.Id, Metadata("bob's"), 1, Ct);
+        Assert.Equal((false, (Book?)null), (edit.Accepted, edit.Current));
 
-        Assert.Equal(ImportOutcome.Created, result.Outcome);
-    }
-
-    [Fact]
-    public async Task UpdateMetadataAsync_AlicesBookAsBob_LosesWithNoCurrentAndChangesNothing()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
-        var result = await _repo.UpdateMetadataAsync(bob, alices.Id, Metadata("bob's"), 1, Ct);
-
-        Assert.Equal((false, (Book?)null), (result.Accepted, result.Current));
-        var read = (await _repo.GetAsync(alices.UserId, alices.Id, Ct))!;
-        Assert.Equal(("A book", 1L), (read.Title, read.Revision));
-    }
-
-    [Fact]
-    public async Task ReplaceFileAsync_AlicesBookAsBob_IsNotFoundAndChangesNothing()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
-        var result = await _repo.ReplaceFileAsync(bob, alices.Id, NewFile(bob, alices.Id), alices.CurrentFile!.Id, null, Ct);
-
-        Assert.Equal(FileReplaceOutcome.NotFound, result.Outcome);
-        Assert.Equal(alices.CurrentFile.Id, (await _repo.GetAsync(alices.UserId, alices.Id, Ct))!.CurrentFile!.Id);
-    }
-
-    [Fact]
-    public async Task RemoveAsync_AlicesBookAsBob_ReturnsFalseAndKeepsItListed()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-
+        Assert.Equal(FileReplaceOutcome.NotFound, (await _repo.ReplaceFileAsync(bob, alices.Id, NewFile(bob, alices.Id), file.Id, null, Ct)).Outcome);
+        Assert.Null(await _repo.SetCheckpointSavingAsync(bob, alices.Id, true, Ct));
         Assert.False(await _repo.RemoveAsync(bob, alices.Id, Ct));
-        Assert.Equal(alices.Id, Assert.Single(await _repo.ListAsync(alices.UserId, Ct)).Id);
-    }
 
-    [Fact]
-    public async Task RestoreAsync_AlicesRemovedBookAsBob_ReturnsFalseAndKeepsItRemoved()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.RemoveAsync(alices.UserId, alices.Id, Ct);
+        var read = (await _repo.GetAsync(alice, alices.Id, Ct))!;
+        Assert.Equal(("A book", 1L, file.Id, false, alices.UpdatedAt),
+            (read.Title, read.Revision, read.CurrentFile!.Id, read.CheckpointSavingEnabled, read.UpdatedAt));
+        Assert.Equal(alices.Id, Assert.Single(await _repo.ListAsync(alice, Ct)).Id);
 
+        await _repo.RemoveAsync(alice, alices.Id, Ct);
         Assert.False(await _repo.RestoreAsync(bob, alices.Id, Ct));
-        Assert.Empty(await _repo.ListAsync(alices.UserId, Ct));
+        Assert.Empty(await _repo.ListAsync(alice, Ct));
     }
 }
