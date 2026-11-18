@@ -4,7 +4,7 @@ using Application.Sync;
 using Application.Vocabulary;
 using Contracts.V2;
 using Domain.Vocabulary;
-using Moq;
+using NSubstitute;
 using TextStack.Vocabulary;
 using static Application.Sync.SyncValidation;
 using static Contracts.V2.SyncLimits;
@@ -16,20 +16,19 @@ public class VocabularyValidationTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly Mock<IVocabularyRepository> _words = new();
+    private readonly IVocabularyRepository _words = Substitute.For<IVocabularyRepository>();
     // A server clock in the past: a client time is measured against it, not against the machine's.
     private readonly SteppedClock _clock = new() { Now = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero) };
 
     public VocabularyValidationTests()
     {
-        _words.Setup(w => w.SaveWordAsync(It.IsAny<Guid>(), It.IsAny<VocabularyWord>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SavedWord(WordSaveOutcome.Created, new VocabularyWord()));
-        _words.Setup(w => w.RecordReviewAsync(It.IsAny<Guid>(), It.IsAny<VocabularyReview>(), It.IsAny<Func<VocabularyWord, ReviewSchedule>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid _, VocabularyReview r, Func<VocabularyWord, ReviewSchedule> _, CancellationToken _) => new WriteResult<VocabularyReview>(WriteOutcome.Created, r));
-        _words.Setup(w => w.GetWordAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new VocabularyWord());
+        _words.SaveWordAsync(default, default!, default).ReturnsForAnyArgs(new SavedWord(WordSaveOutcome.Created, new VocabularyWord()));
+        _words.RecordReviewAsync(default, default!, default!, default)
+            .ReturnsForAnyArgs(call => new WriteResult<VocabularyReview>(WriteOutcome.Created, call.Arg<VocabularyReview>()));
+        _words.GetWordAsync(default, default, default).ReturnsForAnyArgs(new VocabularyWord());
     }
 
-    private VocabularySyncService Service => new(Mock.Of<ILibraryRepository>(), _words.Object, new SrsEngine(), _clock);
+    private VocabularySyncService Service => new(V2Fakes.Library(Guid.NewGuid(), Guid.NewGuid(), (Guid?)null), _words, new SrsEngine(), _clock);
 
     /// <summary>The refused field, or null when the request got past validation.</summary>
     private static async Task<string?> FieldOf(Task<SyncResult> pending) => (await pending).Body is V2Error { Code: SyncCodes.InvalidPayload } e ? e.Field : null;

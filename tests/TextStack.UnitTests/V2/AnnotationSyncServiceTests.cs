@@ -28,19 +28,14 @@ public class AnnotationSyncServiceTests
     private const string TextPosition = """{"version":1,"scheme":"textstack-position-v1","value":{"chapterSlug":"ch-1","chapterFraction":0.5}}""";
     private const string OnChapter = "ch-1";
 
-    private readonly ILibraryRepository _library = Substitute.For<ILibraryRepository>();
+    // The reader's one book, its file an epub with chapter ch-1; Bob has none of it.
+    private readonly ILibraryRepository _library = V2Fakes.Library(User, BookId, FileId);
     private readonly IAnnotationRepository _annotations = Substitute.For<IAnnotationRepository>();
     private readonly IBookChapterRepository _chapters = Substitute.For<IBookChapterRepository>();
 
     public AnnotationSyncServiceTests()
     {
-        // NSubstitute answers "" for strings: a file is no version of a book unless set up here.
-        _library.FileFormatAsync(default, default, default, default).ReturnsForAnyArgs((string?)null);
-        // The reader's one book, its file an epub with chapter ch-1; Bob has none of it.
-        _library.ExistsAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(true);
-        _library.FileFormatAsync(User, BookId, FileId, Arg.Any<CancellationToken>()).Returns("epub");
         _chapters.ExistsAsync(User, FileId, OnChapter, Arg.Any<CancellationToken>()).Returns(true);
-        _library.ClearReceivedCalls();
         _chapters.ClearReceivedCalls();
     }
 

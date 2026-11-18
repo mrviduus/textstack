@@ -3,8 +3,8 @@ using Application.Identity;
 using Domain.Identity;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Moq;
 using Npgsql;
+using NSubstitute;
 
 namespace TextStack.UnitTests.V2;
 
@@ -14,7 +14,7 @@ namespace TextStack.UnitTests.V2;
 /// </summary>
 public class V2GateFilterTests
 {
-    private readonly Mock<IUserRepository> _users = new();
+    private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private int _checks;
     private readonly V2Readiness _ready;
 
@@ -24,7 +24,7 @@ public class V2GateFilterTests
     private Guid Account()
     {
         var id = Guid.NewGuid();
-        _users.Setup(u => u.GetAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync(new UserAccount { Id = id });
+        _users.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new UserAccount { Id = id });
         return id;
     }
 
@@ -34,7 +34,7 @@ public class V2GateFilterTests
         var http = new DefaultHttpContext();
         http.Request.Headers.Authorization = "Bearer " + TestTokens.Token(userId);
         var reached = false;
-        var result = await new V2Gate(readiness ?? _ready, TestTokens.ReadOnlyAuth(), _users.Object)
+        var result = await new V2Gate(readiness ?? _ready, TestTokens.ReadOnlyAuth(), _users)
             .InvokeAsync(new DefaultEndpointFilterInvocationContext(http), _ =>
             {
                 reached = true;
@@ -67,7 +67,7 @@ public class V2GateFilterTests
         var (result, reached) = await GateAsync(Guid.NewGuid(), V2ReadinessTests.Readiness(_ => Task.FromResult(new List<string> { "0002_next" })));
 
         Assert.Equal((503, false), (StatusOf(result), reached));
-        _users.VerifyNoOtherCalls();
+        Assert.Empty(_users.ReceivedCalls());
     }
 
     [Fact]
