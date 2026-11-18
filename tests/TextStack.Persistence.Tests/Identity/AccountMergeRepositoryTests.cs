@@ -16,8 +16,9 @@ namespace TextStack.Persistence.Tests.Identity;
 /// <summary>
 /// The guest→account merge (v2-sync-protocol.md "Guest → account merge", M2.5 plan §2). Each test runs
 /// the merge in its own transaction and ends it with <c>SET CONSTRAINTS ALL IMMEDIATE</c> before the
-/// commit (ADR-031 rule 9), so a deferred provenance FK the merge left dangling fails the test. Only
-/// the "every table" tests seed everything; the rest seed the aggregate they are about.
+/// commit (ADR-031 rule 9), so a deferred provenance FK the merge left dangling fails the test. The
+/// everything story, the same-entry theory and the library story seed every table; the rest seed the
+/// aggregate they are about. Feed cutoffs come from the database's clock, which stamps the rows.
 /// </summary>
 public class AccountMergeRepositoryTests(V2PostgresFixture db)
 {
@@ -66,6 +67,9 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
     private Task<List<(Guid Id, bool IsCurrent)>> FilesAsync(Guid userId, Guid bookId) =>
         RowsAsync<(Guid, bool)>("SELECT id, is_current FROM book_files WHERE user_id = @userId AND book_id = @bookId", new { userId, bookId });
 
+    /// <summary>A cutoff a minute back on the database's clock (the host's may drift from a Docker VM's).</summary>
+    private Task<DateTimeOffset> SinceAsync() => ScalarAsync<DateTimeOffset>("SELECT now() - interval '1 minute'", new { });
+
     private Task<long> TouchedSinceAsync(string table, Guid userId, DateTimeOffset since) =>
         ScalarAsync<long>($"SELECT count(*) FROM {table} WHERE user_id = @userId AND updated_at > @since", new { userId, since });
 
@@ -77,7 +81,8 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
     public static TheoryData<bool, bool, Target, AccountMergeOutcome, long, long, long, bool?> WhoCases => new()
     {
         // guest exists, is a guest, target → outcome, guest's books, account's books, guest rows left, account's is_guest after
-        { false, true, Target.Account, AccountMergeOutcome.NoGuest, 0, 0, 0, false },
+        // No guest row at all: "is a guest" has nothing to describe.
+        { false, false, Target.Account, AccountMergeOutcome.NoGuest, 0, 0, 0, false },
         { true, false, Target.Account, AccountMergeOutcome.Refused, 1, 0, 1, false },
         { true, true, Target.TheGuestItself, AccountMergeOutcome.Refused, 1, 1, 1, true },
         { true, true, Target.Missing, AccountMergeOutcome.Refused, 1, 0, 1, null },
@@ -132,21 +137,27 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         // The seed's connect key is refused to a guest (#1120); one minted before that must die with it too.
         await db.ExecAsync("""
             INSERT INTO mcp_access_keys (id, user_id, name, key_hash, prefix, created_at) VALUES (gen_random_uuid(), @guest, 'older', @hash, 'tsk_gu', now());
-            UPDATE vocabulary_words SET word_key = 'other', updated_at = now() - interval '1 day' WHERE user_id = @guest;
+            UPDATE vocabulary_words SET updated_at = now() - interval '1 day' WHERE user_id = @guest;
             UPDATE books SET updated_at = now() - interval '1 day' WHERE user_id = @guest;
             UPDATE reading_state SET updated_at = now() - interval '1 day' WHERE user_id = @guest;
             UPDATE annotations SET updated_at = now() - interval '1 day' WHERE user_id = @guest
             """, new { guest, hash = NewHash() });
-        var since = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var since = await SinceAsync();
         var tables = await db.UserTablesAsync();
+        const string Users = "SELECT u::text FROM users u WHERE id IN (@guest, @account) ORDER BY id";
+        var users = await RowsAsync<string>(Users, new { guest, account });
+        Assert.Equal(2, users.Count);
 
-        // A merge its caller rolls back leaves both users as they were.
+        // A merge its caller rolls back leaves both users as they were: the guest's row, the account's flags.
         await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
         await using (var tx = await conn.BeginTransactionAsync(Ct))
         {
             Assert.Equal(AccountMergeOutcome.Merged, (await _repo.MergeAsync(guest, account, tx, Ct)).Outcome);
             await tx.RollbackAsync(Ct);
         }
+        Assert.Equal(users, await RowsAsync<string>(Users, new { guest, account }));
+        Assert.Equal((true, false), (await ScalarAsync<bool>("SELECT is_guest FROM users WHERE id = @guest", new { guest }),
+            await ScalarAsync<bool>("SELECT is_guest FROM users WHERE id = @account", new { account })));
         foreach (var table in tables)
             Assert.Equal((table, Seeded(table), 0L), (table, await db.CountAsync(table, guest), await db.CountAsync(table, account)));
         foreach (var table in fed)
@@ -219,7 +230,7 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
             UPDATE books SET updated_at = now() - interval '1 day' WHERE user_id IN (@guest, @account);
             UPDATE annotations SET updated_at = now() - interval '1 day' WHERE user_id = @guest
             """, new { sha = current.Sha256, account, younger = younger.Id, guest });
-        var since = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var since = await SinceAsync();
 
         var merged = await MergeAsync(guest, account);
 
@@ -249,20 +260,25 @@ public class AccountMergeRepositoryTests(V2PostgresFixture db)
         Assert.Equal($"k-{unmatched.CurrentFile!.Id}", await ScalarAsync<string>("SELECT server_storage_key FROM book_files WHERE id = @id", new { id = unmatched.CurrentFile.Id }));
     }
 
+    /// <summary>What became of one side's copy of the same bytes before the merge.</summary>
+    public enum NearMiss { GuestRemoved, AccountRemoved, GuestReplaced, AccountReplaced }
+
     [Theory]
-    [InlineData(true, false, false, false)]
-    [InlineData(false, true, false, false)]
-    [InlineData(false, false, true, false)]
-    [InlineData(false, false, false, true)]
-    public async Task MergeAsync_SameBytesOnlyInARemovedBookOrAnOldVersion_NotMatchedBothBooksKept(
-        bool guestRemoved, bool accountRemoved, bool guestReplaced, bool accountReplaced)
+    [InlineData(NearMiss.GuestRemoved)]
+    [InlineData(NearMiss.AccountRemoved)]
+    [InlineData(NearMiss.GuestReplaced)]
+    [InlineData(NearMiss.AccountReplaced)]
+    public async Task MergeAsync_SameBytesOnlyInARemovedBookOrAnOldVersion_NotMatchedBothBooksKept(NearMiss miss)
     {
         var (guest, account, theirs, ours) = await SameBytesAsync();
         var library = new LibraryRepository(db.DataSource);
-        if (guestReplaced) await db.ReplaceFileAsync(theirs);
-        if (accountReplaced) await db.ReplaceFileAsync(ours);
-        if (guestRemoved) await library.RemoveAsync(guest, theirs.Id, Ct);
-        if (accountRemoved) await library.RemoveAsync(account, ours.Id, Ct);
+        await (miss switch
+        {
+            NearMiss.GuestRemoved => (Task)library.RemoveAsync(guest, theirs.Id, Ct),
+            NearMiss.AccountRemoved => library.RemoveAsync(account, ours.Id, Ct),
+            NearMiss.GuestReplaced => db.ReplaceFileAsync(theirs),
+            _ => db.ReplaceFileAsync(ours),
+        });
 
         var merged = await MergeAsync(guest, account);
 
