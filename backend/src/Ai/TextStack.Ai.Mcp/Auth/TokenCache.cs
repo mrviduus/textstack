@@ -20,7 +20,9 @@ public sealed record CachedTokens(
 /// <c>TEXTSTACK_MCP_TOKEN_CACHE</c> (an explicit file path).
 ///
 /// SECURITY: tokens are secrets. On Unix the file is written with mode
-/// <c>0600</c> (owner read/write only). On READ, if the file is group- or
+/// <c>0600</c> (owner read/write only) via a temp file renamed over the path,
+/// so a symlink at the path is replaced, never followed. On READ, a symlinked
+/// cache is refused, and if the file is group- or
 /// world-readable on Unix it is treated as compromised and IGNORED (returns
 /// null) rather than trusted — the caller simply re-runs the device flow. On
 /// Windows we rely on the user-profile ACL (no explicit mode is set).
@@ -70,7 +72,12 @@ public sealed class TokenCache
     {
         try
         {
-            if (!File.Exists(_path))
+            var info = new FileInfo(_path);
+            if (!info.Exists)
+                return null;
+
+            // A symlink at the cache path points somewhere we did not write: not ours.
+            if (info.LinkTarget != null)
                 return null;
 
             // Refuse a group/world-readable secret on Unix — treat as no cache so
@@ -116,17 +123,31 @@ public sealed class TokenCache
             }
             else
             {
-                // Create with 0600 BEFORE writing the secret so it is never briefly
-                // world-readable. If the file pre-exists with looser perms, tighten it.
-                using (var fs = new FileStream(
-                    _path, FileMode.Create, FileAccess.Write, FileShare.None,
-                    bufferSize: 4096, options: FileOptions.None))
+                // Write a fresh 0600 temp file (exclusive create, mode set before the
+                // secret lands), then rename it over the path: a rename replaces a
+                // symlink planted at the path instead of following it.
+                var temp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
                 {
-                    fs.Dispose();
+                    using (var fs = new FileStream(temp, new FileStreamOptions
+                    {
+                        Mode = FileMode.CreateNew,
+                        Access = FileAccess.Write,
+                        Share = FileShare.None,
+                        UnixCreateMode = OwnerOnly,
+                    }))
+                    using (var writer = new StreamWriter(fs))
+                    {
+                        writer.Write(json);
+                        writer.Flush();
+                        fs.Flush(flushToDisk: true);
+                    }
+                    File.Move(temp, _path, overwrite: true);
                 }
-                File.SetUnixFileMode(_path, OwnerOnly);
-                File.WriteAllText(_path, json);
-                File.SetUnixFileMode(_path, OwnerOnly);
+                finally
+                {
+                    File.Delete(temp); // no-op once moved
+                }
             }
         }
         catch

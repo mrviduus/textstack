@@ -395,4 +395,33 @@ public class McpDeviceFlowTests : IDisposable
             Assert.Null(cache.Read());
         }
     }
+
+    [Fact]
+    public void TokenCache_SymlinkPlantedAtPath_NeverWrittenThroughAndRefusedOnRead()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var cache = TempCache();
+        var victim = cache.Path + ".victim";
+        _tempFiles.Add(victim);
+        const string victimJson = """{"accessToken":"X","refreshToken":"Y","accessExpiresAt":"2030-01-01T00:00:00Z"}""";
+        const UnixFileMode victimMode = OwnerOnly | UnixFileMode.UserExecute;
+        File.WriteAllText(victim, victimJson);
+        File.SetUnixFileMode(victim, victimMode);
+        File.CreateSymbolicLink(cache.Path, victim);
+
+        // Someone planted a link to another file: a symlinked cache is not trusted.
+        Assert.Null(cache.Read());
+
+        // Saving tokens replaces the link with our own file; the target stays untouched.
+        var tokens = new CachedTokens("AT", "RT", DateTimeOffset.UnixEpoch.AddSeconds(1_700_000_000));
+        cache.Write(tokens);
+
+        Assert.Equal(victimJson, File.ReadAllText(victim));
+        Assert.Equal(victimMode, File.GetUnixFileMode(victim));
+        Assert.Null(new FileInfo(cache.Path).LinkTarget);
+        Assert.Equal(OwnerOnly, File.GetUnixFileMode(cache.Path));
+        Assert.Equal(tokens, cache.Read());
+    }
 }
