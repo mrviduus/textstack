@@ -361,7 +361,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Bearer(client, Access(await RegisterAsync(client)));
             const string html = "<html><body><h1>Tides</h1><p>The moon pulls the sea.</p></body></html>";
 
-            // The extension's own request (extension/lib/api.js clip), unchanged.
+            // The extension's own request (apps/browser-extension/lib/api.js clip), unchanged.
             var clipped = await BodyAsync(await client.PostAsJsonAsync("/me/books/clip",
                 new { Title = "Tides", Author = "A. Writer", SourceUrl = "https://example.test/tides", Html = html, Language = "en" }, Ct));
             var bookId = clipped.GetProperty("userBookId").GetGuid();

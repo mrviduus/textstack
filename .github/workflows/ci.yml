@@ -138,7 +138,7 @@ jobs:
               backend/*|database/*|tests/*|*.sln|Directory.*.props|NuGet.Config|global.json|docker-compose*.yml) backend=true ;;
               apps/web/*|apps/admin/*) web=true ;;
               apps/mobile/*) mobile=true ;;
-              extension/*) extension=true ;;
+              apps/browser-extension/*) extension=true ;;
               */*) everything ;;
               *.md) ;;
               *) everything ;;

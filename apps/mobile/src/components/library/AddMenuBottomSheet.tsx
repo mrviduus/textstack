@@ -44,7 +44,7 @@ export function AddMenuBottomSheet({ visible, onClose, onUpload }: Props) {
   // UPDATE, taking exactly as much room as the one that opens a file picker. QA
   // filed that. A third was worse: "Browser extension" looked like a working
   // item and opened the Chrome Web Store HOME PAGE, because the extension lives
-  // in extension/ at 0.1.0 and its own README says publishing it is an
+  // in apps/browser-extension/ at 0.1.0 and its own README says publishing it is an
   // unfinished owner-only step. A link to a store with nothing to find is not a
   // feature preview, it is a dead end wearing a working item's clothes.
   //

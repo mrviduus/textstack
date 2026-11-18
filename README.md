@@ -42,6 +42,14 @@ Setup, tools and auth: [docs/reference/mcp.md](docs/reference/mcp.md).
 
 From a clone to a book open in the reader, in about 20 minutes: [docs/start/run-locally.md](docs/start/run-locally.md).
 
+## Project map
+
+- `apps/web/`: web app.
+- `apps/mobile/`: Android app.
+- [`apps/browser-extension/`](apps/browser-extension/README.md): Chrome extension to save articles to your library.
+- `backend/`: API and background worker.
+- `packages/shared/`: shared client code.
+
 ## Documentation
 
 - [Docs index](docs/README.md) and [architecture](docs/architecture/index.md)

@@ -4,7 +4,7 @@
  * Project: https://github.com/mozilla/readability  (npm @mozilla/readability)
  * Tag:     0.6.0
  * License: Apache-2.0 (full text below)
- * Do not edit. Re-vendor by re-running the curl in extension/lib/THIRDPARTY.md.
+ * Do not edit. Re-vendor by re-running the curl in apps/browser-extension/lib/THIRDPARTY.md.
  * When injected as an MV3 classic content script, the top-level
  * `function Readability(...)` declaration exposes a global `Readability`.
  */
