@@ -122,7 +122,8 @@ All queues are Postgres tables polled by the consumer; there is no message broke
 |------|------|
 | `apps/web` | React 19 + Vite SPA; hosts the reader page (`V2ReaderHost`) |
 | `apps/admin` | Admin shell on `textstack.dev`: login and an empty home |
-| `apps/mobile` | Expo 57 / React Native 0.86 (Android first); builds the reader page (`src/lib/v2reader/`, [ADR-032](adr/ADR-032-one-engine-foliate-fork.md)) |
+| `apps/mobile` | Expo 57 / React Native 0.86 (Android first); hosts the shared reader (`packages/reader/`, [ADR-032](adr/ADR-032-one-engine-foliate-fork.md)) |
+| `packages/reader` | Shared renderer, protocol, generated page and reader tests |
 | `packages/shared` | `@textstack/shared` — API client, types, i18n, reader progress logic (source alias, not published) |
 
 Details: [frontend.md](frontend.md).

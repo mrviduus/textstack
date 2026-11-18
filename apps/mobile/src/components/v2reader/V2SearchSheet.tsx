@@ -6,7 +6,7 @@ import { useLanguage } from '../../context/LanguageContext'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
 import { fill } from '../../lib/fill'
-import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type V2Search } from '../../lib/v2reader/search.mjs'
+import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type V2Search } from '../../../../../packages/reader/src/search.mjs'
 
 /** search.mjs `searchStatusKeys` in the reader's words. */
 const STATUS = { tooShort: 'reader.v2.searchTooShort', searching: 'reader.v2.searching', none: 'reader.v2.searchNone', count: 'reader.v2.searchCount', more: 'reader.v2.searchMore' } as const

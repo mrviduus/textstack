@@ -1,8 +1,8 @@
 // The props every WebView that hosts the reader page takes (V2ReaderScreen, V2Describer, #1426): one place, so a
 // second WebView of the page cannot drift from the reader's.
 import type { WebViewProps } from 'react-native-webview'
-import { PAGE_URL } from '../../lib/v2reader/bookOrigin.mjs'
-import { v2ReaderAndroidPageHtml } from '../../lib/v2reader/v2ReaderPage.generated'
+import { PAGE_URL } from '../../../../../packages/reader/src/bookOrigin.mjs'
+import { v2ReaderAndroidPageHtml } from '../../../../../packages/reader/src/v2ReaderPage.generated'
 
 /** #1426: how long the page may take to describe a book (its cover drawn on a canvas). */
 export const DESCRIBE_MS = 20_000

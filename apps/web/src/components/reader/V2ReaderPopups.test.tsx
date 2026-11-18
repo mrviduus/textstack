@@ -1,7 +1,7 @@
 import { act, cleanup, render } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { V2Popup } from '../../../../mobile/src/lib/v2reader/wordPopup.mjs'
+import type { V2Popup } from '../../../../../packages/reader/src/wordPopup.mjs'
 import { V2ReaderPopups } from './V2ReaderPopups'
 
 // #1269 review: what WordPopup is rendered with, render by render (the first frame of a new word included).

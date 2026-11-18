@@ -19,7 +19,7 @@ size (disk cleanup, scan, push), not with build work.
 ## Decision
 
 1. **Build once, on GitHub.** `images.yml` builds every compose image for the exact commit, scans it
-   (`scripts/scan-image-secrets.sh`, canary `.env` from `.env.example` + every compose `${VAR}`), and
+   (`infra/scripts/scan-image-secrets.sh`, canary `.env` from `.env.example` + every compose `${VAR}`), and
    only then pushes.
 2. **Deploy by digest.** `images` outputs `<svc>@sha256:<digest>` from `docker push` itself — the
    bytes it scanned. `deploy` pulls `name@digest` and tags it `:<sha>` locally for compose and humans.
@@ -59,7 +59,7 @@ size (disk cleanup, scan, push), not with build work.
 - The web frontend follows the same path (2026-10-07, review P2-2): `images.yml` job `web` builds
   `apps/web/dist` on GitHub with canary env, scans it, pushes a `FROM scratch` image
   `textstack-web:<sha>`; the deploy pulls it by digest, copies `/dist` out, scans it with the real
-  values and swaps it in file by file (`scripts/swap-web-dist.sh`; `dist` is bind-mounted by
+  values and swaps it in file by file (`infra/scripts/swap-web-dist.sh`; `dist` is bind-mounted by
   ssg-worker, so never renamed). A scan hit stops the deploy before anything is live, and npm no
   longer runs on the production host — except on the fallback server build, kept as for images.
 - First deploy after the pins: `db`, `ollama` (and `aspire-dashboard` if its profile is up) are

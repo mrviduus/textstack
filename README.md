@@ -44,11 +44,33 @@ From a clone to a book open in the reader, in about 20 minutes: [docs/start/run-
 
 ## Project map
 
-- `apps/web/`: web app.
-- `apps/mobile/`: Android app.
-- [`apps/browser-extension/`](apps/browser-extension/README.md): Chrome extension to save articles to your library.
-- `backend/`: API and background worker.
-- `packages/shared/`: shared client code.
+```text
+apps/
+  web/                 Web app
+  mobile/              Android app
+  browser-extension/   Chrome article clipper
+  admin/               Admin shell (retained for now)
+backend/               API and background worker
+database/              SQL schema and migrations
+packages/
+  reader/              Shared book renderer and reader protocol
+  shared/              API client, types and other shared logic
+tools/
+  docs-site/           Documentation website builder
+  checks/              Repository checks and changelog generation
+  dependencies/        Dependency updates and drift reports
+  import/              Book import helpers
+infra/
+  nginx/               Server configuration
+  scripts/             Deployment, backups and operational helpers
+tests/                 Backend tests
+docs/                  Documentation
+```
+
+Start with the web reader's [page](apps/web/src/pages/V2ReaderPage.tsx) and
+[host](apps/web/src/components/reader/V2ReaderHost.tsx). Its shared renderer lives in
+[`packages/reader`](packages/reader/README.md); mobile storage and sync stay in
+`apps/mobile/src/lib/v2reader/`. Tool commands: [`tools/README.md`](tools/README.md).
 
 ## Documentation
 

@@ -29,7 +29,7 @@ Clips are private; the server enforces per-user ownership.
 ## Checks
 
 ```sh
-node scripts/check-extension.mjs
+node tools/checks/check-extension.mjs
 ```
 
 Runs in CI on every pull request, so it is not something to remember. It checks

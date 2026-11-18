@@ -138,7 +138,7 @@ jobs:
         if: steps.exists.outputs.all == 'false'
         run: |
           # shellcheck disable=SC2046
-          scripts/scan-image-secrets.sh $(for s in $SERVICES; do echo "$IMAGE_REGISTRY-$s:$IMAGE_TAG"; done)
+          infra/scripts/scan-image-secrets.sh $(for s in $SERVICES; do echo "$IMAGE_REGISTRY-$s:$IMAGE_TAG"; done)
 
       - name: Push
         id: push
@@ -252,7 +252,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          node scripts/changelog-data.mjs > apps/web/public/changelog.json \
+          node tools/checks/changelog-data.mjs > apps/web/public/changelog.json \
             || { echo "::warning::changelog data not fetched — the page shows its seed only"; rm -f apps/web/public/changelog.json; }
 
       # Every name the server's .env can hold is set to a canary first (the same list
@@ -276,7 +276,7 @@ jobs:
       # files and the canaries. Gates the push.
       - name: Secret scan (gates the push)
         if: steps.exists.outputs.found == 'false'
-        run: scripts/scan-image-secrets.sh --dir apps/web/dist
+        run: infra/scripts/scan-image-secrets.sh --dir apps/web/dist
 
       - name: Push
         id: push

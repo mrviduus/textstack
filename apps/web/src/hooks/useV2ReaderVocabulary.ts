@@ -13,7 +13,7 @@ import {
   type PendingVocabWord,
 } from '../lib/offlineDb'
 import { normalizeVocabKey } from '../lib/vocabKey'
-import { backfillTranslations, ofBook, wordId } from '../../../mobile/src/lib/v2reader/vocabWords.mjs'
+import { backfillTranslations, ofBook, wordId } from '../../../../packages/reader/src/vocabWords.mjs'
 import { trackVocabSaved } from '../lib/analytics'
 import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 

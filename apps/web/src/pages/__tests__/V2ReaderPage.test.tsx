@@ -24,7 +24,7 @@ vi.mock('../../components/reader/V2ReaderHost', () => ({
 vi.mock('../../components/SeoHead', () => ({ SeoHead: () => null }))
 
 import { STALL_GRACE_MS, V2ReaderPage } from '../V2ReaderPage'
-import { DOWNLOAD_STALL_MS } from '../../../../mobile/src/lib/v2reader/deadlines.mjs'
+import { DOWNLOAD_STALL_MS } from '../../../../../packages/reader/src/deadlines.mjs'
 
 const BYTES = new ArrayBuffer(4)
 const FILE = { id: 'f1', originalName: 'walden.epub', hasContent: true, format: 'epub', sha256: 'ab'.repeat(32), byteSize: 4 }

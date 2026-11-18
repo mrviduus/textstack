@@ -59,7 +59,7 @@ migrator — see "Known limits" for why it is not parallel.
 **The web bundle** is built, canary-scanned and pushed on GitHub (`images.yml` job `web`) as
 `textstack-web:<sha>`, a `FROM scratch` image holding only `/dist` — never run, only copied out
 (`docker create` + `docker cp`). The deploy scans it again with the server's real secret values and
-only then swaps it in (`scripts/swap-web-dist.sh`): assets first (content-hashed, unreachable until
+only then swaps it in (`infra/scripts/swap-web-dist.sh`): assets first (content-hashed, unreachable until
 named), every other file renamed into place, `index.html` last, files the previous release shipped and
 this one does not removed, assets referenced by nothing pruned — keeping the previous `index.html`'s
 graph (open tabs). The build-time
@@ -158,13 +158,13 @@ environment reports nothing on any service.
 | control | where | what it stops |
 |---|---|---|
 | Secrets only at runtime | server `.env`, GitHub secrets, EAS secrets | Nothing secret is a build input. Images are public. |
-| Image secret scan gates the push | `images.yml` → `scripts/scan-image-secrets.sh` | Every `.env.example` name **and every `${VAR}` in the compose files** is a canary; a canary, token shape, private key or secret-named file in `Config.Env`, history or **any single layer** (incl. files deleted later) fails the job before anything is pushed. |
+| Image secret scan gates the push | `images.yml` → `infra/scripts/scan-image-secrets.sh` | Every `.env.example` name **and every `${VAR}` in the compose files** is a canary; a canary, token shape, private key or secret-named file in `Config.Env`, history or **any single layer** (incl. files deleted later) fails the job before anything is pushed. |
 | Web bundle scan gates the push | `images.yml` job `web` | The build runs with every `.env.example` / compose `${VAR}` name set to a canary; the whole `dist` is scanned (patterns + canaries) before `textstack-web` is pushed. |
 | Web bundle scan gates the swap | `deploy.yml` "Secret scan web dist" | The pulled `dist` again, with the server's real values of `*SECRET`, `*PASSWORD`, `*TOKEN`, `*API_KEY`, **before** "Put web bundle live" — a hit stops the deploy with nothing live changed. Defence in depth (seconds; the only check that knows production's values). On the fallback: vite's output (`index.html` + `assets/`) after the build. Stray `apps/web/.env*` files are moved aside before any vite run. |
 | OTA bundle scan | `mobile-ota.yml` | Same patterns over an `expo export` made with the EAS production environment, plus `EXPO_TOKEN`'s value; gates `eas update`. |
 | `.dockerignore` | repo root | `.env*`, keys, service accounts, `appsettings.*.json`, `bin/`, `obj/` never enter a build context. |
 | Actions pinned by SHA | every `uses:` in `.github/workflows/` | A moved tag cannot change code that runs next to `EXPO_TOKEN`, a write token or the self-hosted runner. Dependabot bumps the SHA and the `# vX.Y` comment. |
-| Images pinned by digest | `docker-compose.yml`, `backup.yml` (restic), scanner, Makefile; every Dockerfile `FROM` (#748; `scripts/check-node-version.mjs` requires the node FROM to be a literal pinned `.nvmrc` version) | A re-pushed tag cannot swap the DB, the backup tool (sees R2 keys and `.env`) or the scanner. Dependabot (`docker`, `docker-compose`) bumps them weekly. |
+| Images pinned by digest | `docker-compose.yml`, `backup.yml` (restic), scanner, Makefile; every Dockerfile `FROM` (#748; `tools/checks/check-node-version.mjs` requires the node FROM to be a literal pinned `.nvmrc` version) | A re-pushed tag cannot swap the DB, the backup tool (sees R2 keys and `.env`) or the scanner. Dependabot (`docker`, `docker-compose`) bumps them weekly. |
 | Deploy pulls by digest | `images` output → `deploy` | A `:sha` tag re-pushed between build and pull is ignored; the server runs the bytes that passed the scan. |
 | Rollback input guarded | `deploy.yml` `guard` | `rollback_commit` must be 7–40 hex, resolve in a full clone, and be an ancestor of `origin/main`; passed via `env:`, never interpolated into `run:`. |
 | Least-privilege tokens | top-level `permissions:` in every workflow | Read-only (or none) by default; only `images` (packages: write), `ghcr-retention` (packages: write, actions: read), `deps-refresh` (contents + PRs) and `publish-mcp-nuget` (id-token) widen, per job. |
@@ -245,15 +245,15 @@ environment reports nothing on any service.
 | Which pushes deploy | `deploy.yml` `paths-ignore` — never add `packages/**`, the lockfile or `pnpm-workspace.yaml` |
 | The list of published images | `SERVICES` in `images.yml` **and** the service loops in `deploy.yml` "Deploy containers" (the web image is its own job and step: `images.yml` `web`, `deploy.yml` "Fetch web bundle") |
 | The web build's `VITE_*` values | `apps/web/production.env` — read by `images.yml` `web` and by the deploy's fallback build; public by design, never a secret |
-| How the web release goes live | `scripts/swap-web-dist.sh` (self-check `scripts/swap-web-dist.test.sh`, run by `ci.yml` `frontend`) |
-| Secret patterns, allowlist, scanner image | `scripts/scan-image-secrets.sh` (`CONTENT`, `PEM`, `NAMES`, `ALLOW`, `SCANNER`) |
+| How the web release goes live | `infra/scripts/swap-web-dist.sh` (self-check `infra/scripts/swap-web-dist.test.sh`, run by `ci.yml` `frontend`) |
+| Secret patterns, allowlist, scanner image | `infra/scripts/scan-image-secrets.sh` (`CONTENT`, `PEM`, `NAMES`, `ALLOW`, `SCANNER`) |
 | Which server values the web scan treats as secret | `deploy.yml` "Secret scan web dist" (the awk name filter) |
 | An action version | Let Dependabot do it; by hand: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, keep the `# vX.Y` comment |
 | A pulled image version | `docker-compose.yml` `image: name:tag@sha256:…` (Dependabot weekly); restic/scanner/Makefile by hand |
 | Pre-deploy backup | `deploy.yml` step "Pre-deploy backup" (before the web swap or build); nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../internal/ops/backup.md) |
 | Rollback | Actions → Deploy → Run workflow → `rollback_commit` = a SHA on main |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |
-| GHCR retention | `ghcr-retention.yml` env (`KEEP_NEWEST`, `KEEP_DAYS`, `DEPLOYS`, `MAX_DELETE`, `PACKAGES` = `SERVICES` in `images.yml` + `web`); rules in `scripts/ghcr-retention.mjs`. Preview: Actions → GHCR retention → Run workflow (dry run is the default) |
+| GHCR retention | `ghcr-retention.yml` env (`KEEP_NEWEST`, `KEEP_DAYS`, `DEPLOYS`, `MAX_DELETE`, `PACKAGES` = `SERVICES` in `images.yml` + `web`); rules in `infra/scripts/ghcr-retention.mjs`. Preview: Actions → GHCR retention → Run workflow (dry run is the default) |
 | Database schema / rollback | Only the `migrator` service migrates ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); rollback `docker compose run --rm migrator down <version>` ([ADR-026](adr/ADR-026-sql-first-migrations.md)) with the **current** image, **before** `rollback_commit`. Behind-schema alarm: `health-check.yml` step "Schema matches the build" |
 | What Sentry may receive | .NET: `backend/src/Observability/TextStack.Observability/SentryScrubber.cs` (+ `McpHosts.ConfigureSentry`); web: `apps/web/src/lib/sentry.ts`; mobile: `apps/mobile/src/lib/sentryScrub.ts`. Change all three together, and the privacy policy if the promise changes |
 | OpenTelemetry export | `OTEL_EXPORTER_OTLP_ENDPOINT` in the server `.env` (unset = off) |

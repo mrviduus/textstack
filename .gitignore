@@ -20,7 +20,7 @@ obj/
 node_modules/
 .pnpm-store/
 dist/
-# deploy.yml: file list of the live web release (scripts/swap-web-dist.sh)
+# deploy.yml: file list of the live web release (infra/scripts/swap-web-dist.sh)
 apps/web/.web-release
 .next/
 .expo/
@@ -176,3 +176,6 @@ docs/internal/qa/screens/
 # Real books used as local-only extraction fixtures (copyrighted — never commit; tests skip without them)
 tests/TextStack.Extraction.Tests/Fixtures/KMK Optometry OSCE E-Workbook.pdf
 tests/TextStack.Extraction.Tests/Fixtures/Inspired - Marty Cagan.pdf
+
+# Local Python cache for import helpers
+tools/import/__pycache__/

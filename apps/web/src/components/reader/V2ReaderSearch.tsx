@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
-import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type V2Search } from '../../../../mobile/src/lib/v2reader/search.mjs'
+import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type V2Search } from '../../../../../packages/reader/src/search.mjs'
 
 /** search.mjs `searchStatusKeys` in the reader's words. */
 const STATUS = { tooShort: 'v2Reader.searchTooShort', searching: 'v2Reader.searching', none: 'v2Reader.searchNone', count: 'v2Reader.searchCount', more: 'v2Reader.searchMore' } as const

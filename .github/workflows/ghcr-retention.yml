@@ -4,7 +4,7 @@ name: GHCR retention
 # keep the newest 10 tagged per package, anything younger than 14 days, the SHAs of
 # the last 5 successful deploys (and of any deploy run since — a failed run may have
 # reached `compose up`), and the manifests those kept indexes reference. Rules and
-# fail-closed behaviour: scripts/ghcr-retention.mjs. Why: docs/architecture/delivery.md.
+# fail-closed behaviour: infra/scripts/ghcr-retention.mjs. Why: docs/architecture/delivery.md.
 #
 # A rollback to a SHA deleted here still works: images.yml rebuilds it for the
 # rollback ref (or the server builds it) — it is slower, not impossible.
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ghcr-retention.mjs
+          sparse-checkout: infra/scripts/ghcr-retention.mjs
           sparse-checkout-cone-mode: false
 
       - name: Prune
@@ -61,4 +61,4 @@ jobs:
           MAX_DELETE: '150'
           # SERVICES in images.yml, plus its `web` job's image.
           PACKAGES: migrator api worker admin mcp-server web
-        run: node scripts/ghcr-retention.mjs
+        run: node infra/scripts/ghcr-retention.mjs

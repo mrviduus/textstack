@@ -2,8 +2,8 @@
 // untrusted books, so it runs in its own hidden frame (the reader's, sandboxed as V2ReaderHost's) and only what
 // `readDescribed` takes comes back. Never throws and never blocks an upload past its deadline: null instead.
 // ponytail: deep imports of apps/mobile source, as V2ReaderHost's.
-import { V2_READER_FRAME_PATH } from '../../../mobile/src/lib/v2reader/framePath.mjs'
-import { readDescribed, type V2Described } from '../../../mobile/src/lib/v2reader/describe.mjs'
+import { V2_READER_FRAME_PATH } from '../../../../packages/reader/src/framePath.mjs'
+import { readDescribed, type V2Described } from '../../../../packages/reader/src/describe.mjs'
 
 /** How long the frame may take to load, parse the file and answer. */
 export const DESCRIBE_MS = 20_000

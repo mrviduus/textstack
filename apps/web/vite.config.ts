@@ -2,7 +2,7 @@ import { defineConfig, type Connect, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { V2_READER_DIR, V2_READER_FRAME_PATH } from '../mobile/src/lib/v2reader/framePath.mjs'
+import { V2_READER_DIR, V2_READER_FRAME_PATH } from '../../packages/reader/src/framePath.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
  * frame.mjs carries the 3.75 MB page: imported on the first reader request or at the end of a build, never
  * into the app's own chunks (scripts/assert-no-dev-reader.mjs).
  */
-const loadFrame = () => import('../mobile/src/lib/v2reader/frame.mjs')
+const loadFrame = () => import('../../packages/reader/src/frame.mjs')
 type FrameModule = Awaited<ReturnType<typeof loadFrame>>
 /** `files`: null for the source's; else the build's, read once. */
 const serveFrame = (files: ((m: FrameModule) => object) | null): Connect.NextHandleFunction => {

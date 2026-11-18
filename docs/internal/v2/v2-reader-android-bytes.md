@@ -103,7 +103,7 @@ Defaults taken where the owner did not answer; **the owner can veto each in the 
   is refused), with `Cache-Control: no-store`; anything else on the host is a 404, never the network. It does not use
   `WebViewAssetLoader`: one fixed regex plus the canonical check is less code and stricter than a path handler.
   `RNCWebView`'s message listener drops `!isMainFrame`.
-- **Rule in one place:** `apps/mobile/src/lib/v2reader/bookOrigin.mjs` (`BOOK_ORIGIN`, `BOOK_PATH`, `bookUrl`,
+- **Rule in one place:** `packages/reader/src/bookOrigin.mjs` (`BOOK_ORIGIN`, `BOOK_PATH`, `bookUrl`,
   `servedFile`, `BOOK_CONNECT_SRC`). `bookOrigin.test.ts` pins the Java regex to it byte for byte.
 - **Host** (`V2ReaderScreen.tsx`): `baseUrl` is the origin; `allowFileAccess*` removed (the library defaults: file,
   universal and content access all off); `openUrl` gets `bookUrl(file)`. `originWhitelist` stays `['*']` on purpose:

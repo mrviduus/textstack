@@ -124,14 +124,14 @@ ADR-029 Decision 6, run by an agent on emulators; the physical device is the own
 - **Book.** Project Gutenberg eBook #28885, *Alice's Adventures in Wonderland*, illustrated by Arthur Rackham
   (OPF `dc:rights`: "Public domain in the USA"; Carroll d. 1898, Rackham d. 1939; redistributable under the Project
   Gutenberg licence), 1,475,456 B, 15 sections with its own illustrations. Padded by
-  `apps/mobile/src/lib/v2reader/bigbook.mjs` with 102 generated PNG plates (1200×1600 RGB: diagonal bands plus 6
+  `packages/reader/src/bigbook.mjs` with 102 generated PNG plates (1200×1600 RGB: diagonal bands plus 6
   noisy bits per channel so they do not compress away), each a manifest item with an `<img>` in its own spine
   section → 87,278,407 B (sha256 `314d6bff…77739f78` for R4's file; zip timestamps change the hash per run). Plate 1
   rendered as section 4/117 (screenshot checked); the cover and the book's own plates render. R4's run had a PRNG
   overflow whose short noise period made a plate ~0.85 MB compressed; the committed tool fixes the PRNG and keeps
   that shape on purpose with `NOISE_ROWS = 8` (fresh noise every 8th row), so MB=88 again gives ~100 plates of
   ~0.85 MB (on a 1-section book: 110 plates, 93,056,601 B) rather than 17 of ~5.5 MB.
-- **Steps.** `node apps/mobile/src/lib/v2reader/bigbook.mjs pg28885.epub apps/mobile/src/lib/v2reader/fixtures/alice-80mb.epub`
+- **Steps.** `node packages/reader/src/bigbook.mjs pg28885.epub apps/mobile/src/lib/v2reader/fixtures/alice-80mb.epub`
   → `adb push … /sdcard/Download/` → dev route → Pick EPUB → Downloads → the book, with
   `adb logcat -v epoch -s ReactNativeJS:*`. Read to section 5 (stored `store/<sha256>.json` checked with
   `adb shell run-as app.textstack.mobile cat …`), `am force-stop`, relaunch, tap the library row:

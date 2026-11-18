@@ -5,7 +5,7 @@ import { readItem, writeItem } from '../lib/safeLocalStorage'
 import { fetchV2FileBytes, pullV2Books, v2Answer, v2Book, v2Status } from '../api/v2'
 import { SeoHead } from '../components/SeoHead'
 import { V2ReaderHost, type V2HostBook } from '../components/reader/V2ReaderHost'
-import { DOWNLOAD_STALL_MS, READY_DEADLINE_NETWORK_MS } from '../../../mobile/src/lib/v2reader/deadlines.mjs'
+import { DOWNLOAD_STALL_MS, READY_DEADLINE_NETWORK_MS } from '../../../../packages/reader/src/deadlines.mjs'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 

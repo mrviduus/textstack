@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { V2DiscussFailure, V2DiscussShared, V2DiscussState } from '@textstack/shared'
-import { withTitle } from '../../lib/v2reader/toc.mjs'
+import { withTitle } from '../../../../../packages/reader/src/toc.mjs'
 
 /** The host's words (`reader.v2.discuss.*`), one per state and per failure. */
 export type V2DiscussLabels = Record<'start' | 'startTitled' | 'sharing' | 'shared' | 'cut' | 'open' | 'retry' | V2DiscussFailure, string>

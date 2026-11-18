@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
 import { useTranslation } from '../../hooks/useTranslation'
-import { noteChange } from '../../../../mobile/src/lib/v2reader/highlights.mjs'
+import { noteChange } from '../../../../../packages/reader/src/highlights.mjs'
 
 // Dedicated edit popup for an Original-layout PDF highlight (parity with reflow:
 // recolor / delete / note). Deliberately NOT the reflow NoteEditor — that one is

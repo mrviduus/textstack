@@ -6,5 +6,5 @@
 vite.config.js
 vite.config.d.ts
 
-# Written by images.yml at build time (scripts/changelog-data.mjs), never committed.
+# Written by images.yml at build time (tools/checks/changelog-data.mjs), never committed.
 public/changelog.json

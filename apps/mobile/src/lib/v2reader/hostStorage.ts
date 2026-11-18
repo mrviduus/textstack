@@ -6,7 +6,7 @@
 // Books, positions and highlights live in SQLite (localLibrary.ts, R6); only file bytes are files.
 import { createWriteQueue } from '../sessionWrites'
 import { entryFor } from '@textstack/shared'
-import { parseLibrary, type LibraryEntry } from './library.mjs'
+import { parseLibrary, type LibraryEntry } from '../../../../../packages/reader/src/library.mjs'
 
 /** What the dev route lists: a book on this device, or one the server holds bytes for (download). */
 export interface LibraryBook {

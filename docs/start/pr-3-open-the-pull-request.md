@@ -29,7 +29,7 @@ In this lesson you offer your change to the project.
 - **The `area-label` check is red.** Your branch is in this repository, not a fork, so the check
   wants a label. Do nothing. A maintainer adds the label.
 - **The `docs-links` check is red.** A link in a `.md` file points at a file that does not exist.
-  Run `node scripts/check-doc-links.mjs`. It prints the file and the line.
+  Run `node tools/checks/check-doc-links.mjs`. It prints the file and the line.
 - **A check fails on something you did not touch.** Say so in the pull request. A maintainer runs
   the check again.
 

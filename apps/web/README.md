@@ -58,7 +58,7 @@ pnpm test:watch # Watch mode
 
 ### Reader (`components/reader/V2ReaderHost.tsx`)
 - Hosts the foliate-js fork in a sandboxed frame (`dist/reader-v2/`); built by
-  `apps/mobile/src/lib/v2reader/build.mjs`, documented in that folder's README
+  `packages/reader/src/build.mjs`, documented in that folder's README
 - Position, highlights and bookmarks sync through `/me/v2`
 
 ### Auth (`context/AuthContext.tsx`)

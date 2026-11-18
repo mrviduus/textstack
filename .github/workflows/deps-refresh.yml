@@ -3,7 +3,7 @@ name: Dependencies (semiannual)
 # One pull request, twice a year, for everything that is only about not falling
 # behind. Security is deliberately NOT here: Dependabot security updates open
 # their own pull request the day an advisory lands, `dotnet list package
-# --vulnerable` gates the backend job and `scripts/check-advisories.mjs` gates
+# --vulnerable` gates the backend job and `tools/checks/check-advisories.mjs` gates
 # `advisories` in ci.yml. Separating the two is what lets this lane be this quiet — a calendar is
 # the wrong instrument for a vulnerability, and a vulnerability is the only
 # reason a calendar would need to be fast.
@@ -24,9 +24,9 @@ name: Dependencies (semiannual)
 # mobile runtime fingerprint. A bot bump passes CI — tsc and the unit tests do
 # not know what an SDK compatibility matrix is — and then every installed app
 # stops receiving OTA updates, because mobile-ota.yml correctly refuses to
-# publish into a runtime nobody is running. scripts/catalogBump.mjs holds the
+# publish into a runtime nobody is running. tools/dependencies/catalogBump.mjs holds the
 # list; the lockfile lane cannot reach them because it never changes a declared
-# range. `scripts/report-drift.mjs mobile` is what reports them instead, on
+# range. `tools/dependencies/report-drift.mjs mobile` is what reports them instead, on
 # every pull request, since nothing else will.
 #
 # There is a workflow in four sibling repositories that bumps NuGet packages and
@@ -113,7 +113,7 @@ jobs:
       - name: Raise the catalog
         run: |
           set -euo pipefail
-          node scripts/bump-catalog.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+          node tools/dependencies/bump-catalog.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }} \
             | tee -a "$RUNNER_TEMP/proposal.md"
           echo >> "$RUNNER_TEMP/proposal.md"
 
@@ -128,7 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           dotnet restore
-          node scripts/bump-nuget.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+          node tools/dependencies/bump-nuget.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }} \
             | tee -a "$RUNNER_TEMP/proposal.md"
           echo >> "$RUNNER_TEMP/proposal.md"
 

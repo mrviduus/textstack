@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
-import { SEARCH_DEBOUNCE_MS, SEARCH_RENDER_MS } from '../../../../mobile/src/lib/v2reader/search.mjs'
+import { SEARCH_DEBOUNCE_MS, SEARCH_RENDER_MS } from '../../../../../packages/reader/src/search.mjs'
 
 // #1315: in-book search on the web host, through a fake frame as V2ReaderHost.chrome.test.tsx: the page is asked
 // `search(query, id)` and answers `search-results`; a result is a `goTo(cfi, chosen)`.

@@ -65,7 +65,7 @@ TextStack runs on **V2**: one library and one reading screen, live since 2026-11
   same pull request.
 - One home for each fact.
 - Plain words. The [glossary](glossary.md) has the word for each thing; use that word.
-- Links are checked by CI: `node scripts/check-doc-links.mjs`.
+- Links are checked by CI: `node tools/checks/check-doc-links.mjs`.
 
 The maintainer's working notes (runbooks, postmortems, the V2 plan) live in [`internal/`](internal/) and are not
 published on the docs site.

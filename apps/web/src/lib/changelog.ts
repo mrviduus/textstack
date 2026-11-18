@@ -1,5 +1,5 @@
 // The public changelog page (#1216). Data: /changelog.json, written at web build by
-// scripts/changelog-data.mjs from GitHub releases + merged PRs; plus SEED, the reader entries
+// tools/checks/changelog-data.mjs from GitHub releases + merged PRs; plus SEED, the reader entries
 // from before PRs carried a `## Public` block.
 
 export const AREAS = ['reading', 'library', 'highlights', 'vocabulary', 'assistant', 'account', 'data', 'ops', 'documentation'] as const

@@ -38,7 +38,7 @@ import {
   type OpenReader, type PageHighlight, type PagePosition, type PageQuotation, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState, type V2Word,
 } from '@textstack/shared'
 import type { LibraryBook } from './hostStorage'
-import type { LibraryEntry } from './library.mjs'
+import type { LibraryEntry } from '../../../../../packages/reader/src/library.mjs'
 
 /** The expo-sqlite surface this needs (node:sqlite behind a shim in tests). */
 export interface Db {

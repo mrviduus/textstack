@@ -83,10 +83,10 @@ jobs:
   # `if:` below starts with `!cancelled()` and the fail-open clause: without them
   # a broken `changes` job would skip all four and let the PR merge green.
   #
-  # Areas: `docs/**`, `site/**` (the docs site, #1275) and root-level *.md touch nothing. Markdown INSIDE a code
+  # Areas: `docs/**`, `tools/docs-site/**` (the docs site, #1275) and root-level *.md touch nothing. Markdown INSIDE a code
   # directory is that directory's (Application embeds ChapterReview/ReviewMethod.md;
   # the MCP package ships its README). Anything shared or unrecognised —
-  # packages/, scripts/, .github/, root package/lock files, .nvmrc — is
+  # packages/, tools/, infra/scripts/, .github/, root package/lock files, .nvmrc — is
   # everything. Except in .github/: other workflows, issue forms, its *.md pages,
   # release.yml and dependabot.yml touch nothing (node-version and area-label still
   # read workflows and release.yml, and they always run).
@@ -120,17 +120,17 @@ jobs:
           [ -n "$files" ] || everything
           while IFS= read -r f; do
             # Not an area of its own: the `v2-reader` gates' inputs inside an area (everything() covers the
-            # runtime: .nvmrc, root package files, scripts/, unknown paths). The committed page, its frame and pin
+            # runtime: .nvmrc, root package files, tools/, infra/scripts/, unknown paths). The committed page, its frame and pin
             # live in v2reader/; a packages/ change to the page lands there regenerated, or the drift check in
             # `frontend` fails. Plus the nginx CSP, the fixtures the checks read, and the Playwright version.
             case "$f" in
-              apps/mobile/src/lib/v2reader/*|apps/mobile/assets/fonts/*|apps/web/e2e/fixtures/v2-sync.epub|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) v2reader=true ;;
+              packages/reader/*|apps/mobile/src/lib/v2reader/*|apps/mobile/assets/fonts/*|apps/web/e2e/fixtures/v2-sync.epub|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) v2reader=true ;;
             esac
             case "$f" in
               '') ;;
               # Working notes and Claude Code guides: hidden from the site, read by no build or test.
               docs/internal/*|.claude/*|*/CLAUDE.md) ;;
-              docs/*|site/*) docs=true ;;
+              docs/*|tools/docs-site/*) docs=true ;;
               # Another workflow, a form, a repo page: no job here builds or tests it.
               # ci.yml itself stays everything, and so do the compose overrides.
               .github/workflows/ci.yml) everything ;;
@@ -155,7 +155,7 @@ jobs:
 
   # Cheapest job in the file and the one that would have saved the most time:
   # an EAS workflow pinned to Node 20 could not install eas-cli 23, and finding
-  # that out cost two round trips. See scripts/check-node-version.mjs.
+  # that out cost two round trips. See tools/checks/check-node-version.mjs.
   node-version:
     if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
@@ -172,7 +172,7 @@ jobs:
           # "Unable to locate executable file: pnpm" in a job that has no reason
           # to have pnpm at all.
           package-manager-cache: false
-      - run: node scripts/check-node-version.mjs
+      - run: node tools/checks/check-node-version.mjs
 
   # A moved or renamed doc must not leave a dead link behind (#1237). Every
   # relative link in every tracked .md file has to point at a file that exists.
@@ -187,9 +187,9 @@ jobs:
           node-version-file: .nvmrc
           # One plain Node script, no install (same reason as node-version).
           package-manager-cache: false
-      - run: node scripts/check-doc-links.mjs
+      - run: node tools/checks/check-doc-links.mjs
 
-  # The docs site (#1275) builds from docs/ with the tooling in site/. A page that
+  # The docs site (#1275) builds from docs/ with the tooling in tools/docs-site/. A page that
   # breaks the build (a bad link target, a diagram the loader chokes on) fails here,
   # not at publish time.
   docs-site:
@@ -204,12 +204,12 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      # site/ is not a workspace member: its own lockfile, nothing shared with the apps.
+      # tools/docs-site/ is not a workspace member: its own lockfile, nothing shared with the apps.
       - name: Install
-        working-directory: site
+        working-directory: tools/docs-site
         run: pnpm install --ignore-workspace --frozen-lockfile
       - name: Build
-        working-directory: site
+        working-directory: tools/docs-site
         env:
           DOCS_BASE: /textstack
         run: pnpm build
@@ -231,13 +231,13 @@ jobs:
           # Same reason as above: one plain Node script, no install, and the
           # pnpm cache priming would fail in a job with no pnpm.
           package-manager-cache: false
-      - run: node scripts/check-extension.mjs
+      - run: node tools/checks/check-extension.mjs
 
   # Dependabot alerts were disabled on this repository for its whole life, which
   # is how a patched dompurify sat available for months while the vulnerable one
   # shipped to every visitor. They are on now — and a setting somebody can switch
   # off is not a check, so this asks the same question here, where turning it off
-  # is a diff. See scripts/check-advisories.mjs.
+  # is a diff. See tools/checks/check-advisories.mjs.
   advisories:
     if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
@@ -255,7 +255,7 @@ jobs:
           node-version-file: .nvmrc
           # Nothing is installed here; the lockfile is the input.
           package-manager-cache: false
-      - run: node scripts/check-advisories.mjs
+      - run: node tools/checks/check-advisories.mjs
 
   backend:
     needs: changes
@@ -293,7 +293,7 @@ jobs:
       - name: Build
         run: dotnet build --no-restore
 
-      # The JS half of this question is scripts/check-advisories.mjs; this is the
+      # The JS half of this question is tools/checks/check-advisories.mjs; this is the
       # .NET half, and it is free here because restore has already run. Currently
       # clean across every project — cheap to keep that way, and the command
       # reports success without failing, so the grep is what makes it a gate.
@@ -348,7 +348,7 @@ jobs:
       # See the same step in `frontend`. Free here: restore has already run, and
       # `dotnet list package --outdated` reads the assets file it wrote.
       - name: Drift report
-        run: node scripts/report-drift.mjs nuget
+        run: node tools/dependencies/report-drift.mjs nuget
 
   frontend:
     # Mobile too: this job drift-checks the reader bundles generated into apps/mobile.
@@ -396,6 +396,12 @@ jobs:
       # skipped it silently — which is how four type errors sat in its test
       # fixtures unnoticed. Running the tests without this would guard the
       # behaviour of a package whose types nothing checks.
+      - name: Shared reader unit tests
+        run: pnpm --filter @textstack/reader test
+
+      - name: Shared reader typecheck
+        run: pnpm --filter @textstack/reader typecheck
+
       - name: Shared package typecheck
         working-directory: packages/shared
         run: pnpm typecheck
@@ -409,7 +415,7 @@ jobs:
       - name: Build admin
         run: pnpm --filter textstack-admin build
 
-      # scripts/ has its own tests and no vitest project would otherwise find
+      # Repository tools have their own tests and no vitest project would otherwise find
       # them — the web config's include does not reach outside apps/web, so
       # without this step they exist and never run. They cover the semiannual
       # dependency job, which edits pnpm-workspace.yaml and
@@ -421,7 +427,7 @@ jobs:
       # releases, a reader racing the swap. Plus backup.yml's files archive.
       - name: Web swap self-check
         run: |
-          bash scripts/swap-web-dist.test.sh
+          bash infra/scripts/swap-web-dist.test.sh
           bash infra/scripts/backup-files-tar.test.sh
 
       # A gauge, not a gate — it cannot fail the build. The bump lane runs twice
@@ -429,7 +435,7 @@ jobs:
       # in between it, or the first sign that a minor became a major is a January
       # pull request nobody can review. Free here: the workspace is installed.
       - name: Drift report
-        run: node scripts/report-drift.mjs js
+        run: node tools/dependencies/report-drift.mjs js
 
   # The V2 reader page's gates, beside `frontend` rather than inside it: they need only the workspace and Chromium
   # (no build), and run only when what they read changed (v2reader), or on push to main.
@@ -556,10 +562,10 @@ jobs:
       # Wrapped so that a PATCH lag is a warning, not a failure: Expo ships
       # patches constantly, and the fix `--check` demands moves the OTA runtime
       # fingerprint — against the twice-a-year policy. Minor/major drift and
-      # output it can't read still fail. See scripts/check-expo-alignment.mjs.
+      # output it can't read still fail. See tools/checks/check-expo-alignment.mjs.
       - name: Expo SDK version alignment
         working-directory: apps/mobile
-        run: node ../../scripts/check-expo-alignment.mjs
+        run: node ../../tools/checks/check-expo-alignment.mjs
 
       # tsc and unit tests both passed while the app could not be bundled at
       # all — a broken import or a bad module resolution only surfaces when
@@ -574,7 +580,7 @@ jobs:
       # far behind they are. This says it, along with the only dependency drift
       # that carries a deadline and a consequence: Play's required target API.
       - name: Drift report
-        run: node scripts/report-drift.mjs mobile
+        run: node tools/dependencies/report-drift.mjs mobile
 
   # Does this change still ship as an OTA, or does it need a Play build?
   #
@@ -647,8 +653,8 @@ jobs:
       - name: Report
         if: steps.touched.outputs.relevant == 'true'
         run: |
-          git checkout ${{ github.sha }} -- scripts/report-runtime-change.mjs 2>/dev/null || true
-          node scripts/report-runtime-change.mjs \
+          git checkout ${{ github.sha }} -- infra/scripts/report-runtime-change.mjs 2>/dev/null || true
+          node infra/scripts/report-runtime-change.mjs \
             "${{ steps.base.outputs.runtime }}" \
             "${{ steps.head.outputs.runtime }}"
 
@@ -662,7 +668,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Free disk space
-        run: scripts/ci-free-disk.sh
+        run: infra/scripts/ci-free-disk.sh
 
       # Layer cache in the Actions cache (.github/docker-compose.ci.yml). buildx
       # gives compose a builder that can export to it; the runtime action hands
@@ -771,14 +777,14 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.v2reader == 'true') }}
     runs-on: ubuntu-latest
-    # v2reader: the web build ships the V2 page from apps/mobile/src/lib/v2reader; a page-only PR must meet the e2e gate.
+    # v2reader: the web build ships the V2 page from packages/reader/src; a page-only PR must meet the e2e gate.
     # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Free disk space
-        run: scripts/ci-free-disk.sh
+        run: infra/scripts/ci-free-disk.sh
 
       # Layer cache in the Actions cache (.github/docker-compose.ci.yml). buildx
       # gives compose a builder that can export to it; the runtime action hands

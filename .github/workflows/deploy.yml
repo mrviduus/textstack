@@ -18,18 +18,18 @@ on:
     # server's fallback web build) consume them.
     #
     # `paths` with negations, not `paths-ignore` (which cannot re-include): the V2
-    # reader page lives in apps/mobile/src/lib/v2reader but ships in the web dist
+    # reader page lives in packages/reader/src but ships in the web dist
     # (dist/reader-v2/, #1225), so a page-only change must deploy. Order matters:
     # the last pattern a file matches decides.
     paths:
       - '**'
       - '!docs/**'
-      - '!site/**'       # the docs site tooling; it publishes by docs-site.yml, not from here
+      - '!tools/docs-site/**'       # the docs site tooling; it publishes by docs-site.yml, not from here
       - '!.github/workflows/docs-site.yml'
       - '!*.md'
       - '!apps/mobile/**'
-      - 'apps/mobile/src/lib/v2reader/**'
-      - '!apps/mobile/src/lib/v2reader/**/*.md'
+      - 'packages/reader/src/**'
+      - '!packages/reader/src/**/*.md'
       - '!apps/web/e2e/**'   # Playwright specs; no image or web build reads them
       - '!apps/browser-extension/**'
       - '!.github/workflows/mobile-*.yml'
@@ -140,10 +140,10 @@ jobs:
           # cannot run would stop a break-glass deploy halfway. Every scan in this run
           # uses this copy. (Everything else run from $PROJECT_DIR — Makefile, compose,
           # nginx config — is meant to be the target commit's.)
-          git show "$RUN_SHA:scripts/scan-image-secrets.sh" > "$RUNNER_TEMP/scan-image-secrets.sh"
+          git show "$RUN_SHA:infra/scripts/scan-image-secrets.sh" > "$RUNNER_TEMP/scan-image-secrets.sh"
           chmod +x "$RUNNER_TEMP/scan-image-secrets.sh"
           # Same reason: the web swap and the web build's public values.
-          git show "$RUN_SHA:scripts/swap-web-dist.sh" > "$RUNNER_TEMP/swap-web-dist.sh"
+          git show "$RUN_SHA:infra/scripts/swap-web-dist.sh" > "$RUNNER_TEMP/swap-web-dist.sh"
           git show "$RUN_SHA:apps/web/production.env" > "$RUNNER_TEMP/production.env"
           if [ -n "$ROLLBACK_SHA" ]; then
             # Checked again against this clone: guard ran on GitHub's copy.
@@ -338,7 +338,7 @@ jobs:
 
       # The pulled bundle goes live: assets first, then every other file, index.html
       # last, each renamed into place. Unreferenced old assets are pruned (one release of
-      # grace for open tabs). Details and the self-check: scripts/swap-web-dist.sh.
+      # grace for open tabs). Details and the self-check: infra/scripts/swap-web-dist.sh.
       - name: Put web bundle live
         if: steps.web.outputs.pulled == 'true'
         run: bash "$RUNNER_TEMP/swap-web-dist.sh" "$RUNNER_TEMP/web-dist" "$PROJECT_DIR/apps/web/dist" "$PROJECT_DIR/apps/web/.web-release"
