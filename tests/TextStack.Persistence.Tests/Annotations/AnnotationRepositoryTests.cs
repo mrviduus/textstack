@@ -169,6 +169,26 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.Equal((1L, book.Id, book.CurrentFile!.Id, "a note"), (read.Revision, read.BookId, read.FileId, read.NoteText));
     }
 
+    // Her id onto his own book and file, as a create (null) and as an edit (1): loses, he is shown nothing, hers is unchanged.
+    [Theory]
+    [InlineData(null)]
+    [InlineData(1L)]
+    public async Task SaveAsync_AlicesIdOnBobsOwnBook_LosesShowsNothingAndChangesNothing(long? expectedRevision)
+    {
+        var (_, alices) = await SavedHighlightAsync();
+        var bobsBook = await db.NewReaderWithBookAsync();
+        var takeover = Edit(alices, "bob's");
+        takeover.UserId = bobsBook.UserId;
+        takeover.BookId = bobsBook.Id;
+        takeover.FileId = bobsBook.CurrentFile!.Id;
+
+        var result = await _repo.SaveAsync(bobsBook.UserId, takeover, expectedRevision, Ct);
+
+        Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
+        var read = (await _repo.GetAsync(alices.UserId, alices.Id, Ct))!;
+        Assert.Equal((1L, "a note", alices.BookId), (read.Revision, read.NoteText, read.BookId));
+    }
+
     // Owner isolation: bob, holding alice's ids, never reads, changes or deletes her highlights, nor writes onto her book or file.
     [Fact]
     public async Task EveryMethod_AnotherReaderHoldingAlicesIds_NeverReadsChangesOrDeletesHerHighlights()
@@ -180,17 +200,6 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.Empty(await _repo.ListForBookAsync(bob, alicesBook.Id, Ct));
         Assert.Null(await _repo.GetAsync(bob, alices.Id, Ct));
         Assert.Empty(await _repo.ListChangedAsync(bob, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
-
-        // Her id onto his own book and file, as a create and as an edit: loses, and he is shown nothing.
-        foreach (var expectedRevision in new long?[] { null, 1 })
-        {
-            var takeover = Edit(alices, "bob's");
-            takeover.UserId = bob;
-            takeover.BookId = bobsBook.Id;
-            takeover.FileId = bobsBook.CurrentFile!.Id;
-            var result = await _repo.SaveAsync(bob, takeover, expectedRevision, Ct);
-            Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
-        }
 
         // An unanchored edit on her own book: only the owner filter stops it.
         var unanchored = Edit(alices, "bob's");
@@ -288,5 +297,8 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         // A page past the end is empty yet still carries the total.
         var pastTheEnd = await _repo.ListAllAsync(moby.UserId, null, null, false, 10, 10, Ct);
         Assert.Equal((4, 0), (pastTheEnd.TotalCount, pastTheEnd.Items.Count));
+        // A reader with no highlights gets an empty first page with a total of 0.
+        var empty = await _repo.ListAllAsync(await db.NewReaderAsync(), null, null, false, 10, 0, Ct);
+        Assert.Equal((0, 0), (empty.TotalCount, empty.Items.Count));
     }
 }
