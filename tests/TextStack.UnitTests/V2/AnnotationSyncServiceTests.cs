@@ -174,9 +174,9 @@ public class AnnotationSyncServiceTests
 
     // An annotation stored before the scheme check (#1122): an edit keeping its locator lands, one moving it is refused.
     [Theory]
-    [InlineData(Cfi, 200)]
-    [InlineData("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/2!/4/2/1:0)","quote":"bright"}""", 400)]
-    public async Task SaveAsync_EditOfAMisfitLocatorStoredBeforeTheCheck_LandsOnlyIfItKeepsIt(string storedLocator, int status)
+    [InlineData(Cfi, 200, null)]
+    [InlineData("""{"version":1,"scheme":"epub-cfi","value":"epubcfi(/6/2!/4/2/1:0)","quote":"bright"}""", 400, "A epub-cfi locator does not fit a pdf file")]
+    public async Task SaveAsync_EditOfAMisfitLocatorStoredBeforeTheCheck_LandsOnlyIfItKeepsIt(string storedLocator, int status, string? why)
     {
         FileIs("pdf");
         Accepts();
@@ -185,31 +185,58 @@ public class AnnotationSyncServiceTests
         var result = await Service.SaveAsync(User, Id, Highlight(note: "an edit"), Ct);
 
         Assert.Equal(status, result.Status);
-        if (status == 400) WroteNothing();
+        if (why is null) return;
+        var error = V2Fakes.Error(result);
+        Assert.Equal((SyncCodes.InvalidPayload, "locator"), (error.Code, error.Field));
+        Assert.Contains(why, error.Message);
+        WroteNothing();
     }
 
     // A re-extraction renamed the chapter after the highlight landed: what keeps the stored anchor still lands.
+    // A replay's write loses to the row it already wrote: the answer is that stored row (revision 3), not an echo.
     [Theory]
-    [InlineData("renamed", "renamed", "edited", true, 200, null)]                       // an edit of the note
-    [InlineData("renamed", "renamed", "a note", false, 200, null)]                      // a replay whose response was lost
-    [InlineData(OnChapter, "no-such", "a note", true, 409, SyncCodes.ChapterNotFound)] // an edit moving it off the file
-    [InlineData(null, "no-such", "a note", true, 409, SyncCodes.ChapterNotFound)]      // a new highlight
+    [InlineData("renamed", "renamed", "edited", 2L, true, 200, null, null)]                       // an edit of the note
+    [InlineData("renamed", "renamed", "a note", 2L, false, 200, 3L, null)]                        // a replay whose response was lost
+    [InlineData(OnChapter, "no-such", "a note", 2L, true, 409, null, SyncCodes.ChapterNotFound)] // an edit moving it off the file
+    [InlineData(null, "no-such", "a note", null, true, 409, null, SyncCodes.ChapterNotFound)]    // a new highlight
     public async Task SaveAsync_AnchorOnAChapterTheFileLacks_LandsOnlyIfItIsTheStoredOne(
-        string? storedChapter, string sentChapter, string note, bool accepts, int status, string? code)
+        string? storedChapter, string sentChapter, string note, long? expectedRevision, bool accepts, int status, long? storedRevision, string? code)
     {
         if (storedChapter is not null) HasStored(Stored(locator: TextAnchor(storedChapter)));
         if (accepts) Accepts();
         else Loses(Stored(locator: TextAnchor(storedChapter!)));
 
-        var result = await Service.SaveAsync(User, Id, Highlight(TextAnchor(sentChapter), note: note), Ct);
+        var result = await Service.SaveAsync(User, Id, Highlight(TextAnchor(sentChapter), expectedRevision: expectedRevision, note: note), Ct);
 
         Assert.Equal(status, result.Status);
-        if (code is null) Assert.Equal(note, Assert.IsType<AnnotationDto>(result.Body).NoteText);
-        else
+        if (code is not null)
         {
             Assert.Equal(code, V2Fakes.Error(result).Code);
             WroteNothing();
+            return;
         }
+        var dto = Assert.IsType<AnnotationDto>(result.Body);
+        Assert.Equal(note, dto.NoteText);
+        if (storedRevision is not null)
+        {
+            Assert.Equal(storedRevision, dto.Revision);
+            // The one write it tried is the one that lost: nothing new was stored.
+            Assert.Single(_annotations.ReceivedCalls(), c => c.GetMethodInfo().Name == nameof(IAnnotationRepository.SaveAsync));
+        }
+    }
+
+    // A bare note: no locator, so no file and no chapter to check.
+    [Fact]
+    public async Task SaveAsync_BareNoteInTheReadersBook_IsWrittenWithNoFile()
+    {
+        Accepts();
+
+        var result = await Service.SaveAsync(User, Id, Highlight(locator: null, expectedRevision: null), Ct);
+
+        var dto = Assert.IsType<AnnotationDto>(result.Body);
+        Assert.Equal((201, (Guid?)null, (string?)null), (result.Status, dto.FileId, dto.Locator));
+        _ = _annotations.Received(1).SaveAsync(User, Arg.Is<Annotation>(a => a.FileId == null && a.Locator == null), Arg.Is<long?>(r => r == null), Arg.Any<CancellationToken>());
+        Assert.Empty(_chapters.ReceivedCalls());
     }
 
     [Theory]
