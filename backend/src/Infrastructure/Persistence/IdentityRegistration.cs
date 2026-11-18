@@ -29,7 +29,7 @@ public static class IdentityRegistration
     public static IServiceCollection AddTextStackAuthentication(this IServiceCollection services)
     {
         services.TryAddSingleton(sp => new JwtTokens(sp.GetRequiredService<IOptions<JwtSettings>>().Value,
-            sp.GetRequiredService<TimeProvider>()));
+            sp.GetRequiredService<TimeProvider>(), sp.GetService<ILogger<JwtTokens>>()));
         services.TryAddSingleton(sp => new ProviderTokens(sp.GetRequiredService<IOptions<GoogleSettings>>().Value,
             sp.GetRequiredService<IOptions<AppleSettings>>().Value, logger: sp.GetService<ILogger<ProviderTokens>>()));
         services.AddScoped<IAuthService, V2AuthService>();

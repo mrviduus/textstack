@@ -183,7 +183,7 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 // Health check before site resolution (for infra probes)
-app.MapGet("/health", async (V2DataSource db, CancellationToken ct) =>
+app.MapGet("/health", async (V2DataSource db, ILogger<Program> logger, CancellationToken ct) =>
 {
     try
     {
@@ -191,15 +191,16 @@ app.MapGet("/health", async (V2DataSource db, CancellationToken ct) =>
         await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
         return Results.Ok("healthy");
     }
-    catch
+    catch (Exception ex) when (!ct.IsCancellationRequested)
     {
+        logger.LogWarning(ex, "Health check: the database is unreachable");
         return Results.StatusCode(503);
     }
 });
 
 // Granular readiness probe — per-component status for ops dashboards.
 // db + storage are critical (503 on failure); ollama is soft (degraded, still 200).
-app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, V2DataSource db, CancellationToken ct) =>
+app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, V2DataSource db, ILogger<Program> logger, CancellationToken ct) =>
 {
     var started = DateTimeOffset.UtcNow;
     var components = new Dictionary<string, object>();
@@ -293,8 +294,9 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
             ? new { status = "ok" }
             : new { status = "degraded", code = (int)resp.StatusCode };
     }
-    catch
+    catch (Exception ex)
     {
+        logger.LogDebug(ex, "Readiness: Ollama probe failed");
         components["ollama"] = new { status = "degraded" };
     }
 

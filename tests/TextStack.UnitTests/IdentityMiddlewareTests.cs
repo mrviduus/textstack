@@ -40,7 +40,7 @@ public class IdentityMiddlewareTests
         var userId = Guid.NewGuid();
         var http = Request(TestTokens.Token(userId, guestClaim: isGuest), s => s.AddSingleton(users.Object));
 
-        await new GuestActivityMiddleware(_ => Task.CompletedTask).InvokeAsync(http, Auth, new MemoryCache(new MemoryCacheOptions()));
+        await new GuestActivityMiddleware(_ => Task.CompletedTask).InvokeAsync(http, Auth, new MemoryCache(new MemoryCacheOptions()), Microsoft.Extensions.Logging.Abstractions.NullLogger<GuestActivityMiddleware>.Instance);
 
         users.Verify(u => u.TouchActiveAsync(userId, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), isGuest ? Times.Once() : Times.Never());
     }

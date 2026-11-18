@@ -3,6 +3,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Domain.Enums;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Application.Auth;
@@ -29,10 +30,14 @@ public sealed class JwtTokens
     private readonly TokenValidationParameters _readerValidation;
     private readonly TokenValidationParameters _adminValidation;
 
+    private readonly ILogger? _logger;
+
     /// <param name="clock">What <c>iat</c> and expiry are minted from; the system clock unless a test sets it.</param>
-    public JwtTokens(JwtSettings jwt, TimeProvider? clock = null)
+    /// <param name="logger">Where a validation failure that is not a bad token goes (a key misconfiguration).</param>
+    public JwtTokens(JwtSettings jwt, TimeProvider? clock = null, ILogger<JwtTokens>? logger = null)
     {
         _jwt = jwt;
+        _logger = logger;
         _clock = clock ?? TimeProvider.System;
         _signing = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SecretKey)), SecurityAlgorithms.HmacSha256);
         _readerValidation = jwt.ValidationParameters(JwtSettings.UserAudience);
@@ -69,6 +74,11 @@ public sealed class JwtTokens
 
             var isGuest = principal.FindFirst(GuestClaimType)?.Value == "true";
             return new AccessTokenIdentity(Guid.Parse(userIdClaim), isGuest, IssuedAt((JwtSecurityToken)validated));
+        }
+        catch (Exception ex) when (IsUnexpected(ex))
+        {
+            _logger?.LogWarning(ex, "Token validation failed for a reason other than a bad token");
+            return null;
         }
         catch
         {
@@ -110,11 +120,19 @@ public sealed class JwtTokens
             AdminRole? role = roleClaim != null && Enum.TryParse<AdminRole>(roleClaim, out var parsed) ? parsed : null;
             return new AdminAccessTokenIdentity(adminId, role, IssuedAt((JwtSecurityToken)validated));
         }
+        catch (Exception ex) when (IsUnexpected(ex))
+        {
+            _logger?.LogWarning(ex, "Token validation failed for a reason other than a bad token");
+            return null;
+        }
         catch
         {
             return null;
         }
     }
+
+    // A bad, expired or forged token throws these: that is a "no", not a fault worth a log line.
+    private static bool IsUnexpected(Exception ex) => ex is not (SecurityTokenException or ArgumentException);
 
     // JWT iat is whole seconds. Keep full precision for reset checks, including a new sign-in
     // during the same second as a reset. Old signed tokens retain the conservative iat fallback.
