@@ -102,8 +102,6 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
     [Fact]
     public async Task IssueAsync_SignInRefreshedAndSignedOut_OneFamilyFromItsFirstSessionToItsLast()
     {
-        Assert.Null(await _repo.IssueAsync(Guid.NewGuid(), NewHash(), NextWeek, null, null, SessionKind.Reader, Ct));
-
         var guest = await db.NewReaderAsync(isGuest: true);
         var (first, second, third) = (NewHash(), NewHash(), NewHash());
         var issued = (await _repo.IssueAsync(guest, first, NextWeek, null, null, SessionKind.Reader, Ct))!;
@@ -125,6 +123,8 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
 
         // Past its expiry the successor refreshes nothing.
         Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(second, NewHash(), now: guestLifetime.AddDays(1))).Outcome);
+        Assert.True(await IsLiveAsync(second));
+        Assert.Equal(2L, await db.CountAsync("user_refresh_tokens", guest));
 
         // Signing out with the spent token is refused and keeps the family's first row, whose start
         // the next rotation reads.
@@ -134,6 +134,9 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
         Assert.True(await _repo.RevokeAsync(third, SessionKind.Reader, Ct));
         Assert.False(await IsLiveAsync(third));
         Assert.False(await _repo.RevokeAsync(third, SessionKind.Reader, Ct));
+
+        // A sign-in of nobody starts nothing.
+        Assert.Null(await _repo.IssueAsync(Guid.NewGuid(), NewHash(), NextWeek, null, null, SessionKind.Reader, Ct));
     }
 
     [Fact]
@@ -171,12 +174,12 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
         await _repo.IssueAsync(admin, first, NextWeek, null, null, issuedAs, Ct);
         Assert.Equal(SessionRefreshOutcome.Rotated, (await RefreshAsync(first, second, issuedAs)).Outcome);
 
-        // The live session, as the other kind, is no session: neither rotated nor signed out.
+        // The live session, as the other kind, is no session.
         Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(second, NewHash(), presentedAs)).Outcome);
-        Assert.False(await _repo.RevokeAsync(second, presentedAs, Ct));
 
-        // Its spent token, replayed past the grace as the other kind, revokes nothing.
+        // Past the grace, neither signing it out nor replaying its spent token as the other kind revokes anything.
         await db.AgeSessionsAsync(admin, "1 minute");
+        Assert.False(await _repo.RevokeAsync(second, presentedAs, Ct));
         Assert.Equal(SessionRefreshOutcome.Invalid, (await RefreshAsync(first, NewHash(), presentedAs)).Outcome);
         Assert.True(await IsLiveAsync(second));
 
@@ -238,17 +241,17 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
         await RefreshAsync(first, second);
         await RefreshAsync(second, third);
         await db.AgeSessionsAsync(liveUser, "1 minute");
-        var deadFirst = NewHash();
+        var (deadFirst, deadSecond) = (NewHash(), NewHash());
         await _repo.IssueAsync(deadUser, deadFirst, NextWeek, null, null, SessionKind.Reader, Ct);
-        await RefreshAsync(deadFirst, NewHash());
-        // The spent rows, into a past no other test uses: the sweep is cross-user.
-        await db.ExecAsync("UPDATE user_refresh_tokens SET expires_at = '1997-01-01Z' WHERE (user_id = @liveUser AND token_hash <> @third) OR user_id = @deadUser",
-            new { liveUser, third, deadUser });
+        await RefreshAsync(deadFirst, deadSecond);
+        // A day before the shared cutoff (SweepCutoff's rule): the sweep is cross-user, so only these rows are checked.
+        await db.ExecAsync("UPDATE user_refresh_tokens SET expires_at = @before WHERE (user_id = @liveUser AND token_hash <> @third) OR user_id = @deadUser",
+            new { before = SweepCutoff.AddDays(-1), liveUser, third, deadUser });
 
-        Assert.Equal(2, await _repo.DeleteExpiredSessionsAsync(new DateTimeOffset(1997, 1, 2, 0, 0, 0, TimeSpan.Zero), Ct));
+        await _repo.DeleteExpiredSessionsAsync(SweepCutoff, Ct);
 
-        Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", deadUser));
-        Assert.Equal(3L, await db.CountAsync("user_refresh_tokens", liveUser));
+        Assert.Equal(0L, await RowsAsync(deadFirst, deadSecond));
+        Assert.Equal(3L, await RowsAsync(first, second, third));
         // The live family's spent rows were kept, so its first token replayed is still caught.
         Assert.Equal(SessionRefreshOutcome.Reused, (await RefreshAsync(first, NewHash())).Outcome);
         Assert.Equal(0L, await db.CountAsync("user_refresh_tokens", liveUser));
@@ -279,10 +282,6 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
         var apiNow = DateTimeOffset.UtcNow.AddMinutes(-3).AddTicks(-7); // a skewed api clock, sub-millisecond
         var repo = new SessionTokenRepository(db.DataSource, new UnitTests.SteppedClock { Now = apiNow });
 
-        Assert.Null(await repo.ResetPasswordAsync(expiredCode, "too-late", DateTimeOffset.UtcNow, Ct));
-        Assert.Equal("old-hash", (await users.GetAsync(user, Ct))!.PasswordHash);
-        Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
-
         Assert.Equal(user, await repo.ResetPasswordAsync(code, "new-hash", DateTimeOffset.UtcNow, Ct));
 
         var account = (await users.GetAsync(user, Ct))!;
@@ -298,6 +297,11 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
         // The code is spent: a second use changes nothing, nor signs out the session that followed.
         await _repo.IssueAsync(user, NewHash(), NextWeek, null, null, SessionKind.Reader, Ct);
         Assert.Null(await repo.ResetPasswordAsync(code, "second", DateTimeOffset.UtcNow, Ct));
+        Assert.Equal("new-hash", (await users.GetAsync(user, Ct))!.PasswordHash);
+        Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
+
+        // Nor does an expired code.
+        Assert.Null(await repo.ResetPasswordAsync(expiredCode, "too-late", DateTimeOffset.UtcNow, Ct));
         Assert.Equal("new-hash", (await users.GetAsync(user, Ct))!.PasswordHash);
         Assert.Equal(1L, await db.CountAsync("user_refresh_tokens", user));
     }
@@ -356,6 +360,9 @@ public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRep
         await db.ExecAsync("UPDATE users SET password_hash = @passwordHash WHERE id = @user", new { passwordHash, user });
         return user;
     }
+
+    private Task<long> RowsAsync(params string[] hashes) =>
+        db.ScalarAsync<long>("SELECT count(*) FROM user_refresh_tokens WHERE token_hash = ANY(@hashes)", new { hashes });
 
     private Task<long> LiveAsync(Guid user) =>
         db.ScalarAsync<long>("SELECT count(*) FROM user_refresh_tokens WHERE user_id = @user AND expires_at > now()", new { user });
