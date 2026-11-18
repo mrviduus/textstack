@@ -18,6 +18,7 @@ public class LibraryContentServiceTests
     private static readonly Guid BookId = Guid.NewGuid();
     private static readonly Guid FileId = Guid.NewGuid();
     private static readonly Guid OldFileId = Guid.NewGuid();
+    private static readonly Guid NewerFileId = Guid.NewGuid();
     private const string Sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private const long Limit = 10_000;
     private const string Key = "library/key.epub";
@@ -34,14 +35,10 @@ public class LibraryContentServiceTests
 
     public LibraryContentServiceTests()
     {
-        // NSubstitute answers "" for strings: every nullable lookup is null unless a test says otherwise.
-        _library.GetAsync(default, default, default).ReturnsForAnyArgs((Book?)null);
-        _library.GetFileAsync(default, default, default, default).ReturnsForAnyArgs((BookFile?)null);
+        // NSubstitute answers "" for strings: every string? lookup is null unless a test says otherwise.
         _library.FileFormatAsync(default, default, default, default).ReturnsForAnyArgs((string?)null);
         _library.RemoveContentAsync(default, default, default, default).ReturnsForAnyArgs((string?)null);
-        _library.SetCoverAsync(default, default, default!, default).ReturnsForAnyArgs((Book?)null);
         _files.Locate(default!).ReturnsForAnyArgs((string?)null);
-        _jobs.GetLatestForFileAsync(default, default, default, default).ReturnsForAnyArgs((FileIngestionJob?)null);
 
         // The reader's book carries the file as its current one, as the library read does; OldFileId is a superseded version.
         _library.GetAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(_ => new Book { Id = BookId, UserId = User, CurrentFile = _file });
@@ -128,7 +125,8 @@ public class LibraryContentServiceTests
         _files.Received(1).Place(_staged);
         _files.Received().DeleteParts(User, FileId);
         _files.Received().Discard(_staged);
-        await _jobs.Received(extracted ? 1 : 0).EnqueueAsync(User, BookId, FileId, Arg.Any<CancellationToken>());
+        if (extracted) await _jobs.Received(1).EnqueueAsync(User, BookId, FileId, Arg.Any<CancellationToken>());
+        else await _jobs.DidNotReceiveWithAnyArgs().EnqueueAsync(default, default, default, Ct);
     }
 
     [Theory]
@@ -186,11 +184,11 @@ public class LibraryContentServiceTests
     }
 
     [Theory]
-    [InlineData("a replay, no extraction job yet", 200)]
-    [InlineData("a replay, its job exists", 200)]
-    [InlineData("parts taken by a concurrent complete that stored them", 200)]
-    [InlineData("a part missing", 400)]
-    public async Task CompleteAsync_RepeatedOrRacing_AnswersWhatTheServerHolds(string situation, int status)
+    [InlineData("a replay, no extraction job yet", 200, false, true, true)]
+    [InlineData("a replay, its job exists", 200, false, true, false)]
+    [InlineData("parts taken by a concurrent complete that stored them", 200, true, false, false)]
+    [InlineData("a part missing", 400, true, false, false)] // the other parts stay for the retry
+    public async Task CompleteAsync_RepeatedOrRacing_AnswersWhatTheServerHolds(string situation, int status, bool joins, bool partsGo, bool enqueues)
     {
         switch (situation)
         {
@@ -212,16 +210,14 @@ public class LibraryContentServiceTests
         Assert.Equal(status, result.Status);
         if (status == 200) Assert.True(((BookFileDto)result.Body!).HasContent);
         else Assert.Equal(SyncCodes.IncompleteUpload, V2Fakes.Error(result).Code);
-        // Nothing attaches twice; a missing part leaves the others for the retry.
+        // Nothing attaches twice; a replay never joins again and makes up for an enqueue that failed after the attach.
         await _library.DidNotReceiveWithAnyArgs().AttachContentAsync(default, default, default, default!, default, default!, Ct);
-        if (situation == "a part missing") _files.DidNotReceiveWithAnyArgs().DeleteParts(default, default);
-        if (situation.StartsWith("a replay"))
-        {
-            // A replay never joins again; it makes up for an enqueue that failed after the attach.
-            await _files.DidNotReceiveWithAnyArgs().AssembleAsync(default, default, default, default!, Ct);
-            _files.Received().DeleteParts(User, FileId);
-            await _jobs.Received(situation.Contains("no extraction job") ? 1 : 0).EnqueueAsync(User, BookId, FileId, Arg.Any<CancellationToken>());
-        }
+        if (joins) await _files.Received(1).AssembleAsync(User, FileId, 2, Key, Arg.Any<CancellationToken>());
+        else await _files.DidNotReceiveWithAnyArgs().AssembleAsync(default, default, default, default!, Ct);
+        if (partsGo) _files.Received(1).DeleteParts(User, FileId);
+        else _files.DidNotReceiveWithAnyArgs().DeleteParts(default, default);
+        if (enqueues) await _jobs.Received(1).EnqueueAsync(User, BookId, FileId, Arg.Any<CancellationToken>());
+        else await _jobs.DidNotReceiveWithAnyArgs().EnqueueAsync(default, default, default, Ct);
     }
 
     [Theory]
@@ -249,15 +245,20 @@ public class LibraryContentServiceTests
     public async Task CompleteAsync_BookChangedWhileJoining_AnswersTheChangeAndKeepsThePartsOnlyIfTheyMayBeNeeded(
         AttachOutcome outcome, int status, string? code, bool partsGo)
     {
+        // The attach answers the book's current file: this one when already stored, a newer one when replaced.
+        var current = outcome == AttachOutcome.FileReplaced ? NewerFileId : FileId;
         Attaches(new ContentAttachment(outcome,
-            File: new BookFile { Id = FileId, UserId = User, BookId = BookId, Sha256 = Sha, Format = "epub", ServerStorageKey = Key },
+            File: new BookFile { Id = current, UserId = User, BookId = BookId, Sha256 = Sha, Format = "epub", ServerStorageKey = Key },
             Book: new Book { Id = BookId, RemovedAt = DateTimeOffset.UtcNow }));
 
         var result = await CompleteAsync();
 
         Assert.Equal(status, result.Status);
         if (code is not null) Assert.Equal(code, V2Fakes.Error(result).Code);
-        _files.Received(partsGo ? 1 : 0).DeleteParts(User, FileId);
+        // A replaced file names the current one, so the client knows where to upload.
+        if (code == SyncCodes.FileReplaced) Assert.Equal(NewerFileId, V2Fakes.Error(result).FileId);
+        if (partsGo) _files.Received(1).DeleteParts(User, FileId);
+        else _files.DidNotReceiveWithAnyArgs().DeleteParts(default, default);
         _files.Received().Discard(_staged);
         Assert.Empty(_jobs.ReceivedCalls());
     }
@@ -287,7 +288,7 @@ public class LibraryContentServiceTests
 
         Assert.Equal(status, result.Status);
         // A reader's book: no shared cache may keep it.
-        if (state == "stored") Assert.Equal(new StoredBytes("/volume/key", contentTypeOrCode, CacheControl: "private, no-store"), result.Body);
+        if (status == 200) Assert.Equal(new StoredBytes("/volume/key", contentTypeOrCode, CacheControl: "private, no-store"), result.Body);
         else Assert.Equal(contentTypeOrCode, V2Fakes.Error(result).Code);
     }
 
@@ -309,73 +310,90 @@ public class LibraryContentServiceTests
         _files.Received(1).TryDelete(Arg.Any<string>());
     }
 
-    private static byte[] Png(int length)
+    private static readonly byte[] PngMagic = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    private static byte[] Image(byte[] magic, int length)
     {
         var bytes = new byte[length];
-        new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(bytes, 0);
+        magic.CopyTo(bytes, 0);
         return bytes;
     }
 
-    private readonly StagedContent _cover = new("library/cover.png", "/tmp/cover.tmp", null, 10);
+    private static byte[] Png(int length) => Image(PngMagic, length);
 
-    private void StagesCover()
+    private StagedContent StagesCover(string extension = "png")
     {
-        _files.CoverKey(User, BookId, "png").Returns("library/cover.png");
-        _files.StageAsync("library/cover.png", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>()).Returns(_cover);
+        var key = $"library/cover.{extension}";
+        var staged = new StagedContent(key, "/tmp/cover.tmp", null, 10);
+        _files.CoverKey(User, BookId, extension).Returns(key);
+        _files.StageAsync(key, Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>()).Returns(staged);
+        return staged;
     }
 
-    [Fact]
-    public async Task PutCoverAsync_ReaderSetsThenReplacesTheCover_NewOnePlacedOnlyAnOtherOldKeyDeletedAndServedWithAnETag()
+    [Theory]
+    [InlineData("image/png", "png", new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A })]
+    [InlineData("image/jpeg", "jpg", new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 })]
+    [InlineData("image/webp", "webp", new byte[] { 0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50 })]
+    public async Task PutCoverAsync_ReaderSetsThenReplacesTheCover_NewOnePlacedOnlyAnOtherOldKeyDeletedAndServedWithAnETag(
+        string contentType, string extension, byte[] magic)
     {
+        var key = $"library/cover.{extension}";
+        var otherKey = extension == "jpg" ? "library/cover.png" : "library/cover.jpg";
         var updatedAt = DateTimeOffset.UtcNow;
-        var withNewCover = new Book { Id = BookId, Title = "A book", CoverKey = "library/cover.png", UpdatedAt = updatedAt };
-        // No cover yet, then the same PNG key again, then a JPEG cover replaced by a PNG.
+        var withNewCover = new Book { Id = BookId, Title = "A book", CoverKey = key, UpdatedAt = updatedAt };
+        // No cover yet, then the same key again, then a cover of another type replaced.
         _library.GetAsync(User, BookId, Arg.Any<CancellationToken>()).Returns(
-            new Book { Id = BookId }, new Book { Id = BookId, CoverKey = "library/cover.png" }, new Book { Id = BookId, CoverKey = "library/cover.jpg" }, withNewCover);
-        StagesCover();
-        _library.SetCoverAsync(User, BookId, "library/cover.png", Arg.Any<CancellationToken>()).Returns(withNewCover);
-        _files.TryDelete("library/cover.jpg").Returns(true);
-        _files.Locate("library/cover.png").Returns("/volume/cover.png");
-        var body = Png(SyncLimits.MaxCoverBytes);
+            new Book { Id = BookId }, new Book { Id = BookId, CoverKey = key }, new Book { Id = BookId, CoverKey = otherKey }, withNewCover);
+        var cover = StagesCover(extension);
+        _library.SetCoverAsync(User, BookId, key, Arg.Any<CancellationToken>()).Returns(withNewCover);
+        _files.TryDelete(otherKey).Returns(true);
+        _files.Locate(key).Returns($"/volume/cover.{extension}");
+        var body = Image(magic, SyncLimits.MaxCoverBytes);
 
-        Assert.Equal(200, (await Service.PutCoverAsync(User, BookId, "image/png", body.Length, new MemoryStream(body), Ct)).Status);
-        Assert.Equal(200, (await Service.PutCoverAsync(User, BookId, "image/png", body.Length, new MemoryStream(body), Ct)).Status);
+        Assert.Equal(200, (await Service.PutCoverAsync(User, BookId, contentType, body.Length, new MemoryStream(body), Ct)).Status);
+        Assert.Equal(200, (await Service.PutCoverAsync(User, BookId, contentType, body.Length, new MemoryStream(body), Ct)).Status);
         // The cover just placed under the same key is never deleted.
         _files.DidNotReceiveWithAnyArgs().TryDelete(default!);
         _files.ClearReceivedCalls();
         _library.ClearReceivedCalls();
 
-        var put = await Service.PutCoverAsync(User, BookId, "image/png", body.Length, new MemoryStream(body), Ct);
+        var put = await Service.PutCoverAsync(User, BookId, contentType, body.Length, new MemoryStream(body), Ct);
         var get = Assert.IsType<StoredBytes>((await Service.GetCoverAsync(User, BookId, Ct)).Body);
 
         Assert.Equal((200, true), (put.Status, ((BookDto)put.Body!).HasCover));
-        await _files.Received().StageAsync("library/cover.png", Arg.Is<ReadOnlyMemory<byte>>(b => b.Length == body.Length), Arg.Any<CancellationToken>());
+        await _files.Received(1).StageAsync(key, Arg.Is<ReadOnlyMemory<byte>>(b => b.Length == body.Length), Arg.Any<CancellationToken>());
         // Staged, then the row, then into place, then the old cover goes; the staging is cleaned up.
         Received.InOrder(() =>
         {
-            _library.SetCoverAsync(User, BookId, "library/cover.png", Arg.Any<CancellationToken>());
-            _files.Place(_cover);
-            _files.TryDelete("library/cover.jpg");
-            _files.Discard(_cover);
+            _files.StageAsync(key, Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>());
+            _library.SetCoverAsync(User, BookId, key, Arg.Any<CancellationToken>());
+            _files.Place(cover);
+            _files.TryDelete(otherKey);
+            _files.Discard(cover);
         });
-        Assert.Equal(("/volume/cover.png", "image/png", $"\"{updatedAt.UtcTicks}\""), (get.Path, get.ContentType, get.ETag));
+        Assert.Equal(($"/volume/cover.{extension}", contentType, $"\"{updatedAt.UtcTicks}\""), (get.Path, get.ContentType, get.ETag));
     }
 
     [Theory]
-    [InlineData("a declared length over the cap", 400, SyncCodes.InvalidPayload)]
-    [InlineData("a body one byte over the cap without a length", 400, SyncCodes.InvalidPayload)]
-    [InlineData("an empty body", 400, SyncCodes.InvalidPayload)]
-    [InlineData("a GIF", 400, SyncCodes.InvalidPayload)]
-    [InlineData("a removed book", 409, SyncCodes.BookRemoved)]
-    [InlineData("another reader's book", 404, SyncCodes.BookNotFound)]
-    [InlineData("a book deleted before the row update", 404, SyncCodes.BookNotFound)]
-    public async Task PutCoverAsync_CoverRefused_NothingPlacedAndNothingStagedLeftBehind(string why, int status, string code)
+    [InlineData("a declared length over the cap", 400, SyncCodes.InvalidPayload, false)]
+    [InlineData("a body one byte over the cap without a length", 400, SyncCodes.InvalidPayload, false)]
+    [InlineData("an empty body", 400, SyncCodes.InvalidPayload, false)]
+    [InlineData("a GIF", 400, SyncCodes.InvalidPayload, false)]
+    [InlineData("a removed book", 409, SyncCodes.BookRemoved, false)]
+    [InlineData("another reader's book", 404, SyncCodes.BookNotFound, false)]
+    [InlineData("a book deleted before the row update", 404, SyncCodes.BookNotFound, true)]
+    public async Task PutCoverAsync_CoverRefused_NothingPlacedAndNothingStagedLeftBehind(string why, int status, string code, bool staged)
     {
         var (bookId, contentType, length, body) = (BookId, "image/png", (long?)null, (Stream)new MemoryStream(Png(10)));
-        StagesCover();
+        var cover = StagesCover();
         switch (why)
         {
-            case "a declared length over the cap": length = SyncLimits.MaxCoverBytes + 1; body = Substitute.For<Stream>(); break;
+            case "a declared length over the cap":
+                // Refused without reading the body: a closed stream throws on any read.
+                length = SyncLimits.MaxCoverBytes + 1;
+                body = new MemoryStream(Png(10));
+                body.Dispose();
+                break;
             case "a body one byte over the cap without a length": body = new MemoryStream(Png(SyncLimits.MaxCoverBytes + 1)); break;
             case "an empty body": body = new MemoryStream(); break;
             case "a GIF": contentType = "image/gif"; body = new MemoryStream("GIF89a"u8.ToArray()); break;
@@ -386,12 +404,17 @@ public class LibraryContentServiceTests
 
         Assert.Equal((status, code), Code(await Service.PutCoverAsync(User, bookId, contentType, length, body, Ct)));
 
-        // A declared length over the cap is refused without reading the body.
-        if (why == "a declared length over the cap") Assert.Empty(body.ReceivedCalls());
         _files.DidNotReceiveWithAnyArgs().Place(default!);
-        var staged = _files.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(ILibraryFileStore.StageAsync));
-        Assert.Equal(staged, _files.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(ILibraryFileStore.Discard)));
-        Assert.Equal(why == "a book deleted before the row update" ? 1 : 0, staged);
+        if (staged)
+        {
+            await _files.Received(1).StageAsync(cover.Key, Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>());
+            _files.Received(1).Discard(cover);
+        }
+        else
+        {
+            await _files.DidNotReceiveWithAnyArgs().StageAsync(default!, default, Ct);
+            _files.DidNotReceiveWithAnyArgs().Discard(default!);
+        }
     }
 
     [Theory]
