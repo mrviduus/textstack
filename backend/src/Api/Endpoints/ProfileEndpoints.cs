@@ -3,6 +3,7 @@ using Api.Mapping;
 using Application.Auth;
 using Application.Common.Interfaces;
 using Application.Identity;
+using Domain.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Endpoints;
@@ -121,26 +122,36 @@ public static class ProfileEndpoints
         var relativePath = await storage.SaveFileAsync(userId.Value, fileName, optimizedStream, ct);
 
         var oldPicture = user.Picture;
-        var updated = await users.SetPictureAsync(userId.Value, relativePath, ct);
-        if (updated == null) return Results.Unauthorized();
-
-        if (IsLocalFile(oldPicture))
+        UserAccount? updated;
+        try { updated = await users.SetPictureAsync(userId.Value, relativePath, ct); }
+        catch { await TryDeleteAsync(storage, relativePath, logger); throw; }
+        if (updated == null)
         {
-            // The new photo is in use already; a leftover old file is only wasted bytes.
-            try { await storage.DeleteFileAsync(oldPicture!, ct); }
-            catch (IOException ex) { logger.LogWarning(ex, "Could not delete the replaced avatar {Path}", oldPicture); }
+            await TryDeleteAsync(storage, relativePath, logger);
+            return Results.Unauthorized();
         }
+
+        // The new photo is in use already; a leftover old file is only wasted bytes.
+        if (UserAccount.IsStoredPicture(oldPicture) && oldPicture != relativePath)
+            await TryDeleteAsync(storage, oldPicture!, logger);
         return Results.Ok(new AuthResponse(updated.ToDto()));
     }
 
-    // A Google or Apple picture is an external URL, not a file we own.
-    private static bool IsLocalFile(string? picture) =>
-        !string.IsNullOrEmpty(picture) && !picture.StartsWith("http");
+    // Best-effort: a file left behind is logged, never a failed request.
+    private static async Task TryDeleteAsync(IFileStorageService storage, string path, ILogger logger)
+    {
+        try { await storage.DeleteFileAsync(path, CancellationToken.None); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Could not delete avatar file {Path}; it is left as an orphan", path);
+        }
+    }
 
     private static async Task<IResult> DeleteAvatar(
         IAuthService authService,
         IUserRepository users,
         IFileStorageService storage,
+        ILogger<IFileStorageService> logger,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -153,8 +164,8 @@ public static class ProfileEndpoints
         // The row first: a failed file delete leaves an orphan file, never a broken avatar.
         var oldPicture = user.Picture;
         await users.SetPictureAsync(userId.Value, null, ct);
-        if (IsLocalFile(oldPicture))
-            await storage.DeleteFileAsync(oldPicture!, ct);
+        if (UserAccount.IsStoredPicture(oldPicture))
+            await TryDeleteAsync(storage, oldPicture!, logger);
         return Results.Ok();
     }
 }

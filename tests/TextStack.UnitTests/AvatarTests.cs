@@ -72,7 +72,7 @@ public sealed class AvatarTests : IDisposable
         http.Items[McpKeyAuthMiddleware.UserIdItemKey] = _reader.Id;
         var file = new FormFile(new MemoryStream([9, 9, 9]), 0, 3, "file", "me.jpg") { Headers = new HeaderDictionary(), ContentType = "image/jpeg" };
         return ProfileEndpoints.UploadAvatar(file, _auth, _users, _storage, _optimizer,
-            NullLogger<IFileStorageService>.Instance, http, CancellationToken.None);
+            NullLogger<IFileStorageService>.Instance, http, Ct);
     }
 
     public void Dispose()
