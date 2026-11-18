@@ -83,12 +83,13 @@ public static class ProfileEndpoints
         return updated == null ? Results.Unauthorized() : Results.Ok(new AuthResponse(updated.ToDto()));
     }
 
-    private static async Task<IResult> UploadAvatar(
+    internal static async Task<IResult> UploadAvatar(
         IFormFile file,
         IAuthService authService,
         IUserRepository users,
         IFileStorageService storage,
         IImageOptimizer imageOptimizer,
+        ILogger<IFileStorageService> logger,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -108,24 +109,33 @@ public static class ProfileEndpoints
         if (!AllowedPhotoExtensions.Contains(ext))
             return Results.BadRequest(new { error = "Invalid file type. Only JPG and PNG allowed" });
 
-        // Delete old avatar if it's a local file (not external URL like Google)
-        if (!string.IsNullOrEmpty(user.Picture) && !user.Picture.StartsWith("http"))
-        {
-            await storage.DeleteFileAsync(user.Picture, ct);
-        }
-
         using var ms = new MemoryStream();
         await file.CopyToAsync(ms, ct);
         var mimeType = file.ContentType ?? "image/jpeg";
         var optimized = await imageOptimizer.OptimizeAsync(ms.ToArray(), mimeType, ct: ct);
 
+        // New file, then the row, then the old file: a failure at any step leaves the account
+        // pointing at a photo that exists. A fresh name never overwrites the photo in use.
         using var optimizedStream = new MemoryStream(optimized.Data);
-        var fileName = $"avatar{optimized.Extension}";
+        var fileName = $"avatar-{Guid.NewGuid():N}{optimized.Extension}";
         var relativePath = await storage.SaveFileAsync(userId.Value, fileName, optimizedStream, ct);
 
+        var oldPicture = user.Picture;
         var updated = await users.SetPictureAsync(userId.Value, relativePath, ct);
-        return updated == null ? Results.Unauthorized() : Results.Ok(new AuthResponse(updated.ToDto()));
+        if (updated == null) return Results.Unauthorized();
+
+        if (IsLocalFile(oldPicture))
+        {
+            // The new photo is in use already; a leftover old file is only wasted bytes.
+            try { await storage.DeleteFileAsync(oldPicture!, ct); }
+            catch (IOException ex) { logger.LogWarning(ex, "Could not delete the replaced avatar {Path}", oldPicture); }
+        }
+        return Results.Ok(new AuthResponse(updated.ToDto()));
     }
+
+    // A Google or Apple picture is an external URL, not a file we own.
+    private static bool IsLocalFile(string? picture) =>
+        !string.IsNullOrEmpty(picture) && !picture.StartsWith("http");
 
     private static async Task<IResult> DeleteAvatar(
         IAuthService authService,
@@ -140,12 +150,11 @@ public static class ProfileEndpoints
         var user = await authService.GetUserByIdAsync(userId.Value, ct);
         if (user == null) return Results.Unauthorized();
 
-        if (!string.IsNullOrEmpty(user.Picture) && !user.Picture.StartsWith("http"))
-        {
-            await storage.DeleteFileAsync(user.Picture, ct);
-        }
-
+        // The row first: a failed file delete leaves an orphan file, never a broken avatar.
+        var oldPicture = user.Picture;
         await users.SetPictureAsync(userId.Value, null, ct);
+        if (IsLocalFile(oldPicture))
+            await storage.DeleteFileAsync(oldPicture!, ct);
         return Results.Ok();
     }
 }
