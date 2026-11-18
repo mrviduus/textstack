@@ -17,7 +17,7 @@ namespace Application.Vocabulary;
 /// (<see cref="LibraryProvenance"/>). After a write the response is the card as stored now, with its
 /// live examples.
 /// </summary>
-public sealed class VocabularySyncService(ILibraryRepository library, IVocabularyRepository words, ISrsEngine srs, TimeProvider? clock = null)
+public sealed class VocabularySyncService(ILibraryRepository library, IVocabularyRepository words, ISrsEngine srs, TimeProvider clock)
 {
     public async Task<SyncResult> SaveWordAsync(Guid userId, SaveVocabularyWordRequest r, CancellationToken ct)
     {
@@ -115,7 +115,7 @@ public sealed class VocabularySyncService(ILibraryRepository library, IVocabular
 
     public async Task<SyncResult> RecordReviewAsync(Guid userId, VocabularyReviewRequest r, CancellationToken ct)
     {
-        if (Review(r, (clock ?? TimeProvider.System).GetUtcNow()) is { } invalid) return invalid;
+        if (Review(r, clock.GetUtcNow()) is { } invalid) return invalid;
         var review = new VocabularyReview
         {
             Id = Guid.CreateVersion7(),
