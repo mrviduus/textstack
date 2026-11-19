@@ -1,7 +1,7 @@
 name: Mobile Release (EAS)
 
-# Manual mobile shipping via EAS. Three SEPARATE, explicit actions — nothing reaches
-# the store automatically; each run is a deliberate human click:
+# Manual mobile shipping via EAS. Automatic main releases use mobile-ota.yml.
+# These recovery/testing actions remain explicit:
 #   • ota-update — `eas update` to the production channel (JS-only changes, instant).
 #   • build      — `eas build` only. Produces an artifact; does NOT touch the store.
 #   • submit     — `eas submit --latest` — pushes the latest build to the store,
@@ -17,8 +17,7 @@ name: Mobile Release (EAS)
 # widening is done by hand in Play Console → Production → Manage rollout.
 #
 # Requires repo secret EXPO_TOKEN (expo.dev → Account → Access tokens).
-# workflow_dispatch ONLY — no push/tag/schedule triggers, so the store is never
-# deployed to automatically.
+# This workflow is manual; mobile-ota.yml automatically releases main to production.
 on:
   workflow_dispatch:
     inputs:

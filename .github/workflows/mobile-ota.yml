@@ -1,48 +1,14 @@
 name: Mobile OTA (auto)
 
-# Publishes a JS-only change to installed Android apps when it lands on main.
+# Ships Android changes from main to production.
+# Matching runtime: publish OTA. Changed runtime: build and submit to Google Play
+# production, waiting for EAS build/submission to finish. Google Play review and
+# users' store auto-update settings still govern installation on phones.
 #
-# Separate from mobile-release.yml on purpose. That workflow is workflow_dispatch
-# only and says so in its own header: nothing reaches the STORE without a human
-# clicking. This one never touches the store — `eas update` republishes the JS
-# bundle to apps that are already installed.
-#
-# The guard is the point of this file.
-#
-# app.json sets `runtimeVersion: { policy: "fingerprint" }`, so an update only
-# reaches builds whose fingerprint matches. When a merge changes a native
-# dependency, an Expo plugin or app.json, the fingerprint moves — and `eas
-# update` still SUCCEEDS, publishing to a runtime nobody has installed. A green
-# check and zero delivery. That is the same shape as the SSG rebuild that
-# reported success after losing its files
-# (docs/internal/incidents/2026-08-31-deploy-wiped-a-running-ssg-rebuild.md), and it is
-# worse here because nothing else would ever notice.
-#
-# So: compute the fingerprint, compare it with the runtime of the newest
-# finished production build, and publish only on a match.
-#
-# A mismatch used to FAIL the run, on the reasoning that "this merge did not
-# reach anyone" is information and a silent skip looks like a success. The
-# reasoning was right and the outcome was still a twelve-day outage: offline
-# reading landed 2026-09-14, this step refused correctly the same night, and the
-# feature sat on main and on nobody's phone until 2026-09-27 while the failed run
-# scrolled out of sight. A failed run is not a task list.
-#
-# So a mismatch now ships itself — a build, submitted to `closed` (Play's `alpha`).
-# That is where the testers actually are: six of them opted in, while the Internal
-# track's list is empty, and a build sent somewhere nobody is subscribed repeats
-# this outage in a quieter way. `production` stays manual in mobile-release.yml,
-# because it has an audience that did not ask to be a test.
-#
-# That run publishes no update: nothing installed has the new runtime yet, and the
-# build carries the commit's JS itself. A push while that build is still queued or
-# running does not start a second one. Both rules: infra/scripts/mobile-ota-decide.mjs.
-#
-# One track, not two. Play identifies a release by `versionCode` and refuses a
-# second upload of the same one — submitting build 28 to `internal` and then to
-# `closed` failed with "You've already submitted this version of the app", and
-# reaching the second track meant promoting it by hand in Play Console. So the
-# automatic path picks the track with an audience and sends the build there once.
+# Runtime fingerprints must match: never force new native code onto an old binary.
+# A matching build already in flight is reused (infra/scripts/mobile-ota-decide.mjs).
+# One upload, one track: promote existing testing builds in Play Console rather
+# than trying to upload the same versionCode again to production.
 #
 # Android only. iOS has no released build for an update to land on.
 #
@@ -86,8 +52,8 @@ permissions:
 jobs:
   ota:
     runs-on: ubuntu-latest
-    # 2m typical.
-    timeout-minutes: 30
+    # OTA takes minutes; a native build and store submission can take much longer.
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: apps/mobile
@@ -242,15 +208,15 @@ jobs:
         run: rm -rf android
 
       # --json for the build id the summary links to (logs go to stderr). Implies --non-interactive.
-      - name: Build and submit to Closed testing, since no update can reach anyone
+      - name: Build and submit to Google Play production
         id: ship
         if: ${{ steps.build.outputs.action == 'build' && inputs.dry_run != true }}
         run: |
           set -euo pipefail
           out=$(eas build --platform android --profile production \
-            --auto-submit-with-profile closed --non-interactive --no-wait --json)
+            --auto-submit-with-profile production --non-interactive --json)
           echo "$out"
-          # The build has started by now; a JSON shape change must not fail the run over a link.
+          # Build/submission succeeded; a JSON shape change must not fail the run over a link.
           id=$(printf '%s' "$out" | jq -r 'if type == "array" then .[0].id else .id end // empty' 2>/dev/null || true)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
@@ -296,12 +262,12 @@ jobs:
               publish/false) echo "### OTA published to the production channel" ;;
               build/true) echo "### Runtime changed — dry run, nothing built or published" ;;
               build/false)
-                echo "### Runtime changed → store build $(link "$NEW_ID") submitted to Closed testing; no OTA published"
+                echo "### Runtime changed → store build $(link "$NEW_ID") submitted to Google Play production; no OTA published"
                 echo
                 echo "No installed app runs this runtime yet. Installs get these changes from the store build."
-                echo "It submits itself to **closed testing** (Play's \`alpha\`) when it finishes — \`--no-wait\`,"
-                echo "so this run ends first. Permissions were checked at the **source** manifest level only."
-                echo "A build reaches ONE track per upload; \`production\` is still a human click: **mobile-release.yml**."
+                echo "The EAS build and submission to **production** finished. Google Play may still review the release."
+                echo "Permissions were checked at the **source** manifest level only."
+                echo "A build reaches ONE track per upload. Older installed runtimes need the Google Play update first."
                 ;;
               queued/true) echo "### Runtime changed, store build $(link "$INFLIGHT_ID") already $INFLIGHT_STATUS — dry run, nothing published" ;;
               queued/false)
