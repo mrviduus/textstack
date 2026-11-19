@@ -69,8 +69,8 @@ If they differ, you need a build, not an update.
 comparison. It was never written. What does it now is
 [`.github/workflows/mobile-ota.yml`](../../../.github/workflows/mobile-ota.yml): on every
 push to `main` touching `apps/mobile/**` or `packages/**` it resolves the runtime,
-compares it with the newest finished Android production build, and publishes the OTA
-only on a match. A mismatch **starts an EAS production build and auto-submits it to
+looks for a finished Android production build with the same runtime, and publishes OTA
+when one exists, even if a newer build has another runtime. A mismatch **starts an EAS production build and auto-submits it to
 Google Play production**. That run publishes no OTA: the new binary carries the JS.
 A matching build already queued or running is reused instead of starting a duplicate;
 its OTA is published so the build can pick up newer JS on first launch. Logic:
@@ -85,10 +85,19 @@ without publishing. It needs the `EXPO_TOKEN` secret, like every other EAS workf
   publishes its OTA to that build's runtime. If the build then errors or is cancelled, that
   update reaches no one until the next mobile push builds again. The run summary says so; the
   fix is to re-run **mobile-release.yml → build**.
-- **One runtime at a time.** The OTA always targets the runtime of the newest *finished*
-  production build. Once the production track runs an older build than Closed testing,
-  production stops receiving OTAs. Automatic builds now target production, but a manually uploaded testing build
-  can still create this gap. Promote it or ship a newer production build.
+- **One runtime at a time.** OTA targets this commit's fingerprint. Installs with a different
+  fingerprint need a store update. Any matching finished production-profile build is
+  accepted, so a newer testing build cannot hide a still-compatible installed build.
+
+### Preserve the installed runtime during repository-only changes
+
+Expo hashes `apps/mobile/.gitignore` (`bareGitIgnore`), including comments and obsolete
+ignore paths. The folder move in #1478 removed two ignore rules and changed the runtime
+from `9b7fb67cf45606f69c7f6b804b6f8bdcc8e05c9d` to
+`93a431bfe1f2f06f56baaf727c7c1f18d3c8a877` without changing any other fingerprint source.
+Restoring the exact file restores compatibility with builds 40–43. Keep the legacy ignore
+rules: deleting them again strands these installs. Compare saved EAS fingerprints before
+assuming a moved runtime requires new native code. Never override a genuine native mismatch.
 
 ## Permissions
 

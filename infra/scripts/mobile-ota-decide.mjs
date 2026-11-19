@@ -2,7 +2,7 @@
 //
 // What mobile-ota.yml does with this commit: publish an update, start a store build, or neither.
 //
-//   publish — the runtime matches the newest FINISHED production build: installed apps can take
+//   publish — the runtime matches a FINISHED production build: installed apps can take
 //             an update. Also when an in-flight production build has this runtime (`queued`).
 //   build   — the runtime matches nothing installed or on its way: start a store build. Its
 //             binary carries this commit's JS, so no update is published (none could land yet).
@@ -54,7 +54,9 @@ export function decide(builds, hash) {
   const prod = builds
     .filter(isProduction)
     .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))
-  const installed = prod.find((b) => statusOf(b) === 'FINISHED')
+  const finished = prod.filter((b) => statusOf(b) === 'FINISHED')
+  // A newer testing/rollback runtime must not strand a still-compatible installed build.
+  const installed = finished.find((b) => runtimeOf(b) === hash) ?? finished[0]
   if (!installed) return { error: 'no-build' }
   const runtime = runtimeOf(installed)
   if (!runtime) return { error: 'no-runtime', installed }
