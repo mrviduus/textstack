@@ -460,8 +460,8 @@ it through `readSettings`, so only numbers and members of the module's own lists
   text blocks (`p, li, blockquote, dd`) inherit line height. `alignment.mjs` makes an explicit alignment win
   over publisher classes and inline rules, including text in `div`. `book` restores the original alignment.
   `fonts.mjs` applies the chosen family over publisher fonts while preserving bold and italic styles.
-  Code retains its monospace face except in the accessibility font, and returns to its original face when
-  leaving that font. Dark mode recolours text and puts images/SVG on a light plate.
+  Code and explicitly styled headings retain their publisher faces except in the accessibility font,
+  and return to their original faces when leaving that font. Dark mode recolours text and puts images/SVG on a light plate.
 - *On the page itself:* the theme's background and text colour (the margins, the letterbox around a fixed-layout
   page, the translation label). A fixed-layout book (CBZ, PDF, pre-paginated EPUB) has no styles to set, so that
   is all a theme does there; the hosts disable their typography controls (`opened.reflowable` false).
