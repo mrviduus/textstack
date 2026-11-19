@@ -465,10 +465,10 @@ it through `readSettings`, so only numbers and members of the module's own lists
 - *On the page itself:* the theme's background and text colour (the margins, the letterbox around a fixed-layout
   page, the translation label). A fixed-layout book (CBZ, PDF, pre-paginated EPUB) has no styles to set, so that
   is all a theme does there; the hosts disable their typography controls (`opened.reflowable` false).
-- *Offline fonts:* TextStack (serif), Source Sans 3 (sans), and OpenDyslexic are embedded as carried font
-  chunks (`serif`, `sans`, `dyslexic` in `build.mjs`). Brand families include regular, bold, italic and bold
+- *Offline fonts:* Literata (default serif), Source Sans 3 (sans), and OpenDyslexic are embedded as carried font
+  chunks (`serif`, `sans`, `dyslexic` in `build.mjs`). Serif and sans families include regular, bold, italic and bold
   italic WOFF2 faces. Each chosen family is decoded once into cached `blob:` URLs; no font needs network
-  access or a CSP change. Source Sans 3 and OpenDyslexic retain their OFL notices. A failed chunk logs a
+  access or a CSP change. Literata, Source Sans 3 and OpenDyslexic retain their OFL notices. A failed chunk logs a
   warning and leaves a system fallback. Shared reading fonts work in the web frame and Android WebView.
 - *The place holds:* foliate anchors every re-layout to the text that was on screen after the reader's last move,
   so several changes in a row do not drift.

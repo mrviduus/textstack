@@ -69,14 +69,15 @@ sandboxed frame (`/:lang/library/my/:id/read`):
 
 ## Typography
 
-- **TextStack**: wordmark, headings, book titles and the serif reading mode.
+- **TextStack**: wordmark, headings and book titles.
+- **Literata**: default book text (Latin and Cyrillic), bundled offline in the shared reader (SIL OFL).
 - **Source Sans 3**: interface text and the sans reading mode (SIL OFL, Adobe's release).
 - **OpenDyslexic**: accessibility option.
 
 Web: `--font-serif` / `--font-sans` in `apps/web/src/styles/theme.css`; TextStack as WOFF2 `@font-face`
 (`apps/web/src/assets/fonts/`, `font-display: swap`, content-hashed under `/assets/`, one-year immutable cache);
 Source Sans 3 via Google Fonts. Mobile bundles the TTFs for native screens in `apps/mobile/assets/fonts/`; the
-reader embeds TextStack and Source Sans 3 WOFF2 faces plus OpenDyslexic for offline use
+reader embeds Literata and Source Sans 3 WOFF2 faces plus OpenDyslexic for offline use
 (`packages/reader/README.md`, "Reading settings"). Android’s book settings expose Pages/Scroll, persisted locally.
 
 ## Key directories (`apps/web/src/`)

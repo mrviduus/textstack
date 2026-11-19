@@ -120,7 +120,7 @@ describe('v2 reader settings stylesheet', () => {
   })
 
   it('settingsCss_BrandFamilies_HaveRegularBoldItalicAndBoldItalicFaces', () => {
-    for (const [fontFamily, name] of [['serif', 'TextStack'], ['sans', 'TextStack Source Sans 3']]) {
+    for (const [fontFamily, name] of [['serif', 'Literata'], ['sans', 'TextStack Source Sans 3']]) {
       const css = settingsCss({ fontFamily }, { regular: BLOB, bold: BLOB, italic: BLOB, boldItalic: BLOB })
       expect(css.match(/@font-face/g)).toHaveLength(4)
       expect(css).toContain(`font-family: "${name}"`)

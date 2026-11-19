@@ -347,7 +347,7 @@ try {
   check(await hasAlignment({ plain: 'start', class: 'justify', inline: 'right', div: 'justify' }, 2), 'book mode restores publisher class and inline alignment')
 
   console.log('offline reader fonts')
-  for (const [fontFamily, name] of [['serif', 'TextStack'], ['sans', 'TextStack Source Sans 3'], ['dyslexic', 'TextStack OpenDyslexic']]) {
+  for (const [fontFamily, name] of [['serif', 'Literata'], ['sans', 'TextStack Source Sans 3'], ['dyslexic', 'TextStack OpenDyslexic']]) {
     await call(`window.__fol.settings(${JSON.stringify({ fontFamily })})`)
     let loadedFont = false
     for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) {

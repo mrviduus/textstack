@@ -7,7 +7,7 @@ describe('reader fonts', () => {
     document.body.innerHTML = '<h1 style="font-family:Georgia!important">Title</h1><p style="font-family:Arial!important"><strong>Bold</strong><em>Italic</em></p>'
       + '<pre style="font-family:monospace"><code><span>Code</span></code></pre>'
     const boldWeight = getComputedStyle(document.querySelector('strong')!).fontWeight
-    for (const [fontFamily, expected] of [['serif', 'TextStack'], ['sans', 'TextStack Source Sans 3']]) {
+    for (const [fontFamily, expected] of [['serif', 'Literata'], ['sans', 'TextStack Source Sans 3']]) {
       applyFontFamily(document, { fontFamily })
       for (const el of document.querySelectorAll('p, strong, em')) {
         expect((el as HTMLElement).style.fontFamily).toContain(expected)
