@@ -62,14 +62,13 @@ const FAMILY_CSS = {
 }
 /** Dark: images and inline SVG on a light plate, or black line art (and SVG's default black fill) vanishes. */
 const DARK_PLATE = '#f0f0f0'
-/** `start`, not `left`: a right-to-left book's own side. */
-const ALIGN_CSS = { left: 'start', center: 'center', justify: 'justify' }
 
 /**
  * The stylesheet for a book section. `raw` goes through `readSettings` again here. `fontUrl`: the page's own blob:
  * URL of OpenDyslexic, used only for that family and only if it is one. A book's own rules on an element still
- * win over the base font and colours, except: text blocks take the alignment (unless `book`) and line height, OpenDyslexic
+ * win over the base font and colours, except: text blocks take the line height, OpenDyslexic
  * replaces every font (it is an accessibility setting), and dark recolours everything (black text would vanish).
+ * Explicit alignment is applied by alignment.mjs so publisher inline !important cannot override it.
  */
 export function settingsCss(raw, fontUrl) {
   const s = readSettings(raw)
@@ -78,7 +77,7 @@ export function settingsCss(raw, fontUrl) {
   const face = dyslexic && typeof fontUrl === 'string' && /^blob:[\w:/.-]+$/.test(fontUrl)
     ? `@font-face { font-family: "TextStack OpenDyslexic"; src: url(${fontUrl}) format("woff2"); }\n` : ''
   return `${face}html, body { font-size: ${s.fontSize}px !important; line-height: ${s.lineHeight} !important; font-family: ${FAMILY_CSS[s.fontFamily]} !important; color: ${fg} !important; background: ${bg} !important; }
-p, li, blockquote, dd {${s.textAlign === 'book' ? '' : ` text-align: ${ALIGN_CSS[s.textAlign]} !important;`} line-height: inherit !important; }${
+p, li, blockquote, dd { line-height: inherit !important; }${
     dyslexic ? '\nbody * { font-family: inherit !important; }' : ''}${
     s.theme === 'dark' ? `\nbody * { color: inherit !important; background-color: transparent !important; }\na:any-link { color: #8ab4f8 !important; }
 img, svg { background-color: ${DARK_PLATE} !important; }` : ''}`

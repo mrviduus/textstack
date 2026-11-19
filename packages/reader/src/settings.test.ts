@@ -90,12 +90,8 @@ describe('v2 reader settings stylesheet', () => {
     expect(css).not.toContain('body *')
   })
 
-  it('settingsCss_Left_IsStart', () => {
-    expect(settingsCss({ textAlign: 'left' })).toContain('text-align: start !important')
-  })
-
-  it.each([['center'], ['justify']])('settingsCss_%s_ForcedOnTextBlocks', (textAlign) => {
-    expect(settingsCss({ textAlign })).toContain(`p, li, blockquote, dd { text-align: ${textAlign} !important;`)
+  it.each([['left'], ['center'], ['justify']])('settingsCss_%s_LeavesAlignmentToSectionOverrides', (textAlign) => {
+    expect(settingsCss({ textAlign })).not.toContain('text-align')
   })
 
   it('aligns_BookFirst', () => {

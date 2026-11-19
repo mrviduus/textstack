@@ -456,8 +456,11 @@ it through `readSettings`, so only numbers and members of the module's own lists
 (`settingsCss`): the host is trusted, but that CSS is injected into book documents. What it sets:
 
 - *In each section* (foliate's `setStyles`): `html, body` get the size, line height, base family, text colour and
-  background (`!important`); text blocks (`p, li, blockquote, dd`) the line height and, unless `book` (the default: the book's own
-  alignment, no `text-align` of ours anywhere), the alignment (`left` is `start`, a right-to-left book's own side). A book's own rules on an element still win over the base family and
+  background (`!important`); text blocks (`p, li, blockquote, dd`) the line height. Explicit alignment is applied
+  by `alignment.mjs` as inline `!important` on text blocks and containers (including `div`), on load and each
+  change, so publisher classes and inline rules cannot defeat it. `left` is `start`, a right-to-left book's own
+  side. `book` (the default) restores each original inline value and priority, leaving publisher rules intact.
+  Headings retain their own explicit alignment; fixed-layout books are untouched. A book's own rules on an element still win over the base family and
   colours, with two exceptions: `dyslexic` replaces every element's font (an accessibility setting), and `dark`
   recolours every element (`color: inherit`, transparent backgrounds, a link colour), or a book's black text would
   vanish; `img, svg` then get a light plate (`#f0f0f0`), or black line art and an inline SVG's default black fill

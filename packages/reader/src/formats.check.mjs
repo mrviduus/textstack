@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
-import { fb2, hostilePdf, writeFormatFixtures } from './fixtures.mjs'
+import { fb2, hostilePdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
 import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -316,6 +316,35 @@ try {
   // in an EPUB. The Launch and script ones never.
   const handed = messages.slice(from).filter((x) => x.type === 'openLink').map((x) => x.href)
   check(handed.length === 2 && handed[0].startsWith(`${evil}/gotor.pdf`) && handed[1] === `${evil}/uri`, `only the two http links are handed to the host, never followed (${handed.join(', ')})`)
+
+  console.log('alignment')
+  writeAlignmentEpub(resolve(dir, 'tsalignment.epub'))
+  await call('window.__fol.settings({textAlign:"center"})')
+  m = await open('tsalignment.epub')
+  const hasAlignment = async (expected, chapter) => {
+    for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(100)) {
+      for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) {
+        if (await f.evaluate(({ expected, chapter }) => {
+          if (document.querySelector('h1')?.textContent !== `Alignment ${chapter}`) return false
+          return ['plain', 'class', 'inline', 'div'].every((id) => {
+            const el = document.getElementById(id)
+            return el && getComputedStyle(el).textAlign === expected[id]
+          })
+        }, { expected, chapter }).catch(() => false)) return true
+      }
+    }
+    return false
+  }
+  const uniform = (value) => Object.fromEntries(['plain', 'class', 'inline', 'div'].map((id) => [id, value]))
+  check(await hasAlignment(uniform('center'), 1), 'chosen centre applies on first load, over publisher classes, inline !important and div text')
+  for (const [textAlign, css] of [['left', 'start'], ['justify', 'justify'], ['center', 'center']]) {
+    await call(`window.__fol.settings(${JSON.stringify({ textAlign })})`)
+    check(await hasAlignment(uniform(css), 1), `live alignment: ${textAlign} wins over publisher CSS`)
+  }
+  await call('document.querySelector("foliate-view").goTo(1)')
+  check(await hasAlignment(uniform('center'), 2), 'chosen alignment applies when the next chapter loads')
+  await call('window.__fol.settings({textAlign:"book"})')
+  check(await hasAlignment({ plain: 'start', class: 'justify', inline: 'right', div: 'justify' }, 2), 'book mode restores publisher class and inline alignment')
 
   for (const alsoClone of [false, true]) (await oldWebView(alsoClone))()
 

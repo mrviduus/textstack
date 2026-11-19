@@ -25,6 +25,7 @@ import { atTop, bookmarkList, bookmarkRange, bookmarkText, isBookmark, startsWit
 import { BOOKMARK_COLOR } from '../../shared/src/reader/v2PageStore'
 import { MAX_SELECTED_TEXT } from '../../shared/src/reader/v2Locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
+import { applyAlignment } from './alignment.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 import { createLightbox, imageAt } from './lightbox.mjs'
 import { clipBook } from './clip.mjs'
@@ -187,6 +188,9 @@ function applyLook() {
     el.style.background = bg
     el.style.color = fg
   }
+  if (view && !view.isFixedLayout) {
+    for (const { doc } of view.renderer?.getContents?.() ?? []) applyAlignment(doc, look.textAlign)
+  }
   view?.renderer?.setStyles?.(settingsCss(look, fontUrl()))
 }
 
@@ -323,6 +327,7 @@ document.addEventListener('click', (e) => {
 })
 
 function onLoad({ detail: { doc, index } }) {
+  if (!view.isFixedLayout) applyAlignment(doc, look.textAlign)
   // Any book, CBZ too: the reader acting in a section is the reader acting (`readerActed`).
   for (const type of ['pointerdown', 'wheel', 'keydown', 'touchstart']) doc.addEventListener(type, onInput, { capture: true, passive: true })
   doc.addEventListener('pointermove', onMove, { passive: true })

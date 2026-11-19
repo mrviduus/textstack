@@ -59,6 +59,19 @@ const xor = (buf, key, n) => Buffer.from(buf.map((b, i) => (i < n ? b ^ key[i % 
 const idpfKey = createHash('sha1').update(`urn:uuid:${UUID}`).digest()
 const adobeKey = Buffer.from(UUID.replaceAll('-', ''), 'hex')
 
+/** Publisher alignment must not defeat an explicit reader choice, on the current or next section. */
+export function writeAlignmentEpub(out) {
+  const head = '<style>.publisher { text-align:justify !important }</style>'
+  const body = '<p id="plain">Plain paragraph.</p><p class="publisher" id="class">Publisher class.</p>'
+    + '<p id="inline" style="text-align:right!important;color:red">Publisher inline.</p>'
+    + '<div id="div" class="publisher">A paragraph in a div.</div>'
+  epub(out, 'TS ALIGNMENT', {
+    files: Object.fromEntries([1, 2].map((n) => [`s${n}.xhtml`, xhtml(head, `<h1>Alignment ${n}</h1>${body}`)])),
+    manifest: [1, 2].map((n) => `<item id="s${n}" href="s${n}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: '<itemref idref="s1"/><itemref idref="s2"/>',
+  })
+}
+
 export function writeFontsEpub(out) {
   const font = readFileSync(resolve(here, '../../../apps/mobile/assets/fonts/SourceSans3-Regular.woff2'))
   epub(out, 'tsfonts.epub', {
