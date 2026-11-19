@@ -26,6 +26,15 @@ describe('decide', () => {
     expect(decide([build('FINISHED', 'aaa')], 'bbb').action).toBe('build')
   })
 
+  it('publishes to a compatible older build when a newer build has another runtime', () => {
+    const installed = build('FINISHED', 'compatible')
+    const newer = build('FINISHED', 'other')
+    const r = decide([newer, installed], 'compatible')
+    expect(r.action).toBe('publish')
+    expect(r.installed.id).toBe(installed.id)
+    expect(r.runtime).toBe('compatible')
+  })
+
   it('does not build twice: a queued/running build of this runtime means queued', () => {
     for (const s of ['NEW', 'IN_QUEUE', 'IN_PROGRESS']) {
       const inflight = build(s, 'bbb')

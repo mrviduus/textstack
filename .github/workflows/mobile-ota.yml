@@ -140,7 +140,7 @@ jobs:
       # Filtered there, not with a CLI flag — the profile filter has been spelled --profile and
       # --buildProfile across EAS versions, and a wrong flag name fails the run for a reason
       # that has nothing to do with the app.
-      - name: Read the runtime of the newest production build
+      - name: Find a finished production build matching this runtime
         id: build
         env:
           HASH: ${{ steps.fp.outputs.hash }}
@@ -284,5 +284,5 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| this commit | \`$HASH\` |"
-            echo "| newest finished production build | \`$RUNTIME\` ($(link "$BUILD_ID")) |"
+            echo "| reference finished production build | \`$RUNTIME\` ($(link "$BUILD_ID")) |"
           } | tee -a "$GITHUB_STEP_SUMMARY"

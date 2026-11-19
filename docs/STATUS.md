@@ -53,7 +53,7 @@ Each is a real defect, known and not yet fixed.
 - **`/internal` trusts a forwarded address from the home LAN** (ADR-024): `ForwardedHeaders` trusts `X-Forwarded-For` from 192.168/16. nginx refuses it from outside.
 - **Six user routes live outside `/me`** and rely on their handler's check: `GET /auth/me`, `POST /auth/device/approve|deny`, `POST /oauth/authorize/approve|deny`, `GET /oauth/token-status`. No plan to move them.
 - **The transitional tables' comment says "Dropped at M6.4"**; they are kept (ADR-031 Amended 2026-11-17, D8). Changing the comment is a migration.
-- **Mobile OTA targets one runtime only** (#762, issue #914): it publishes to the runtime of the newest *finished* production build. If production runs an older build than Closed testing, production stops receiving OTAs. [Runbook](internal/ops/play-store-release.md#known-limits-of-the-automatic-ota).
+- **Mobile OTA targets one runtime only** (#762, issue #914): it publishes only to this commit's runtime. Compatible finished builds are reused even when newer testing builds have another runtime; genuinely different installed runtimes still need a store update. [Runbook](internal/ops/play-store-release.md#known-limits-of-the-automatic-ota).
 - **GitHub scheduled backups run hours late** (`backup.yml` cron 03:00 UTC started 10:12 on 2026-10-05). Consider triggering from the server's cron, GitHub schedule as a fallback.
 - **Server hygiene:** three `.env.bak*` files with live secrets; the server's `node_modules` does not match the lockfile.
 - **Review 2026-10 P2 still open:** #16 background services inside the API, #18 auth opt-in per endpoint, #19 admin API on the public host / no audit log, #26 (GDPR delete leaves LLM trace text, caches, backups).
