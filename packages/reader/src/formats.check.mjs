@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
-import { fb2, hostilePdf, writeFormatFixtures } from './fixtures.mjs'
+import { fb2, hostilePdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
 import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -86,7 +86,7 @@ try {
     throw new Error(`timed out waiting for ${what}`)
   }
   const call = (js) => page.evaluate(js)
-  const loaded = () => call('Object.keys(window.__tsFormats).sort().join(",")')
+  const loaded = () => call('Object.keys(window.__tsFormats).filter(k => !["serif", "sans", "dyslexic"].includes(k)).sort().join(",")')
   const storeFrom = (from, what) => waitFor(from, (x) => x.type === 'store', what).then((s) => JSON.parse(s.json)).catch(() => null)
   /** Opens `file`; resolves with `opened` or `open-failed`, after `restored` for an opened book. */
   const open = async (file, stored = null, format = null) => {
@@ -316,6 +316,53 @@ try {
   // in an EPUB. The Launch and script ones never.
   const handed = messages.slice(from).filter((x) => x.type === 'openLink').map((x) => x.href)
   check(handed.length === 2 && handed[0].startsWith(`${evil}/gotor.pdf`) && handed[1] === `${evil}/uri`, `only the two http links are handed to the host, never followed (${handed.join(', ')})`)
+
+  console.log('alignment')
+  writeAlignmentEpub(resolve(dir, 'tsalignment.epub'))
+  await call('window.__fol.settings({textAlign:"center"})')
+  m = await open('tsalignment.epub')
+  const hasAlignment = async (expected, chapter) => {
+    for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(100)) {
+      for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) {
+        if (await f.evaluate(({ expected, chapter }) => {
+          if (document.querySelector('h1')?.textContent !== `Alignment ${chapter}`) return false
+          return ['plain', 'class', 'inline', 'div'].every((id) => {
+            const el = document.getElementById(id)
+            return el && getComputedStyle(el).textAlign === expected[id]
+          })
+        }, { expected, chapter }).catch(() => false)) return true
+      }
+    }
+    return false
+  }
+  const uniform = (value) => Object.fromEntries(['plain', 'class', 'inline', 'div'].map((id) => [id, value]))
+  check(await hasAlignment(uniform('center'), 1), 'chosen centre applies on first load, over publisher classes, inline !important and div text')
+  for (const [textAlign, css] of [['left', 'start'], ['justify', 'justify'], ['center', 'center']]) {
+    await call(`window.__fol.settings(${JSON.stringify({ textAlign })})`)
+    check(await hasAlignment(uniform(css), 1), `live alignment: ${textAlign} wins over publisher CSS`)
+  }
+  await call('document.querySelector("foliate-view").goTo(1)')
+  check(await hasAlignment(uniform('center'), 2), 'chosen alignment applies when the next chapter loads')
+  await call('window.__fol.settings({textAlign:"book"})')
+  check(await hasAlignment({ plain: 'start', class: 'justify', inline: 'right', div: 'justify' }, 2), 'book mode restores publisher class and inline alignment')
+
+  console.log('offline reader fonts')
+  for (const [fontFamily, name] of [['serif', 'TextStack'], ['sans', 'TextStack Source Sans 3'], ['dyslexic', 'TextStack OpenDyslexic']]) {
+    await call(`window.__fol.settings(${JSON.stringify({ fontFamily })})`)
+    let loadedFont = false
+    for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) {
+      loadedFont ||= await f.evaluate(async ({ name, fontFamily }) => {
+        if (document.querySelector('h1')?.textContent !== 'Alignment 2') return false
+        if (!['plain', 'class', 'inline', 'div'].every((id) => getComputedStyle(document.getElementById(id)).fontFamily.includes(name))) return false
+        for (const face of fontFamily === 'dyslexic' ? ['400'] : ['400', '700', 'italic 400', 'italic 700']) {
+          const loaded = await document.fonts.load(`${face} 20px "${name}"`)
+          if (loaded.length !== 1 || loaded[0].status !== 'loaded') return false
+        }
+        return true
+      }, { name, fontFamily }).catch(() => false)
+    }
+    check(loadedFont, `${name}: embedded faces load and beat publisher text fonts without network access`)
+  }
 
   for (const alsoClone of [false, true]) (await oldWebView(alsoClone))()
 

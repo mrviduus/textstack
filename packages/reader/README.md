@@ -26,6 +26,7 @@ and its build only. Hosted by `V2ReaderScreen.tsx` (R2): in production on the re
 | `selection.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1268): the `selection` message's builder (`selectionMessage`) and the hosts' validator (`readSelection`), with the caps they share; the text cap and its cut are `packages/shared`'s (`MAX_SELECTED_TEXT`, `clip`). The format check bundles it with esbuild first: plain node does not resolve `packages/shared`'s extensionless imports. |
 | `describe.mjs` (+ `.d.mts`) | #1426, page and both hosts (bundled, it imports packages/shared): the page's `bookMeta` (foliate's metadata as `{ title, author, lang, description }`: a language map's value in the UI language else its first, every author joined with ", ", the language's primary subtag, the description's HTML parsed inert by DOMParser and kept as text; caps 500 / 500 / 35 / 4000) and `coverJpeg` (the cover blob through `createImageBitmap` onto a canvas, long side ≤ 800 px, JPEG q0.85, q0.6 once if over 1.5 MB, else none); the hosts' validator `readDescribed`, in `readSelection`'s style (the same caps; a cover only as a `data:image/jpeg;base64,` URL of at most 2 MB decoded). |
 | `chrome.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1263, #1264): `navKey` (the page: which keydown becomes a `key` message, a closed list), the hosts' readers `readTap`, `readDir`, `readKey` in `readSelection`'s style, and `keyAction` (what a key does: `prev`, `next`, `bars`), the one rule both hosts follow; the host decisions `hidesBarsOnRelocate` and Android back's order `backAction` (Host responsibilities, "Reader chrome"). |
+| `fonts.mjs` (+ `.d.mts`) | Applies the selected reading font to section text; preserves emphasis and code faces. |
 | `settings.mjs` (+ `.d.mts`) | Pure, page and both hosts (#1260): the reading settings (size, family, line height, alignment, theme): defaults, the closed lists, `readChosen` / `readSettings` / `parseChosen` / `choose` (what a host stores and sends) and `settingsCss` (the section stylesheet the page injects). See "Reading settings". |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book; `flush()` writes a pending one at once (the swap) and returns the latest `store` (#1286); `forget()` at the swap drops it. |
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight, a saved word's mark (#1271) and a word's translation over the same range are one overlay carrying all of them. |
@@ -451,24 +452,24 @@ not land. For a fixed-layout book a
 target in the spread already shown counts as arrived (foliate shows it without a relocate). `highlightSelection()` before `restored` is ignored with a
 `log` of level `warn`: there is no entry to add to yet, and saving then would overwrite the stored one.
 
-**Reading settings** (#1260, `settings.mjs`). One call, `settings(raw)`, carries the whole object; the page reads
+**Reading settings** (#1260, `settings.mjs`). Android exposes Pages/Scroll in the open book’s settings sheet; the choice is saved under `v2reader.flow` and applied live. Fixed-layout books disable it. One call, `settings(raw)`, carries the whole object; the page reads
 it through `readSettings`, so only numbers and members of the module's own lists ever reach the stylesheet
 (`settingsCss`): the host is trusted, but that CSS is injected into book documents. What it sets:
 
-- *In each section* (foliate's `setStyles`): `html, body` get the size, line height, base family, text colour and
-  background (`!important`); text blocks (`p, li, blockquote, dd`) the line height and, unless `book` (the default: the book's own
-  alignment, no `text-align` of ours anywhere), the alignment (`left` is `start`, a right-to-left book's own side). A book's own rules on an element still win over the base family and
-  colours, with two exceptions: `dyslexic` replaces every element's font (an accessibility setting), and `dark`
-  recolours every element (`color: inherit`, transparent backgrounds, a link colour), or a book's black text would
-  vanish; `img, svg` then get a light plate (`#f0f0f0`), or black line art and an inline SVG's default black fill
-  would vanish too. Families are system stacks (the page has no network): Georgia / system-ui / OpenDyslexic.
+- *In each section* (foliate's `setStyles`): `html, body` get size, line height, text colour and background;
+  text blocks (`p, li, blockquote, dd`) inherit line height. `alignment.mjs` makes an explicit alignment win
+  over publisher classes and inline rules, including text in `div`. `book` restores the original alignment.
+  `fonts.mjs` applies the chosen family over publisher fonts while preserving bold and italic styles.
+  Code and explicitly styled headings retain their publisher faces except in the accessibility font,
+  and return to their original faces when leaving that font. Dark mode recolours text and puts images/SVG on a light plate.
 - *On the page itself:* the theme's background and text colour (the margins, the letterbox around a fixed-layout
   page, the translation label). A fixed-layout book (CBZ, PDF, pre-paginated EPUB) has no styles to set, so that
   is all a theme does there; the hosts disable their typography controls (`opened.reflowable` false).
-- *OpenDyslexic* rides in the page as its own carried chunk (`dyslexic` in `build.mjs`: the woff2 the web app
-  serves, base64, 158,436 characters with its OFL notice), run the first time that family is chosen and turned
-  into one `blob:` URL of the page's own (`font-src blob:`; no CSP change, no host code). Not chosen: never run.
-  Not loaded (a chunk that fails): a `warn`, and the family falls back to sans.
+- *Offline fonts:* TextStack (serif), Source Sans 3 (sans), and OpenDyslexic are embedded as carried font
+  chunks (`serif`, `sans`, `dyslexic` in `build.mjs`). Brand families include regular, bold, italic and bold
+  italic WOFF2 faces. Each chosen family is decoded once into cached `blob:` URLs; no font needs network
+  access or a CSP change. Source Sans 3 and OpenDyslexic retain their OFL notices. A failed chunk logs a
+  warning and leaves a system fallback. Shared reading fonts work in the web frame and Android WebView.
 - *The place holds:* foliate anchors every re-layout to the text that was on screen after the reader's last move,
   so several changes in a row do not drift.
 - *Hosts* keep only what the reader chose (`choose`, JSON under `SETTINGS_KEY`: localStorage on the web,

@@ -19,4 +19,6 @@ export function readSettings(raw: unknown): V2Settings
 /** A stored value (JSON, or null) as choices; malformed is none. */
 export function parseChosen(json: string | null | undefined): Partial<V2Settings>
 export function choose(chosen: Partial<V2Settings>, patch: Partial<V2Settings>): Partial<V2Settings>
-export function settingsCss(raw: unknown, fontUrl?: string | null): string
+export interface V2FontUrls { regular?: string; bold?: string; italic?: string; boldItalic?: string }
+export function settingsCss(raw: unknown, fontUrl?: string | V2FontUrls | null): string
+export function fontFamilyCss(raw: unknown): string

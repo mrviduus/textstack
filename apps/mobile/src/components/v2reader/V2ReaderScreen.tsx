@@ -1449,9 +1449,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (ready.current) call(`window.__fol.settings(${JSON.stringify(settings)})`)
   }, [settings])
 
-  const toggleFlow = () => {
-    if (!flow) return
-    const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
+  const changeFlow = (next: Flow) => {
+    if (!flow || !reflowable || next === flow) return
     setFlow(next)
     flowChoice = Promise.resolve(next)
     AsyncStorage.setItem(FLOW_KEY, next).catch(fail('flow'))
@@ -1459,6 +1458,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // the pending ready handler applies storedFlow() instead.
     if (ready.current) call(`window.__fol.flow(${JSON.stringify(next)})`)
   }
+  const toggleFlow = () => changeFlow(flow === 'paginated' ? 'scrolled' : 'paginated')
 
   /** A new page load: not ready until it says so, and no lightbox (#1265: the old page's went with it, unannounced). */
   function newPage() {
@@ -1785,7 +1785,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             fromLang={textLang}
             onClose={closeSheet}
           />
-          <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
+          <V2SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} settings={settings} onUpdate={updateSettings} typography={reflowable} flow={flow} onFlowChange={changeFlow} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
             glosses={annotatable ? { on: legacySettings.showInlineTranslations, onChange: (on) => updateLegacySettings({ showInlineTranslations: on }) } : undefined} />
           <V2TocSheet visible={tocOpen} toc={toc} tocIndex={tocIndex.current} onGo={goToc} onClose={() => setTocOpen(false)} />
           <V2BookmarksSheet

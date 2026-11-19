@@ -90,12 +90,8 @@ describe('v2 reader settings stylesheet', () => {
     expect(css).not.toContain('body *')
   })
 
-  it('settingsCss_Left_IsStart', () => {
-    expect(settingsCss({ textAlign: 'left' })).toContain('text-align: start !important')
-  })
-
-  it.each([['center'], ['justify']])('settingsCss_%s_ForcedOnTextBlocks', (textAlign) => {
-    expect(settingsCss({ textAlign })).toContain(`p, li, blockquote, dd { text-align: ${textAlign} !important;`)
+  it.each([['left'], ['center'], ['justify']])('settingsCss_%s_LeavesAlignmentToSectionOverrides', (textAlign) => {
+    expect(settingsCss({ textAlign })).not.toContain('text-align')
   })
 
   it('aligns_BookFirst', () => {
@@ -119,12 +115,17 @@ describe('v2 reader settings stylesheet', () => {
 
   it('settingsCss_Dyslexic_FaceFromTheBlobUrlAndEveryElement', () => {
     const css = settingsCss({ fontFamily: 'dyslexic' }, BLOB)
-    expect(css).toContain(`@font-face { font-family: "TextStack OpenDyslexic"; src: url(${BLOB}) format("woff2"); }`)
+    expect(css).toContain(`@font-face { font-family: "TextStack OpenDyslexic"; src: url(${BLOB}) format("woff2"); font-weight: 400; font-style: normal; }`)
     expect(css).toContain('body * { font-family: inherit !important; }')
   })
 
-  it('settingsCss_AnotherFamily_NoFaceEvenWithAUrl', () => {
-    expect(settingsCss({ fontFamily: 'sans' }, BLOB)).not.toContain('@font-face')
+  it('settingsCss_BrandFamilies_HaveRegularBoldItalicAndBoldItalicFaces', () => {
+    for (const [fontFamily, name] of [['serif', 'TextStack'], ['sans', 'TextStack Source Sans 3']]) {
+      const css = settingsCss({ fontFamily }, { regular: BLOB, bold: BLOB, italic: BLOB, boldItalic: BLOB })
+      expect(css.match(/@font-face/g)).toHaveLength(4)
+      expect(css).toContain(`font-family: "${name}"`)
+      expect(css).toContain('font-weight: 700; font-style: italic;')
+    }
   })
 
   it.each([['https://evil.tst/f.woff2'], ['data:font/woff2;base64,AAAA'], ['blob:x) } body { display: none } @font-face { src: url(blob:y'], [`${BLOB}"`], [null], [undefined], [{}]])('settingsCss_FontUrl%s_NotABlobUrl_NoFace', (url) => {
@@ -145,7 +146,7 @@ describe('v2 reader settings stylesheet', () => {
     for (const fontFamily of FAMILIES) for (const textAlign of ALIGNS) for (const theme of Object.keys(THEMES)) for (const lineHeight of LINE_HEIGHTS) {
       const css = settingsCss({ fontSize: 18, lineHeight, fontFamily, textAlign, theme }, BLOB)
       expect(css).toMatch(/^[\w\s.,:;{}()#"*!@/-]+$/)
-      expect(css.match(/url\(/g)?.length ?? 0).toBe(fontFamily === 'dyslexic' ? 1 : 0)
+      expect(css.match(/url\(/g)?.length ?? 0).toBe(1)
     }
   })
 })

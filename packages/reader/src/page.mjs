@@ -25,6 +25,8 @@ import { atTop, bookmarkList, bookmarkRange, bookmarkText, isBookmark, startsWit
 import { BOOKMARK_COLOR } from '../../shared/src/reader/v2PageStore'
 import { MAX_SELECTED_TEXT } from '../../shared/src/reader/v2Locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
+import { applyAlignment } from './alignment.mjs'
+import { applyFontFamily } from './fonts.mjs'
 import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipFormat } from './formats.mjs'
 import { createLightbox, imageAt } from './lightbox.mjs'
 import { clipBook } from './clip.mjs'
@@ -164,16 +166,21 @@ let readySeq = 0
 const saves = createSaveScheduler(post)
 
 /**
- * OpenDyslexic as a blob: URL of the page's own making (font-src blob:), from the chunk the page carries
- * (build.mjs `dyslexic`), run the first time that family is chosen. Null for any other family, or if it fails.
+ * Reader fonts as blob: URLs (font-src blob:), from embedded family chunks. Each family is loaded
+ * once when chosen; no network, including on Android. Null only if loading fails.
  */
-let dyslexicUrl = null
+const fontUrls = new Map()
 function fontUrl() {
-  if (look.fontFamily !== 'dyslexic') return null
+  if (fontUrls.has(look.fontFamily)) return fontUrls.get(look.fontFamily)
   try {
-    return (dyslexicUrl ??= URL.createObjectURL(new Blob([Uint8Array.from(atob(formatModule('dyslexic').woff2), (c) => c.charCodeAt(0))], { type: 'font/woff2' })))
+    const fonts = formatModule(look.fontFamily)
+    const faces = look.fontFamily === 'dyslexic' ? { regular: fonts.woff2 } : fonts
+    const urls = Object.fromEntries(Object.entries(faces).map(([name, bytes]) => [name,
+      URL.createObjectURL(new Blob([Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0))], { type: 'font/woff2' }))]))
+    fontUrls.set(look.fontFamily, urls)
+    return urls
   } catch (e) {
-    log('warn', `OpenDyslexic not loaded: ${e?.message ?? e}`)
+    log('warn', `${look.fontFamily} font not loaded: ${e?.message ?? e}`)
     return null
   }
 }
@@ -186,6 +193,12 @@ function applyLook() {
   for (const el of [document.documentElement, document.body]) {
     el.style.background = bg
     el.style.color = fg
+  }
+  if (view && !view.isFixedLayout) {
+    for (const { doc } of view.renderer?.getContents?.() ?? []) {
+      applyAlignment(doc, look.textAlign)
+      applyFontFamily(doc, look)
+    }
   }
   view?.renderer?.setStyles?.(settingsCss(look, fontUrl()))
 }
@@ -330,6 +343,8 @@ function onLoad({ detail: { doc, index } }) {
   // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
   if (!textual) return doc.addEventListener('click', (e) => post(tapAt(doc, e)))
   sectionIndex.set(doc, index)
+  if (!view.isFixedLayout) applyAlignment(doc, look.textAlign)
+  if (!view.isFixedLayout) applyFontFamily(doc, look)
   doc.addEventListener('pointerdown', onPress)
   doc.addEventListener('click', (e) => onTap(doc, index, e))
   doc.addEventListener('selectionchange', () => {

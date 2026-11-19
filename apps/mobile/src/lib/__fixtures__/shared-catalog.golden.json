@@ -442,8 +442,8 @@
   "reader.v2Settings.fontLarger": "Increase font size",
   "reader.v2Settings.font": "Font",
   "reader.v2Settings.fontLabel": "{name} font",
-  "reader.v2Settings.serif": "Serif",
-  "reader.v2Settings.sans": "Sans",
+  "reader.v2Settings.serif": "TextStack",
+  "reader.v2Settings.sans": "Source Sans 3",
   "reader.v2Settings.dyslexic": "Dyslexic",
   "reader.v2Settings.lineHeight": "Line height",
   "reader.v2Settings.lineHeightLabel": "Line height {value}",
@@ -534,5 +534,7 @@
   "updates.webView.title": "Update Android System WebView or Chrome",
   "updates.webView.body": "This reader needs a newer version of the part of Android that shows web pages in apps: Android System WebView, or Chrome on Android 7–9. Update it from Google Play, then close and reopen TextStack.",
   "updates.webView.cta": "Open Google Play",
-  "updates.webView.readyFailed": "The reader failed to load. An outdated Android System WebView or Chrome is a likely cause: update it from Google Play, then reopen TextStack."
+  "updates.webView.readyFailed": "The reader failed to load. An outdated Android System WebView or Chrome is a likely cause: update it from Google Play, then reopen TextStack.",
+  "reader.v2Settings.readingMode": "Reading mode",
+  "reader.v2Settings.readingModeLabel": "Reading mode {name}"
 }
