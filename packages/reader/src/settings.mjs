@@ -56,12 +56,12 @@ export function parseChosen(json) {
 export const choose = (chosen, patch) => ({ ...readChosen(chosen), ...readChosen(patch) })
 
 const FAMILY_CSS = {
-  serif: '"TextStack", Georgia, "Times New Roman", serif',
+  serif: '"Literata", Georgia, "Times New Roman", serif',
   sans: '"TextStack Source Sans 3", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   dyslexic: '"TextStack OpenDyslexic", sans-serif',
 }
 export const fontFamilyCss = (raw) => FAMILY_CSS[readSettings(raw).fontFamily]
-const FACE_FAMILY = { serif: 'TextStack', sans: 'TextStack Source Sans 3', dyslexic: 'TextStack OpenDyslexic' }
+const FACE_FAMILY = { serif: 'Literata', sans: 'TextStack Source Sans 3', dyslexic: 'TextStack OpenDyslexic' }
 const FACES = [['regular', 400, 'normal'], ['bold', 700, 'normal'], ['italic', 400, 'italic'], ['boldItalic', 700, 'italic']]
 /** Dark: images and inline SVG on a light plate, or black line art (and SVG's default black fill) vanishes. */
 const DARK_PLATE = '#f0f0f0'

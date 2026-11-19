@@ -150,7 +150,8 @@ const BUDGET = 343759
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
 // dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
 // notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883, dyslexic: 158436, serif: 329995, sans: 525327 }
+// serif: Literata's four full Latin/Cyrillic faces and OFL notice, replacing the Latin-only brand font.
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883, dyslexic: 158436, serif: 550100, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -225,9 +226,9 @@ window.__tsFormats.pdfcmaps = ${JSON.stringify(Object.fromEntries(readdirSync(re
   // the reader picks that family, then a blob: URL of the page's own (font-src blob:).
   dyslexic: `/*! ${readFileSync(resolve(here, '../../../apps/web/public/fonts/OpenDyslexic-LICENSE.txt'), 'utf8').replace(/\*\//g, '* /')} */
 window.__tsFormats.dyslexic = { woff2: ${JSON.stringify(readFileSync(resolve(here, '../../../apps/web/public/fonts/OpenDyslexic-Regular.woff2')).toString('base64'))} }`,
-  serif: fontChunk('serif', '../../../apps/web/src/assets/fonts', {
-    regular: 'TextStack-Regular.woff2', bold: 'TextStack-Bold.woff2', italic: 'TextStack-Italic.woff2', boldItalic: 'TextStack-BoldItalic.woff2',
-  }),
+  serif: fontChunk('serif', '../assets/fonts', {
+    regular: 'Literata-Regular.woff2', bold: 'Literata-Bold.woff2', italic: 'Literata-Italic.woff2', boldItalic: 'Literata-BoldItalic.woff2',
+  }, `/*! ${readFileSync(resolve(here, '../assets/fonts/Literata-LICENSE.txt'), 'utf8').replace(/\*\//g, '* /')} */\n`),
   sans: fontChunk('sans', '../../../apps/mobile/assets/fonts', {
     regular: 'SourceSans3-Regular.woff2', bold: 'SourceSans3-Bold.woff2', italic: 'SourceSans3-It.woff2', boldItalic: 'SourceSans3-BoldIt.woff2',
   }, `/*! ${readFileSync(resolve(here, '../../../apps/mobile/assets/fonts/SourceSans3-LICENSE.md'), 'utf8').replace(/\*\//g, '* /')} */\n`),
