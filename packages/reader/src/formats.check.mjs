@@ -86,7 +86,7 @@ try {
     throw new Error(`timed out waiting for ${what}`)
   }
   const call = (js) => page.evaluate(js)
-  const loaded = () => call('Object.keys(window.__tsFormats).sort().join(",")')
+  const loaded = () => call('Object.keys(window.__tsFormats).filter(k => !["serif", "sans", "dyslexic"].includes(k)).sort().join(",")')
   const storeFrom = (from, what) => waitFor(from, (x) => x.type === 'store', what).then((s) => JSON.parse(s.json)).catch(() => null)
   /** Opens `file`; resolves with `opened` or `open-failed`, after `restored` for an opened book. */
   const open = async (file, stored = null, format = null) => {
@@ -345,6 +345,24 @@ try {
   check(await hasAlignment(uniform('center'), 2), 'chosen alignment applies when the next chapter loads')
   await call('window.__fol.settings({textAlign:"book"})')
   check(await hasAlignment({ plain: 'start', class: 'justify', inline: 'right', div: 'justify' }, 2), 'book mode restores publisher class and inline alignment')
+
+  console.log('offline reader fonts')
+  for (const [fontFamily, name] of [['serif', 'TextStack'], ['sans', 'TextStack Source Sans 3'], ['dyslexic', 'TextStack OpenDyslexic']]) {
+    await call(`window.__fol.settings(${JSON.stringify({ fontFamily })})`)
+    let loadedFont = false
+    for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) {
+      loadedFont ||= await f.evaluate(async ({ name, fontFamily }) => {
+        if (document.querySelector('h1')?.textContent !== 'Alignment 2') return false
+        if (!['plain', 'class', 'inline', 'div'].every((id) => getComputedStyle(document.getElementById(id)).fontFamily.includes(name))) return false
+        for (const face of fontFamily === 'dyslexic' ? ['400'] : ['400', '700', 'italic 400', 'italic 700']) {
+          const loaded = await document.fonts.load(`${face} 20px "${name}"`)
+          if (loaded.length !== 1 || loaded[0].status !== 'loaded') return false
+        }
+        return true
+      }, { name, fontFamily }).catch(() => false)
+    }
+    check(loadedFont, `${name}: embedded faces load and beat publisher text fonts without network access`)
+  }
 
   for (const alsoClone of [false, true]) (await oldWebView(alsoClone))()
 

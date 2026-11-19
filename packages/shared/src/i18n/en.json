@@ -469,8 +469,8 @@
       "fontLarger": "Increase font size",
       "font": "Font",
       "fontLabel": "{name} font",
-      "serif": "Serif",
-      "sans": "Sans",
+      "serif": "TextStack",
+      "sans": "Source Sans 3",
       "dyslexic": "Dyslexic",
       "lineHeight": "Line height",
       "lineHeightLabel": "Line height {value}",
@@ -481,7 +481,9 @@
       "alignCenter": "Center",
       "alignJustify": "Justify",
       "speechSpeed": "Speech speed",
-      "speechSpeedLabel": "Speech speed {value}x"
+      "speechSpeedLabel": "Speech speed {value}x",
+      "readingMode": "Reading mode",
+      "readingModeLabel": "Reading mode {name}"
     },
     "highlightColor": {
       "yellow": "yellow",

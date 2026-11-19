@@ -56,17 +56,20 @@ export function parseChosen(json) {
 export const choose = (chosen, patch) => ({ ...readChosen(chosen), ...readChosen(patch) })
 
 const FAMILY_CSS = {
-  serif: 'Georgia, "Times New Roman", serif',
-  sans: 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  serif: '"TextStack", Georgia, "Times New Roman", serif',
+  sans: '"TextStack Source Sans 3", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   dyslexic: '"TextStack OpenDyslexic", sans-serif',
 }
+export const fontFamilyCss = (raw) => FAMILY_CSS[readSettings(raw).fontFamily]
+const FACE_FAMILY = { serif: 'TextStack', sans: 'TextStack Source Sans 3', dyslexic: 'TextStack OpenDyslexic' }
+const FACES = [['regular', 400, 'normal'], ['bold', 700, 'normal'], ['italic', 400, 'italic'], ['boldItalic', 700, 'italic']]
 /** Dark: images and inline SVG on a light plate, or black line art (and SVG's default black fill) vanishes. */
 const DARK_PLATE = '#f0f0f0'
 
 /**
  * The stylesheet for a book section. `raw` goes through `readSettings` again here. `fontUrl`: the page's own blob:
- * URL of OpenDyslexic, used only for that family and only if it is one. A book's own rules on an element still
- * win over the base font and colours, except: text blocks take the line height, OpenDyslexic
+ * URLs for the chosen embedded font family (regular/bold/italic/bold italic). Section text takes the chosen
+ * family through fonts.mjs. Text blocks take the line height; OpenDyslexic
  * replaces every font (it is an accessibility setting), and dark recolours everything (black text would vanish).
  * Explicit alignment is applied by alignment.mjs so publisher inline !important cannot override it.
  */
@@ -74,8 +77,12 @@ export function settingsCss(raw, fontUrl) {
   const s = readSettings(raw)
   const { bg, fg } = THEMES[s.theme]
   const dyslexic = s.fontFamily === 'dyslexic'
-  const face = dyslexic && typeof fontUrl === 'string' && /^blob:[\w:/.-]+$/.test(fontUrl)
-    ? `@font-face { font-family: "TextStack OpenDyslexic"; src: url(${fontUrl}) format("woff2"); }\n` : ''
+  const urls = typeof fontUrl === 'string' ? { regular: fontUrl } : fontUrl
+  const face = FACES.map(([name, weight, style]) => {
+    const url = urls?.[name]
+    return typeof url === 'string' && /^blob:[\w:/.-]+$/.test(url)
+      ? `@font-face { font-family: "${FACE_FAMILY[s.fontFamily]}"; src: url(${url}) format("woff2"); font-weight: ${weight}; font-style: ${style}; }\n` : ''
+  }).join('')
   return `${face}html, body { font-size: ${s.fontSize}px !important; line-height: ${s.lineHeight} !important; font-family: ${FAMILY_CSS[s.fontFamily]} !important; color: ${fg} !important; background: ${bg} !important; }
 p, li, blockquote, dd { line-height: inherit !important; }${
     dyslexic ? '\nbody * { font-family: inherit !important; }' : ''}${

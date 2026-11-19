@@ -61,9 +61,9 @@ const adobeKey = Buffer.from(UUID.replaceAll('-', ''), 'hex')
 
 /** Publisher alignment must not defeat an explicit reader choice, on the current or next section. */
 export function writeAlignmentEpub(out) {
-  const head = '<style>.publisher { text-align:justify !important }</style>'
+  const head = '<style>.publisher { text-align:justify !important; font-family:Arial !important }</style>'
   const body = '<p id="plain">Plain paragraph.</p><p class="publisher" id="class">Publisher class.</p>'
-    + '<p id="inline" style="text-align:right!important;color:red">Publisher inline.</p>'
+    + '<p id="inline" style="text-align:right!important;color:red;font-family:Arial!important">Publisher inline.</p>'
     + '<div id="div" class="publisher">A paragraph in a div.</div>'
   epub(out, 'TS ALIGNMENT', {
     files: Object.fromEntries([1, 2].map((n) => [`s${n}.xhtml`, xhtml(head, `<h1>Alignment ${n}</h1>${body}`)])),
@@ -82,7 +82,8 @@ export function writeFontsEpub(out) {
       'style.css': ['Plain', 'Idpf', 'Adobe'].map((f) => `@font-face { font-family: TS${f}; src: url(fonts/${f.toLowerCase()}.woff2) format("woff2") }`).join('\n')
         + '\n.plain { font-family: TSPlain, serif } .idpf { font-family: TSIdpf, serif } .adobe { font-family: TSAdobe, serif } .fallback { font-family: serif }',
       's1.xhtml': xhtml('<link rel="stylesheet" href="style.css"/>', ['plain', 'idpf', 'adobe', 'fallback']
-        .map((c) => `<h2>${c}</h2><p class="${c}"><span id="${c}">${para}</span></p>`).join('')),
+        // Code keeps its publisher face when a reading font is chosen; CSP/obfuscation checks still exercise book fonts.
+        .map((c) => `<h2>${c}</h2><p><code class="${c}"><span id="${c}">${para}</span></code></p>`).join('')),
     },
     manifest: `<item id="css" href="style.css" media-type="text/css"/><item id="s1" href="s1.xhtml" media-type="application/xhtml+xml"/>
 <item id="f1" href="fonts/plain.woff2" media-type="font/woff2"/><item id="f2" href="fonts/idpf.woff2" media-type="font/woff2"/><item id="f3" href="fonts/adobe.woff2" media-type="font/woff2"/>`,

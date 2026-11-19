@@ -76,7 +76,8 @@ sandboxed frame (`/:lang/library/my/:id/read`):
 Web: `--font-serif` / `--font-sans` in `apps/web/src/styles/theme.css`; TextStack as WOFF2 `@font-face`
 (`apps/web/src/assets/fonts/`, `font-display: swap`, content-hashed under `/assets/`, one-year immutable cache);
 Source Sans 3 via Google Fonts. Mobile bundles the TTFs for native screens in `apps/mobile/assets/fonts/`; the
-reader's fonts are the V2 page's (`packages/reader/README.md`, "Reading settings").
+reader embeds TextStack and Source Sans 3 WOFF2 faces plus OpenDyslexic for offline use
+(`packages/reader/README.md`, "Reading settings"). Android’s book settings expose Pages/Scroll, persisted locally.
 
 ## Key directories (`apps/web/src/`)
 

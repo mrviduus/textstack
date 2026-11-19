@@ -61,6 +61,8 @@ interface Props {
   onUpdate: (patch: Partial<V2Settings>) => void
   /** False for a fixed-layout book (PDF, CBZ, a pre-paginated EPUB): only the theme applies, the rest is disabled. */
   typography: boolean
+  flow: 'paginated' | 'scrolled' | null
+  onFlowChange: (flow: 'paginated' | 'scrolled') => void
   /** #1272: Listen's speed and its change. */
   ttsSpeed: number
   onTtsSpeed: (v: number) => void
@@ -69,7 +71,7 @@ interface Props {
 }
 
 /** The settings sheet: the legacy reader's drawer (ReaderSettingsDrawer.tsx) with the five V2 settings. */
-export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography, ttsSpeed, onTtsSpeed, glosses }: Props) {
+export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typography, flow, onFlowChange, ttsSpeed, onTtsSpeed, glosses }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const reduceMotion = useReduceMotion()
@@ -115,6 +117,17 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
               accessibilityElementsHidden={!typography}
               style={!typography && styles.disabled}
             >
+              {label(t('reader.v2Settings.readingMode'))}
+              <View style={styles.row}>
+                {(['paginated', 'scrolled'] as const).map((mode) => (
+                  <TouchableOpacity key={mode} style={chip(flow === mode)} disabled={!flow || !typography}
+                    onPress={() => onFlowChange(mode)} accessibilityRole="button"
+                    accessibilityLabel={fill(t('reader.v2Settings.readingModeLabel'), { name: t(mode === 'paginated' ? 'reader.v2.paginated' : 'reader.v2.scrolled') })}
+                    accessibilityState={{ selected: flow === mode, disabled: !flow || !typography }}>
+                    <Text style={chipText(flow === mode)}>{t(mode === 'paginated' ? 'reader.v2.paginated' : 'reader.v2.scrolled')}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
               {label(t('reader.v2Settings.fontSize'))}
               <View style={styles.row}>
                 <TouchableOpacity

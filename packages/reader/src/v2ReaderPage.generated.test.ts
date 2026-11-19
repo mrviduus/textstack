@@ -154,10 +154,10 @@ describe('v2ReaderPageHtml', () => {
     // (nothing in them can end or bend the script element), and are run by page.mjs on first use
     // through a script element carrying the page's own nonce: no CSP directive is widened.
     const str = '"[^"\\\\]*(?:\\\\.[^"\\\\]*)*"'
-    const carried = html.match(new RegExp(`<script nonce="[^"]+">(var __TS_FORMATS = \\{mobi: ${str},\\nfb2: ${str},\\ncbz: ${str},\\npdf: ${str},\\npdfcmaps: ${str},\\ndyslexic: ${str}\\};\\n)`))?.[1]
+    const carried = html.match(new RegExp(`<script nonce="[^"]+">(var __TS_FORMATS = \\{mobi: ${str},\\nfb2: ${str},\\ncbz: ${str},\\npdf: ${str},\\npdfcmaps: ${str},\\ndyslexic: ${str},\\nserif: ${str},\\nsans: ${str}\\};\\n)`))?.[1]
     expect(carried).toBeDefined()
     expect(carried).not.toContain('<')
-    for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps', 'dyslexic']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
+    for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps', 'dyslexic', 'serif', 'sans']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
     // A comic book has no text: its frames say the reader acted (#1313), post mouse moves, forward keys and post `tap` (where it landed,

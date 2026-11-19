@@ -137,7 +137,8 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // +4,282 (#1426): `describe(id, url?)` → `described` (describe.mjs: `bookMeta`, `coverJpeg`), a book's details and cover
 // from a file of its own or the book on screen.
 // +1,017: explicit alignment wins over publisher CSS and restores the book's original rules.
-const BUDGET = 341644
+// +2,003: embedded brand fonts and explicit font choice in book sections.
+const BUDGET = 343647
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -148,7 +149,7 @@ const BUDGET = 341644
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
 // dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
 // notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883, dyslexic: 158436 }
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883, dyslexic: 158436, serif: 329995, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -194,6 +195,8 @@ const stubFormats = {
 
 // Each format reader: what page.mjs needs from the fork, registered on window.__tsFormats when run.
 // Imports resolve against this directory (the stdin entry has no file of its own).
+const fontChunk = (name, dir, files, notice = '') => `${notice}window.__tsFormats.${name} = ${JSON.stringify(Object.fromEntries(
+  Object.entries(files).map(([face, file]) => [face, readFileSync(resolve(here, dir, file)).toString('base64')])))};`
 const FORMATS = {
   mobi: `import { MOBI } from './.vendor/foliate-js/mobi.js'
 import { unzlibSync } from './.vendor/foliate-js/vendor/fflate.js'
@@ -221,6 +224,12 @@ window.__tsFormats.pdfcmaps = ${JSON.stringify(Object.fromEntries(readdirSync(re
   // the reader picks that family, then a blob: URL of the page's own (font-src blob:).
   dyslexic: `/*! ${readFileSync(resolve(here, '../../../apps/web/public/fonts/OpenDyslexic-LICENSE.txt'), 'utf8').replace(/\*\//g, '* /')} */
 window.__tsFormats.dyslexic = { woff2: ${JSON.stringify(readFileSync(resolve(here, '../../../apps/web/public/fonts/OpenDyslexic-Regular.woff2')).toString('base64'))} }`,
+  serif: fontChunk('serif', '../../../apps/web/src/assets/fonts', {
+    regular: 'TextStack-Regular.woff2', bold: 'TextStack-Bold.woff2', italic: 'TextStack-Italic.woff2', boldItalic: 'TextStack-BoldItalic.woff2',
+  }),
+  sans: fontChunk('sans', '../../../apps/mobile/assets/fonts', {
+    regular: 'SourceSans3-Regular.woff2', bold: 'SourceSans3-Bold.woff2', italic: 'SourceSans3-It.woff2', boldItalic: 'SourceSans3-BoldIt.woff2',
+  }, `/*! ${readFileSync(resolve(here, '../../../apps/mobile/assets/fonts/SourceSans3-LICENSE.md'), 'utf8').replace(/\*\//g, '* /')} */\n`),
 }
 /** Minified (the only one): pdf.js is half its size so. keepNames: pdf.js reads `constructor.name`. */
 const MINIFIED = new Set(['pdf'])
