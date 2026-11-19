@@ -30,5 +30,14 @@ export const formatsJs = (chunks) => `var __TS_FORMATS = {${Object.entries(chunk
 export const html = (js) => `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${CSP}">
-<style>html,body{margin:0;height:100%;background:#fbf8f3;color:#1f1b16}foliate-view{display:block;height:100%}</style>
+<style>
+html,body{margin:0;height:100%;background:#fbf8f3;color:#1f1b16}
+foliate-view{display:block;height:100%}
+:root{--reader-edge-shadow:rgba(30,15,5,.5)}
+:root[data-reader-theme="sepia"]{--reader-edge-shadow:rgba(50,25,10,.6)}
+:root[data-reader-theme="dark"]{--reader-edge-shadow:rgba(0,0,0,.7)}
+/* The old reader's book-edge shading, outside the book document and transparent to touches. */
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:1;
+box-shadow:inset 80px 0 60px -60px var(--reader-edge-shadow),inset -80px 0 60px -60px var(--reader-edge-shadow)}
+</style>
 </head><body><script nonce="${NONCE}">${js.replace(/<\/(script)/gi, '<\\/$1')}</script></body></html>`
