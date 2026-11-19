@@ -139,7 +139,8 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // +1,017: explicit alignment wins over publisher CSS and restores the book's original rules.
 // +2,052: embedded brand fonts and explicit font choice in book sections.
 // +63: theme-specific edge shading on the reader shell.
-const BUDGET = 343759
+// +960: safe text viewport insets and live, user-initiated scroll positions for mobile controls.
+const BUDGET = 344717
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

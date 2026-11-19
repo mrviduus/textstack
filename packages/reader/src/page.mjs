@@ -133,7 +133,8 @@ let testRestoreDelay = 0
  */
 let awaitingRestore = false
 let readerActed = false
-const onInput = () => { readerActed = true }
+let scrollInputAt = 0
+const onInput = () => { readerActed = true; scrollInputAt = Date.now() }
 for (const type of ['pointerdown', 'wheel', 'keydown', 'touchstart']) document.addEventListener(type, onInput, { capture: true, passive: true })
 /** A mouse moving over the book, for the web host's bars (its own document never sees it): at most one per 250 ms. Touch never. */
 let lastMove = 0
@@ -344,6 +345,7 @@ function onLoad({ detail: { doc, index } }) {
   // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
   if (!textual) return doc.addEventListener('click', (e) => post(tapAt(doc, e)))
   sectionIndex.set(doc, index)
+  doc.addEventListener('touchmove', () => { scrollInputAt = Date.now() }, { passive: true })
   if (!view.isFixedLayout) applyAlignment(doc, look.textAlign)
   if (!view.isFixedLayout) applyFontFamily(doc, look)
   doc.addEventListener('pointerdown', onPress)
@@ -1417,7 +1419,14 @@ async function open(bytes, name, kind, mine) {
   await view.open(nb)
   // The scrolled paginator relocates on a scroll only after a debounce, and not at all on the first one after
   // an anchored re-layout: a selection's box follows every scroll.
-  view.renderer.addEventListener('scroll', () => { if (mine === viewSeq) settleSelection() })
+  view.renderer.addEventListener('scroll', () => {
+    if (mine !== viewSeq) return
+    settleSelection()
+    if (flow === 'scrolled' && !hostMoving && !navs && Date.now() - scrollInputAt < 2000) {
+      const section = view.renderer.getContents?.()[0]?.index
+      if (Number.isInteger(section)) post({ type: 'reader-scroll', section, offset: view.renderer.start })
+    }
+  })
   view.renderer.setAttribute('flow', flow)
   view.renderer.setAttribute('margin', '24px')
   applyLook()
@@ -1849,6 +1858,13 @@ window.__fol = {
   // #1260: the whole settings object, read through settings.mjs (closed lists, a clamped size): nothing of the
   // host's reaches the CSS as it came. Applied live; before `opened` it sets what the next open uses.
   settings: (raw) => { look = readSettings(raw); applyLook(); return look },
+  // Insets affect the text viewport only; the shell's paper and edge shading remain full-screen.
+  insets: (raw) => {
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      const value = raw?.[side]
+      if (Number.isFinite(value) && value >= 0 && value <= 256) document.documentElement.style.setProperty(`--reader-safe-${side}`, `${value}px`)
+    }
+  },
   // The size alone, ±px (the format check's re-layout rows): `settings` with one field changed.
   font: (delta) => window.__fol.settings({ ...look, fontSize: look.fontSize + delta }).fontSize,
   // Switches the live view: foliate re-renders on the attribute, no reload (#1128). Before `opened` it

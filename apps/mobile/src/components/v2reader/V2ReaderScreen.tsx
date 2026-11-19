@@ -27,6 +27,7 @@ import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue 
 import { hostError } from '../../lib/v2reader/hostErrors'
 import { fill } from '../../lib/fill'
 import { readSelection } from '../../../../../packages/reader/src/selection.mjs'
+import { createScrollIntent, readReaderScroll } from '../../../../../packages/reader/src/scrollChrome.mjs'
 import { readDescribed } from '../../../../../packages/reader/src/describe.mjs'
 import NetInfo from '@react-native-community/netinfo'
 import {
@@ -627,6 +628,15 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   // The page keeps the inset it had with the status bar shown: hiding the bars must not resize (re-lay out) the book.
   const topPad = useRef(0)
   topPad.current = Math.max(topPad.current, insets.top)
+  const bottomPad = useRef(0)
+  bottomPad.current = Math.max(bottomPad.current, insets.bottom)
+  const safeInsets = { top: topPad.current, bottom: bottomPad.current, left: insets.left, right: insets.right }
+  const scrollIntent = useRef(createScrollIntent())
+  const manualBarsAt = useRef(0)
+  useEffect(() => { scrollIntent.current.reset() }, [inBook, flow, opens])
+  useEffect(() => {
+    if (ready.current) call(`window.__fol.insets(${JSON.stringify(safeInsets)})`)
+  }, [safeInsets.top, safeInsets.bottom, safeInsets.left, safeInsets.right])
   const [footerHeight, setFooterHeight] = useState(0)
   const { barsVisible, barsAnim, topBarTranslateY, footerTranslateY, showBars, hideBars, toggleBars } = useReaderBars({
     topBarHeight: 56 + insets.top,
@@ -730,7 +740,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     // An editor opening while this open's notes were never read (both reads failed): read again, it waits meanwhile.
     if (next?.kind === 'highlight' && !notesRead.current) refreshNotes()
     setPopup(next)
-    if (turn === 'toggle') return toggleBars()
+    if (turn === 'toggle') { manualBarsAt.current = Date.now(); return toggleBars() }
     if (!turn) return
     call(`window.__fol.${turn}()`)
     hideBars()
@@ -879,19 +889,20 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     })
   }
   const saveWord = async (p: V2Popup) => {
-    if (p.kind !== 'word' || !langSaves) return
+    if (p.kind === 'highlight' || !langSaves) return
+    const text = p.kind === 'word' ? p.word : p.text.trim()
     const intent = saveWordIntent({ isAuthenticated: !!user, hasSelection: true })
     if (intent === 'prompt') {
       haptics.play('flip')
       showToast({ variant: 'info', message: t('reader.vocab.saveNeedsAccount'), duration: 3600, bottomOffset: footerHeight })
       return
     }
-    const key = vocabMapKey(p.word)
+    const key = vocabMapKey(text)
     if (intent !== 'save' || savingWords.current.has(key)) return
     savingWords.current.add(key)
     const asker = vocabUser.current
     const ctx = writeContext()
-    const body = { word: p.word, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
+    const body = { word: text, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
     try {
       // The open book's id from the list in memory, else from its row; a re-key since then is asked of the row on
       // `book_not_found` (wordBook.ts, #1303). A book the server does not have: the word is saved without it.
@@ -910,14 +921,14 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // TR-2, as the legacy reader: a card saved without a translation gets one in the reader's language; the card the
         // server answers with goes to its row; the backfill leaves this card alone meanwhile.
         filling.current.add(o.word.id)
-        fillSavedTranslation(o.word, p.word, textLang, nativeLanguage, {
+        fillSavedTranslation(o.word, text, textLang, nativeLanguage, {
           sentence: p.sentence, bookId: bookId ?? undefined, onStored: (card) => { void takeTranslation(o.word.id, card, ctx) },
           // Left to the backfill again only once its write settled (or there was none).
           onSettled: () => { filling.current.delete(o.word.id) },
         }).catch(() => {})
       } else if (o.kind === 'deleted') {
         showToast({
-          variant: 'info', message: t('reader.vocab.deletedEarlier').replace('{{word}}', p.word), duration: 6000,
+          variant: 'info', message: t('reader.vocab.deletedEarlier').replace('{{word}}', text), duration: 6000,
           actionLabel: t('reader.vocab.restore'), onPress: () => { void restoreWord(p, o.id) },
         })
       } else if (o.kind === 'pending') {
@@ -1207,6 +1218,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         return
       case 'ready':
         deadlines.ready()
+        call(`window.__fol.insets(${JSON.stringify(safeInsets)})`)
         // A fresh page shows no image (one open in the page it replaced said nothing as it went): back is not held by it.
         setLightbox(false)
         // #1267: the lightbox's words in the reader's language (README, `labels`): the page has no i18n.
@@ -1285,7 +1297,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // What the chrome shows and follows is read through readRelocate (the page renders untrusted content).
         const shown = readRelocate(m)
         // The reader moving the place (the page's `moved`), in either flow, hides the bars; not under a bar button.
-        if (hidesBarsOnRelocate({ moved: !!shown?.moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) })) hideBars()
+        if (hidesBarsOnRelocate({ moved: !!shown?.moved, msSinceHostMove: hostMoves.onRelocate(Date.now()) }) && effectiveFlow !== 'scrolled' && Date.now() - manualBarsAt.current > 600) hideBars()
         pageDir.current = shown?.dir ?? pageDir.current
         // The reader moved the place: a word popup's word left it (the toolbar follows the page's selection messages).
         if (shown?.moved) onPopupEvent({ type: 'moved' })
@@ -1314,7 +1326,17 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         const w = readWord(m)
         if (!w) return
         sessions.activity(Date.now())
-        onPopupEvent({ type: 'word', word: w })
+        // Mobile: short taps navigate; native selection (hold/drag) is the only translation gesture.
+        onPopupEvent({ type: 'tap', x: w.rect.x + w.rect.w / 2 })
+        return
+      }
+      case 'reader-scroll': {
+        const position = readReaderScroll(m)
+        if (!position || effectiveFlow !== 'scrolled') return
+        const action = scrollIntent.current.move(position)
+        if (popupRef.current || Date.now() - manualBarsAt.current < 600) return
+        if (action === 'show') showBars()
+        if (action === 'hide') hideBars()
         return
       }
       case 'selection': {
@@ -1640,7 +1662,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
         // No book on screen: the list covers the page, and TalkBack must not reach the book behind it.
         importantForAccessibility={inBook ? 'auto' : 'no-hide-descendants'}
         accessibilityElementsHidden={!inBook}
-        style={[styles.page, { paddingTop: topPad.current, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }]}
+        style={styles.page}
       >
         <WebView
           key={nonce}
@@ -1763,7 +1785,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               isTtsLoading={listener.state(spokenOf(popup)) === 'loading'}
               isAuthenticated={!!user}
               // No Save where the book's language does not read (savesWords): the gloss still uses the fallback.
-              onSaveWord={popup.kind === 'word' && langSaves ? () => { void saveWord(popup) } : undefined}
+              onSaveWord={langSaves && (popup.kind === 'word' || !/\s/.test(popup.text.trim())) ? () => { void saveWord(popup) } : undefined}
               wordSaved={!!savedIdOf(popup)}
               onRemove={savedIdOf(popup) ? () => { removeWord(popup, savedIdOf(popup)!) } : undefined}
               bottomOffset={barsVisible ? footerHeight : insets.bottom}

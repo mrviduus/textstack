@@ -462,6 +462,10 @@ it through `readSettings`, so only numbers and members of the module's own lists
   `fonts.mjs` applies the chosen family over publisher fonts while preserving bold and italic styles.
   Code and explicitly styled headings retain their publisher faces except in the accessibility font,
   and return to their original faces when leaving that font. Dark mode recolours text and puts images/SVG on a light plate.
+- *Mobile controls:* centre taps (including text) toggle panels; side taps page in paginated mode.
+  Native text selection handles word/phrase actions. In scroll mode a deliberate 24 px movement back reveals
+  controls, forwards hides them; chapter changes and small reversals start a new baseline. Insets reserve
+  the text viewport inside a full-screen paper/shadow shell, so controls do not resize the text.
 - *On the page itself:* the theme's background and text colour (the margins, the letterbox around a fixed-layout
   page, the translation label). A fixed-layout book (CBZ, PDF, pre-paginated EPUB) has no styles to set, so that
   is all a theme does there; the hosts disable their typography controls (`opened.reflowable` false).
