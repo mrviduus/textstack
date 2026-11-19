@@ -11,9 +11,11 @@ export function createScrollIntent(threshold = 24) {
   let distance = 0
   return {
     reset() { previous = null; distance = 0 },
-    move(next) {
+    move(next, suppressed = false) {
       const delta = previous?.section === next.section ? next.offset - previous.offset : 0
       previous = next
+      // Keep the actual landing as baseline, but never interpret navigation or selection as a gesture.
+      if (suppressed) { distance = 0; return null }
       if (!delta) { distance = 0; return null }
       if (Math.sign(delta) !== Math.sign(distance)) distance = 0
       distance += delta
