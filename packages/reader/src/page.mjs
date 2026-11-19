@@ -190,6 +190,7 @@ function fontUrl() {
  */
 function applyLook() {
   const { bg, fg } = THEMES[look.theme]
+  document.documentElement.dataset.readerTheme = look.theme
   for (const el of [document.documentElement, document.body]) {
     el.style.background = bg
     el.style.color = fg
