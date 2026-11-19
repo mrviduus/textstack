@@ -576,7 +576,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const isOpenKey = (key: string) => openShaRef.current !== null && key.toLowerCase() === openShaRef.current
   /** The reader's choice (a highlight or bookmark in its sheet, a deep link, a search result): saved where it lands. */
   const goHighlight = (h: { cfi: string }) => {
-    hostMoves.start()
+    startHostMove()
     call(`window.__fol.goTo(${JSON.stringify(h.cfi)}, true)`)
   }
   /** #1314: the bookmark on screen removed, else one added at the place on screen: the page stores it (`store`) or answers `highlight-removed`. */
@@ -648,8 +648,12 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const pageWidth = useRef(0)
   /** Bar buttons and the taken offer: the page counts their moves as the reader's, but they keep the bars up. */
   const [hostMoves] = useState(createHostMoves)
-  const barTurn = (dir: 'prev' | 'next') => {
+  const startHostMove = () => {
+    scrollIntent.current.reset()
     hostMoves.start()
+  }
+  const barTurn = (dir: 'prev' | 'next') => {
+    startHostMove()
     call(`window.__fol.${dir}()`)
   }
   /**
@@ -659,7 +663,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const goToc = (e: V2TocEntry) => {
     tocIndex.current = e.index
     setProgress.current((p) => p && { ...p, tocIndex: e.index })
-    hostMoves.start()
+    startHostMove()
     call(`window.__fol.goTo(${JSON.stringify(e.href)}, true)`)
   }
 
@@ -964,7 +968,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const goTo = (p: PagePosition, chosen = false) => {
     place.hostMove()
     // A chosen goTo (the taken offer) is `moved` to the page; a sync adopt/move is not.
-    if (chosen) hostMoves.start()
+    if (chosen) startHostMove()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
@@ -1333,8 +1337,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       case 'reader-scroll': {
         const position = readReaderScroll(m)
         if (!position || effectiveFlow !== 'scrolled') return
-        const action = scrollIntent.current.move(position)
-        if (popupRef.current || Date.now() - manualBarsAt.current < 600) return
+        const now = Date.now()
+        const navigating = !hidesBarsOnRelocate({ moved: true, msSinceHostMove: hostMoves.onRelocate(now) })
+        const action = scrollIntent.current.move(position, navigating || !!popupRef.current || now - manualBarsAt.current < 600)
         if (action === 'show') showBars()
         if (action === 'hide') hideBars()
         return
