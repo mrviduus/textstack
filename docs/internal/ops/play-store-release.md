@@ -25,16 +25,18 @@ Credentials live server-side on EAS, which is why no profile sets
 would break the GitHub Actions route. `apps/mobile/google-service-account.json` is a
 local convenience copy, gitignored, not required.
 
-## Staged rollout
+## Automatic production releases
 
-`submit.production` opens at **10%** (`releaseStatus: "inProgress"`, `rollout: 0.1`).
+Owner decision, 2026-11-19: mobile changes merged to `main` ship to **production**.
+Matching runtime changes publish OTA; native runtime changes build and submit through
+`submit.production` (`releaseStatus: completed`, 100% rollout). The workflow waits for
+EAS build/submission completion. Google Play may still require review before availability;
+installation depends on the phone's Google Play auto-update settings.
 
-- `rollout` is a **fraction between 0 and 1**, not a percentage. `10` is the silent
-  mistake here.
-- **EAS cannot advance an existing rollout.** 10 → 25 → 50 → 100 is done by hand in
-  Play Console → Production → Releases → Manage rollout. Re-submitting with a bigger
-  number creates a *second release* rather than widening the first.
-- Wait ~48h between steps and watch Android vitals (ANR rate, crash rate) plus Sentry.
+Manual testing releases remain available through `mobile-release.yml`. An existing bundle
+already uploaded to Alpha/Internal must be **promoted** in Play Console; submitting the
+same version code again is refused. Build 44 was previously Alpha-only and needs this
+promotion to bring existing production installs onto the current OTA runtime.
 
 ## The runtime-version rule
 
@@ -68,16 +70,11 @@ comparison. It was never written. What does it now is
 [`.github/workflows/mobile-ota.yml`](../../../.github/workflows/mobile-ota.yml): on every
 push to `main` touching `apps/mobile/**` or `packages/**` it resolves the runtime,
 compares it with the newest finished Android production build, and publishes the OTA
-only on a match. ~~A mismatch fails the run~~ — no longer: since 2026-09-28 (#625) a mismatch
-**starts an EAS production build and auto-submits it to Closed testing** (`alpha`).
-~~and then still publishes the update~~ — not since 2026-10-07: that run publishes **no**
-OTA (no installed app has the new runtime; the build carries the JS). A push while that
-build is still queued or running starts no second build and publishes its OTA to the new
-runtime, which the build picks up on first launch; once the build finishes, pushes compare
-against it and publish as usual. Logic: `infra/scripts/mobile-ota-decide.mjs`. So **merging any
-native change (a dependency, a config plugin, `app.json`) ships a store build to the
-testers** — time the merge accordingly. `production` stays a manual
-`mobile-release.yml` run.
+only on a match. A mismatch **starts an EAS production build and auto-submits it to
+Google Play production**. That run publishes no OTA: the new binary carries the JS.
+A matching build already queued or running is reused instead of starting a duplicate;
+its OTA is published so the build can pick up newer JS on first launch. Logic:
+`infra/scripts/mobile-ota-decide.mjs`.
 
 Run it by hand from Actions → Mobile OTA (auto) with `dry_run` on to see the comparison
 without publishing. It needs the `EXPO_TOKEN` secret, like every other EAS workflow here.
@@ -90,8 +87,8 @@ without publishing. It needs the `EXPO_TOKEN` secret, like every other EAS workf
   fix is to re-run **mobile-release.yml → build**.
 - **One runtime at a time.** The OTA always targets the runtime of the newest *finished*
   production build. Once the production track runs an older build than Closed testing,
-  production stops receiving OTAs. Tracked in `docs/STATUS.md`; must be fixed before the
-  second store release.
+  production stops receiving OTAs. Automatic builds now target production, but a manually uploaded testing build
+  can still create this gap. Promote it or ship a newer production build.
 
 ## Permissions
 
@@ -296,14 +293,14 @@ points at hosted `ingest.us.sentry.io` rather than a self-hosted instance. Keep 
 1. `npm run typecheck && npm test` in `apps/mobile` (CI runs both).
 2. Permission check — the four levels above.
 3. If native deps or plugins changed: build, do **not** OTA.
-3a. **Bump `expo.version` in `app.json` for every store release** (semver; 1.1.0 was the
-    first bump, 2026-10-07). It is the `versionName` users see in Play. Do not touch
+3a. Bump `expo.version` in `app.json` when changing the user-facing semver (1.1.0 was the
+    first bump, 2026-10-07). Automatic builds increment the version code via EAS. It is the `versionName` users see in Play. Do not touch
     `versionCode`: `eas.json` has `appVersionSource: "remote"` + `autoIncrement`, so EAS
     owns it. The bump changes the fingerprint, so the build gets a new runtime. OTAs
     published after that reach only installs of the new build. Older installs keep their
     old runtime and get no more OTAs until they update from the store.
 4. Bump `privacy.updated` if the policy text moved; update Data Safety the same day.
-5. Submit to the track: `npm run submit:closed` (or `:production`).
+5. Main builds auto-submit to production; manual test releases use `npm run submit:closed`.
 6. Read the **pre-launch report** — a free crawl on ~10 real devices, and the cheapest
    check that exists on the PDF.js Original viewer, which shipped without device
    verification (see `docs/internal/changelog-archive/2026-H2.md`, ADR-012 S4).
