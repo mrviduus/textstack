@@ -327,7 +327,6 @@ document.addEventListener('click', (e) => {
 })
 
 function onLoad({ detail: { doc, index } }) {
-  if (!view.isFixedLayout) applyAlignment(doc, look.textAlign)
   // Any book, CBZ too: the reader acting in a section is the reader acting (`readerActed`).
   for (const type of ['pointerdown', 'wheel', 'keydown', 'touchstart']) doc.addEventListener(type, onInput, { capture: true, passive: true })
   doc.addEventListener('pointermove', onMove, { passive: true })
@@ -335,6 +334,7 @@ function onLoad({ detail: { doc, index } }) {
   // Images only: every tap is a chrome toggle, and nothing is kept for a highlight.
   if (!textual) return doc.addEventListener('click', (e) => post(tapAt(doc, e)))
   sectionIndex.set(doc, index)
+  if (!view.isFixedLayout) applyAlignment(doc, look.textAlign)
   doc.addEventListener('pointerdown', onPress)
   doc.addEventListener('click', (e) => onTap(doc, index, e))
   doc.addEventListener('selectionchange', () => {
