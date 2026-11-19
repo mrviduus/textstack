@@ -346,6 +346,38 @@ try {
   await call('window.__fol.settings({textAlign:"book"})')
   check(await hasAlignment({ plain: 'start', class: 'justify', inline: 'right', div: 'justify' }, 2), 'book mode restores publisher class and inline alignment')
 
+  console.log('saved quotations')
+  const selectPlain = () => shown(() => {
+    const p = document.getElementById('plain')
+    if (!p || document.querySelector('h1')?.textContent !== 'Alignment 2') return false
+    const range = document.createRange()
+    range.selectNodeContents(p)
+    const selection = document.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return true
+  })
+  await selectPlain()
+  from = messages.length
+  await call('window.__fol.saveQuotation()')
+  const quoted = await storeFrom(from, 'saved quotation')
+  const quotation = quoted?.highlights.find(h => h.color === 'quote')
+  check(quotation?.selectedText === 'Plain paragraph.', 'a selection is saved intact as an anchored quotation')
+  const noPaint = () => call('document.querySelector("foliate-view").renderer.getContents().every(c => !c.overlayer.element.querySelector("g"))')
+  check(await noPaint(), 'saving a quotation does not paint a highlight')
+  await selectPlain()
+  from = messages.length
+  await call('window.__fol.saveQuotation()')
+  const sameQuote = await waitFor(from, x => x.type === 'highlighted', 'same quotation reused')
+  check(sameQuote.id === quotation?.id, 'saving the same range again reuses its quotation')
+  await open('tsalignment.epub', JSON.stringify(quoted))
+  await call('document.querySelector("foliate-view").goTo(1)')
+  check(await noPaint(), 'restored quotations remain unpainted')
+  from = messages.length
+  await call(`window.__fol.removeHighlight(${JSON.stringify(quotation?.id)})`)
+  const removedQuote = await storeFrom(from, 'removed quotation')
+  check(removedQuote && !removedQuote.highlights.some(h => h.id === quotation?.id), 'a saved quotation can be removed and persisted')
+
   console.log('offline reader fonts')
   for (const [fontFamily, name] of [['serif', 'Literata'], ['sans', 'TextStack Source Sans 3'], ['dyslexic', 'TextStack OpenDyslexic']]) {
     await call(`window.__fol.settings(${JSON.stringify({ fontFamily })})`)

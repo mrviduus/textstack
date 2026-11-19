@@ -1,4 +1,6 @@
 export const REVIEW_BATCH_SIZES = [10, 20, 50] as const
+/** Contracts.V2.SyncLimits.MaxWord: applies equally to words and expressions. Never truncate a saved selection. */
+export const MAX_VOCABULARY_TEXT = 200
 export const DEFAULT_BATCH_SIZE = 10
 export type ReviewMode = 'blitz' | 'classic'
 

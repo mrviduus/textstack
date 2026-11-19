@@ -979,6 +979,8 @@ function search(raw, id) {
 
 /** The ids of the highlights drawn now. */
 const drawnIds = () => new Set([...overlays.values()].flatMap((a) => (a.hl ? [a.hl.id] : [])))
+const savedQuote = (h) => h?.color === 'quote'
+const listedIds = () => new Set([...drawnIds(), ...entry.highlights.filter((h) => savedQuote(h) && placed.has(h.id)).map((h) => h.id)])
 
 /**
  * The open book's drawn highlights, in book order (#1312, highlights.mjs `highlightList`): sent whenever they change
@@ -986,7 +988,7 @@ const drawnIds = () => new Set([...overlays.values()].flatMap((a) => (a.hl ? [a.
  */
 function postList() {
   if (!entry) return
-  post({ type: 'highlight-list', key: book.sha256, highlights: highlightList(entry.highlights, drawnIds(), compareCfi, quotes) })
+  post({ type: 'highlight-list', key: book.sha256, highlights: highlightList(entry.highlights, listedIds(), compareCfi, quotes) })
 }
 
 /** The entry's bookmark list, built again (the set of found bookmarks may have changed); a new version only if it did. */
@@ -1105,6 +1107,7 @@ function drawnHighlight(id, call) {
   if (!entry || !annotatable) return void log('warn', `${call} ignored: no highlights here`)
   const h = entry.highlights.find((x) => x.id === id)
   const a = h && overlays.get(h.cfi)
+  if (savedQuote(h) && placed.has(h.id)) return { h, a: { index: h.index } }
   if (a?.hl?.id !== id) return void log('warn', `${call} ignored: not a highlight drawn here`)
   return { h, a }
 }
@@ -1133,6 +1136,7 @@ function removeHighlight(id) {
   const d = drawnHighlight(id, 'removeHighlight')
   if (!d) return
   entry = { ...entry, highlights: entry.highlights.filter((x) => x.id !== id) }
+  placed.delete(id)
   persist()
   unhighlight(d.h.cfi)
   post({ type: 'highlight-removed', key: book.sha256, id })
@@ -1557,7 +1561,7 @@ async function addHighlightsNow(list) {
     if (!ok) continue
     entry = withHighlight(entry, h)
     // A bookmark (#1314) is kept, never drawn.
-    if (isBookmark(h)) placed.add(h.id)
+    if (isBookmark(h) || savedQuote(h)) placed.add(h.id)
     else annotate({ value: h.cfi, index: at.index, hl: { id: h.id, color: h.color } })
   }
   post({ type: 'highlights', key: book.sha256, highlights: result })
@@ -1596,7 +1600,7 @@ async function restoreNow(json, stored, stale) {
     result.highlights.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
     if (!ok) continue
     // A bookmark (#1314) is kept, never drawn.
-    if (isBookmark(h)) placed.add(h.id)
+    if (isBookmark(h) || savedQuote(h)) placed.add(h.id)
     else annotate({ value: h.cfi, index: at.index, hl: { id: h.id, color: h.color } })
   }
   const p = entry.position
@@ -1654,8 +1658,9 @@ async function restoreNow(json, stored, stale) {
  * of `color` (#1312: one of `HIGHLIGHT_COLORS`, yellow by default): CFI + selection (+ its ≤64-code-point quote) + 30
  * chars of context, saved.
  */
-function highlightSelection(color = 'yellow') {
-  if (!isHighlightColor(color)) return log('warn', 'highlightSelection ignored: not a colour')
+function highlightSelection(color = 'yellow', quotation = false) {
+  if (quotation) color = 'quote'
+  if (!quotation && !isHighlightColor(color)) return log('warn', 'highlightSelection ignored: not a colour')
   if (!textual) return log('warn', 'highlightSelection ignored: this book has no text')
   if (!annotatable) return log('warn', 'highlightSelection ignored: no highlights on a PDF yet')
   // The live selection, settled or not, on screen or not, described as a `selection` message would describe it;
@@ -1674,9 +1679,9 @@ function highlightSelection(color = 'yellow') {
   const cfi = view.getCFI(s.index, s.range)
   // Exactly a drawn highlight's range (#1312 review): that highlight, recoloured if need be, never a second one over it
   // (it would own the taps while the host's diff took it for the first's twin, and write none of its edits).
-  const same = sameRangeHighlight(entry.highlights, cfi, drawnIds())
+  const same = sameRangeHighlight(entry.highlights, cfi, listedIds())
   if (same) {
-    if (same.color !== color) recolorHighlight(same.id, color)
+    if (!quotation && same.color !== color) recolorHighlight(same.id, color)
     endSelection()
     post({ type: 'highlighted', id: same.id, cfi, quote: same.quote, selectedText: same.selectedText ?? same.quote, color })
     return same
@@ -1688,7 +1693,8 @@ function highlightSelection(color = 'yellow') {
   }
   entry = withHighlight(entry, h)
   persist()
-  annotate({ value: h.cfi, index: s.index, hl: { id: h.id, color } })
+  if (quotation) placed.add(h.id)
+  else annotate({ value: h.cfi, index: s.index, hl: { id: h.id, color } })
   // The selection is done, as `clearSelection` ends it: at once, not after the settle time, or the next press within it
   // would be taken for its dismissal and its tap (a tap on the new highlight) dropped (#1312).
   endSelection()
@@ -1795,6 +1801,7 @@ window.__fol = {
   restore: (json, more) => restore(json, more)?.catch((e) => log('error', `restore: ${e?.stack ?? e}`)),
   addHighlights: (list) => addHighlights(list).catch((e) => log('error', `addHighlights: ${e?.stack ?? e}`)),
   highlightSelection,
+  saveQuotation: () => highlightSelection('yellow', true),
   recolorHighlight,
   removeHighlight,
   addBookmark,

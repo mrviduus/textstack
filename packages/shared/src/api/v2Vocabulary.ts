@@ -8,6 +8,7 @@
 import * as v2Api from './v2'
 import type { V2Word } from './v2'
 import { clip } from '../reader/textAnchor'
+import { MAX_VOCABULARY_TEXT } from '../vocabularyConstants'
 import type { VocabularyWordDto, SaveWordResponseDto, ReviewCardDto, WeeklyProgressDto, SubmitReviewResponse } from '../types/api'
 
 export interface V2VocabularyPlatform {
@@ -97,6 +98,7 @@ export function createV2Vocabulary({ newId, fileIdOf, cards, epoch }: V2Vocabula
    * with the tombstone, and `restoreV2Word` brings it back.
    */
   async function saveV2Word(data: V2SaveWord): Promise<SaveWordResponseDto> {
+    if (data.word.trim().length > MAX_VOCABULARY_TEXT) throw new RangeError(`Vocabulary supports up to ${MAX_VOCABULARY_TEXT} characters`)
     const { remember, check } = session()
     const sentence = nullable(data.sentence, 1000)
     const bookId = data.userBookId ?? null
@@ -106,7 +108,7 @@ export function createV2Vocabulary({ newId, fileIdOf, cards, epoch }: V2Vocabula
       return response('srs', remember(await v2Api.saveWord({
         id: data.id ?? newId(),
         language: data.language,
-        word: clip(data.word, 200),
+        word: data.word.trim(),
         translation: nullable(data.translation, 500),
         definition: nullable(data.definition, 2000),
         example: sentence ? {

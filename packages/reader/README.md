@@ -462,6 +462,13 @@ it through `readSettings`, so only numbers and members of the module's own lists
   `fonts.mjs` applies the chosen family over publisher fonts while preserving bold and italic styles.
   Code and explicitly styled headings retain their publisher faces except in the accessibility font,
   and return to their original faces when leaving that font. Dark mode recolours text and puts images/SVG on a light plate.
+- *Mobile selection:* one action card translates any settled selection inline (200 ms request debounce),
+  not separate word/phrase modes. Words and expressions up to the API's 200 UTF-16-character vocabulary
+  limit save with context and book provenance; oversized entries are refused rather than truncated.
+  Translation/TTS retain their 500-character cap; Explain retains its 100-character server cap.
+  `saveQuotation()` stores an anchored annotation with `color: 'quote'` (up to 4000 characters), listed
+  with highlights but never painted; its source position, removal and offline sync use existing annotations.
+  PDF selection can translate/copy/save vocabulary; quotations still require an annotatable book/CFI.
 - *Mobile controls:* centre taps (including text) toggle panels; side taps page in paginated mode.
   Native text selection handles word/phrase actions. In scroll mode a deliberate 24 px movement back reveals
   controls, forwards hides them; chapter changes and small reversals start a new baseline. Insets reserve
