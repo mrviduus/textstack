@@ -114,7 +114,7 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/function openFor\(bytes, name, mine, fileFormat\) \{\s*let kind;\s*try \{\s*kind = fileFormat === \"html\" \? \"html\" : sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*return open\(bytes, name, kind, mine\)/)
     expect(html).toMatch(/openUrl: \(url, name, fileFormat = null\) => \{\s*const mine = \+\+openSeq;\s*const \w+ = new XMLHttpRequest\(\)/)
     expect(html).toMatch(/\w+\.onload = \(\) => \{\s*if \(mine !== openSeq\) return;/)
-    expect(html).toMatch(/function highlightSelection\(color = "yellow"\) \{[\s\S]{0,600}?if \(!entry\) return log\("warn"/)
+    expect(html).toMatch(/function highlightSelection\(color = "yellow", quotation = false\) \{[\s\S]{0,800}?if \(!entry\) return log\("warn"/)
     // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
     expect(html).toMatch(/if \(mine === openSeq\) openFailed\(name, [^;]*;\s*\}\);/)
     expect(html).not.toMatch(/(?<!var )openSeq = /)

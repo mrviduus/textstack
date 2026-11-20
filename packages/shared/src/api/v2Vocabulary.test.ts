@@ -18,14 +18,32 @@ describe('the shared V2 vocabulary', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
+  it('saves an expression intact with its context and returns a normal reviewable card', async () => {
+    const text = 'take into account'
+    const calls = fakeApi({ 'PUT /me/v2/vocabulary/words': [{ status: 201, body: card('phrase', { word: text }) }] }, API)
+    const result = await vocab().saveV2Word({ word: text, language: 'en', translation: 'учитывать', sentence: 'We must take into account the weather.', bookTitle: 'A book' })
+    const request = calls.find(x => x.method === 'PUT')!.body
+    expect(request.word).toBe(text)
+    expect(request.translation).toBe('учитывать')
+    expect(request.example).toMatchObject({ sentence: 'We must take into account the weather.', bookTitle: 'A book' })
+    expect(result.word?.word).toBe(text)
+  })
+
+  it('rejects oversized selections instead of silently creating a truncated vocabulary entry', async () => {
+    const calls = fakeApi({}, API)
+    await expect(vocab().saveV2Word({ word: 'x'.repeat(201), language: 'en' })).rejects.toThrow('200 characters')
+    expect(calls).toHaveLength(0)
+  })
+
   it('posts a review answer, and never a practice one (V2 has no practice: a review moves the schedule)', async () => {
-    const due = card('w1', { stage: 2, intervalDays: 3 })
+    const due = card('w1', { stage: 2, intervalDays: 3, word: 'take into account' })
     const calls = fakeApi({
       'GET /me/v2/vocabulary/due': [{ status: 200, body: [due] }],
       'POST /me/v2/vocabulary/reviews': [{ status: 200, body: { review: { stageBefore: 2, stageAfter: 3 }, word: { ...due, stage: 3 } } }],
     }, API)
     const v = vocab()
-    await v.getV2ReviewQueue(10)
+    const queue = await v.getV2ReviewQueue(10)
+    expect(queue.cards[0].word).toBe('take into account')
 
     const practice = await v.submitV2Review({ wordId: 'w1', isCorrect: true, responseTimeMs: 500, isPractice: true })
     expect(practice).toMatchObject({ wordId: 'w1', previousStage: 2, newStage: 2, stageChanged: false, nextIntervalDays: 3 })

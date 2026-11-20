@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, useWindowDimensions } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { Ionicons } from '@expo/vector-icons'
 import { cachedTranslate, peekTranslation, type SaveCategory } from '../lib/translateCache'
@@ -8,7 +8,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { useTargetLanguage } from '../hooks/useTargetLanguage'
 import { useNeedsNativeLanguage } from '../hooks/useNeedsNativeLanguage'
 import { fonts } from '../theme/typography'
-import { savedTranslationOffer } from '@textstack/shared'
+import { savedTranslationOffer, MAX_VOCABULARY_TEXT } from '@textstack/shared'
 import { fill } from '../lib/fill'
 
 const STAGE_LABELS: Record<number, { label: string; color: string }> = {
@@ -31,20 +31,20 @@ export type HighlightColorKey = 'yellow' | 'green' | 'pink' | 'blue'
 
 interface SelectionActionBarProps {
   selectedText: string
-  /** TR-1: the sentence the word was tapped in, sent with the translate call. */
+  /** The surrounding sentence, sent with the translate call. */
   sentence?: string
   /** editionId / userBookId — the server biases the sense by the book's genre. */
   bookId?: string
-  isMultiWord: boolean
   /** Source language code — used for fetching the inline translation
-   *  when a single word is tapped. Same value the reader passes to TTS. */
+   *  when text is selected. Same value the reader passes to TTS. */
   language?: string
   onTranslate: () => void
   onExplain?: () => void
   /** Absent: no Listen (the V2 reader until its TTS slice, #1272). */
   onSpeak?: () => void
   /** Absent: no Save. */
-  onSaveWord?: () => void
+  onSaveWord?: (translation?: string) => void
+  onSaveQuote?: () => void
   onHighlight?: (color: HighlightColorKey) => void
   /** Last color the user picked — used as the single highlight button's
    *  fill. Tapping commits this color; change via HighlightNoteModal after. */
@@ -77,29 +77,17 @@ interface SelectionActionBarProps {
   onUseTranslation?: (translation: string) => void
 }
 
-/**
- * Single bottom toolbar for any selection. Mode is derived from
- * `isMultiWord`:
- *
- *   - single word  → shows the inline translation above the row,
- *                    plus per-word actions (save / mark-known)
- *   - multi-word   → just the action row; translation lives in
- *                    the TranslationSheet behind the Translate button
- *
- * The highlight palette collapsed into one button (matches Apple Books /
- * Kindle). Color change happens in HighlightNoteModal after the
- * highlight is created.
- */
+/** One card for any native text selection. Translation and vocabulary do not depend on word count. */
 export function SelectionActionBar({
   selectedText,
   sentence,
   bookId,
-  isMultiWord,
   language,
   onTranslate,
   onExplain,
   onSpeak,
   onSaveWord,
+  onSaveQuote,
   onHighlight,
   highlightColor = 'yellow',
   onRemove,
@@ -129,21 +117,28 @@ export function SelectionActionBar({
   // to translate into, so the inline gloss is skipped rather than fetched.
   const isSameLang = translationTarget == null
 
-  // Inline translation for single-word taps. Fetched here (was in the
+  // Inline translation for any selection. Fetched here (was in the
   // deleted WordCard). Cancellation guard avoids stale results when the
   // user re-taps mid-fetch.
   const [translation, setTranslation] = useState('')
+  const [translatedText, setTranslatedText] = useState('')
   const [translating, setTranslating] = useState(false)
   /** The gloss fetch failed: said in the bar, never a reason to stop reading. */
   const [failed, setFailed] = useState(false)
+  const [retry, setRetry] = useState(0)
+  const [expanded, setExpanded] = useState(false)
+  const { height: screenHeight } = useWindowDimensions()
+  useEffect(() => { setExpanded(false) }, [selectedText, fromLang, translationTarget])
+  const saveTooLong = selectedText.trim().length > MAX_VOCABULARY_TEXT
+  const explainTooLong = selectedText.trim().length > 100
   // TR-3: the language `translation` was fetched in — for one render after a native-language
   // change it is still the old one, and must not be offered as "Use this translation".
   const [translationLang, setTranslationLang] = useState<string | null>(null)
-  // Backend frequency hint for the tapped word — drives Save-button emphasis.
+  // Backend frequency hint for the selection — drives Save-button emphasis.
   const [category, setCategory] = useState<SaveCategory | undefined>(undefined)
   useEffect(() => {
     setFailed(false)
-    if (isMultiWord || !selectedText || isSameLang) {
+    if (tooLong || !selectedText || isSameLang) {
       setTranslation('')
       setTranslating(false)
       setCategory(undefined)
@@ -154,6 +149,7 @@ export function SelectionActionBar({
     const cached = peekTranslation(selectedText, fromLang, translationTarget!, ctx)
     if (cached !== undefined) {
       setTranslation(cached.translation)
+      setTranslatedText(selectedText)
       setTranslationLang(translationTarget)
       setCategory(cached.category)
       setTranslating(false)
@@ -163,20 +159,22 @@ export function SelectionActionBar({
     setTranslation('')
     setCategory(undefined)
     setTranslating(true)
-    cachedTranslate(selectedText, fromLang, translationTarget!, ctx)
-      .then((r) => { if (!cancelled) { setTranslation(r.translation); setTranslationLang(translationTarget); setCategory(r.category) } })
+    const timer = setTimeout(() => {
+      cachedTranslate(selectedText, fromLang, translationTarget!, ctx)
+      .then((r) => { if (!cancelled) { setTranslation(r.translation); setTranslatedText(selectedText); setTranslationLang(translationTarget); setCategory(r.category) } })
       .catch(() => { if (!cancelled) { setTranslation(''); setFailed(true) } })
       .finally(() => { if (!cancelled) setTranslating(false) })
-    return () => { cancelled = true }
-  }, [selectedText, sentence, bookId, isMultiWord, fromLang, translationTarget, isSameLang])
+    }, 200)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [selectedText, sentence, bookId, tooLong, fromLang, translationTarget, isSameLang, retry])
 
   const handleCopy = () => {
     if (selectedText) Clipboard.setStringAsync(selectedText)
     onCopy?.()
   }
 
-  const stage = !isMultiWord && vocabStage != null ? STAGE_LABELS[vocabStage] : null
-  const savedAs = !isMultiWord && !isSameLang ? savedTranslationOffer(savedTranslation, translating ? null : translation, translationLang, translationTarget) : null
+  const stage = vocabStage != null ? STAGE_LABELS[vocabStage] : null
+  const savedAs = !isSameLang ? savedTranslationOffer(savedTranslation, translating ? null : translation, translationLang, translationTarget) : null
   const highlightFill = HIGHLIGHT_FILLS[highlightColor] || HIGHLIGHT_FILLS.yellow
   const stageLabel = stage && (stage.label || t('reader.actionBar.stageNew'))
 
@@ -193,7 +191,7 @@ export function SelectionActionBar({
     >
       {/* Where the gloss would be, when we do not yet know what to gloss into.
           Opens the same sheet the Translate button does — which asks. */}
-      {!isMultiWord && isSameLang && needsLanguage && (
+      {isSameLang && needsLanguage && (
         <TouchableOpacity
           style={styles.translationRow}
           onPress={onTranslate}
@@ -209,22 +207,37 @@ export function SelectionActionBar({
         </TouchableOpacity>
       )}
 
-      {/* Translation row — only for single-word taps. Keeps the killer
-          feature from the old WordCard (zero-tap to see translation). */}
-      {!isMultiWord && !isSameLang && (
-        <View style={styles.translationRow}>
-          <Text style={[styles.word, { color: colors.textSecondary }]} numberOfLines={1}>
+      {/* One inline translation for a word or phrase. */}
+      {!isSameLang && (
+        <>
+        <ScrollView
+          style={{ flexGrow: 0, maxHeight: Math.min(260, screenHeight * 0.4) }}
+          contentContainerStyle={styles.translationRow}
+          scrollEnabled={expanded}
+          nestedScrollEnabled
+        >
+          <Text style={[styles.word, { color: colors.textSecondary }]} numberOfLines={expanded ? undefined : 3}>
             {selectedText}
           </Text>
-          <Ionicons name="arrow-forward" size={12} color={colors.textSecondary} />
+          <Ionicons name="arrow-down" size={12} color={colors.textSecondary} />
           {translating ? (
             <ActivityIndicator size="small" color={colors.textSecondary} />
           ) : (
-            <Text style={[styles.translation, { color: colors.text }]} numberOfLines={1}>
+            <Text style={[styles.translation, { color: colors.text }]} numberOfLines={expanded ? undefined : 4}>
               {failed ? t('reader.actionBar.translateFailed') : translation || '—'}
             </Text>
           )}
-        </View>
+        </ScrollView>
+        {!!translation && !translating && !failed && <TouchableOpacity
+          style={styles.expandTranslation}
+          onPress={() => setExpanded(value => !value)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={t(expanded ? 'reader.actionBar.collapseTranslation' : 'reader.actionBar.showFullTranslation')}
+        >
+          <Text style={[styles.btnLabel, { color: colors.primary }]}>{t(expanded ? 'reader.actionBar.collapseTranslation' : 'reader.actionBar.showFullTranslation')}</Text>
+        </TouchableOpacity>}
+        </>
       )}
 
       {savedAs && onUseTranslation && (
@@ -252,6 +265,8 @@ export function SelectionActionBar({
         </View>
       )}
 
+      {explainTooLong && !tooLong && onExplain && <View style={styles.noticeRow}><Text style={[styles.notice, { color: colors.textSecondary }]}>{t('reader.actionBar.explainLimit')}</Text></View>}
+      {saveTooLong && onSaveWord && <View style={styles.noticeRow}><Text style={[styles.notice, { color: colors.textSecondary }]}>{t('reader.actionBar.saveTooLong')}</Text></View>}
       <View style={styles.actionsRow}>
         {isAuthenticated && onHighlight && (
           <>
@@ -275,27 +290,24 @@ export function SelectionActionBar({
           <Ionicons name="copy-outline" size={19} color={colors.text} />
           <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.copy')}</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.btn, tooLong && styles.btnDisabled]}
-          onPress={onTranslate}
-          disabled={tooLong}
-          accessibilityRole="button"
-          accessibilityLabel={t(tooLong ? 'reader.actionBar.translateTooLong' : 'reader.actionBar.translateFull')}
-          accessibilityState={{ disabled: !!tooLong }}
-        >
-          <Ionicons name="language-outline" size={19} color={tooLong ? colors.textSecondary : colors.text} />
-          <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.translate')}</Text>
-        </TouchableOpacity>
+        {failed && <TouchableOpacity style={styles.btn} onPress={() => setRetry(n => n + 1)} accessibilityRole="button" accessibilityLabel={t('reader.actionBar.retryTranslation')}>
+          <Ionicons name="refresh" size={19} color={colors.text} />
+          <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.retryTranslation')}</Text>
+        </TouchableOpacity>}
+        {onSaveQuote && <TouchableOpacity style={styles.btn} onPress={onSaveQuote} accessibilityRole="button" accessibilityLabel={t('reader.actionBar.saveQuote')}>
+          <Ionicons name="bookmark-outline" size={19} color={colors.text} />
+          <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.quote')}</Text>
+        </TouchableOpacity>}
         {onExplain && (
           <TouchableOpacity
-            style={[styles.btn, tooLong && styles.btnDisabled]}
+            style={[styles.btn, explainTooLong && styles.btnDisabled]}
             onPress={onExplain}
-            disabled={tooLong}
+            disabled={explainTooLong}
             accessibilityRole="button"
-            accessibilityLabel={t(tooLong ? 'reader.actionBar.explainTooLong' : 'reader.actionBar.explainInContext')}
-            accessibilityState={{ disabled: !!tooLong }}
+            accessibilityLabel={t(explainTooLong ? 'reader.actionBar.explainTooLong' : 'reader.actionBar.explainInContext')}
+            accessibilityState={{ disabled: !!explainTooLong }}
           >
-            <Ionicons name="bulb-outline" size={19} color={tooLong ? colors.textSecondary : colors.text} />
+            <Ionicons name="bulb-outline" size={19} color={explainTooLong ? colors.textSecondary : colors.text} />
             <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>{t('reader.actionBar.explain')}</Text>
           </TouchableOpacity>
         )}
@@ -339,7 +351,7 @@ export function SelectionActionBar({
             (`ReaderShell.handleSaveWord`): no request, and a toast that says the
             word was not kept — no navigation, because nothing may pull a reader
             out of the book. */}
-        {!isMultiWord && (
+        {(
           <>
             {isAuthenticated && stage && (
               <View
@@ -361,10 +373,12 @@ export function SelectionActionBar({
                 a gate: any word can still be saved. */}
             {!stage && !wordSaved && onSaveWord && (
               <TouchableOpacity
-                style={styles.btn}
-                onPress={onSaveWord}
+                style={[styles.btn, saveTooLong && styles.btnDisabled]}
+                onPress={() => onSaveWord?.(!translating && translatedText === selectedText && translationLang === translationTarget ? translation || undefined : undefined)}
+                disabled={saveTooLong}
+                accessibilityState={{ disabled: saveTooLong }}
                 accessibilityRole="button"
-                accessibilityLabel={t(category === 'rare' ? 'reader.actionBar.saveRare' : 'reader.actionBar.saveWord')}
+                accessibilityLabel={t(saveTooLong ? 'reader.actionBar.saveTooLong' : 'reader.actionBar.saveSelection')}
               >
                 <Ionicons
                   name="add-circle"
@@ -409,6 +423,11 @@ export function SelectionActionBar({
 }
 
 const styles = StyleSheet.create({
+  expandTranslation: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   container: {
     // Floating selection toolbar — pinned above the reader footer so it's
     // not occluded by progress chrome. `bottom` is set inline from prop.
@@ -426,7 +445,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   translationRow: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
@@ -437,13 +456,13 @@ const styles = StyleSheet.create({
   },
   word: {
     fontFamily: fonts.serifItalic,
-    fontSize: 14,
-    maxWidth: '40%',
+    fontSize: 16,
+    maxWidth: '100%',
   },
   translation: {
     fontFamily: fonts.serif,
-    fontSize: 15,
-    maxWidth: '55%',
+    fontSize: 18,
+    maxWidth: '100%',
   },
   actionsRow: {
     flexDirection: 'row',
@@ -458,7 +477,7 @@ const styles = StyleSheet.create({
   // left to guess. Ten characters of text costs less than the guess.
   btnLabel: {
     fontFamily: fonts.sansMedium,
-    fontSize: 9,
+    fontSize: 11,
     marginTop: 1,
   },
   // Match the 19px icon box the spinner replaces, so the row doesn't shift

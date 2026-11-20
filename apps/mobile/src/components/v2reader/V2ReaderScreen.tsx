@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState, type V2FileDetails } from '@textstack/shared'
+import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState, type V2FileDetails } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -892,9 +892,10 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       showToast({ variant: 'error', message: t('reader.vocab.removeFailed') })
     })
   }
-  const saveWord = async (p: V2Popup) => {
+  const saveWord = async (p: V2Popup, translation?: string) => {
     if (p.kind === 'highlight' || !langSaves) return
     const text = p.kind === 'word' ? p.word : p.text.trim()
+    if (text.length > MAX_VOCABULARY_TEXT) return showToast({ variant: 'info', message: t('reader.actionBar.saveTooLong') })
     const intent = saveWordIntent({ isAuthenticated: !!user, hasSelection: true })
     if (intent === 'prompt') {
       haptics.play('flip')
@@ -906,7 +907,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     savingWords.current.add(key)
     const asker = vocabUser.current
     const ctx = writeContext()
-    const body = { word: text, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
+    const body = { word: text, translation, language: textLang, nativeLanguage, sentence: p.sentence || null, bookTitle: bookTitle.current }
     try {
       // The open book's id from the list in memory, else from its row; a re-key since then is asked of the row on
       // `book_not_found` (wordBook.ts, #1303). A book the server does not have: the word is saved without it.
@@ -1777,7 +1778,6 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
             <SelectionActionBar
               selectedText={popup.kind === 'word' ? popup.word : popup.text}
               sentence={popup.sentence}
-              isMultiWord={popup.kind === 'selection' && /\s/.test(popup.text)}
               language={textLang}
               onTranslate={() => setSheet({ kind: 'translate', text: popup.kind === 'word' ? popup.word : popup.text, sentence: popup.sentence })}
               onExplain={() => setSheet({ kind: 'explain', text: popup.kind === 'word' ? popup.word : popup.text, sentence: popup.sentence })}
@@ -1790,7 +1790,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
               isTtsLoading={listener.state(spokenOf(popup)) === 'loading'}
               isAuthenticated={!!user}
               // No Save where the book's language does not read (savesWords): the gloss still uses the fallback.
-              onSaveWord={langSaves && (popup.kind === 'word' || !/\s/.test(popup.text.trim())) ? () => { void saveWord(popup) } : undefined}
+              onSaveWord={langSaves ? (translation) => { void saveWord(popup, translation) } : undefined}
+              onSaveQuote={popup.kind === 'selection' && annotatable && popup.cfi ? () => { call('window.__fol.saveQuotation()'); setPopup(null) } : undefined}
               wordSaved={!!savedIdOf(popup)}
               onRemove={savedIdOf(popup) ? () => { removeWord(popup, savedIdOf(popup)!) } : undefined}
               bottomOffset={barsVisible ? footerHeight : insets.bottom}

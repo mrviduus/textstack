@@ -17,6 +17,13 @@ const hl = (extra: Partial<PageHighlight> = {}): PageHighlight =>
   ({ id: '0b6a2c1e-1111-4222-8333-444455556666', cfi: CFI, index: 6, quote: 'bright', selectedText: 'bright cold', prefix: 'a ', suffix: ' day', color: 'yellow', at: 1, ...extra })
 
 describe('v2LocalSync', () => {
+  it('keeps quotation text, source locator and non-visual kind through annotation sync', () => {
+    const quote = hl({ color: 'quote', selectedText: 'A quotation to keep.' })
+    const write = highlightWrite(quote, 'book', 'file', null)!
+    expect(write).toMatchObject({ color: 'quote', selectedText: 'A quotation to keep.', bookId: 'book', fileId: 'file' })
+    const restored = annotationHighlight({ ...write, id: quote.id, createdAt: new Date(quote.at!).toISOString(), updatedAt: new Date().toISOString(), deletedAt: null, revision: 1 } as never)
+    expect(restored).toMatchObject({ cfi: quote.cfi, color: 'quote', selectedText: quote.selectedText })
+  })
   it('spineIndexOf_FoliateCfi_IndexFromFirstStep_OtherShapeNull', () => {
     expect(spineIndexOf(CFI)).toBe(6)
     expect(spineIndexOf('epubcfi(/6/2!/4)')).toBe(0)
