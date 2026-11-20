@@ -32,6 +32,7 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/mobile-ota.yml'
+      - 'infra/scripts/mobile-ota-*.mjs'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -241,6 +242,18 @@ jobs:
             --environment production \
             --message "$msg" \
             --non-interactive
+
+      # Build 44's only fingerprint difference is obsolete .gitignore entries.
+      # Keep both installed runtimes current; the script stops on native changes
+      # and verifies the exact historical fingerprint before publishing.
+      - name: Publish compatible update for build 44
+        if: ${{ inputs.dry_run != true && steps.build.outputs.action != 'build' }}
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          msg=$(printf '%s' "${COMMIT_MSG:-manual run}" | head -1 | cut -c1-140)
+          node "$GITHUB_WORKSPACE/infra/scripts/mobile-ota-build44.mjs" "$msg (build 44)"
 
       - name: Say what happened
         if: ${{ success() }}
