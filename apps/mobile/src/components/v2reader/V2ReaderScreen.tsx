@@ -968,8 +968,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    */
   const goTo = (p: PagePosition, chosen = false) => {
     place.hostMove()
-    // A chosen goTo (the taken offer) is `moved` to the page; a sync adopt/move is not.
-    if (chosen) startHostMove()
+    // Both chosen and sync moves can emit delayed scroll events; neither is a reading gesture.
+    startHostMove()
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
