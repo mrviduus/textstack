@@ -941,6 +941,8 @@
   "reader.actionBar.quote": "Quote",
   "reader.actionBar.retryTranslation": "Retry translation",
   "reader.actionBar.explainLimit": "Explanation supports up to 100 characters.",
+  "reader.actionBar.showFullTranslation": "Show full translation",
+  "reader.actionBar.collapseTranslation": "Collapse translation",
   "reader.actionBar.close": "Close selection toolbar",
   "reader.noteModal.close": "Close highlight note",
   "reader.noteModal.title": "Highlight Note",

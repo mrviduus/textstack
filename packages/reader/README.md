@@ -469,6 +469,8 @@ it through `readSettings`, so only numbers and members of the module's own lists
   `saveQuotation()` stores an anchored annotation with `color: 'quote'` (up to 4000 characters), listed
   with highlights but never painted; its source position, removal and offline sync use existing annotations.
   PDF selection can translate/copy/save vocabulary; quotations still require an annotatable book/CFI.
+  Long translations expand into a bounded scroll area inside the same card. Placed quotations and
+  bookmarks have separate state, so saving or visiting a quotation cannot block adding a bookmark.
 - *Mobile controls:* centre taps (including text) toggle panels; side taps page in paginated mode.
   Native text selection handles word/phrase actions. In scroll mode a deliberate 24 px movement back reveals
   controls, forwards hides them; chapter changes and small reversals start a new baseline. Insets reserve

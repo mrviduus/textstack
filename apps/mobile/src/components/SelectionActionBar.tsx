@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, useWindowDimensions } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { Ionicons } from '@expo/vector-icons'
 import { cachedTranslate, peekTranslation, type SaveCategory } from '../lib/translateCache'
@@ -126,6 +126,9 @@ export function SelectionActionBar({
   /** The gloss fetch failed: said in the bar, never a reason to stop reading. */
   const [failed, setFailed] = useState(false)
   const [retry, setRetry] = useState(0)
+  const [expanded, setExpanded] = useState(false)
+  const { height: screenHeight } = useWindowDimensions()
+  useEffect(() => { setExpanded(false) }, [selectedText, fromLang, translationTarget])
   const saveTooLong = selectedText.trim().length > MAX_VOCABULARY_TEXT
   const explainTooLong = selectedText.trim().length > 100
   // TR-3: the language `translation` was fetched in — for one render after a native-language
@@ -206,19 +209,35 @@ export function SelectionActionBar({
 
       {/* One inline translation for a word or phrase. */}
       {!isSameLang && (
-        <View style={styles.translationRow}>
-          <Text style={[styles.word, { color: colors.textSecondary }]} numberOfLines={3}>
+        <>
+        <ScrollView
+          style={{ flexGrow: 0, maxHeight: Math.min(260, screenHeight * 0.4) }}
+          contentContainerStyle={styles.translationRow}
+          scrollEnabled={expanded}
+          nestedScrollEnabled
+        >
+          <Text style={[styles.word, { color: colors.textSecondary }]} numberOfLines={expanded ? undefined : 3}>
             {selectedText}
           </Text>
           <Ionicons name="arrow-down" size={12} color={colors.textSecondary} />
           {translating ? (
             <ActivityIndicator size="small" color={colors.textSecondary} />
           ) : (
-            <Text style={[styles.translation, { color: colors.text }]} numberOfLines={4}>
+            <Text style={[styles.translation, { color: colors.text }]} numberOfLines={expanded ? undefined : 4}>
               {failed ? t('reader.actionBar.translateFailed') : translation || '—'}
             </Text>
           )}
-        </View>
+        </ScrollView>
+        {!!translation && !translating && !failed && <TouchableOpacity
+          style={styles.expandTranslation}
+          onPress={() => setExpanded(value => !value)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={t(expanded ? 'reader.actionBar.collapseTranslation' : 'reader.actionBar.showFullTranslation')}
+        >
+          <Text style={[styles.btnLabel, { color: colors.primary }]}>{t(expanded ? 'reader.actionBar.collapseTranslation' : 'reader.actionBar.showFullTranslation')}</Text>
+        </TouchableOpacity>}
+        </>
       )}
 
       {savedAs && onUseTranslation && (
@@ -404,6 +423,11 @@ export function SelectionActionBar({
 }
 
 const styles = StyleSheet.create({
+  expandTranslation: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   container: {
     // Floating selection toolbar — pinned above the reader footer so it's
     // not occluded by progress chrome. `bottom` is set inline from prop.

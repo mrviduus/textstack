@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const translation = vi.hoisted(() => ({ run: vi.fn(), peek: vi.fn() }))
 vi.mock('react-native', () => {
-  const view = ({ children, onPress, accessibilityRole, accessibilityLabel, disabled }: { children?: ReactNode; onPress?: () => void; accessibilityRole?: string; accessibilityLabel?: string; disabled?: boolean }) =>
-    createElement(accessibilityRole === 'button' ? 'button' : 'div', { onClick: onPress, 'aria-label': accessibilityLabel, disabled }, children)
-  return { View: view, Text: view, TouchableOpacity: view, ActivityIndicator: () => createElement('span', null, 'loading'), StyleSheet: { create: (s: unknown) => s } }
+  const view = ({ children, onPress, accessibilityRole, accessibilityLabel, disabled, numberOfLines }: { children?: ReactNode; onPress?: () => void; accessibilityRole?: string; accessibilityLabel?: string; disabled?: boolean; numberOfLines?: number }) =>
+    createElement(accessibilityRole === 'button' ? 'button' : 'div', { onClick: onPress, 'aria-label': accessibilityLabel, disabled, 'data-lines': numberOfLines }, children)
+  return { View: view, Text: view, TouchableOpacity: view, ScrollView: ({ children, scrollEnabled }: { children?: ReactNode; scrollEnabled?: boolean }) => createElement('div', { 'data-scroll-enabled': scrollEnabled }, children),
+    useWindowDimensions: () => ({ width: 420, height: 860 }), ActivityIndicator: () => createElement('span', null, 'loading'), StyleSheet: { create: (s: unknown) => s } }
 })
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }))
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }))
@@ -45,6 +46,23 @@ function show(text: string) {
 }
 
 describe('one card for any selection', () => {
+  it('expands and scrolls the complete translation, then collapses again for a new selection', async () => {
+    const text = 'A long translation. '.repeat(30)
+    translation.run.mockResolvedValue({ translation: text })
+    const card = show('take into account')
+    await act(async () => { vi.advanceTimersByTime(200) })
+    const translated = () => [...card.element.querySelectorAll('div')].find(x => x.textContent === text)!
+    expect(translated().getAttribute('data-lines')).toBe('4')
+    act(() => card.button('showFullTranslation').click())
+    expect(translated().hasAttribute('data-lines')).toBe(false)
+    expect(card.element.querySelector('[data-scroll-enabled="true"]')).not.toBeNull()
+    act(() => card.button('collapseTranslation').click())
+    expect(translated().getAttribute('data-lines')).toBe('4')
+    act(() => card.button('showFullTranslation').click())
+    card.render('account')
+    await act(async () => { vi.advanceTimersByTime(200) })
+    expect(translated().getAttribute('data-lines')).toBe('4')
+  })
   it('translates words and expressions in place, with the same vocabulary and quotation actions', async () => {
     const card = show('account')
     await act(async () => { vi.advanceTimersByTime(200) })

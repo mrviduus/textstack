@@ -520,6 +520,8 @@
       "quote": "Quote",
       "retryTranslation": "Retry translation",
       "explainLimit": "Explanation supports up to 100 characters.",
+      "showFullTranslation": "Show full translation",
+      "collapseTranslation": "Collapse translation",
       "close": "Close selection toolbar"
     },
     "noteModal": {

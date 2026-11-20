@@ -373,9 +373,28 @@ try {
   await open('tsalignment.epub', JSON.stringify(quoted))
   await call('document.querySelector("foliate-view").goTo(1)')
   check(await noPaint(), 'restored quotations remain unpainted')
+  await call(`window.__fol.goTo(${JSON.stringify(quotation?.cfi)}, true)`)
+  const beforeBookmark = messages.length
+  await call('window.__fol.addBookmark()')
+  const bookmarkedQuote = JSON.parse((await waitFor(beforeBookmark,
+    x => x.type === 'store' && JSON.parse(x.json).highlights.some(h => h.color === 'bookmark'),
+    'bookmark at a quotation')).json)
+  const bookmark = bookmarkedQuote?.highlights.find(h => h.color === 'bookmark')
+  check(bookmarkedQuote?.highlights.filter(h => h.color === 'bookmark').length === 1
+    && bookmarkedQuote?.highlights.filter(h => h.color === 'quote').length === 1,
+  'a quotation does not block a separate bookmark at the same location')
+  if (bookmark) {
+    await open('tsalignment.epub', JSON.stringify(bookmarkedQuote))
+    check(await call('window.__fol.placedBookmarks()') === 1, 'restoring a quotation does not increase the bookmark count')
+    const removeFrom = messages.length
+    await call(`window.__fol.removeBookmark(${JSON.stringify(bookmark.id)})`)
+    await storeFrom(removeFrom, 'removed bookmark beside quotation')
+  }
   from = messages.length
   await call(`window.__fol.removeHighlight(${JSON.stringify(quotation?.id)})`)
-  const removedQuote = await storeFrom(from, 'removed quotation')
+  const removedQuote = JSON.parse((await waitFor(from,
+    x => x.type === 'store' && !JSON.parse(x.json).highlights.some(h => h.id === quotation?.id),
+    'removed quotation')).json)
   check(removedQuote && !removedQuote.highlights.some(h => h.id === quotation?.id), 'a saved quotation can be removed and persisted')
 
   console.log('offline reader fonts')

@@ -69,6 +69,7 @@ const drawnRanges = new Map()
  * - `bookmarksSent`: what the last `bookmark-list` said (view, list version, here, can).
  */
 const placed = new Set()
+const placedQuotes = new Set()
 let listed = []
 let listedVersion = 0
 let hereId = null
@@ -980,7 +981,7 @@ function search(raw, id) {
 /** The ids of the highlights drawn now. */
 const drawnIds = () => new Set([...overlays.values()].flatMap((a) => (a.hl ? [a.hl.id] : [])))
 const savedQuote = (h) => h?.color === 'quote'
-const listedIds = () => new Set([...drawnIds(), ...entry.highlights.filter((h) => savedQuote(h) && placed.has(h.id)).map((h) => h.id)])
+const listedIds = () => new Set([...drawnIds(), ...entry.highlights.filter((h) => savedQuote(h) && placedQuotes.has(h.id)).map((h) => h.id)])
 
 /**
  * The open book's drawn highlights, in book order (#1312, highlights.mjs `highlightList`): sent whenever they change
@@ -1107,7 +1108,7 @@ function drawnHighlight(id, call) {
   if (!entry || !annotatable) return void log('warn', `${call} ignored: no highlights here`)
   const h = entry.highlights.find((x) => x.id === id)
   const a = h && overlays.get(h.cfi)
-  if (savedQuote(h) && placed.has(h.id)) return { h, a: { index: h.index } }
+  if (savedQuote(h) && placedQuotes.has(h.id)) return { h, a: { index: h.index } }
   if (a?.hl?.id !== id) return void log('warn', `${call} ignored: not a highlight drawn here`)
   return { h, a }
 }
@@ -1136,7 +1137,7 @@ function removeHighlight(id) {
   const d = drawnHighlight(id, 'removeHighlight')
   if (!d) return
   entry = { ...entry, highlights: entry.highlights.filter((x) => x.id !== id) }
-  placed.delete(id)
+  placedQuotes.delete(id)
   persist()
   unhighlight(d.h.cfi)
   post({ type: 'highlight-removed', key: book.sha256, id })
@@ -1561,7 +1562,8 @@ async function addHighlightsNow(list) {
     if (!ok) continue
     entry = withHighlight(entry, h)
     // A bookmark (#1314) is kept, never drawn.
-    if (isBookmark(h) || savedQuote(h)) placed.add(h.id)
+    if (isBookmark(h)) placed.add(h.id)
+    else if (savedQuote(h)) placedQuotes.add(h.id)
     else annotate({ value: h.cfi, index: at.index, hl: { id: h.id, color: h.color } })
   }
   post({ type: 'highlights', key: book.sha256, highlights: result })
@@ -1578,6 +1580,7 @@ async function restoreInto(json, stale) {
   // The bookmarks found are this entry's (a second restore of the same view replaces them); none can be made until
   // they are placed and the position has landed.
   placed.clear()
+  placedQuotes.clear()
   relist()
   const token = placingStarts()
   try {
@@ -1600,7 +1603,8 @@ async function restoreNow(json, stored, stale) {
     result.highlights.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
     if (!ok) continue
     // A bookmark (#1314) is kept, never drawn.
-    if (isBookmark(h) || savedQuote(h)) placed.add(h.id)
+    if (isBookmark(h)) placed.add(h.id)
+    else if (savedQuote(h)) placedQuotes.add(h.id)
     else annotate({ value: h.cfi, index: at.index, hl: { id: h.id, color: h.color } })
   }
   const p = entry.position
@@ -1693,7 +1697,7 @@ function highlightSelection(color = 'yellow', quotation = false) {
   }
   entry = withHighlight(entry, h)
   persist()
-  if (quotation) placed.add(h.id)
+  if (quotation) placedQuotes.add(h.id)
   else annotate({ value: h.cfi, index: s.index, hl: { id: h.id, color } })
   // The selection is done, as `clearSelection` ends it: at once, not after the settle time, or the next press within it
   // would be taken for its dismissal and its tap (a tap on the new highlight) dropped (#1312).
