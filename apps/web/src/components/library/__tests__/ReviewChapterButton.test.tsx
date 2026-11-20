@@ -38,30 +38,29 @@ async function clickReview() {
 }
 
 describe('ReviewChapterButton', () => {
-  it('nothing connected → connect dialog, no chat opened', async () => {
+  it('nothing connected → opens ChatGPT with the chapter brief', async () => {
     listOAuthGrants.mockResolvedValue([])
     renderButton()
     await clickReview()
-    expect(await screen.findByRole('dialog')).toHaveTextContent('Connect Claude or ChatGPT in a minute')
-    expect(screen.getByText('https://textstack.app/mcp')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open the connect page' })).toHaveAttribute('href', '/en/mcp')
-    expect(open).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(String(open.mock.calls[0][0])).toMatch(/^https:\/\/chatgpt\.com\/\?q=/)
   })
 
-  it('a guest never asks for grants (account-only, 403) → connect dialog', async () => {
+  it('a guest opens ChatGPT without asking for account-only grants', async () => {
     isGuest = true
     renderButton()
     fireEvent.click(screen.getByRole('button', { name: /Discuss/ }))
-    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(listOAuthGrants).not.toHaveBeenCalled()
-    expect(open).not.toHaveBeenCalled()
+    expect(String(open.mock.calls[0][0])).toMatch(/^https:\/\/chatgpt\.com\/\?q=/)
   })
 
-  it('a failed grants call is treated as nothing connected', async () => {
+  it('a failed grants call still opens ChatGPT', async () => {
     listOAuthGrants.mockRejectedValue(new Error('403'))
     renderButton()
     await clickReview()
-    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(String(open.mock.calls[0][0])).toMatch(/^https:\/\/chatgpt\.com\/\?q=/)
   })
 
   it('one connected → opens it directly with the brief', async () => {

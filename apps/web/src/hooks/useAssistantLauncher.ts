@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext'
  * Which chat a handoff opens — ONE code path for every assistant button (chapter-row Discuss, the
  * book page's Assistant menu: Discuss the book / current chapter). Decision in `chooseChat`
  * (@textstack/shared): one assistant connected → straight there; both → the remembered one, or a
- * pick the first time; none → the connect dialog instead of a chat that cannot reach TextStack.
+ * pick the first time; none → remembered assistant or ChatGPT, without a setup dialog.
  *
  * The grants are fetched once per page and shared by every button on it (a chapter list has dozens),
  * and kept synchronously so the click can `window.open` inside the user gesture — an open after an
@@ -23,7 +23,7 @@ let grantsPromise: Promise<OAuthGrant[]> | null = null
 function loadGrants(): Promise<OAuthGrant[]> {
   grantsPromise ??= listOAuthGrants()
     .then(g => (cachedGrants = g))
-    // A failed call means "nothing we can open".
+    // Failed discovery still allows an ordinary discussion in ChatGPT.
     .catch(() => (cachedGrants = []))
   return grantsPromise
 }
@@ -47,7 +47,7 @@ type Brief = () => string
  */
 export function useAssistantLauncher({ eager = true }: { eager?: boolean } = {}) {
   // `/me/oauth/grants` is account-only (403 for a guest). A guest has no grants by definition, so
-  // never ask: "none connected" → the connect dialog. Mirrors mobile's canConnectAssistant gate.
+  // never ask; ordinary discussion still opens ChatGPT. Mirrors mobile's capability gate.
   const { isGuest } = useAuth()
   const known = () => (isGuest ? NO_GRANTS : cachedGrants) // read live: another button may have loaded them
   const load = () => (isGuest ? Promise.resolve(NO_GRANTS) : loadGrants())
@@ -78,7 +78,7 @@ export function useAssistantLauncher({ eager = true }: { eager?: boolean } = {})
   }
 
   const decide = (g: OAuthGrant[], brief: Brief): ChatChoice['kind'] => {
-    const choice = chooseChat(g, readRemembered())
+    const choice = chooseChat(g, readRemembered(), { requireConnection: false })
     if (choice.kind === 'open') open(choice.assistant, brief)
     else if (choice.kind === 'pick') setPending({ brief })
     else { resetGrants(); setConnect(true) }

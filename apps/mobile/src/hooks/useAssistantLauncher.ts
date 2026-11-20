@@ -15,8 +15,8 @@ type Brief = () => string
  * Which chat a handoff opens — ONE code path for every assistant button (chapter-row Review, the
  * book screen's Assistant menu: Discuss + Review current chapter). Decision in `chooseChat`
  * (@textstack/shared): one connected → straight there; both → the remembered one (a native
- * two-button choice the first time); none → `connect` goes true and the caller shows
- * `ConnectAssistantSheet`. A failed `Linking.openURL` is surfaced, not swallowed.
+ * two-button choice the first time); none → remembered assistant or ChatGPT.
+ * Opening a discussion does not require OAuth setup. A failed `Linking.openURL` is surfaced.
  *
  * Grants come from one cached request shared by every button (`loadGrantsCached`).
  */
@@ -69,7 +69,7 @@ export function useAssistantLauncher({ eager = true }: { eager?: boolean } = {})
     if (busy) return
     setBusy(true)
     try {
-      const choice = chooseChat(await fetchGrants(), await loadReviewAssistant())
+      const choice = chooseChat(await fetchGrants(), await loadReviewAssistant(), { requireConnection: false })
       if (choice.kind === 'open') open(choice.assistant, brief)
       else if (choice.kind === 'none') { resetGrantsCache(); setConnect(true) }
       else choose(brief, pickTitle)
