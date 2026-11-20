@@ -52,12 +52,17 @@ export type ChatChoice =
   | { kind: 'pick' }                          // both, nothing remembered → small menu
 
 /**
- * What the Review button does. A remembered choice counts only while that assistant is still
- * connected — a revoked grant must not keep opening a chat that cannot reach TextStack.
+ * Chapter sharing requires a connected assistant. Ordinary discussion can open a chat
+ * without OAuth grants (API-key connections are not listed there).
  */
-export function chooseChat(grants: readonly { clientName: string }[], remembered: Assistant | null): ChatChoice {
+export function chooseChat(
+  grants: readonly { clientName: string }[], remembered: Assistant | null,
+  { requireConnection = true }: { requireConnection?: boolean } = {},
+): ChatChoice {
   const connected = connectedAssistants(grants)
-  if (connected.length === 0) return { kind: 'none' }
+  if (connected.length === 0) return requireConnection
+    ? { kind: 'none' }
+    : { kind: 'open', assistant: remembered ?? 'chatgpt' }
   if (connected.length === 1) return { kind: 'open', assistant: connected[0] }
   if (remembered && connected.includes(remembered)) return { kind: 'open', assistant: remembered }
   return { kind: 'pick' }

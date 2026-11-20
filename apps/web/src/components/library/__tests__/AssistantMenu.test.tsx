@@ -70,13 +70,14 @@ describe('AssistantMenu', () => {
 
   for (const [which, cur] of [['Discuss the book', null], ['Discuss current chapter', current]] as const) {
     describe(which, () => {
-      it('0 grants → connect dialog, nothing opened', async () => {
+      it('0 grants → opens ChatGPT without setup', async () => {
         listOAuthGrants.mockResolvedValue([])
         renderMenu({ current: cur })
         await openMenu()
         fireEvent.click(item(new RegExp(which)))
-        expect(await screen.findByRole('dialog')).toHaveTextContent('Connect Claude or ChatGPT in a minute')
-        expect(open).not.toHaveBeenCalled()
+        expect(screen.queryByRole('dialog')).toBeNull()
+        expect(open).toHaveBeenCalledTimes(1)
+        expect(String(open.mock.calls[0][0])).toMatch(/^https:\/\/chatgpt\.com\/\?q=/)
       })
 
       it('1 grant → opens it', async () => {

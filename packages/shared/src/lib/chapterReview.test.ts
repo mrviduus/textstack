@@ -66,6 +66,12 @@ describe('chooseChat', () => {
   const chatgpt = { clientName: 'ChatGPT' }
 
   it('nothing connected → none', () => expect(chooseChat([], 'claude')).toEqual({ kind: 'none' }))
+  it('ordinary discussion opens ChatGPT without OAuth grants', () => {
+    expect(chooseChat([], null, { requireConnection: false })).toEqual({ kind: 'open', assistant: 'chatgpt' })
+  })
+  it('ordinary discussion preserves the remembered assistant without OAuth grants', () => {
+    expect(chooseChat([], 'claude', { requireConnection: false })).toEqual({ kind: 'open', assistant: 'claude' })
+  })
   it('one connected → open it, whatever is remembered', () => {
     expect(chooseChat([chatgpt], 'claude')).toEqual({ kind: 'open', assistant: 'chatgpt' })
   })
