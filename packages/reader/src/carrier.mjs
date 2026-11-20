@@ -32,7 +32,7 @@ export const html = (js) => `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${CSP}">
 <style>
 html,body{margin:0;height:100%;background:#fbf8f3;color:#1f1b16}
-foliate-view{display:block;height:100%}
+foliate-view{display:block;position:absolute;inset:var(--reader-safe-top,0px) var(--reader-safe-right,0px) var(--reader-safe-bottom,0px) var(--reader-safe-left,0px)}
 :root{--reader-edge-shadow:rgba(30,15,5,.5)}
 :root[data-reader-theme="sepia"]{--reader-edge-shadow:rgba(50,25,10,.6)}
 :root[data-reader-theme="dark"]{--reader-edge-shadow:rgba(0,0,0,.7)}
