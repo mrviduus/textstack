@@ -1,3 +1,4 @@
+using Api.Extensions;
 using Contracts.Mcp;
 
 namespace Api.Endpoints;
@@ -33,7 +34,7 @@ public static class McpManifestEndpoints
 
     private static McpManifest BuildManifest(IConfiguration config)
     {
-        var baseUrl = (config["App:BaseUrl"] ?? "https://textstack.app").TrimEnd('/');
+        var baseUrl = PublicSite.BaseUrl(config);
         var docsUrl = $"{baseUrl}/en/mcp";
 
         return new McpManifest(

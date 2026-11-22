@@ -28,7 +28,7 @@ public static partial class ServiceCollectionExtensions
         {
             options.ResendApiKey = configuration["Resend:ApiKey"] ?? "";
             options.FromEmail = configuration["Resend:FromEmail"] ?? "noreply@textstack.app";
-            options.BaseUrl = configuration["App:BaseUrl"] ?? "https://textstack.app";
+            options.BaseUrl = PublicSite.BaseUrl(configuration);
             options.AdminAlertEmail = configuration["Resend:AdminAlertEmail"] ?? "";
         });
         // No retries: a POST retried without an idempotency key sends the email twice.

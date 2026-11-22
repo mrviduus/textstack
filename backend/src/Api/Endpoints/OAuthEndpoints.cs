@@ -53,7 +53,7 @@ public static class OAuthEndpoints
 
     /// <summary>Issuer = the public site origin. Also the base of every endpoint URL.</summary>
     public static string Issuer(IConfiguration config) =>
-        (config["App:BaseUrl"] ?? "https://textstack.app").TrimEnd('/');
+        PublicSite.BaseUrl(config);
 
     /// <summary>The one protected resource: the MCP endpoint. Tokens are bound to it.</summary>
     public static string Resource(IConfiguration config) => Issuer(config) + "/mcp";
@@ -148,11 +148,11 @@ public static class OAuthEndpoints
             OAuth.LibraryScopeDescription, StatusOf(r, clock.GetUtcNow()), r.ExpiresAt));
     }
 
-    private static string StatusOf(OAuthAuthorization r, DateTimeOffset now) =>
-        r.DeniedAt is not null ? "denied"
-        : r.UserId is not null ? "approved"
-        : r.ExpiresAt <= now ? "expired"
-        : "pending";
+    private static OAuthRequestStatus StatusOf(OAuthAuthorization r, DateTimeOffset now) =>
+        r.DeniedAt is not null ? OAuthRequestStatus.Denied
+        : r.UserId is not null ? OAuthRequestStatus.Approved
+        : r.ExpiresAt <= now ? OAuthRequestStatus.Expired
+        : OAuthRequestStatus.Pending;
 
     private static async Task<IResult> Approve(
         [FromBody] OAuthDecisionRequest body, HttpContext http, IAuthService auth, IOAuthRepository oauth,
@@ -178,8 +178,8 @@ public static class OAuthEndpoints
             // gone, or on V2 its password was reset after this token was issued, so sign in again.
             var r = await oauth.GetRequestAsync(body.RequestId, ct);
             if (r is null) return Results.NotFound();
-            return StatusOf(r, now) is var status && status != "pending"
-                ? Results.BadRequest(new { error = $"request_{status}" })
+            return StatusOf(r, now) is var status && status != OAuthRequestStatus.Pending
+                ? Results.BadRequest(new { error = $"request_{status.ToString().ToLowerInvariant()}" })
                 : Results.Unauthorized();
         }
 
