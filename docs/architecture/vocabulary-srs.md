@@ -32,7 +32,7 @@ the queue.
 
 Logic: `backend/src/Vocabulary/TextStack.Vocabulary/SrsEngine.cs`
 
-## API Endpoints (`/me/v2`, `V2Endpoints.cs`)
+## API Endpoints (`/me/v2`, `SyncEndpoints.cs`)
 
 | Method | Path | Description |
 |--------|------|-------------|

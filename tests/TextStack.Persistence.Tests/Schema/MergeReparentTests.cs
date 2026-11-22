@@ -2,7 +2,7 @@ using Dapper;
 using Domain.Library;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Schema;
 
@@ -12,7 +12,7 @@ namespace TextStack.Persistence.Tests.Schema;
 /// <c>(user_id, …)</c> FK. Three edges are the merge's own, each pinned here: the order, a row the
 /// key does not reach, and a unique key the target already holds.
 /// </summary>
-public class MergeReparentTests(V2PostgresFixture db)
+public class MergeReparentTests(PostgresFixture db)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -66,7 +66,7 @@ public class MergeReparentTests(V2PostgresFixture db)
         foreach (var (table, hers, _) in await RowsAsync(alice, bob)) Assert.Equal((table, Seeded(table)), (table, hers));
     }
 
-    /// <summary>Alice's and bob's row counts in every table the roots' cascade reaches (<see cref="V2PostgresFixture.UserTablesAsync"/>).</summary>
+    /// <summary>Alice's and bob's row counts in every table the roots' cascade reaches (<see cref="PostgresFixture.UserTablesAsync"/>).</summary>
     private async Task<IReadOnlyList<(string Table, long Hers, long His)>> RowsAsync(Guid alice, Guid bob)
     {
         var names = await db.UserTablesAsync(reachedByCascade: true);

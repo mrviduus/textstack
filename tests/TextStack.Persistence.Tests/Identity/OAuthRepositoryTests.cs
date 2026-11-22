@@ -1,10 +1,10 @@
 using Infrastructure.Persistence.Repositories;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
 /// <summary>The contract on V2, and what only V2 has: the password-reset stamp (#1092).</summary>
-public class OAuthRepositoryTests(V2PostgresFixture db) : OAuthRepositoryContract(db, new OAuthRepository(db.DataSource))
+public class OAuthRepositoryTests(PostgresFixture db) : OAuthRepositoryContract(db, new OAuthRepository(db.DataSource))
 {
     private readonly OAuthRepository _repo = new(db.DataSource);
 

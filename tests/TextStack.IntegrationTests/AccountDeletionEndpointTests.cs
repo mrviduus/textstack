@@ -49,7 +49,7 @@ public class AccountDeletionEndpointTests : IClassFixture<LiveApiFixture>
         var bookResp = await SendAsync(HttpMethod.Put, $"/me/v2/books/{bookId}", token!, new
         {
             title = "Deletion test book",
-            file = new { id = fileId, sha256 = V2.V2ApiFixture.NewSha256(), byteSize = 1024, originalName = "book.epub", format = "epub" },
+            file = new { id = fileId, sha256 = Sync.SyncApiFixture.NewSha256(), byteSize = 1024, originalName = "book.epub", format = "epub" },
         }, ct);
         Assert.SkipWhen(IntegrationSkip.Unavailable(bookResp), "/me/v2 unavailable");
         Assert.Equal(HttpStatusCode.Created, bookResp.StatusCode);

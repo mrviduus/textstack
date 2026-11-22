@@ -9,7 +9,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// on <c>textstack_v2</c>: one chapter per <c>(user_id, file_id, chapter_key)</c>, one per number of a
 /// file version, and a file only of the user's own book (<c>fk_book_chapters_book_files_user_id_book_id_file_id</c>).
 /// </summary>
-public sealed class BookChapterRepository(V2DataSource dataSource) : IBookChapterRepository
+public sealed class BookChapterRepository(AppDataSource dataSource) : IBookChapterRepository
 {
     private const string HeadingColumns = "id, chapter_key, chapter_number, title, word_count, source_start_page, source_end_page";
 

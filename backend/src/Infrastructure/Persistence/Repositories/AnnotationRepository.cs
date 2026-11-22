@@ -13,7 +13,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// must be the user's (<c>fk_annotations_books_user_id_book_id</c>, and the deferred
 /// <c>fk_annotations_book_files_user_id_book_id_file_id</c>).
 /// </summary>
-public sealed class AnnotationRepository(V2DataSource dataSource) : IAnnotationRepository
+public sealed class AnnotationRepository(AppDataSource dataSource) : IAnnotationRepository
 {
     // The insert's column list is this one minus deleted_at; the two must agree.
     private const string Columns =

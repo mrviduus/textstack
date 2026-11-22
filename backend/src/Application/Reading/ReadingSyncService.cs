@@ -2,7 +2,7 @@ using Application.Common;
 using Application.Library;
 using Application.Sync;
 using Application.Transitional;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Reading;
 using static Application.Sync.SyncValidation;
 

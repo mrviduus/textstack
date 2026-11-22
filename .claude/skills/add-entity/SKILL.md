@@ -5,7 +5,7 @@ description: Add a new table to TextStack — plain SQL migration, Dapper reposi
 
 # Add a table + Dapper repository
 
-One database (`textstack_v2`), Dapper over one `V2DataSource` (ADR-028), plain SQL migrations (ADR-026).
+One database (`textstack_v2`), Dapper over one `AppDataSource` (ADR-028), plain SQL migrations (ADR-026).
 No EF Core, no stored procedures, no `.sql` files for queries: SQL is inline, next to the method that
 runs it (`docs/architecture/data-access.md` rule 13). Copy the smallest existing example:
 `AdminSettingsRepository` + `AdminSettingsRepositoryTests`.
@@ -25,19 +25,19 @@ runs it (`docs/architecture/data-access.md` rule 13). Copy the smallest existing
    depend on it, not on Dapper.
 
 4. **Repository** — `backend/src/Infrastructure/Persistence/Repositories/<Name>Repository.cs`:
-   `public sealed class <Name>Repository(V2DataSource dataSource) : I<Name>Repository`; each method
+   `public sealed class <Name>Repository(AppDataSource dataSource) : I<Name>Repository`; each method
    opens a connection (`await using var conn = await dataSource.OpenConnectionAsync(ct)`) and runs a
    `private const string` SQL through `new CommandDefinition(sql, params, cancellationToken: ct)`.
    Writes that must land together with another repository's: the method takes `NpgsqlTransaction? tx`
-   and the use case opens one with `IV2UnitOfWork` (see `ClipService`; data-access.md rule 6).
+   and the use case opens one with `IUnitOfWork` (see `ClipService`; data-access.md rule 6).
    User-owned rows: every query filters by `user_id`.
 
 5. **Wire** — add `.AddSingleton<I<Name>Repository, <Name>Repository>()` to `AddTextStackDataAccess`
    in `backend/src/Infrastructure/Persistence/DataSource.cs`, and the interface to the list in
-   `tests/TextStack.UnitTests/V2DataAccessRegistrationTests.cs`.
+   `tests/TextStack.UnitTests/DataAccessRegistrationTests.cs`.
 
 6. **Test** — `tests/TextStack.Persistence.Tests/<Area>/<Name>RepositoryTests.cs` on real Postgres
-   (`V2PostgresFixture`, Testcontainers, built by `database/migrate.sh`). A few story tests that read
+   (`PostgresFixture`, Testcontainers, built by `database/migrate.sh`). A few story tests that read
    like the feature (`{Method}_{Scenario}_{Expected}`), not one per edge case.
 
 7. **Verify** — `make migrate` then `\d <table>`; `dotnet test tests/TextStack.Persistence.Tests`

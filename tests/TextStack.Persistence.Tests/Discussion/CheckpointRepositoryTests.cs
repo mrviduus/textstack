@@ -5,11 +5,11 @@ using Domain.Discussion;
 using Domain.Library;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Discussion;
 
-public class CheckpointRepositoryTests(V2PostgresFixture db)
+public class CheckpointRepositoryTests(PostgresFixture db)
 {
     private readonly CheckpointRepository _repo = new(db.DataSource);
     private readonly SharedChapterRepository _shares = new(db.DataSource);

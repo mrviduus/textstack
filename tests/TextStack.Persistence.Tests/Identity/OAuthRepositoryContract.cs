@@ -1,6 +1,6 @@
 using Application.Identity;
 using Domain.Identity;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 

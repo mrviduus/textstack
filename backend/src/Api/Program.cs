@@ -33,7 +33,7 @@ builder.Services
     .AddTextStackPersistence(builder.Configuration)
     .AddTextStackContentServices(builder.Configuration)
     .AddTextStackRateLimiting(builder.Configuration)
-    .AddTextStackV2Api();
+    .AddTextStackSyncApi();
 
 // OAuth CIMD fetches go to URLs strangers choose — SSRF-guarded handler (ADR-017).
 builder.Services.AddHttpClient<Api.Services.ClientMetadataFetcher>(http => http.Timeout = TimeSpan.FromSeconds(5))
@@ -78,8 +78,8 @@ if (!app.Environment.IsEnvironment("Test"))
 {
     try
     {
-        await using var conn = await app.Services.GetRequiredService<V2DataSource>().OpenConnectionAsync(CancellationToken.None);
-        var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.V2Known);
+        await using var conn = await app.Services.GetRequiredService<AppDataSource>().OpenConnectionAsync(CancellationToken.None);
+        var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.Known);
         if (pending.Count > 0)
             app.Logger.LogCritical(
                 "Database schema is behind this build: {PendingCount} pending migration(s), newest {NewestPending}. " +
@@ -183,7 +183,7 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 // Health check before site resolution (for infra probes)
-app.MapGet("/health", async (V2DataSource db, ILogger<Program> logger, CancellationToken ct) =>
+app.MapGet("/health", async (AppDataSource db, ILogger<Program> logger, CancellationToken ct) =>
 {
     try
     {
@@ -201,7 +201,7 @@ app.MapGet("/health", async (V2DataSource db, ILogger<Program> logger, Cancellat
 
 // Granular readiness probe — per-component status for ops dashboards.
 // db + storage are critical (503 on failure); ollama is soft (degraded, still 200).
-app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguration cfg, Api.V2.V2Readiness v2, V2DataSource db, ILogger<Program> logger, CancellationToken ct) =>
+app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguration cfg, Api.Sync.SyncReadiness v2, AppDataSource db, ILogger<Program> logger, CancellationToken ct) =>
 {
     var started = DateTimeOffset.UtcNow;
     var components = new Dictionary<string, object>();
@@ -229,7 +229,7 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
         try
         {
             await using var conn = await db.OpenConnectionAsync(ct);
-            var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.V2Known, ct);
+            var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.Known, ct);
             if (pending.Count == 0)
                 components["schema"] = new { status = "ok" };
             else
@@ -267,7 +267,7 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
         }
     }
 
-    // V2Readiness's cached answer, the one /me/v2 is gated on (#1053); db and schema above are the critical checks.
+    // SyncReadiness's cached answer, the one /me/v2 is gated on (#1053); db and schema above are the critical checks.
     components["v2"] = await v2.GetAsync();
 
     // Write probes, in parallel (FileStoreRegistration.ProbeWriteAsync: a file of its own per call).
@@ -363,8 +363,8 @@ app.MapMcpKeysEndpoints();
 app.MapOAuthEndpoints();
 app.MapTranslationEndpoints();
 app.MapTtsEndpoints();
-app.MapV2Endpoints();
-app.MapV2CompatEndpoints();
+app.MapSyncEndpoints();
+app.MapCompatEndpoints();
 
 // CLI: create-admin command. One role since ADR-031 decided 7 (editor and moderator collapsed to admin).
 if (args.Length > 0 && args[0] == "create-admin")

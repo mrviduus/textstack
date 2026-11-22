@@ -4,7 +4,7 @@ using Domain.Identity;
 namespace Application.Auth;
 
 /// <summary>
-/// A reader's sign-in, as the auth, device and account endpoints use it (<see cref="Identity.V2AuthService"/>).
+/// A reader's sign-in, as the auth, device and account endpoints use it (<see cref="Identity.AuthService"/>).
 /// Outcomes a user can cause are results, never exceptions.
 /// </summary>
 public interface IAuthService

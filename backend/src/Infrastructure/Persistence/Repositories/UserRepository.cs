@@ -11,7 +11,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// the schema (database/migrations/0000_baseline.up.sql, "Identity"): one account per
 /// <c>lower(email)</c>, per Google subject and per Apple subject.
 /// </summary>
-public sealed class UserRepository(V2DataSource dataSource) : IUserRepository
+public sealed class UserRepository(AppDataSource dataSource) : IUserRepository
 {
     internal const string Columns =
         "id, email, google_subject, apple_subject, password_hash, name, picture, is_guest, last_active_at, native_language, storage_used_bytes, storage_limit_override_bytes, tier, role, promoted_at, credentials_reset_at, created_at";

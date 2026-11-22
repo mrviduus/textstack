@@ -3,11 +3,11 @@ using Dapper;
 using Domain.Library;
 using Domain.Transitional;
 using Infrastructure.Persistence.Repositories;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Library;
 
-public class LibraryRepositoryTests(V2PostgresFixture db)
+public class LibraryRepositoryTests(PostgresFixture db)
 {
     private readonly LibraryRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

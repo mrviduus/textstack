@@ -29,7 +29,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// the merge is one transaction across all of them, so its order reads in one method, at the price of
 /// bending data-access.md rule 13's ~250 lines per repository.</para>
 /// </remarks>
-public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IAccountMergeRepository
+public sealed partial class AccountMergeRepository(AppDataSource dataSource) : IAccountMergeRepository
 {
     public async Task<AccountMerge> MergeAsync(Guid guestId, Guid accountId, NpgsqlTransaction? tx, CancellationToken ct)
     {
@@ -216,7 +216,7 @@ public sealed partial class AccountMergeRepository(V2DataSource dataSource) : IA
     /// One merge's transaction and its two users: every command gets both ids as <c>@guestId</c> and
     /// <c>@accountId</c>, the matched pairs once <see cref="Bind"/> has them, and its own arguments.
     /// </summary>
-    private sealed class Run(V2Transaction unit, Guid guestId, Guid accountId, CancellationToken ct)
+    private sealed class Run(AppTransaction unit, Guid guestId, Guid accountId, CancellationToken ct)
     {
         private readonly List<object> _bound = [new { guestId, accountId }];
 

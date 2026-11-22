@@ -1,10 +1,10 @@
 using Infrastructure.Persistence.Repositories;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
 /// <summary>The contract on V2, and what only V2 has: the password-reset stamp (#1092).</summary>
-public class McpKeyRepositoryTests(V2PostgresFixture db) : McpKeyRepositoryContract(db, new McpKeyRepository(db.DataSource))
+public class McpKeyRepositoryTests(PostgresFixture db) : McpKeyRepositoryContract(db, new McpKeyRepository(db.DataSource))
 {
     private readonly McpKeyRepository _repo = new(db.DataSource);
 

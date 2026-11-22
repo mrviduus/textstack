@@ -14,4 +14,4 @@ Email + password (BCrypt), JWT access token in the `admin_access_token` cookie +
 |------|---------|
 | `backend/src/Api/Endpoints/AdminAuthEndpoints.cs` | `POST /admin/auth/{login,refresh,logout}`, `GET /admin/auth/me` |
 | `backend/src/Api/Middleware/AdminAuthMiddleware.cs` | Auth gate |
-| `backend/src/Application/Identity/V2AdminAuthService.cs` | Login, refresh, logout |
+| `backend/src/Application/Identity/AdminAuthService.cs` | Login, refresh, logout |

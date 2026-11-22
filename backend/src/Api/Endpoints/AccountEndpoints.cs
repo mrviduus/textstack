@@ -1,5 +1,5 @@
 using Api.Extensions;
-using Api.V2;
+using Api.Sync;
 using Application.Auth;
 
 namespace Api.Endpoints;

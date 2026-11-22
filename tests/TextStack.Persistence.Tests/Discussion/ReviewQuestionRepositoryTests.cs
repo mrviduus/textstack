@@ -1,11 +1,11 @@
 using Application.Discussion;
 using Domain.Discussion;
 using Infrastructure.Persistence.Repositories;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Discussion;
 
-public class ReviewQuestionRepositoryTests(V2PostgresFixture db)
+public class ReviewQuestionRepositoryTests(PostgresFixture db)
 {
     private readonly ReviewQuestionRepository _repo = new(db.DataSource);
     private readonly BookInsightRepository _insights = new(db.DataSource);

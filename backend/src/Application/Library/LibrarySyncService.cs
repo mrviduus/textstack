@@ -2,14 +2,14 @@ using System.Text.Json;
 using Application.Common;
 using Application.Reading;
 using Application.Sync;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Library;
 using static Application.Sync.SyncValidation;
 
 namespace Application.Library;
 
 /// <summary>The /me/v2 library use cases: lookup by bytes, import, metadata edit, file replacement, remove/restore, the library feed.</summary>
-public sealed class LibrarySyncService(ILibraryRepository library, IReadingStateRepository states, IV2UnitOfWork unitOfWork, ILibraryFileStore files)
+public sealed class LibrarySyncService(ILibraryRepository library, IReadingStateRepository states, IUnitOfWork unitOfWork, ILibraryFileStore files)
 {
     public async Task<SyncResult> FindBySha256Async(Guid userId, string sha256, CancellationToken ct)
     {

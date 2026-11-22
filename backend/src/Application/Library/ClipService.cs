@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Application.Common;
 using Application.Sync;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Library;
 using Npgsql;
 using static Application.Sync.SyncValidation;
@@ -17,7 +17,7 @@ namespace Application.Library;
 /// the file store are the V2 ones. Its chapters are extracted (the html extractor) for the assistant tools; the V2
 /// reader reads the page itself.
 /// </summary>
-public sealed class ClipService(ILibraryRepository library, LibraryContentService content, IV2UnitOfWork unitOfWork)
+public sealed class ClipService(ILibraryRepository library, LibraryContentService content, IUnitOfWork unitOfWork)
 {
     /// <summary>
     /// The new book (or the one already holding this page) on success; the refusal otherwise. Clips of the same page by

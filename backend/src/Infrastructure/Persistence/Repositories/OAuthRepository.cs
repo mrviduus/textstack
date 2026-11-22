@@ -11,7 +11,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// one matches the row. Hashes are unique (<c>ix_oauth_*_hash</c>), and an approved request dies with
 /// its account (<c>fk_oauth_authorization_requests_users_user_id</c>).
 /// </summary>
-public sealed class OAuthRepository(V2DataSource dataSource) : IOAuthRepository
+public sealed class OAuthRepository(AppDataSource dataSource) : IOAuthRepository
 {
     private const string ClientColumns = "id, client_id, client_name, redirect_uris, is_metadata_document, fetched_at, created_at";
 

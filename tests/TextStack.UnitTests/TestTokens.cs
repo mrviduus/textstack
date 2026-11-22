@@ -18,9 +18,9 @@ internal static class TestTokens
     private static readonly JwtTokens Minter = new(new JwtSettings { SecretKey = Secret, Issuer = Issuer });
 
     /// <summary>An auth service that only reads tokens: no port behind it is set.</summary>
-    public static IAuthService ReadOnlyAuth(string secret = Secret, string issuer = Issuer) => new Application.Identity.V2AuthService(
+    public static IAuthService ReadOnlyAuth(string secret = Secret, string issuer = Issuer) => new Application.Identity.AuthService(
         null!, null!, null!, null!, null!, new JwtTokens(new JwtSettings { SecretKey = secret, Issuer = issuer }), null!,
-        TimeProvider.System, null!, Microsoft.Extensions.Logging.Abstractions.NullLogger<Application.Identity.V2AuthService>.Instance);
+        TimeProvider.System, null!, Microsoft.Extensions.Logging.Abstractions.NullLogger<Application.Identity.AuthService>.Instance);
 
     public static string Token(
         Guid? userId,

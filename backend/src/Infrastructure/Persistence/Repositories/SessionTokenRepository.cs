@@ -20,7 +20,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// </list>
 /// </summary>
 /// <param name="clock">Stamps <c>credentials_reset_at</c>: the api's clock, the one access-token <c>iat</c> is minted from.</param>
-public sealed class SessionTokenRepository(V2DataSource dataSource, TimeProvider? clock = null) : ISessionTokenRepository
+public sealed class SessionTokenRepository(AppDataSource dataSource, TimeProvider? clock = null) : ISessionTokenRepository
 {
     private const string SessionColumns = "id, user_id, token_hash, previous_token_hash, expires_at, created_at";
 

@@ -133,8 +133,8 @@ API → Application → Domain ← Infrastructure
 - **Domain**: Pure C#, no framework deps
 - **Application**: Business logic, repository interfaces
 - **Contracts**: Shared DTOs (request/response models) used by API and Application
-- **Infrastructure**: Dapper repositories over one `V2DataSource` (`Infrastructure/Persistence/`, ADR-028), file stores. No EF Core.
-- **API/Worker**: Orchestration, DI. The Worker runs `V2IngestionWorker` (server-side chapter extraction into the transitional `book_chapters`, kept by M6 D8 for MCP chapter tools and clips) and `RetentionCleanupWorker`.
+- **Infrastructure**: Dapper repositories over one `AppDataSource` (`Infrastructure/Persistence/`, ADR-028), file stores. No EF Core.
+- **API/Worker**: Orchestration, DI. The Worker runs `IngestionWorker` (server-side chapter extraction into the transitional `book_chapters`, kept by M6 D8 for MCP chapter tools and clips) and `RetentionCleanupWorker`.
 
 **Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server).
 

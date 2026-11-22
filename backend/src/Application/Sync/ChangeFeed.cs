@@ -1,7 +1,7 @@
 using System.Buffers.Text;
 using System.Globalization;
 using System.Text;
-using Contracts.V2;
+using Contracts.Sync;
 
 namespace Application.Sync;
 

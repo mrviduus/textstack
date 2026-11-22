@@ -1,12 +1,12 @@
 using Application.Identity;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
 /// <summary>The legacy-shared sweeps on V2, and the session protocol, which only V2 implements on the port.</summary>
-public class SessionTokenRepositoryTests(V2PostgresFixture db) : SessionTokenRepositoryContract(db, new SessionTokenRepository(db.DataSource))
+public class SessionTokenRepositoryTests(PostgresFixture db) : SessionTokenRepositoryContract(db, new SessionTokenRepository(db.DataSource))
 {
     private readonly SessionTokenRepository _repo = new(db.DataSource);
 

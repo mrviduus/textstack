@@ -13,7 +13,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// a book of its own user (<c>fk_book_files_books_user_id_book_id</c>). Split by concern: the reads
 /// here, the metadata and version writes in <c>.Writes.cs</c>, the stored bytes in <c>.Content.cs</c>.
 /// </summary>
-public sealed partial class LibraryRepository(V2DataSource dataSource) : ILibraryRepository
+public sealed partial class LibraryRepository(AppDataSource dataSource) : ILibraryRepository
 {
     // These column lists must agree: the first two for RETURNING, the third for the join.
     private const string BookColumns =

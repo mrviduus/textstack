@@ -5,7 +5,7 @@ using Npgsql;
 
 namespace TextStack.Persistence.Tests.Transitional;
 
-public class BookChapterRepositoryTests(V2PostgresFixture db)
+public class BookChapterRepositoryTests(PostgresFixture db)
 {
     private readonly BookChapterRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

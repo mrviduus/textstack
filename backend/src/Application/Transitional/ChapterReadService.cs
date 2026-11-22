@@ -1,6 +1,6 @@
 using Application.Library;
 using Application.Sync;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Transitional;
 using static Application.Sync.SyncValidation;
 

@@ -1,6 +1,6 @@
 namespace Application.AdminSettings;
 
-/// <summary>The admin session lifetimes stored in <c>admin_settings</c> (<see cref="Identity.V2AdminAuthService"/> reads them).</summary>
+/// <summary>The admin session lifetimes stored in <c>admin_settings</c> (<see cref="Identity.AdminAuthService"/> reads them).</summary>
 public static class AdminSettingsService
 {
     internal const string AccessTokenExpiryKey = "session.accessTokenExpiryMinutes";

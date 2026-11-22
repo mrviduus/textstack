@@ -4,11 +4,11 @@ using Dapper;
 using Domain.Library;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Discussion;
 
-public class SharedChapterRepositoryTests(V2PostgresFixture db)
+public class SharedChapterRepositoryTests(PostgresFixture db)
 {
     private readonly SharedChapterRepository _repo = new(db.DataSource);
     private readonly CheckpointRepository _checkpoints = new(db.DataSource);

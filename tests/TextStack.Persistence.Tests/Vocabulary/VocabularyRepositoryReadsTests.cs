@@ -1,12 +1,12 @@
 using Dapper;
 using Domain.Vocabulary;
 using Infrastructure.Persistence.Repositories;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Vocabulary;
 
 /// <summary>The page reads of <see cref="VocabularyRepository"/> (VocabularyRepository.Reads.cs): the review queue and the feed.</summary>
-public class VocabularyRepositoryReadsTests(V2PostgresFixture db)
+public class VocabularyRepositoryReadsTests(PostgresFixture db)
 {
     private readonly VocabularyRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

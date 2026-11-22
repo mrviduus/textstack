@@ -13,8 +13,8 @@ public static class WorkerRegistration
             ?? throw new InvalidOperationException("ConnectionStrings:V2 is required");
         services.AddHostedService(sp => new SingleInstanceLock(connection, sp.GetRequiredService<ILogger<SingleInstanceLock>>()));
         services.AddHostedService<AiProviderReadinessCheck>();
-        services.AddSingleton<V2IngestionService>();
-        services.AddHostedService<V2IngestionWorker>();
+        services.AddSingleton<IngestionService>();
+        services.AddHostedService<IngestionWorker>();
         services.AddHostedService<RetentionCleanupWorker>();
         services.AddHostedService<HeartbeatWorker>();
         return services;

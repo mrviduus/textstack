@@ -81,7 +81,7 @@ sequenceDiagram
 
 - The reader never waits for the worker: it opens the file itself. `book_chapters` is transitional and
   feeds the MCP chapter tools and clips.
-- The queue is a table (`ingestion_jobs`), one consumer, `V2IngestionWorker`.
+- The queue is a table (`ingestion_jobs`), one consumer, `IngestionWorker`.
 - Sync protocol (revisions, `operation_id`, parts): [v2-sync-protocol.md](../internal/v2/v2-sync-protocol.md).
 
 ## 2. Read a book

@@ -60,7 +60,7 @@ public sealed class AccountGuard(RequestDelegate next)
         {
             http.Response.StatusCode = 503;
             http.Response.Headers.RetryAfter = "30";
-            await http.Response.WriteAsJsonAsync(SyncResult.V2Unavailable.Body, http.RequestAborted);
+            await http.Response.WriteAsJsonAsync(SyncResult.Unavailable.Body, http.RequestAborted);
             return;
         }
         await next(http);

@@ -1,4 +1,4 @@
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Annotations;
 using Domain.Discussion;
 using Domain.Library;

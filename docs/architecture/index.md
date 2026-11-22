@@ -53,7 +53,7 @@ Docker services (docker-compose.yml, all bound to 127.0.0.1):
 | `Domain` | Entities, enums, value objects |
 | `Contracts` | Request/response DTOs, MCP manifest. No references |
 | `Application` | Services + repository interfaces, `IFileStorageService`. References Domain, Contracts, Extraction, Vocabulary, Ai.Core, Ai.Llm, Ai.Agents |
-| `Infrastructure` | Dapper repositories over one `V2DataSource` (`Persistence/`, [ADR-028](adr/ADR-028-dapper-and-repositories.md)), `LibraryFileStore`, `LocalFileStorageService`, `ResendEmailService`, `ImageOptimizer` |
+| `Infrastructure` | Dapper repositories over one `AppDataSource` (`Persistence/`, [ADR-028](adr/ADR-028-dapper-and-repositories.md)), `LibraryFileStore`, `LocalFileStorageService`, `ResendEmailService`, `ImageOptimizer` |
 | `Api` | Minimal API endpoints (`Api/Endpoints/`), middleware |
 | `Worker` | Background host: chapter extraction, retention cleanup |
 | `Extraction/TextStack.Extraction` | EPUB (VersOne.Epub) / PDF (PdfPig) / HTML extractors, text pipeline, quality scorer |
@@ -99,7 +99,7 @@ bearer token themselves (`GetUserId`).
 
 | Host | Hosted services |
 |------|-----------------|
-| Worker | `SingleInstanceLock`, `V2IngestionWorker` (uploaded files → `book_chapters`), `RetentionCleanupWorker` (daily: expired tokens, AI traces > 30 d), `HeartbeatWorker`, `AiProviderReadinessCheck` |
+| Worker | `SingleInstanceLock`, `IngestionWorker` (uploaded files → `book_chapters`), `RetentionCleanupWorker` (daily: expired tokens, AI traces > 30 d), `HeartbeatWorker`, `AiProviderReadinessCheck` |
 | Api | `EdgeTtsService` (cache cleanup) |
 
 All queues are Postgres tables polled by the consumer; there is no message broker.

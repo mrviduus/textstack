@@ -14,7 +14,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// The frontier CHECKs (<c>ck_reading_state_frontier</c>, <c>_frontier_ahead</c>) hold because the
 /// frontier locator and fraction are always written as a pair, and never below the position.
 /// </summary>
-public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingStateRepository
+public sealed class ReadingStateRepository(AppDataSource dataSource) : IReadingStateRepository
 {
     internal const string Columns =
         "book_id, file_id, current_locator, book_fraction, frontier_locator, frontier_fraction, completed_at, client_recorded_at, updated_at, revision, reset_revision";

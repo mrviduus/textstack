@@ -1,8 +1,8 @@
 using System.Text;
 using System.Text.Json;
-using Contracts.V2;
+using Contracts.Sync;
 using TextStack.Ai.Mcp.Http;
-using static Contracts.V2.SyncLimits;
+using static Contracts.Sync.SyncLimits;
 
 namespace TextStack.Ai.Mcp.Tools;
 

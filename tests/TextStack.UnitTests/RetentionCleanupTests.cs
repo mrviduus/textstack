@@ -19,7 +19,7 @@ public class RetentionCleanupTests
             .AddScoped(_ => Substitute.For<IDeviceLoginRepository>())
             .AddScoped(_ => oauth)
             // The last V2 rule: resolving its writer marks the end of the sweep (the failure is logged).
-            .AddScoped<Infrastructure.Persistence.Repositories.V2AgentRunWriter>(_ =>
+            .AddScoped<Infrastructure.Persistence.Repositories.AgentRunWriter>(_ =>
             {
                 lastSweep.TrySetResult();
                 throw new InvalidOperationException("no V2 database in a unit test");

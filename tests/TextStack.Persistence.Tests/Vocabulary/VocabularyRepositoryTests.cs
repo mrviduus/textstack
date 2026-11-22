@@ -4,13 +4,13 @@ using Dapper;
 using Domain.Vocabulary;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Vocabulary;
 
 // The deferred provenance FKs on vocabulary_examples need no SET CONSTRAINTS here: every repository
 // write commits before the call returns, so a deferred check fails inside the call that broke it.
-public class VocabularyRepositoryTests(V2PostgresFixture db)
+public class VocabularyRepositoryTests(PostgresFixture db)
 {
     private readonly VocabularyRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

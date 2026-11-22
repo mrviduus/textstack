@@ -3,12 +3,12 @@ using Dapper;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
 /// <summary>The legacy-shared contract on V2, and the rest of the port, which only V2 implements.</summary>
-public class UserRepositoryTests(V2PostgresFixture db) : UserRepositoryContract(db, new UserRepository(db.DataSource))
+public class UserRepositoryTests(PostgresFixture db) : UserRepositoryContract(db, new UserRepository(db.DataSource))
 {
     private readonly UserRepository _repo = new(db.DataSource);
 

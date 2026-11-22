@@ -172,7 +172,7 @@ public sealed class McpUnauthorizedException : Exception
 }
 
 // ── The shapes the tool catalog maps from. The V2 partials (TextStackApiClient.V2*.cs) read the
-//    Contracts.V2 DTOs and answer in these. ─────────────────────────────────────
+//    Contracts.Sync DTOs and answer in these. ─────────────────────────────────────
 
 // A highlight; the chapter of an upload is UserChapterId.
 public sealed record HighlightJson(
@@ -197,7 +197,7 @@ public sealed record VocabWordJson(
     DateTimeOffset NextReviewAt);
 
 // One word of add_vocabulary_words. UserBookId is read but not sent: a V2 example carries no book
-// (TextStackApiClient.V2Vocabulary.cs).
+// (TextStackApiClient.Vocabulary.cs).
 public sealed record SaveWordJson(
     string Word,
     string Language,
