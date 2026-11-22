@@ -19,7 +19,7 @@ on:
     #
     # `paths` with negations, not `paths-ignore` (which cannot re-include): the V2
     # reader page lives in packages/reader/src but ships in the web dist
-    # (dist/reader-v2/, #1225), so a page-only change must deploy. Order matters:
+    # (dist/reader/, #1225), so a page-only change must deploy. Order matters:
     # the last pattern a file matches decides.
     paths:
       - '**'
@@ -89,7 +89,7 @@ jobs:
   # Not the whole suite. The pull request already ran it; what this adds is the
   # one thing a pull request cannot prove under `strict: false` branch
   # protection — that the MERGED tree still compiles and passes. That is
-  # `backend` and `frontend`, plus `v2-reader` (the V2 reader gates split out of
+  # `backend` and `frontend`, plus `v2-reader` (the reader gates split out of
   # `frontend`, run beside it); `ci.yml` explains what is skipped and why,
   # including the deliberate omission of `e2e`.
   #

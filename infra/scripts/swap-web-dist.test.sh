@@ -71,18 +71,18 @@ grep -q b.js "$T/m/dist/index.html" || fail "missing-asset case: index.html not 
 
 # The V2 reader (#1225): its page script goes live before the shell that names it, and
 # index.html still last. An `mv` shim logs each file as it goes live.
-mkdir -p "$T/v/new/assets" "$T/v/new/reader-v2" "$T/v/dist" "$T/v/bin"
+mkdir -p "$T/v/new/assets" "$T/v/new/reader" "$T/v/dist" "$T/v/bin"
 echo '<script src="/assets/v.js"></script>' > "$T/v/new/index.html"
 echo v > "$T/v/new/assets/v.js"
-echo shell > "$T/v/new/reader-v2/frame.html"
-echo page > "$T/v/new/reader-v2/page.0123456789abcdef.js"
+echo shell > "$T/v/new/reader/frame.html"
+echo page > "$T/v/new/reader/page.0123456789abcdef.js"
 echo extra > "$T/v/new/robots.txt"
 real_mv=$(command -v mv)
 printf '#!/bin/sh\nfor a; do t=$a; done\necho "${t#%s/}" >> %s\nexec %s "$@"\n' "$T/v/dist" "$T/v/order" "$real_mv" > "$T/v/bin/mv"
 chmod +x "$T/v/bin/mv"
 PATH="$T/v/bin:$PATH" bash "$SWAP" "$T/v/new" "$T/v/dist" "$T/v/manifest" > /dev/null
 order=$(grep -v '^assets/' "$T/v/order" | grep -v manifest | tr '\n' ' ')
-[ "$order" = "reader-v2/page.0123456789abcdef.js reader-v2/frame.html robots.txt index.html " ] || fail "live order: $order"
+[ "$order" = "reader/page.0123456789abcdef.js reader/frame.html robots.txt index.html " ] || fail "live order: $order"
 
 # A reader never sees an index.html naming an asset that is not there, or a torn file,
 # while releases swap back and forth.

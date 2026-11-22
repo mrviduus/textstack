@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  FRAME_NONCE_PLACEHOLDER, V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, V2_READER_SCRIPT_HEADERS, V2_READER_SCRIPT_PATH,
+  FRAME_NONCE_PLACEHOLDER, READER_FRAME_HEADERS, READER_FRAME_PATH, READER_SCRIPT_HEADERS, READER_SCRIPT_PATH,
   fillNonce, serveReaderFrame, readerDistFiles, readerFrameFiles,
 } from './frame.mjs'
 import { readerPageHtml } from './readerPage.generated'
@@ -43,8 +43,8 @@ describe('readerFrameFiles (frame.mjs)', () => {
 
   it('scriptPath_IsItsContentHash_AndTheShellPinsItsIntegrity', () => {
     const sha = createHash('sha384').update(script).digest()
-    expect(scriptPath).toMatch(V2_READER_SCRIPT_PATH)
-    expect(scriptPath).toBe(`/reader-v2/page.${sha.toString('hex').slice(0, 16)}.js`)
+    expect(scriptPath).toMatch(READER_SCRIPT_PATH)
+    expect(scriptPath).toBe(`/reader/page.${sha.toString('hex').slice(0, 16)}.js`)
     expect(shell).toContain(`<script nonce="${FRAME_NONCE_PLACEHOLDER}" src="${scriptPath}" integrity="sha384-${sha.toString('base64')}"></script>`)
   })
 })
@@ -62,8 +62,8 @@ describe('fillNonce (frame.mjs)', () => {
 
 describe('serveReaderFrame (frame.mjs)', () => {
   it('shell_FrameHeaders_AndAFreshNoncePerResponse', () => {
-    const [a, b] = [serve(`${V2_READER_FRAME_PATH}?x=1`), serve(V2_READER_FRAME_PATH)]
-    expect(a).toMatchObject({ handled: true, status: 200, headers: V2_READER_FRAME_HEADERS })
+    const [a, b] = [serve(`${READER_FRAME_PATH}?x=1`), serve(READER_FRAME_PATH)]
+    expect(a).toMatchObject({ handled: true, status: 200, headers: READER_FRAME_HEADERS })
     const nonceOf = (body?: string) => body?.match(/script-src 'nonce-([0-9a-f]{32})'/)?.[1]
     expect(nonceOf(a.body)).toBeTruthy()
     expect(nonceOf(a.body)).not.toBe(nonceOf(b.body))
@@ -71,42 +71,42 @@ describe('serveReaderFrame (frame.mjs)', () => {
   })
 
   it('script_ImmutableJsHeaders_AndTheExactBytes', () => {
-    expect(serve(scriptPath)).toEqual({ handled: true, status: 200, headers: V2_READER_SCRIPT_HEADERS, body: script })
-    expect(V2_READER_SCRIPT_HEADERS['Cache-Control']).toContain('immutable')
+    expect(serve(scriptPath)).toEqual({ handled: true, status: 200, headers: READER_SCRIPT_HEADERS, body: script })
+    expect(READER_SCRIPT_HEADERS['Cache-Control']).toContain('immutable')
   })
 
   it('head_NoBody', () => {
     expect(serve(scriptPath, 'HEAD')).toMatchObject({ status: 200, body: undefined })
-    expect(serve(V2_READER_FRAME_PATH, 'HEAD')).toMatchObject({ status: 200, body: undefined })
+    expect(serve(READER_FRAME_PATH, 'HEAD')).toMatchObject({ status: 200, body: undefined })
   })
 
   it('otherPathUnderTheDir_404_NeverTheSpa', () => {
-    expect(serve('/reader-v2/page.0000000000000000.js')).toMatchObject({ handled: true, status: 404 })
-    expect(serve('/reader-v2/')).toMatchObject({ handled: true, status: 404 })
+    expect(serve('/reader/page.0000000000000000.js')).toMatchObject({ handled: true, status: 404 })
+    expect(serve('/reader/')).toMatchObject({ handled: true, status: 404 })
   })
 
   it('outsideTheDir_NotHandled_AndOtherMethods405', () => {
     expect(serve('/en/library').handled).toBe(false)
-    expect(serve('/reader-v2-other/frame.html').handled).toBe(false)
-    expect(serve(V2_READER_FRAME_PATH, 'POST')).toMatchObject({ handled: true, status: 405 })
+    expect(serve('/reader-other/frame.html').handled).toBe(false)
+    expect(serve(READER_FRAME_PATH, 'POST')).toMatchObject({ handled: true, status: 405 })
   })
 })
 
 describe('readerDistFiles (frame.mjs): vite preview serves the build', () => {
   it('servedFromABuild_TheBuiltBytes_ShellFilledPerResponse', () => {
     const dist = mkdtempSync(join(tmpdir(), 'ts-frame-dist-'))
-    mkdirSync(join(dist, 'reader-v2'))
-    writeFileSync(join(dist, 'reader-v2/frame.html'), shell.replace('<body>', '<body><!--built-->'))
-    writeFileSync(join(dist, `reader-v2/page.${'a'.repeat(16)}.js`), 'built script')
+    mkdirSync(join(dist, 'reader'))
+    writeFileSync(join(dist, 'reader/frame.html'), shell.replace('<body>', '<body><!--built-->'))
+    writeFileSync(join(dist, `reader/page.${'a'.repeat(16)}.js`), 'built script')
     const files = readerDistFiles(dist)
-    expect(files.scriptPath).toBe(`/reader-v2/page.${'a'.repeat(16)}.js`)
+    expect(files.scriptPath).toBe(`/reader/page.${'a'.repeat(16)}.js`)
     const req = (url: string) => {
       const out: { status?: number; body?: unknown } = {}
       const res = { writeHead(status: number) { out.status = status; return res }, end(b?: unknown) { out.body = b } }
       serveReaderFrame({ url, method: 'GET' }, res, files)
       return out
     }
-    const page = req(V2_READER_FRAME_PATH)
+    const page = req(READER_FRAME_PATH)
     expect(String(page.body)).toContain('<!--built-->')
     expect(String(page.body)).toMatch(/script-src 'nonce-[0-9a-f]{32}'/)
     expect(String(req(files.scriptPath).body)).toBe('built script')

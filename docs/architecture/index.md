@@ -28,7 +28,7 @@ Why one worker runs every queue, and what a second would take: [ADR-022](adr/ADR
 
 ```
 Internet ─► Cloudflare (DNS + TLS) ─► Cloudflare Tunnel ─► nginx on host (:80)
-   textstack.app ─┬─ SPA (apps/web/dist) + reader frame (dist/reader-v2/)
+   textstack.app ─┬─ SPA (apps/web/dist) + reader frame (dist/reader/)
                   ├─ /api/*  → api        :8080
                   └─ /mcp    → mcp-server :8090
    textstack.dev  ── admin SPA            :81   (noindex, JWT login)
@@ -120,7 +120,7 @@ All queues are Postgres tables polled by the consumer; there is no message broke
 
 | Path | What |
 |------|------|
-| `apps/web` | React 19 + Vite SPA; hosts the reader page (`V2ReaderHost`) |
+| `apps/web` | React 19 + Vite SPA; hosts the reader page (`ReaderHost`) |
 | `apps/admin` | Admin shell on `textstack.dev`: login and an empty home |
 | `apps/mobile` | Expo 57 / React Native 0.86 (Android first); hosts the shared reader (`packages/reader/`, [ADR-032](adr/ADR-032-one-engine-foliate-fork.md)) |
 | `packages/reader` | Shared renderer, protocol, generated page and reader tests |

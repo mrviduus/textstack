@@ -39,7 +39,7 @@ on:
 # question whose answer cannot change by merging (`node-version`,
 # `advisories`).
 #
-# So `scope: merged-tree` runs those two (and `v2-reader`, split out of `frontend`, in parallel). `e2e` is the deliberate omission and
+# So `scope: merged-tree` runs those two (and `reader`, split out of `frontend`, in parallel). `e2e` is the deliberate omission and
 # the one with a real cost: a regression only it catches would reach production
 # without it having run on the exact merged tree. It ran on the pull request's
 # head, and with one merge at a time the difference between the two is the
@@ -76,7 +76,7 @@ jobs:
   # so those paths behave exactly as before, and so does a PR whose diff this
   # step fails to read (fail open: a broken filter costs time, never coverage).
   #
-  # Required checks: backend, frontend, docker and e2e are required (v2-reader should be too: it holds
+  # Required checks: backend, frontend, docker and e2e are required (reader should be too: it holds
   # the V2 reader gates that were in frontend), and a job
   # skipped by its own `if:` reports success to branch protection. That is also
   # true of a job skipped because a job it `needs` FAILED — which is why every
@@ -100,7 +100,7 @@ jobs:
       web: ${{ steps.areas.outputs.web }}
       mobile: ${{ steps.areas.outputs.mobile }}
       extension: ${{ steps.areas.outputs.extension }}
-      v2reader: ${{ steps.areas.outputs.v2reader }}
+      reader: ${{ steps.areas.outputs.reader }}
       docs: ${{ steps.areas.outputs.docs }}
     steps:
       # A pull_request checkout is GitHub's merge commit; its first parent is the
@@ -115,16 +115,16 @@ jobs:
           set -euo pipefail
           files=$(git diff --name-only HEAD^1 HEAD)
           echo "$files"
-          backend=false web=false mobile=false extension=false v2reader=false docs=false
-          everything() { backend=true web=true mobile=true extension=true v2reader=true docs=true; }
+          backend=false web=false mobile=false extension=false reader=false docs=false
+          everything() { backend=true web=true mobile=true extension=true reader=true docs=true; }
           [ -n "$files" ] || everything
           while IFS= read -r f; do
-            # Not an area of its own: the `v2-reader` gates' inputs inside an area (everything() covers the
+            # Not an area of its own: the `reader` gates' inputs inside an area (everything() covers the
             # runtime: .nvmrc, root package files, tools/, infra/scripts/, unknown paths). The committed page, its frame and pin
             # live in v2reader/; a packages/ change to the page lands there regenerated, or the drift check in
             # `frontend` fails. Plus the nginx CSP, the fixtures the checks read, and the Playwright version.
             case "$f" in
-              packages/reader/*|apps/mobile/src/lib/v2reader/*|apps/mobile/assets/fonts/*|apps/web/e2e/fixtures/v2-sync.epub|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) v2reader=true ;;
+              packages/reader/*|apps/mobile/src/lib/v2reader/*|apps/mobile/assets/fonts/*|apps/web/e2e/fixtures/v2-sync.epub|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) reader=true ;;
             esac
             case "$f" in
               '') ;;
@@ -149,7 +149,7 @@ jobs:
             echo "web=$web"
             echo "mobile=$mobile"
             echo "extension=$extension"
-            echo "v2reader=$v2reader"
+            echo "reader=$reader"
             echo "docs=$docs"
           } | tee -a "$GITHUB_OUTPUT"
 
@@ -410,7 +410,7 @@ jobs:
       # patch that no longer applies fails here too.
       - name: Drift-check V2 reader page
         working-directory: apps/web
-        run: pnpm check:v2-reader
+        run: pnpm check:reader
 
       - name: Build admin
         run: pnpm --filter textstack-admin build
@@ -438,10 +438,11 @@ jobs:
         run: node tools/dependencies/report-drift.mjs js
 
   # The V2 reader page's gates, beside `frontend` rather than inside it: they need only the workspace and Chromium
-  # (no build), and run only when what they read changed (v2reader), or on push to main.
+  # (no build), and run only when what they read changed (reader), or on push to main.
+  # The job id stays `v2-reader`: branch protection requires that name (rename both together).
   v2-reader:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.reader == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -494,18 +495,18 @@ jobs:
       # the check fails when any directive is removed. Needs only Chromium (no API); ~90s (CI and locally).
       - name: V2 reader sandbox — gates the PR
         working-directory: apps/web
-        run: pnpm check:v2-reader-sandbox
+        run: pnpm check:reader-sandbox
 
       # #1128: one small book per format opens as README "Formats" says (lazy readers, CBZ, PDF, refusals, hostile PDF). ~10s locally (was 280–580s in CI at 771 rows).
       - name: V2 reader formats — gates the PR
         working-directory: apps/web
-        run: pnpm check:v2-reader-formats
+        run: pnpm check:reader-formats
 
       # #1219: the web host's frame document (frame.mjs) works under the app CSP read from
       # infra/nginx/textstack.conf (a change there runs this job); srcdoc, header-less, foreign-framed and unfilled stay refused. ~10s.
       - name: V2 reader prod CSP — gates the PR
         working-directory: apps/web
-        run: pnpm check:v2-reader-prod-csp
+        run: pnpm check:reader-prod-csp
 
   # apps/mobile gets its own job rather than another step in `frontend` because it
   # installs and checks a different app, not because it uses a different package
@@ -775,9 +776,9 @@ jobs:
 
   e2e:
     needs: changes
-    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.v2reader == 'true') }}
+    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.reader == 'true') }}
     runs-on: ubuntu-latest
-    # v2reader: the web build ships the V2 page from packages/reader/src; a page-only PR must meet the e2e gate.
+    # reader: the web build ships the V2 page from packages/reader/src; a page-only PR must meet the e2e gate.
     # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
     steps:

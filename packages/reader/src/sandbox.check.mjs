@@ -7,7 +7,7 @@
 //
 //   node --experimental-strip-types sandbox.check.mjs                    real CSP, then every mutation
 //   node --experimental-strip-types sandbox.check.mjs --mutate=<name>    one mutated run; exits 1
-//   (pnpm -C apps/web check:v2-reader-sandbox; once: pnpm -C apps/web exec playwright install chromium)
+//   (pnpm -C apps/web check:reader-sandbox; once: pnpm -C apps/web exec playwright install chromium)
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -300,7 +300,7 @@ const passes = ({ escaped, errors }) => escaped.size === 0 && errors.size === 0
 /** One row per vector (or only the escaped ones); anything escaped that is not a vector gets its own row. */
 function report(all) {
   const { escaped, blocked, errors } = result
-  console.log(`\n[check:v2-reader-sandbox] ${title}`)
+  console.log(`\n[check:reader-sandbox] ${title}`)
   const rows = new Map(vectors.map(([name, observe, stops]) => [name, `${observe}${stops ? `, stops ${stops}` : ', blind spot'}`]))
   for (const v of new Set([...rows.keys(), ...escaped])) {
     if (!all && !escaped.has(v)) continue
@@ -327,7 +327,7 @@ if (only !== undefined && !MUTATIONS[only]) {
 }
 const problems = misdeclared(hostileVectors('http://evil', 'file:///'))
 if (problems.length) {
-  console.error(`[check:v2-reader-sandbox] fixtures.mjs and this file disagree: ${problems.join('; ')}`)
+  console.error(`[check:reader-sandbox] fixtures.mjs and this file disagree: ${problems.join('; ')}`)
   process.exit(2)
 }
 
@@ -339,7 +339,7 @@ const deadline = setTimeout(() => {
     title += ' (partial)'
     report(true)
   }
-  console.log('\n[check:v2-reader-sandbox] FAILED (deadline)')
+  console.log('\n[check:reader-sandbox] FAILED (deadline)')
   if (root) rmSync(root, { recursive: true, force: true })
   process.exit(1)
 }, DEADLINE_MS)
@@ -398,5 +398,5 @@ try {
   await browser?.close()
   if (root) rmSync(root, { recursive: true, force: true })
 }
-console.log(`\n[check:v2-reader-sandbox] ${failed ? 'FAILED' : 'ok'}`)
+console.log(`\n[check:reader-sandbox] ${failed ? 'FAILED' : 'ok'}`)
 process.exit(failed ? 1 : 0)

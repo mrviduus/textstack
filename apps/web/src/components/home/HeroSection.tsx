@@ -5,7 +5,7 @@ import { useLanguage } from '../../context/LanguageContext'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useAuth } from '../../context/AuthContext'
 import { uploadUserBook } from '../../api/userBooks'
-import { v2UploadMessage } from '../../api/v2'
+import { uploadErrorMessage } from '../../api/sync'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { POPULAR_LANGUAGES, getLanguage } from '@textstack/shared'
 import { getFlagUrl } from '../../data/flags'
@@ -52,7 +52,7 @@ export function HeroSection() {
       const result = await uploadUserBook(file)
       navigate(`/${language}/library/my/${result.userBookId}`)
     } catch (err: any) {
-      setUploadError(v2UploadMessage(err, t) ?? (err.message || 'Upload failed'))
+      setUploadError(uploadErrorMessage(err, t) ?? (err.message || 'Upload failed'))
     } finally {
       setUploading(false)
     }

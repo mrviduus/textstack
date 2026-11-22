@@ -3,9 +3,9 @@ import { API_BASE } from './client'
 import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
-  v2Status, startV2Probe, pullV2Books, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
-  readV2Progress, saveV2Progress, uploadV2Book, FileUploadError, completeV2Book, uncompleteV2Book, type WriteOutcome, type MarkOutcome,
-} from './v2'
+  syncSwitch, startSyncProbe, pullBooks, getShelfBooks, getBookDetail, getBookChapter, removeBook, originalFileUrl,
+  readBookProgress, saveProgress, uploadBook, FileUploadError, completeBook, uncompleteBook, type WriteOutcome, type MarkOutcome,
+} from './sync'
 
 export interface UserBook {
   id: string
@@ -123,7 +123,7 @@ function uploadError(xhr: XMLHttpRequest): UploadError {
 }
 
 /** A V2 part: the same XHR send (progress, one retry); a 413 is the quota (`current` = `{used, limit}`). */
-async function sendV2Part(url: string, part: Blob, onLoaded: (loaded: number) => void): Promise<void> {
+async function sendPart(url: string, part: Blob, onLoaded: (loaded: number) => void): Promise<void> {
   try {
     await withOneRetry(() => send('PUT', url, part, onLoaded, 'application/octet-stream'))
   } catch (err) {
@@ -176,36 +176,36 @@ export async function uploadUserBook(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<UploadResponse & { existing?: boolean }> {
-  let v2 = await v2Status()
-  if (!v2.enabled) v2 = await startV2Probe() // a failed probe is asked again
-  if (!v2.enabled) throw new UploadError('Upload failed: the server is unavailable, try again later', 503)
-  const result = await uploadV2Book(file, v2.maxPartBytes, sendV2Part, onProgress)
+  let server = await syncSwitch()
+  if (!server.enabled) server = await startSyncProbe() // a failed probe is asked again
+  if (!server.enabled) throw new UploadError('Upload failed: the server is unavailable, try again later', 503)
+  const result = await uploadBook(file, server.maxPartBytes, sendPart, onProgress)
   if (!result.existing) trackBookUploaded({ format: (file.name.split('.').pop() || '').toLowerCase() || 'unknown', sizeBytes: file.size })
   return result
 }
 
 export function getUserBooks(): Promise<UserBook[]> {
-  return getV2UserBooks()
+  return getShelfBooks()
 }
 
 export function getUserBook(id: string): Promise<UserBookDetail> {
-  return getV2UserBook(id)
+  return getBookDetail(id)
 }
 
 export function getUserBookChapter(bookId: string, slug: string): Promise<UserChapter> {
-  return getV2UserBookChapter(bookId, slug)
+  return getBookChapter(bookId, slug)
 }
 
 export function deleteUserBook(id: string): Promise<void> {
-  return removeV2Book(id)
+  return removeBook(id)
 }
 
 export function markUserBookComplete(id: string): Promise<MarkOutcome> {
-  return completeV2Book(id)
+  return completeBook(id)
 }
 
 export function unmarkUserBookComplete(id: string): Promise<MarkOutcome> {
-  return uncompleteV2Book(id)
+  return uncompleteBook(id)
 }
 
 export function getUserBookCoverUrl(coverPath: string | null | undefined): string | undefined {
@@ -218,7 +218,7 @@ export function getUserBookCoverUrl(coverPath: string | null | undefined): strin
 
 /** URL of the book's current file (Range-enabled), cookie-authed same-origin. */
 export function getUserBookFileUrl(id: string): string {
-  return v2FileUrl(id)
+  return originalFileUrl(id)
 }
 
 // Tags API
@@ -230,7 +230,7 @@ export interface TagCount {
 /** The uploads' tags, counted from the library feed. */
 export async function getUserTags(): Promise<TagCount[]> {
   const counts = new Map<string, number>()
-  for (const b of await pullV2Books()) if (!b.removedAt) for (const t of b.tags) counts.set(t, (counts.get(t) ?? 0) + 1)
+  for (const b of await pullBooks()) if (!b.removedAt) for (const t of b.tags) counts.set(t, (counts.get(t) ?? 0) + 1)
   return [...counts].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
 }
 
@@ -241,7 +241,7 @@ export interface BulkResult {
 }
 
 /** A bulk action: one request per book (no bulk routes). */
-async function eachV2(ids: string[], action: (id: string) => Promise<unknown>): Promise<BulkResult> {
+async function eachBook(ids: string[], action: (id: string) => Promise<unknown>): Promise<BulkResult> {
   const result: BulkResult = { succeeded: [], failed: [] }
   for (const [i, id] of ids.entries()) {
     try {
@@ -259,11 +259,11 @@ async function eachV2(ids: string[], action: (id: string) => Promise<unknown>): 
 }
 
 export function bulkFinishUserBooks(ids: string[], isFinished: boolean): Promise<BulkResult> {
-  return eachV2(ids, isFinished ? completeV2Book : uncompleteV2Book)
+  return eachBook(ids, isFinished ? completeBook : uncompleteBook)
 }
 
 export function bulkDeleteUserBooks(ids: string[]): Promise<BulkResult> {
-  return eachV2(ids, removeV2Book)
+  return eachBook(ids, removeBook)
 }
 
 // Progress API
@@ -276,7 +276,7 @@ export async function getUserBookProgress(bookId: string): Promise<UserBookProgr
 
 /** The reader's read: `null` answered with nothing, `undefined` no answer. */
 export function readUserBookProgress(bookId: string, signal?: AbortSignal): Promise<UserBookProgress | null | undefined> {
-  return readV2Progress(bookId, signal)
+  return readBookProgress(bookId, signal)
 }
 
 /** The revision rule decides; the outcome says whether the reader adopts the server's place or reloads. */
@@ -293,5 +293,5 @@ export function saveUserBookProgress(
     positionJson?: string
   }
 ): Promise<WriteOutcome> {
-  return saveV2Progress(bookId, data)
+  return saveProgress(bookId, data)
 }

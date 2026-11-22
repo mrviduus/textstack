@@ -4,7 +4,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useDragFileTracker } from '../../hooks/useDragFileTracker'
 import { ACCEPT_ATTR, partitionFiles } from '../../lib/uploadFileValidation'
-import { emit } from '../../lib/telemetry/myBooksV2'
+import { emit } from '../../lib/telemetry/myBooks'
 import { UploadModal } from './UploadModal'
 
 export function UploadDropZone() {

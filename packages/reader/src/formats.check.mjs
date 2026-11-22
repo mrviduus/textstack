@@ -8,7 +8,7 @@
 // The reader's features (selection, search, highlights, bookmarks, chrome) are not this check's: their modules'
 // unit tests and the web e2e cover them.
 //
-//   node --experimental-strip-types formats.check.mjs      (pnpm -C apps/web check:v2-reader-formats)
+//   node --experimental-strip-types formats.check.mjs      (pnpm -C apps/web check:reader-formats)
 import { randomBytes } from 'node:crypto'
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -426,5 +426,5 @@ try {
   rmSync(dir, { recursive: true, force: true })
 }
 
-console.log(`\n[check:v2-reader-formats] ${failures.length ? 'FAILED' : 'ok'}`)
+console.log(`\n[check:reader-formats] ${failures.length ? 'FAILED' : 'ok'}`)
 process.exit(failures.length ? 1 : 0)

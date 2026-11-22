@@ -19,7 +19,7 @@ import { DeviceVerifyPage } from './pages/DeviceVerifyPage'
 import { ChangelogPage } from './pages/ChangelogPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 // User-only / heavy routes — lazy so they ship in separate chunks.
-const V2ReaderPage = lazy(() => import('./pages/V2ReaderPage').then(m => ({ default: m.V2ReaderPage })))
+const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })))
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then(m => ({ default: m.LibraryPage })))
 const UserBookDetailPage = lazy(() => import('./pages/UserBookDetailPage').then(m => ({ default: m.UserBookDetailPage })))
 const VocabularyPage = lazy(() => import('./pages/VocabularyPage').then(m => ({ default: m.VocabularyPage })))
@@ -109,9 +109,9 @@ function LanguageRoutes() {
           <Route path="/highlights" element={<HighlightsPage />} />
           <Route path="/library/my/:id" element={<UserBookDetailPage />} />
           {/* The V2 reader. The chapter slug (old links) is ignored: the book opens at its synced place. /read-v2: an alias. */}
-          <Route path="/library/my/:id/read" element={<V2ReaderPage />} />
-          <Route path="/library/my/:id/read/:chapterSlug" element={<V2ReaderPage />} />
-          <Route path="/library/my/:id/read-v2" element={<V2ReaderPage />} />
+          <Route path="/library/my/:id/read" element={<ReaderPage />} />
+          <Route path="/library/my/:id/read/:chapterSlug" element={<ReaderPage />} />
+          <Route path="/library/my/:id/read-v2" element={<ReaderPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/changelog" element={<ChangelogPage />} />
           <Route path="*" element={<NotFoundPage />} />

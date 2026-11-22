@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useGlobalUploadShortcut } from '../../hooks/useGlobalUploadShortcut'
-import { emit } from '../../lib/telemetry/myBooksV2'
+import { emit } from '../../lib/telemetry/myBooks'
 import { UploadModal } from './UploadModal'
 
 export function UploadButton() {

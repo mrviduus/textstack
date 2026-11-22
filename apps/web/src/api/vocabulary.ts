@@ -1,16 +1,13 @@
 import { createVocabulary } from '@textstack/shared'
-import { v2Book, v2Store } from './v2'
+import { liveBook, syncStore } from './sync'
 
 // Vocabulary: the shared V2 vocabulary (one copy for web and mobile) with the
 // browser's ids, the last library pull's files and this tab's revision cache.
-const {
-  saveWord: saveV2Word, getWords: getV2Words, getReaderVocab: getV2ReaderVocab, deleteWord: deleteV2Word, updateWord: updateV2Word,
-  getReviewQueue: getV2ReviewQueue, submitReview: submitV2Review, restoreWord: restoreV2Word, deleteAllWords: deleteAllV2Words,
-} = createVocabulary({
+const vocab = createVocabulary({
   newId: () => crypto.randomUUID(),
-  fileIdOf: async (bookId) => (await v2Book(bookId)).currentFile?.id ?? null,
-  cards: v2Store.cards,
-  epoch: () => v2Store.epoch,
+  fileIdOf: async (bookId) => (await liveBook(bookId)).currentFile?.id ?? null,
+  cards: syncStore.cards,
+  epoch: () => syncStore.epoch,
 })
 
 // --- Types ---
@@ -211,7 +208,7 @@ export interface PendingListResponse {
 
 /** `id`/`operationId`: a queued save replays as the same card and the same operation. */
 export function saveWord(request: SaveWordRequest & { id?: string; operationId?: string }): Promise<SaveWordResponse> {
-  return saveV2Word(request)
+  return vocab.saveWord(request)
 }
 
 export function getWords(params?: {
@@ -224,28 +221,28 @@ export function getWords(params?: {
   limit?: number
   offset?: number
 }): Promise<{ total: number; items: VocabWordDto[] }> {
-  return getV2Words(params)
+  return vocab.getWords(params)
 }
 
 export function deleteWord(id: string): Promise<void> {
-  return deleteV2Word(id)
+  return vocab.deleteWord(id)
 }
 
 export function deleteAllWords(): Promise<{ deleted: number }> {
-  return deleteAllV2Words()
+  return vocab.deleteAllWords()
 }
 
 export function updateWord(id: string, data: UpdateWordRequest): Promise<VocabWordDto> {
-  return updateV2Word(id, data)
+  return vocab.updateWord(id, data)
 }
 
 export function getReviewQueue(limit?: number, includeAll?: boolean): Promise<ReviewQueueResponse> {
-  return getV2ReviewQueue(limit, includeAll)
+  return vocab.getReviewQueue(limit, includeAll)
 }
 
 /** `reviewMode`, `operationId`: the review row records the mode; a retried answer reuses its id. */
 export function submitReview(request: SubmitReviewRequest & { reviewMode?: string; operationId?: string }): Promise<SubmitReviewResponse> {
-  return submitV2Review(request)
+  return vocab.submitReview(request)
 }
 
 // --- Reader vocab (lightweight) ---
@@ -260,8 +257,8 @@ export interface ReaderVocabWordDto {
 }
 
 /** Bring back a word deleted earlier (a save answered `deleted`). */
-export const restoreWord = (id: string): Promise<VocabWordDto> => restoreV2Word(id)
+export const restoreWord = (id: string): Promise<VocabWordDto> => vocab.restoreWord(id)
 
 export function getReaderVocab(): Promise<ReaderVocabWordDto[]> {
-  return getV2ReaderVocab()
+  return vocab.getReaderVocab()
 }
