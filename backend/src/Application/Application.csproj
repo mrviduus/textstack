@@ -6,6 +6,8 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
     <!-- IHttpClientFactory for tools that call external APIs (OpenLibrary tools) -->
     <PackageReference Include="Microsoft.Extensions.Http" />
+    <!-- Retries for idempotent GETs (OpenLibrary tools, Apple JWKS) -->
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" />
     <PackageReference Include="Npgsql" />

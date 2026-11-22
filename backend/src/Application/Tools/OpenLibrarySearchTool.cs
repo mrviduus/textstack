@@ -19,6 +19,9 @@ public sealed class OpenLibrarySearchTool : ITool
     private const int MaxSubjects = 8;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>Named client for Open Library GETs; registered with a resilience handler.</summary>
+    public const string HttpClientName = "openlibrary";
+
     private static readonly JsonElement Schema = ToolJson.Schema("""
         {
           "type": "object",
@@ -45,7 +48,7 @@ public sealed class OpenLibrarySearchTool : ITool
         var title = ToolJson.GetString(args, "title")!.Trim(); // shape guaranteed by schema validation
         var author = ToolJson.GetString(args, "author")?.Trim();
 
-        var client = ctx.Services.GetRequiredService<IHttpClientFactory>().CreateClient();
+        var client = ctx.Services.GetRequiredService<IHttpClientFactory>().CreateClient(HttpClientName);
         client.Timeout = Timeout;
         // Open Library asks for a descriptive User-Agent (polite-use policy).
         client.DefaultRequestHeaders.UserAgent.ParseAdd("TextStack/1.0 (+https://textstack.app)");
