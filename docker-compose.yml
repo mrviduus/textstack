@@ -26,7 +26,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       # Only the database initdb creates on an empty volume (and the healthcheck's -d, which
-      # pg_isready does not need to exist). Nothing connects to it; the app's is V2_POSTGRES_DB.
+      # pg_isready does not need to exist). Nothing connects to it; the app's is TEXTSTACK_DB.
       POSTGRES_DB: ${POSTGRES_DB}
     command:
       - "postgres"
@@ -72,7 +72,8 @@ services:
     environment:
       PGHOST: db
       PGPORT: "5432"
-      PGDATABASE: ${V2_POSTGRES_DB:-textstack_v2}
+      # fallback: drop V2_POSTGRES_DB after #1440 2b
+      PGDATABASE: ${TEXTSTACK_DB:-${V2_POSTGRES_DB:-textstack_v2}}
       PGUSER: ${POSTGRES_USER}
       PGPASSWORD: ${POSTGRES_PASSWORD}
     depends_on:
@@ -118,7 +119,8 @@ services:
       # promoting a parked lookup respects it takes `cap` real saves, and 50 is not testable.
       Entitlements__Tiers__Guest__DailyEnrichmentCap: ${GUEST_DAILY_ENRICHMENT_CAP:-50}
       # textstack_v2 (ADR-030), the database the migrator creates: the one the Api reads.
-      ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # fallback: drop V2_POSTGRES_DB after #1440 2b
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=${TEXTSTACK_DB:-${V2_POSTGRES_DB:-textstack_v2}};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       # HTTP cutover barrier only. Stop/drain other writers before the final snapshot (M5).
       Maintenance__WriteFreeze: ${MAINTENANCE_WRITE_FREEZE:-false}
       Storage__RootPath: /storage
@@ -195,7 +197,8 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       # The V2 extraction loop, the V2 file sweeps and retention; a V2 database that is missing or
       # behind pauses the loop and nothing else (the 2026-10-30 rule).
-      ConnectionStrings__V2: "Host=db;Port=5432;Database=${V2_POSTGRES_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # fallback: drop V2_POSTGRES_DB after #1440 2b
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=${TEXTSTACK_DB:-${V2_POSTGRES_DB:-textstack_v2}};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
       # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
       Storage__LibraryRoot: /library

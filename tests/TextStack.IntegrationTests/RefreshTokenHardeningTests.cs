@@ -10,7 +10,7 @@ namespace TextStack.IntegrationTests;
 /// <summary>
 /// Refresh tokens are stored hashed and rotate on use; a user access token is not an admin one.
 /// Requires: docker compose up (API at localhost:8080), ENABLE_TEST_AUTH=true. The stored-hash
-/// assertion also needs TEST_V2_DB_CONNECTION and is skipped without it.
+/// assertion also needs TEST_DB_CONNECTION and is skipped without it.
 /// </summary>
 public class RefreshTokenHardeningTests : IClassFixture<AuthenticatedApiFixture>
 {
@@ -19,7 +19,7 @@ public class RefreshTokenHardeningTests : IClassFixture<AuthenticatedApiFixture>
 
     public RefreshTokenHardeningTests(AuthenticatedApiFixture fixture) => _fixture = fixture;
 
-    private static string? DbConn => Environment.GetEnvironmentVariable("TEST_V2_DB_CONNECTION");
+    private static string? DbConn => Environment.GetEnvironmentVariable("TEST_DB_CONNECTION");
 
     private async Task<HttpResponseMessage> PostMobileAsync(string path, object body, CancellationToken ct)
     {
@@ -62,7 +62,7 @@ public class RefreshTokenHardeningTests : IClassFixture<AuthenticatedApiFixture>
     [Fact]
     public async Task RefreshToken_Stored_OnlyAsSha256Hex()
     {
-        Assert.SkipWhen(DbConn is null, "TEST_V2_DB_CONNECTION not set");
+        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
         var ct = TestContext.Current.CancellationToken;
         var (_, refresh) = await SignInAsync(ct);
         var expected = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(refresh)));

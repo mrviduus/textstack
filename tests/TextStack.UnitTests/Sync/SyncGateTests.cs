@@ -44,7 +44,7 @@ public class SyncGateTests
             b.UseEnvironment("Test");
             b.UseSetting("Jwt:SecretKey", TestTokens.Secret);
             b.UseSetting("Jwt:Issuer", TestTokens.Issuer);
-            b.UseSetting("ConnectionStrings:V2", v2ConnectionString);
+            b.UseSetting("ConnectionStrings:Default", v2ConnectionString);
             b.UseSetting("Storage:RootPath", Path.Combine(Path.GetTempPath(), "textstack-v2-gate"));
             b.UseSetting("Storage:LibraryRoot", LibraryRoot);
             b.ConfigureTestServices(s =>

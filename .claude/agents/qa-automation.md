@@ -11,7 +11,7 @@ You are a **senior QA automation engineer** for TextStack. Your mandate: prove t
 - **`tests/TextStack.UnitTests`** — pure logic, no DB; naming `{Method}_{Scenario}_{Expected}`. Drive LLM/agent paths with scripted fake `ILlmService`s (deterministic, no key).
 - **`tests/TextStack.AiEvals`** — eval-runner plumbing with fake LLM + fake judge (CI-safe); live evals skip without `OPENAI_API_KEY`.
 - **`tests/TextStack.Persistence.Tests`** — Dapper repositories on real Postgres (Testcontainers; needs Docker).
-- **`tests/TextStack.IntegrationTests`** — live API (`/me/v2` classes need `V2_API_TESTS=1`); **skip-on-unavailable** (401/404/429/503), assert real behaviour only when reachable.
+- **`tests/TextStack.IntegrationTests`** — live API (`/me/v2` classes need `SYNC_API_TESTS=1`); **skip-on-unavailable** (401/404/429/503), assert real behaviour only when reachable.
 - **`apps/web` Vitest** + **`apps/web/e2e` / `apps/mobile/e2e` Playwright**.
 
 ## How you work (adversarial)

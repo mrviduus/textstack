@@ -7,7 +7,7 @@ namespace Infrastructure.Persistence;
 /// The pool to <c>textstack_v2</c> (ADR-030 §2), a type of its own so it can never be injected where
 /// the legacy <see cref="NpgsqlDataSource"/> is meant, or the other way round. No pgvector: V2 has no
 /// vector column. Built from a missing connection string too: nothing fails until the first open,
-/// which names <c>ConnectionStrings:V2</c> (data-access.md rule 5).
+/// which names <c>ConnectionStrings:Default</c> (data-access.md rule 5).
 /// </summary>
 public sealed class AppDataSource(string? connectionString) : IUnitOfWork, IDisposable, IAsyncDisposable
 {
@@ -16,11 +16,11 @@ public sealed class AppDataSource(string? connectionString) : IUnitOfWork, IDisp
     public bool IsConfigured => _dataSource is not null;
 
     public ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken ct) =>
-        (_dataSource ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")).OpenConnectionAsync(ct);
+        (_dataSource ?? throw new InvalidOperationException("ConnectionStrings:Default is not set")).OpenConnectionAsync(ct);
 
     /// <summary>A synchronous open, for a caller that cannot await (the AI spend seed).</summary>
     public NpgsqlConnection OpenConnection() =>
-        (_dataSource ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")).OpenConnection();
+        (_dataSource ?? throw new InvalidOperationException("ConnectionStrings:Default is not set")).OpenConnection();
 
     public async Task<AppTransaction> BeginAsync(CancellationToken ct)
     {

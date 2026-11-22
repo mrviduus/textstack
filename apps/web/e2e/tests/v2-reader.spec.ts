@@ -7,7 +7,7 @@ import { testLogin } from '../helpers/api'
 // @v2 — the V2 reader page on its production route (#1225; the only /read since M5 #1031). A V2 upload's
 // file bytes come from /me/v2/books/{id}/files/{fileId}/content into the
 // frame (/reader-v2/frame.html: a no-store shell + the content-hashed page script). Skips when the probe
-// answers 404 (a server without /me/v2) unless V2_E2E=1, as v2-sync.spec.ts. In CI it runs on the production build
+// answers 404 (a server without /me/v2) unless SYNC_E2E=1, as v2-sync.spec.ts. In CI it runs on the production build
 // (`vite preview`, which serves the frame through the same handler as nginx's files).
 
 const API_URL = process.env.API_URL ?? 'http://localhost:8080'
@@ -37,14 +37,14 @@ async function expectOpened(page: Page) {
   await expect(page.getByRole('alert')).toHaveCount(0)
 }
 
-/** A signed-in context for `email`; skipped when /me/v2 answers 404 (unless V2_E2E=1). */
+/** A signed-in context for `email`; skipped when /me/v2 answers 404 (unless SYNC_E2E=1). */
 async function v2Context(browser: { newContext(): Promise<BrowserContext> }, email: string, answerBanner = true) {
   const context = await browser.newContext()
   // Answered, so the cookie banner is out of the way; #1292's spec leaves it up.
   if (answerBanner) await context.addInitScript(() => localStorage.setItem('cookieConsent', 'rejected'))
   await testLogin(context.request, email)
   const probe = await context.request.get(`${API_URL}/me/v2/status`, { headers: API_HEADERS })
-  test.skip(probe.status() === 404 && process.env.V2_E2E !== '1', '/me/v2 is not mapped on this server')
+  test.skip(probe.status() === 404 && process.env.SYNC_E2E !== '1', '/me/v2 is not mapped on this server')
   expect(probe.ok(), `GET /me/v2/status: ${probe.status()}`).toBeTruthy()
   return context
 }

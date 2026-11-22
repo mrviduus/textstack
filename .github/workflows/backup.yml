@@ -25,9 +25,11 @@ jobs:
         run: |
           echo "BACKUP_DATE=$(date +%F)" >> $GITHUB_ENV
           # The V2 database (ADR-030) holds all live data since the cutover; the legacy one is
-          # read-only and archived, so it is no longer dumped. Files are prefixed by the V2 name.
-          v2=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
-          echo "V2_DB=${v2:-textstack_v2}" >> $GITHUB_ENV
+          # read-only and archived, so it is no longer dumped. Files are prefixed by the database name.
+          db=$(sed -n 's/^TEXTSTACK_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
+          # fallback: drop V2_POSTGRES_DB after #1440 2b
+          [ -n "$db" ] || db=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
+          echo "DB_NAME=${db:-textstack_v2}" >> $GITHUB_ENV
 
       - name: Create backup directory
         run: mkdir -p $BACKUP_DIR
@@ -37,7 +39,7 @@ jobs:
       - name: Backup V2 database
         run: |
           POSTGRES_USER=textstack_prod bash $PROJECT_DIR/infra/scripts/pg-dump-checked.sh \
-            $V2_DB $BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
+            $DB_NAME $BACKUP_DIR/$DB_NAME-db-$BACKUP_DATE.sql.gz
 
       # data/storage + data/library (the V2 volume, #1110; a notice while it does not exist). A file
       # that changed while read is accepted, an unreadable one fails. Contract + self-check: the script.
@@ -51,18 +53,18 @@ jobs:
           ls -1t db-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
           ls -1t storage-*.tar.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
           ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
-          ls -1t $V2_DB-db-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
-          ls -1t $V2_DB-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          ls -1t $DB_NAME-db-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          ls -1t $DB_NAME-pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       - name: Verify archive integrity
         run: |
           ls -lh $BACKUP_DIR/*.gz | tail -5
-          gunzip -t $BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
+          gunzip -t $BACKUP_DIR/$DB_NAME-db-$BACKUP_DATE.sql.gz
 
       - name: Verify backup restores into fresh postgres
         run: |
           cd $PROJECT_DIR
-          ./infra/scripts/backup-verify.sh $BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz
+          ./infra/scripts/backup-verify.sh $BACKUP_DIR/$DB_NAME-db-$BACKUP_DATE.sql.gz
 
       # Off-site copy. Everything above lives on the same box as the data it protects; this is the
       # only copy that survives losing the server. restic (in Docker, nothing installed on the host)
@@ -110,7 +112,7 @@ jobs:
           # it is pruned, integrity-checked and counted against 9 GB like the rest. The stdin path
           # stays /db_v2.sql: restore-drill.yml reads it. The last legacy /db.sql snapshots stay:
           # forget keeps the newest of each path, and none is added any more.
-          zcat "$BACKUP_DIR/$V2_DB-db-$BACKUP_DATE.sql.gz" \
+          zcat "$BACKUP_DIR/$DB_NAME-db-$BACKUP_DATE.sql.gz" \
             | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db_v2.sql
           restic forget --host textstack-prod --keep-daily 7 --keep-monthly 3 --prune
           restic check

@@ -19,7 +19,7 @@ public sealed record SyncResponse(HttpStatusCode Status, JsonElement Body)
 /// <summary>
 /// The <c>/me/v2</c> tests' fixture beside <see cref="LiveApiFixture"/>: the running stack with <c>textstack_v2</c> migrated
 /// (<c>make migrate</c>). Opt-in by
-/// <c>V2_API_TESTS=1</c>; set, a stack whose <c>/me/v2</c> is not mapped fails every test instead of
+/// <c>SYNC_API_TESTS=1</c>; set, a stack whose <c>/me/v2</c> is not mapped fails every test instead of
 /// skipping it, so a run that meant to cover V2 cannot go green without it. Two test users
 /// (test-login, <c>ENABLE_TEST_AUTH</c>) for owner isolation, and fresh guests where a test needs an
 /// empty library.
@@ -42,15 +42,15 @@ public sealed class SyncApiFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        _enabled = Environment.GetEnvironmentVariable("V2_API_TESTS") == "1";
+        _enabled = Environment.GetEnvironmentVariable("SYNC_API_TESTS") == "1";
         if (!_enabled) return;
         (Alice, Bob, _failure) = await Setup.Value;
     }
 
-    /// <summary>Skips without <c>V2_API_TESTS=1</c>; fails when it is set and V2 is not there.</summary>
+    /// <summary>Skips without <c>SYNC_API_TESTS=1</c>; fails when it is set and V2 is not there.</summary>
     public void Require()
     {
-        Assert.SkipUnless(_enabled, "V2 API tests are opt-in: set V2_API_TESTS=1 against a stack with `make migrate` run");
+        Assert.SkipUnless(_enabled, "Sync API tests are opt-in: set SYNC_API_TESTS=1 against a stack with `make migrate` run");
         if (_failure is not null) Assert.Fail(_failure);
     }
 
@@ -66,7 +66,7 @@ public sealed class SyncApiFixture : IAsyncLifetime
             using var probe = Request(HttpMethod.Get, "/me/v2/status", alice);
             using var status = await client.SendAsync(probe);
             return (alice, bob, status.StatusCode == HttpStatusCode.OK ? null
-                : $"V2_API_TESTS=1 but GET /me/v2/status answered {(int)status.StatusCode}: run `make migrate` and recreate the api");
+                : $"SYNC_API_TESTS=1 but GET /me/v2/status answered {(int)status.StatusCode}: run `make migrate` and recreate the api");
         }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
         {

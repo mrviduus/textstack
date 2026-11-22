@@ -11,6 +11,7 @@ using Application.Transitional;
 using Application.Vocabulary;
 using Dapper;
 using Infrastructure.Persistence.Repositories;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
@@ -52,14 +53,19 @@ public static class DataSource
             value is DateTime utc ? new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)) : (DateTimeOffset)value;
     }
 
+    /// <summary>The database's connection string: <c>ConnectionStrings:Default</c>, null when unset.</summary>
+    public static string? AppConnectionString(this IConfiguration configuration) =>
+        configuration.GetConnectionString("Default")
+        ?? configuration.GetConnectionString("V2"); // fallback: drop after #1440 2b
+
     /// <summary>
-    /// The V2 data source as a singleton (DI disposes it, and its pool, on shutdown) and the Dapper
+    /// The data source as a singleton (DI disposes it, and its pool, on shutdown) and the Dapper
     /// repositories on it. Singletons: a repository holds nothing but its data source. Nothing opens a
     /// connection before first use (data-access.md rule 5).
     /// </summary>
-    public static IServiceCollection AddTextStackDataAccess(this IServiceCollection services, string? v2ConnectionString) =>
+    public static IServiceCollection AddTextStackDataAccess(this IServiceCollection services, string? connectionString) =>
         services
-            .AddSingleton(_ => new AppDataSource(v2ConnectionString))
+            .AddSingleton(_ => new AppDataSource(connectionString))
             .AddSingleton<IUnitOfWork>(sp => sp.GetRequiredService<AppDataSource>())
             .AddSingleton<ILibraryRepository, LibraryRepository>()
             .AddSingleton<IReadingStateRepository, ReadingStateRepository>()

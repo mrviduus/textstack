@@ -32,7 +32,7 @@ public class WriteFreezeApiTests
                 builder.UseEnvironment("Test");
                 builder.UseSetting("Jwt:SecretKey", TestTokens.Secret);
                 builder.UseSetting("Jwt:Issuer", TestTokens.Issuer);
-                builder.UseSetting("ConnectionStrings:V2", "Host=127.0.0.1;Port=1;Database=textstack_v2;Timeout=1");
+                builder.UseSetting("ConnectionStrings:Default", "Host=127.0.0.1;Port=1;Database=textstack_v2;Timeout=1");
                 builder.UseSetting("Maintenance:WriteFreeze", freeze.ToString());
                 builder.UseSetting("Storage:RootPath", Path.Combine(root, "storage"));
                 builder.UseSetting("Storage:LibraryRoot", Path.Combine(root, "library"));

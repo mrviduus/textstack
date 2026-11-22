@@ -27,7 +27,7 @@ public sealed record ReadinessState(
 /// sync pauses (docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md). The answer is cached
 /// for <see cref="Ttl"/>, so neither a burst of requests nor the probe opens a V2 connection each;
 /// concurrent callers share one check, and <see cref="Invalidate"/> drops it when a request saw V2 fail.
-/// Without <c>ConnectionStrings:V2</c> it answers <see cref="ReadinessState.Unconfigured"/> without a connection.
+/// Without <c>ConnectionStrings:Default</c> it answers <see cref="ReadinessState.Unconfigured"/> without a connection.
 /// </summary>
 /// <param name="readPending">The V2 ledger's pending migrations (tests fake it); it must honour its token.</param>
 /// <param name="checkTimeout">A cap on one check, whatever the connection string's own timeouts say: the probe must not hang.</param>
