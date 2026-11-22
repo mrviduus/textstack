@@ -4,10 +4,14 @@ using System.Text.Json;
 using Application.Auth;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using TextStack.UnitTests.Fakes;
 
 namespace TextStack.UnitTests;
 
-/// <summary>Apple identity tokens: only Apple-signed (RS256, published kid), Apple-issued, for this bundle id, unexpired.</summary>
+/// <summary>
+/// A reader signs in with Apple: only an Apple-signed (RS256, published kid), Apple-issued, unexpired token for this
+/// bundle id names them, and Apple's keys are cached so a slow or broken key endpoint never locks everyone out at once.
+/// </summary>
 public class AppleIdentityTokenTests
 {
     private const string BundleId = "app.textstack.mobile";
@@ -46,8 +50,8 @@ public class AppleIdentityTokenTests
 
     private static AppleSigningKeys Keys(Func<string> jwks, TimeProvider? clock = null) => new(_ => Task.FromResult(jwks()), clock);
 
-    private static ProviderTokens Verifier(string? bundleId = BundleId, AppleSigningKeys? keys = null) =>
-        new(apple: new AppleSettings { BundleId = bundleId! }, appleKeys: keys ?? Keys(() => Jwks(AppleKey)));
+    private static ProviderTokens Verifier(string? bundleId = BundleId, AppleSigningKeys? keys = null, CapturingLogger<ProviderTokens>? logger = null) =>
+        new(apple: new AppleSettings { BundleId = bundleId! }, appleKeys: keys ?? Keys(() => Jwks(AppleKey)), logger: logger);
 
     private static string Token(SecurityKey? key = null, string algorithm = SecurityAlgorithms.RsaSha256,
         string issuer = ProviderTokens.AppleIssuer, string audience = BundleId, int expiresInMinutes = 5, object? emailVerified = null) =>
@@ -64,73 +68,85 @@ public class AppleIdentityTokenTests
             SigningCredentials = new SigningCredentials(key ?? AppleKey, algorithm),
         });
 
-    [Fact]
-    public async Task VerifyAppleAsync_SignedByApplesKey_ReturnsIdentity()
-    {
-        var apple = await Verifier().VerifyAppleAsync(Token(), Ct);
-
-        Assert.Equal(("apple-subject", "reader@privaterelay.appleid.com"), (apple?.Subject, apple?.Email));
-    }
-
-    [Fact]
-    public async Task VerifyAppleAsync_WrongSignature_Null()
-    {
-        Assert.Null(await Verifier().VerifyAppleAsync(Token(OtherKey), Ct));
-    }
-
-    [Fact]
-    public async Task VerifyAppleAsync_TamperedPayload_Null()
+    private static string Tampered()
     {
         var parts = Token().Split('.');
         var forged = Base64UrlEncoder.Encode(Encoding.UTF8.GetBytes(
             Base64UrlEncoder.Decode(parts[1]).Replace("apple-subject", "someone-else")));
-
-        Assert.Null(await Verifier().VerifyAppleAsync($"{parts[0]}.{forged}.{parts[2]}", Ct));
+        return $"{parts[0]}.{forged}.{parts[2]}";
     }
 
-    [Fact]
-    public async Task VerifyAppleAsync_AlgNone_Null()
+    private static string Unsigned() => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
     {
-        var unsigned = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
-        {
-            Issuer = ProviderTokens.AppleIssuer,
-            Audience = BundleId,
-            Claims = new Dictionary<string, object> { ["sub"] = "apple-subject" },
-            Expires = DateTime.UtcNow.AddMinutes(5),
-        });
+        Issuer = ProviderTokens.AppleIssuer,
+        Audience = BundleId,
+        Claims = new Dictionary<string, object> { ["sub"] = "apple-subject" },
+        Expires = DateTime.UtcNow.AddMinutes(5),
+    });
 
-        Assert.Null(await Verifier().VerifyAppleAsync(unsigned, Ct));
-    }
-
-    [Fact]
-    public async Task VerifyAppleAsync_Hs256_Null()
+    private static readonly Dictionary<string, Func<string>> Refused = new()
     {
-        var hmac = new SymmetricSecurityKey(new byte[32]) { KeyId = Kid };
+        ["signed by another key under Apple's kid"] = () => Token(OtherKey),
+        ["payload tampered after signing"] = Tampered,
+        ["alg none"] = Unsigned,
+        ["HS256 under Apple's kid"] = () => Token(new SymmetricSecurityKey(new byte[32]) { KeyId = Kid }, SecurityAlgorithms.HmacSha256),
+        ["kid Apple never published"] = () => Token(new RsaSecurityKey(RSA.Create(2048)) { KeyId = "not-published" }),
+        ["another issuer"] = () => Token(issuer: "https://evil.example"),
+        ["another app's audience"] = () => Token(audience: "another.app"),
+        ["expired"] = () => Token(expiresInMinutes: -5),
+    };
 
-        Assert.Null(await Verifier().VerifyAppleAsync(Token(hmac, SecurityAlgorithms.HmacSha256), Ct));
+    [Theory]
+    [InlineData(true, "reader@privaterelay.appleid.com")]
+    [InlineData("true", "reader@privaterelay.appleid.com")]
+    [InlineData(false, null)]
+    [InlineData("false", null)]
+    [InlineData("absent", null)]
+    public async Task VerifyAppleAsync_SignedByApplesKey_NamesTheReaderWithTheEmailOnlyWhenVerified(object emailVerified, string? expected)
+    {
+        var apple = await Verifier().VerifyAppleAsync(Token(emailVerified: emailVerified), Ct);
+
+        Assert.Equal(("apple-subject", expected), (apple?.Subject, apple?.Email));
     }
 
     [Theory]
-    [InlineData("https://evil.example", BundleId, 5)]
-    [InlineData(ProviderTokens.AppleIssuer, "another.app", 5)]
-    [InlineData(ProviderTokens.AppleIssuer, BundleId, -5)]
-    public async Task VerifyAppleAsync_WrongIssuerAudienceOrExpired_Null(string issuer, string audience, int expiresInMinutes)
+    [InlineData("signed by another key under Apple's kid", "SecurityTokenInvalidSignatureException")]
+    [InlineData("payload tampered after signing", "SecurityTokenInvalidSignatureException")]
+    [InlineData("alg none", "SecurityTokenInvalidSignatureException")]
+    [InlineData("HS256 under Apple's kid", "SecurityTokenInvalidSignatureException")]
+    [InlineData("kid Apple never published", "SecurityTokenSignatureKeyNotFoundException")]
+    [InlineData("another issuer", "SecurityTokenInvalidIssuerException")]
+    [InlineData("another app's audience", "SecurityTokenInvalidAudienceException")]
+    [InlineData("expired", "SecurityTokenExpiredException")]
+    public async Task VerifyAppleAsync_ForgedOrMisaddressedToken_RefusedForThatReason(string token, string reason)
     {
-        Assert.Null(await Verifier().VerifyAppleAsync(Token(issuer: issuer, audience: audience, expiresInMinutes: expiresInMinutes), Ct));
+        var logger = new CapturingLogger<ProviderTokens>();
+
+        Assert.Null(await Verifier(logger: logger).VerifyAppleAsync(Refused[token](), Ct));
+        Assert.Equal($"Apple sign-in refused: {reason}", Assert.Single(logger.Entries).Message);
     }
 
-    [Fact]
-    public async Task VerifyAppleAsync_UnknownKid_Null()
+    // Unreadable input is a refusal, never an exception a caller would turn into a 500.
+    [Theory]
+    [InlineData("not a jwt", "unreadable identity token")]
+    [InlineData("", "unreadable identity token")]
+    [InlineData("!!!.@@@.###", "unreadable identity token")]
+    [InlineData("a.b.c.d.e", "unreadable identity token")]
+    [InlineData("!!!.@@@.###.$$$.%%%", "unreadable identity token")]
+    [InlineData("eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.!!!.###.$$$.%%%", "unreadable identity token")]
+    [InlineData("eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.YQ.YQ.YQ.YQ", "encrypted identity token")]
+    public async Task VerifyAppleAsync_MalformedOrEncryptedToken_RefusedNotAnError(string identityToken, string reason)
     {
-        var stranger = new RsaSecurityKey(RSA.Create(2048)) { KeyId = "not-published" };
+        var logger = new CapturingLogger<ProviderTokens>();
 
-        Assert.Null(await Verifier().VerifyAppleAsync(Token(stranger), Ct));
+        Assert.Null(await Verifier(logger: logger).VerifyAppleAsync(identityToken, Ct));
+        Assert.Contains(reason, Assert.Single(logger.Entries).Message);
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public async Task VerifyAppleAsync_NoBundleId_NullWithoutFetchingKeys(string? bundleId)
+    public async Task VerifyAppleAsync_NoBundleIdConfigured_RefusedWithoutFetchingKeys(string? bundleId)
     {
         var fetches = 0;
         var keys = Keys(() => { fetches++; return Jwks(AppleKey); });
@@ -140,132 +156,61 @@ public class AppleIdentityTokenTests
     }
 
     [Fact]
-    public async Task VerifyAppleAsync_NotAJwt_Null()
+    public async Task GetAsync_KnownKid_FetchedOnceThenAgainOnlyPastMaxAge()
     {
-        Assert.Null(await Verifier().VerifyAppleAsync("not a jwt", Ct));
-    }
-
-    [Fact]
-    public async Task GetAsync_KnownKid_FetchesOnce()
-    {
+        var clock = new MonotonicClock();
         var fetches = 0;
-        var keys = Keys(() => { fetches++; return Jwks(AppleKey); });
+        var keys = Keys(() => { fetches++; return Jwks(AppleKey); }, clock);
 
         await keys.GetAsync(Kid, null, Ct);
         await keys.GetAsync(Kid, null, Ct);
-
         Assert.Equal(1, fetches);
-    }
-
-    [Fact]
-    public async Task GetAsync_UnknownKid_RefetchesAtMostOncePerInterval()
-    {
-        var clock = new MonotonicClock();
-        var fetches = 0;
-        var keys = Keys(() => { fetches++; return Jwks(AppleKey); }, clock);
-
-        await keys.GetAsync("rotated", null, Ct);
-        await keys.GetAsync("rotated", null, Ct);
-        clock.Advance(AppleSigningKeys.MinRefreshInterval);
-        await keys.GetAsync("rotated", null, Ct);
-
-        Assert.Equal(2, fetches);
-    }
-
-    [Fact]
-    public async Task GetAsync_FetchFails_KeepsCachedKeys()
-    {
-        var clock = new MonotonicClock();
-        var fail = false;
-        var keys = Keys(() => fail ? throw new HttpRequestException("down") : Jwks(AppleKey), clock);
-        await keys.GetAsync(Kid, null, Ct);
-
-        fail = true;
-        clock.Advance(AppleSigningKeys.MinRefreshInterval);
-
-        Assert.Equal(Kid, Assert.Single(await keys.GetAsync("rotated", null, Ct)).KeyId);
-    }
-
-    [Theory]
-    [InlineData("a.b.c.d.e")]
-    [InlineData("!!!.@@@.###.$$$.%%%")]
-    [InlineData("eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.!!!.###.$$$.%%%")]
-    [InlineData("eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.YQ.YQ.YQ.YQ")]
-    [InlineData("!!!.@@@.###")]
-    [InlineData("")]
-    public async Task VerifyAppleAsync_MalformedOrEncryptedToken_NullNotAnError(string identityToken)
-    {
-        Assert.Null(await Verifier().VerifyAppleAsync(identityToken, Ct));
-    }
-
-    [Fact]
-    public async Task GetAsync_KeySetWithNoUsableKeys_KeepsCachedKeys()
-    {
-        var clock = new MonotonicClock();
-        var empty = false;
-        var keys = Keys(() => empty ? """{"keys":[]}""" : Jwks(AppleKey), clock);
-        await keys.GetAsync(Kid, null, Ct);
-
-        empty = true;
-        clock.Advance(AppleSigningKeys.MinRefreshInterval);
-
-        Assert.Equal(Kid, Assert.Single(await keys.GetAsync("rotated", null, Ct)).KeyId);
-    }
-
-    [Fact]
-    public async Task GetAsync_KeysOlderThanMaxAge_Refetched()
-    {
-        var clock = new MonotonicClock();
-        var fetches = 0;
-        var keys = Keys(() => { fetches++; return Jwks(AppleKey); }, clock);
-        await keys.GetAsync(Kid, null, Ct);
 
         clock.Advance(AppleSigningKeys.MaxAge);
         await keys.GetAsync(Kid, null, Ct);
-
         Assert.Equal(2, fetches);
     }
 
-    [Fact]
-    public async Task GetAsync_FetchFailed_RetriedOnlyAfterTheInterval()
+    // A rotated kid (the fetch answers) and an empty cache whose fetch fails: neither hammers Apple.
+    [Theory]
+    [InlineData("rotated", false)]
+    [InlineData(Kid, true)]
+    public async Task GetAsync_KeyMissingFromTheCache_RefetchedAtMostOncePerInterval(string kid, bool fetchFails)
     {
         var clock = new MonotonicClock();
         var fetches = 0;
-        var keys = Keys(() => { fetches++; throw new HttpRequestException("down"); }, clock);
+        var keys = Keys(() => { fetches++; return fetchFails ? throw new HttpRequestException("down") : Jwks(AppleKey); }, clock);
 
-        Assert.Empty(await keys.GetAsync(Kid, null, Ct));
-        Assert.Empty(await keys.GetAsync(Kid, null, Ct));
+        var first = await keys.GetAsync(kid, null, Ct);
+        await keys.GetAsync(kid, null, Ct);
+        Assert.Equal(1, fetches);
+        Assert.Equal(fetchFails ? 0 : 1, first.Count);
+
         clock.Advance(AppleSigningKeys.MinRefreshInterval);
-        await keys.GetAsync(Kid, null, Ct);
-
+        await keys.GetAsync(kid, null, Ct);
         Assert.Equal(2, fetches);
     }
 
-    [Fact]
-    public async Task GetAsync_CallerCancelsAfterwards_FetchUsedItsOwnToken()
-    {
-        using var caller = new CancellationTokenSource();
-        CancellationToken fetchToken = default;
-        var keys = new AppleSigningKeys(t => { fetchToken = t; return Task.FromResult(Jwks(AppleKey)); });
-
-        await keys.GetAsync(Kid, null, caller.Token);
-        caller.Cancel();
-
-        Assert.True(fetchToken.CanBeCanceled);
-        Assert.False(fetchToken.IsCancellationRequested);
-    }
-
+    // A thrown fetch and a key set with no usable keys are both failures: the cache is kept, but not forever.
     [Theory]
-    [InlineData(true, "reader@privaterelay.appleid.com")]
-    [InlineData("true", "reader@privaterelay.appleid.com")]
-    [InlineData(false, null)]
-    [InlineData("false", null)]
-    [InlineData("absent", null)]
-    public async Task VerifyAppleAsync_EmailVerified_EmailOnlyWhenTrue(object emailVerified, string? expected)
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GetAsync_RefreshFails_KeepsCachedKeysUntilMaxStaleness(bool fetchThrows)
     {
-        var apple = await Verifier().VerifyAppleAsync(Token(emailVerified: emailVerified), Ct);
+        var clock = new MonotonicClock();
+        var failing = false;
+        var keys = Keys(() => !failing ? Jwks(AppleKey) : fetchThrows ? throw new HttpRequestException("down") : """{"keys":[]}""", clock);
+        await keys.GetAsync(Kid, null, Ct);
 
-        Assert.Equal(("apple-subject", expected), (apple?.Subject, apple?.Email));
+        failing = true;
+        clock.Advance(AppleSigningKeys.MinRefreshInterval);
+        Assert.Equal(Kid, Assert.Single(await keys.GetAsync("rotated", null, Ct)).KeyId);
+
+        clock.Advance(AppleSigningKeys.MaxAge);
+        Assert.Equal(Kid, Assert.Single(await keys.GetAsync(Kid, null, Ct)).KeyId);
+
+        clock.Advance(AppleSigningKeys.MaxStaleness);
+        Assert.Empty(await keys.GetAsync(Kid, null, Ct));
     }
 
     [Fact]
@@ -289,18 +234,16 @@ public class AppleIdentityTokenTests
     }
 
     [Fact]
-    public async Task GetAsync_NoSuccessfulRefreshPastMaxStaleness_NoKeys()
+    public async Task GetAsync_CallerCancelsAfterwards_FetchUsedItsOwnToken()
     {
-        var clock = new MonotonicClock();
-        var fail = false;
-        var keys = Keys(() => fail ? throw new HttpRequestException("down") : Jwks(AppleKey), clock);
-        await keys.GetAsync(Kid, null, Ct);
+        using var caller = new CancellationTokenSource();
+        CancellationToken fetchToken = default;
+        var keys = new AppleSigningKeys(t => { fetchToken = t; return Task.FromResult(Jwks(AppleKey)); });
 
-        fail = true;
-        clock.Advance(AppleSigningKeys.MaxAge);
-        Assert.Single(await keys.GetAsync(Kid, null, Ct));
-        clock.Advance(AppleSigningKeys.MaxStaleness);
+        await keys.GetAsync(Kid, null, caller.Token);
+        caller.Cancel();
 
-        Assert.Empty(await keys.GetAsync(Kid, null, Ct));
+        Assert.True(fetchToken.CanBeCanceled);
+        Assert.False(fetchToken.IsCancellationRequested);
     }
 }

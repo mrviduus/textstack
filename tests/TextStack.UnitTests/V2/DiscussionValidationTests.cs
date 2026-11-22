@@ -1,148 +1,153 @@
 using Application.Discussion;
 using Application.Sync;
 using Contracts.V2;
+using NSubstitute;
 using static Contracts.V2.SyncLimits;
 using static TextStack.UnitTests.V2.V2Fakes;
 
 namespace TextStack.UnitTests.V2;
 
-/// <summary>What a share and a checkpoint refuse with 400 <c>invalid_payload</c>, and what they let through to the repository.</summary>
+/// <summary>
+/// A reader shares a chapter with the assistant, or saves a checkpoint of the talk: what is refused with 400
+/// <c>invalid_payload</c> (naming the field and why), and what is let through to the repository.
+/// </summary>
 public class DiscussionValidationTests
 {
     private static readonly Guid User = Guid.NewGuid();
     private static readonly Guid BookId = Guid.NewGuid();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly DiscussionSyncService _service = new(Library(User, BookId, (Guid?)null), Shares(), Checkpoints());
+    private readonly ISharedChapterRepository _shares = Shares();
+    private readonly ICheckpointRepository _checkpoints = Checkpoints();
+    private readonly DiscussionSyncService _service;
 
-    /// <summary>The refused field, or null when the request got past validation.</summary>
-    private static async Task<string?> FieldOf(Task<SyncResult> pending) => (await pending).Body is V2Error { Code: SyncCodes.InvalidPayload } e ? e.Field : null;
-
-    private Task<string?> Share(ShareChapterRequest r) => FieldOf(_service.ShareAsync(User, BookId, r, Ct));
-
-    private Task<string?> Save(CheckpointRequest r) => FieldOf(_service.SaveCheckpointAsync(User, BookId, r, Ct));
+    public DiscussionValidationTests() => _service = new(Library(User, BookId, (Guid?)null), _shares, _checkpoints);
 
     private static string Text(int length) => new('x', length);
 
+    // The cap is in UTF-8 bytes: four-byte emoji to exactly the cap fit, one byte more does not.
+    private static readonly string EmojiAtCap = string.Concat(Enumerable.Repeat("😀", MaxChapterTextBytes / 4));
+
+    private static readonly Dictionary<string, Func<ShareChapterRequest>> BadShares = new()
+    {
+        ["no operationId"] = () => NewShare() with { OperationId = Guid.Empty },
+        ["blank chapterKey"] = () => NewShare() with { ChapterKey = " " },
+        ["long chapterKey"] = () => NewShare() with { ChapterKey = Text(MaxChapterKey + 1) },
+        ["long chapterTitle"] = () => NewShare() with { ChapterTitle = Text(MaxChapterTitle + 1) },
+        ["emoji text one byte over"] = () => NewShare() with { ChapterText = EmojiAtCap + "x" },
+        ["text with a NUL"] = () => NewShare() with { ChapterText = "a\0b" },
+        ["no notes"] = () => NewShare() with { Notes = null },
+        ["notes an object"] = () => NewShare() with { Notes = JsonOf("""{"text":"night"}""") },
+        ["notes repeat a member"] = () => NewShare() with { Notes = JsonOf("""[{"a":1,"a":2}]""") },
+        ["notes with a NUL"] = () => NewShare() with { Notes = JsonOf("""["\u0000"]""") },
+        ["notes non-finite"] = () => NewShare() with { Notes = JsonOf("[1e400]") },
+        ["notes nested non-finite"] = () => NewShare() with { Notes = JsonOf("""[{"rect":{"x":-1e400}}]""") },
+        ["notes one byte over"] = () => NewShare() with { Notes = JsonOf("[\"" + Text(MaxNotesBytes - 3) + "\"]") },
+        ["long language"] = () => NewShare() with { Language = Text(MaxLanguage + 1) },
+    };
+
+    private static readonly Dictionary<string, Func<CheckpointRequest>> BadCheckpoints = new()
+    {
+        ["no operationId"] = () => NewCheckpoint() with { OperationId = Guid.Empty },
+        ["blank topic"] = () => NewCheckpoint() with { Topic = " " },
+        ["long topic"] = () => NewCheckpoint() with { Topic = Text(MaxTopic + 1) },
+        ["all sections empty"] = () => NewCheckpoint() with { ReaderThoughts = [], OpenQuestions = [] },
+        ["a section missing"] = () => NewCheckpoint() with { ReaderThoughts = null },
+        ["a section over its items"] = () => NewCheckpoint() with { Conclusions = Enumerable.Repeat("c", MaxSectionItems + 1).ToArray() },
+        ["a blank item"] = () => NewCheckpoint() with { Conclusions = ["ok", " "] },
+        ["a null item"] = () => NewCheckpoint() with { Conclusions = ["ok", null] },
+        ["an item with a NUL"] = () => NewCheckpoint() with { Conclusions = ["ok", "a\0b"] },
+        ["sections over their bytes"] = () => NewCheckpoint() with
+        {
+            ReaderThoughts = [Text(MaxSectionsBytes / 2)],
+            Conclusions = [Text(MaxSectionsBytes / 2 + 1)],
+            OpenQuestions = [],
+        },
+        ["no language"] = () => NewCheckpoint() with { Language = null },
+        ["long language"] = () => NewCheckpoint() with { Language = Text(MaxLanguage + 1) },
+        ["blank chapterKey"] = () => NewCheckpoint() with { ChapterKey = " " },
+        ["share without its chapter"] = () => NewCheckpoint(Guid.NewGuid()) with { ChapterKey = null },
+    };
+
     [Fact]
-    public async Task ShareAsync_EveryFieldAtItsCap_PassesValidation() =>
-        Assert.Null(await Share(NewShare() with
+    public async Task ShareAsync_EveryFieldAtItsCap_ReachesTheRepository()
+    {
+        var atCaps = NewShare() with
         {
             ChapterKey = Text(MaxChapterKey),
             ChapterTitle = Text(MaxChapterTitle),
             ChapterText = Text(MaxChapterTextBytes),
             Notes = JsonOf("[\"" + Text(MaxNotesBytes - 4) + "\"]"),
             Language = Text(MaxLanguage),
-        }));
+        };
 
-    [Fact]
-    public async Task ShareAsync_NoOperationId_IsRefused() => Assert.Equal("operationId", await Share(NewShare() with { OperationId = Guid.Empty }));
+        Assert.IsNotType<V2Error>((await _service.ShareAsync(User, BookId, atCaps, Ct)).Body);
+        Assert.IsNotType<V2Error>((await _service.ShareAsync(User, BookId, NewShare() with { ChapterText = EmojiAtCap }, Ct)).Body);
+        await _shares.ReceivedWithAnyArgs(2).ShareAsync(default!, Ct);
+    }
 
-    [Fact]
-    public async Task ShareAsync_BlankOrLongChapterKey_IsRefused()
+    [Theory]
+    [InlineData("no operationId", "operationId", "must be a client-minted UUID")]
+    [InlineData("blank chapterKey", "chapterKey", "chapterKey is required")]
+    [InlineData("long chapterKey", "chapterKey", "is at most 200 characters")]
+    [InlineData("long chapterTitle", "chapterTitle", "is at most 500 characters")]
+    [InlineData("emoji text one byte over", "chapterText", "is at most 200 KB")]
+    [InlineData("text with a NUL", "chapterText", "holds a NUL")]
+    [InlineData("no notes", "notes", "must be a JSON array")]
+    [InlineData("notes an object", "notes", "must be a JSON array")]
+    [InlineData("notes repeat a member", "notes", "repeats a member name")]
+    [InlineData("notes with a NUL", "notes", "holds a NUL")]
+    [InlineData("notes non-finite", "notes", "out-of-range number")]
+    [InlineData("notes nested non-finite", "notes", "out-of-range number")]
+    [InlineData("notes one byte over", "notes", "is at most 64 KB")]
+    [InlineData("long language", "language", "is at most 16 characters")]
+    public async Task ShareAsync_InvalidPayload_RefusedNamingFieldAndWhyBeforeAnyWrite(string share, string field, string why)
     {
-        Assert.Equal("chapterKey", await Share(NewShare() with { ChapterKey = " " }));
-        Assert.Equal("chapterKey", await Share(NewShare() with { ChapterKey = Text(MaxChapterKey + 1) }));
+        var error = Error(await _service.ShareAsync(User, BookId, BadShares[share](), Ct));
+
+        Assert.Equal((SyncCodes.InvalidPayload, field), (error.Code, error.Field));
+        Assert.Contains(why, error.Message);
+        await _shares.DidNotReceiveWithAnyArgs().ShareAsync(default!, Ct);
     }
 
     [Fact]
-    public async Task ShareAsync_LongChapterTitle_IsRefused() => Assert.Equal("chapterTitle", await Share(NewShare() with { ChapterTitle = Text(MaxChapterTitle + 1) }));
-
-    // The cap is in UTF-8 bytes: four-byte emoji to exactly the cap fit, one byte more does not.
-    [Fact]
-    public async Task ShareAsync_ChapterTextOfEmojiAtItsBytesAndOneOver_PassesThenIsRefused()
+    public async Task SaveCheckpointAsync_OneSectionOrEverySectionAtItsCap_ReachesTheRepository()
     {
-        var atCap = string.Concat(Enumerable.Repeat("😀", MaxChapterTextBytes / 4));
-
-        Assert.Null(await Share(NewShare() with { ChapterText = atCap }));
-        Assert.Equal("chapterText", await Share(NewShare() with { ChapterText = atCap + "x" }));
-    }
-
-    [Fact]
-    public async Task ShareAsync_ChapterTextWithANul_IsRefused() => Assert.Equal("chapterText", await Share(NewShare() with { ChapterText = "a\0b" }));
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("""{"text":"night"}""")]
-    [InlineData("""[{"a":1,"a":2}]""")]
-    [InlineData("""["\u0000"]""")]
-    [InlineData("[1e400]")]
-    [InlineData("""[{"rect":{"x":-1e400}}]""")]
-    public async Task ShareAsync_NotesMissingNotAnArrayRepeatingAMemberUnstorableOrNonFinite_AreRefused(string? notes) =>
-        Assert.Equal("notes", await Share(NewShare() with { Notes = notes is null ? null : JsonOf(notes) }));
-
-    [Fact]
-    public async Task ShareAsync_NotesOneByteOverTheirCap_IsRefused() =>
-        Assert.Equal("notes", await Share(NewShare() with { Notes = JsonOf("[\"" + Text(MaxNotesBytes - 3) + "\"]") }));
-
-    [Fact]
-    public async Task ShareAsync_LongLanguage_IsRefused() => Assert.Equal("language", await Share(NewShare() with { Language = Text(MaxLanguage + 1) }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_OneSectionWithAnItem_PassesValidation() =>
-        Assert.Null(await Save(NewCheckpoint() with { OpenQuestions = [] }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_AllFourSectionsEmpty_IsRefused() =>
-        Assert.Equal("readerThoughts", await Save(NewCheckpoint() with { ReaderThoughts = [], OpenQuestions = [] }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_AMissingSection_IsRefused() => Assert.Equal("readerThoughts", await Save(NewCheckpoint() with { ReaderThoughts = null }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_SectionOverItsItems_IsRefused() =>
-        Assert.Equal("conclusions", await Save(NewCheckpoint() with { Conclusions = Enumerable.Repeat("c", MaxSectionItems + 1).ToArray() }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_SectionAtItsItems_PassesValidation() =>
-        Assert.Null(await Save(NewCheckpoint() with { Conclusions = Enumerable.Repeat("c", MaxSectionItems).ToArray() }));
-
-    [Theory]
-    [InlineData(" ")]
-    [InlineData(null)]
-    [InlineData("a\0b")]
-    public async Task SaveCheckpointAsync_BlankNullOrUnstorableItem_IsRefusedNamingThatItem(string? item) =>
-        Assert.Equal("conclusions[1]", await Save(NewCheckpoint() with { Conclusions = ["ok", item] }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_SectionsTogetherOverTheirBytes_IsRefused() =>
-        Assert.Equal("readerThoughts", await Save(NewCheckpoint() with
-        {
-            ReaderThoughts = [Text(MaxSectionsBytes / 2)],
-            Conclusions = [Text(MaxSectionsBytes / 2 + 1)],
-            OpenQuestions = [],
-        }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_SectionsTogetherAtTheirBytes_PassValidation() =>
-        Assert.Null(await Save(NewCheckpoint() with
+        var oneSection = NewCheckpoint() with { OpenQuestions = [] };
+        var itemsAtCap = NewCheckpoint() with { Conclusions = Enumerable.Repeat("c", MaxSectionItems).ToArray() };
+        var bytesAtCap = NewCheckpoint() with
         {
             ReaderThoughts = [Text(MaxSectionsBytes / 2)],
             Conclusions = [Text(MaxSectionsBytes / 2)],
             OpenQuestions = [],
-        }));
+        };
 
-    [Fact]
-    public async Task SaveCheckpointAsync_BlankOrLongTopic_IsRefused()
-    {
-        Assert.Equal("topic", await Save(NewCheckpoint() with { Topic = " " }));
-        Assert.Equal("topic", await Save(NewCheckpoint() with { Topic = Text(MaxTopic + 1) }));
+        foreach (var checkpoint in (CheckpointRequest[])[oneSection, itemsAtCap, bytesAtCap])
+            Assert.IsNotType<V2Error>((await _service.SaveCheckpointAsync(User, BookId, checkpoint, Ct)).Body);
+        await _checkpoints.ReceivedWithAnyArgs(3).AppendAsync(default!, Ct);
     }
 
-    [Fact]
-    public async Task SaveCheckpointAsync_MissingOrLongLanguage_IsRefused()
+    [Theory]
+    [InlineData("no operationId", "operationId", "must be a client-minted UUID")]
+    [InlineData("blank topic", "topic", "topic is required")]
+    [InlineData("long topic", "topic", "is at most 500 characters")]
+    [InlineData("all sections empty", "readerThoughts", "At least one section must have an item")]
+    [InlineData("a section missing", "readerThoughts", "readerThoughts is required")]
+    [InlineData("a section over its items", "conclusions", "has at most 50 items")]
+    [InlineData("a blank item", "conclusions[1]", "conclusions[1] is required")]
+    [InlineData("a null item", "conclusions[1]", "conclusions[1] is required")]
+    [InlineData("an item with a NUL", "conclusions[1]", "holds a NUL")]
+    [InlineData("sections over their bytes", "readerThoughts", "together are at most 32 KB")]
+    [InlineData("no language", "language", "language is required")]
+    [InlineData("long language", "language", "is at most 16 characters")]
+    [InlineData("blank chapterKey", "chapterKey", "chapterKey is required")]
+    [InlineData("share without its chapter", "chapterKey", "required with sharedChapterId")]
+    public async Task SaveCheckpointAsync_InvalidPayload_RefusedNamingFieldAndWhyBeforeAnyWrite(string checkpoint, string field, string why)
     {
-        Assert.Equal("language", await Save(NewCheckpoint() with { Language = null }));
-        Assert.Equal("language", await Save(NewCheckpoint() with { Language = Text(MaxLanguage + 1) }));
+        var error = Error(await _service.SaveCheckpointAsync(User, BookId, BadCheckpoints[checkpoint](), Ct));
+
+        Assert.Equal((SyncCodes.InvalidPayload, field), (error.Code, error.Field));
+        Assert.Contains(why, error.Message);
+        await _checkpoints.DidNotReceiveWithAnyArgs().AppendAsync(default!, Ct);
     }
-
-    [Fact]
-    public async Task SaveCheckpointAsync_BlankChapterKey_IsRefused() => Assert.Equal("chapterKey", await Save(NewCheckpoint() with { ChapterKey = " " }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_SharedChapterIdWithoutChapterKey_IsRefusedNamingChapterKey() =>
-        Assert.Equal("chapterKey", await Save(NewCheckpoint(Guid.NewGuid()) with { ChapterKey = null }));
-
-    [Fact]
-    public async Task SaveCheckpointAsync_NoOperationId_IsRefused() => Assert.Equal("operationId", await Save(NewCheckpoint() with { OperationId = Guid.Empty }));
 }
