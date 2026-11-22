@@ -67,9 +67,9 @@ public class DataAccessRegistrationTests
 
     [Theory]
     [InlineData("new", "old", "new")]
-    [InlineData(null, "old", "old")] // fallback: drop after #1440 2b
+    [InlineData(null, "old", null)] // the old key is no longer read
     [InlineData(null, null, null)]
-    public void AppConnectionString_DefaultThenOldKey_ReadsNewFirst(string? fresh, string? old, string? expected)
+    public void AppConnectionString_OnlyDefault_OldKeyIgnored(string? fresh, string? old, string? expected)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = fresh, ["ConnectionStrings:V2"] = old })
