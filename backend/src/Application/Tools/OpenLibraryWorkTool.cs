@@ -48,7 +48,7 @@ public sealed class OpenLibraryWorkTool : ITool
         if (key is null)
             return NoResult(rawKey, "Malformed Open Library work key.");
 
-        var client = ctx.Services.GetRequiredService<IHttpClientFactory>().CreateClient();
+        var client = ctx.Services.GetRequiredService<IHttpClientFactory>().CreateClient(OpenLibrarySearchTool.HttpClientName);
         client.Timeout = Timeout;
         client.DefaultRequestHeaders.UserAgent.ParseAdd("TextStack/1.0 (+https://textstack.app)");
 

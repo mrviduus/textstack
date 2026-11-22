@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
+using Polly;
 
 namespace Application.Identity;
 
@@ -20,7 +22,13 @@ public sealed class AppleSigningKeys(Func<CancellationToken, Task<string>> fetch
     public static readonly TimeSpan MaxStaleness = TimeSpan.FromDays(7);
     public static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(10);
 
-    private static readonly HttpClient Http = new();
+    // A GET, so retrying is safe. Sized to fit inside FetchTimeout (3 x 3s attempts + short delays),
+    // which still bounds the whole fetch; refresh-at-most-once-per-MinRefreshInterval is unchanged.
+    private static readonly HttpClient Http = new(new ResilienceHandler(new ResiliencePipelineBuilder<HttpResponseMessage>()
+        .AddRetry(new HttpRetryStrategyOptions { MaxRetryAttempts = 2, Delay = TimeSpan.FromMilliseconds(500) })
+        .AddTimeout(TimeSpan.FromSeconds(3))
+        .Build())
+    { InnerHandler = new SocketsHttpHandler() });
 
     /// <summary>The keys Apple publishes; shared so every verifier, legacy or V2, uses one cache.</summary>
     public static AppleSigningKeys Shared { get; } = new(ct => Http.GetStringAsync(JwksUrl, ct));

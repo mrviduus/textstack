@@ -31,7 +31,8 @@ public static partial class ServiceCollectionExtensions
             options.BaseUrl = configuration["App:BaseUrl"] ?? "https://textstack.app";
             options.AdminAlertEmail = configuration["Resend:AdminAlertEmail"] ?? "";
         });
-        services.AddHttpClient<IEmailService, ResendEmailService>();
+        // No retries: a POST retried without an idempotency key sends the email twice.
+        services.AddHttpClient<IEmailService, ResendEmailService>(http => http.Timeout = TimeSpan.FromSeconds(10));
 
         // HttpClient for translation proxy
         services.AddHttpClient();
