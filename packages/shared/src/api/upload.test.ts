@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { initApi } from './client'
-import { formatOfName, uploadV2File, V2UploadNotOnServer } from './v2Upload'
-import type { Call } from './__tests__/fakeV2Api'
+import { formatOfName, uploadFile, UploadNotOnServer } from './upload'
+import type { Call } from './__tests__/fakeSyncApi'
 
 const API = 'http://api'
 
@@ -25,7 +25,7 @@ describe('the shared V2 upload', () => {
     const calls: Call[] = []
     routes(calls)
     const cancelled = Object.assign(new Error('Upload cancelled'), { aborted: true })
-    await expect(uploadV2File({ name: 'a.epub', size: 3 }, 3, io(async () => { throw cancelled }))).rejects.toBe(cancelled)
+    await expect(uploadFile({ name: 'a.epub', size: 3 }, 3, io(async () => { throw cancelled }))).rejects.toBe(cancelled)
     const imported = calls.find((c) => c.method === 'PUT')!
     expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: imported.path })
   })
@@ -33,7 +33,7 @@ describe('the shared V2 upload', () => {
   it('uploadV2File_NullRejection_RethrowsItUnmasked', async () => {
     const calls: Call[] = []
     routes(calls)
-    await expect(uploadV2File({ name: 'a.epub', size: 3 }, 3, io(() => Promise.reject(null)))).rejects.toBeNull()
+    await expect(uploadFile({ name: 'a.epub', size: 3 }, 3, io(() => Promise.reject(null)))).rejects.toBeNull()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
   })
 
@@ -41,7 +41,7 @@ describe('the shared V2 upload', () => {
     const calls: Call[] = []
     routes(calls)
     const known = { bookId: 'b1', fileId: 'f1' }
-    await expect(uploadV2File({ name: 'a.epub', size: 3 }, 3, { ...io(async () => {}), known })).rejects.toBeInstanceOf(V2UploadNotOnServer)
+    await expect(uploadFile({ name: 'a.epub', size: 3 }, 3, { ...io(async () => {}), known })).rejects.toBeInstanceOf(UploadNotOnServer)
     expect(calls.map((c) => c.method)).toEqual(['GET'])
   })
 
@@ -52,8 +52,8 @@ describe('the shared V2 upload', () => {
       const status = url.includes('/by-sha256/') ? 404 : 200
       return { ok: status < 300, status, text: async () => (status === 404 ? '' : '{}') }
     }))
-    await uploadV2File({ name: 'a.epub', size: 3, format: 'mobi' }, 3, io(async () => {}))
-    await uploadV2File({ name: 'b.FB2', size: 3 }, 3, io(async () => {}))
+    await uploadFile({ name: 'a.epub', size: 3, format: 'mobi' }, 3, io(async () => {}))
+    await uploadFile({ name: 'b.FB2', size: 3 }, 3, io(async () => {}))
     expect(bodies.map((b) => b.file.format)).toEqual(['mobi', 'fb2'])
     expect(formatOfName('x.fbz')).toBe('fb2')
     expect(formatOfName('x.pdf')).toBe('pdf')
@@ -75,7 +75,7 @@ describe('the shared V2 upload', () => {
       const calls: { method: string; path: string; body: unknown }[] = []
       record(calls)
       const meta = { title: 'Moby-Dick', author: 'Herman Melville', lang: 'en', description: 'A whale.' }
-      await uploadV2File({ name: 'moby_dick (1).epub', size: 3 }, 3, { ...io(async () => {}), describe: async () => ({ meta, cover: JPEG }) })
+      await uploadFile({ name: 'moby_dick (1).epub', size: 3 }, 3, { ...io(async () => {}), describe: async () => ({ meta, cover: JPEG }) })
       const imported = calls.find((c) => c.method === 'PUT' && /\/books\/[^/]+$/.test(c.path))!
       expect(imported.body).toMatchObject({ title: 'Moby-Dick', author: 'Herman Melville', language: 'en', description: 'A whale.' })
       const complete = calls.findIndex((c) => c.path.endsWith('/content'))
@@ -88,7 +88,7 @@ describe('the shared V2 upload', () => {
       for (const describe of [async () => { throw new Error('no page') }, async () => null, async () => ({ meta: null, cover: null })]) {
         const calls: { method: string; path: string; body: unknown }[] = []
         record(calls)
-        await uploadV2File({ name: 'moby_dick (1).epub', size: 3 }, 3, { ...io(async () => {}), describe })
+        await uploadFile({ name: 'moby_dick (1).epub', size: 3 }, 3, { ...io(async () => {}), describe })
         const imported = calls.find((c) => c.method === 'PUT' && /\/books\/[^/]+$/.test(c.path))!
         expect(imported.body).toEqual(expect.objectContaining({ title: 'moby dick' }))
         expect(imported.body).not.toHaveProperty('author')

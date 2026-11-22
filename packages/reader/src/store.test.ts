@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { isFractionOnly } from '../../shared/src/reader/fractionPosition'
-import { normalisedHighlight, pageEntry } from '../../shared/src/reader/v2PageEntry'
+import { normalisedHighlight, pageEntry } from '../../shared/src/reader/pageEntry'
 import { emptyEntry, entryFor, foldText, quoteOf, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 import { uuidV4 } from './uuid.mjs'
 

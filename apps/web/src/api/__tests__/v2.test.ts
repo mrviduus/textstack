@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  startV2Probe, v2Status, resetV2ForTests, uploadV2Book, V2UploadError, saveV2Progress, readV2Progress,
+  startV2Probe, v2Status, resetV2ForTests, uploadV2Book, FileUploadError, saveV2Progress, readV2Progress,
   pullV2Books, getV2UserBooks, getV2UserBook, v2Store, completeV2Book, uncompleteV2Book, v2Chapters, rememberV2State, fetchV2FileBytes,
 } from '../v2'
 import { getUserBook, getUserBookFileUrl, bulkFinishUserBooks } from '../userBooks'
-import { fakeApi, asFake, V2_ON, book, file, feed, conflict, state, position, resetMidCall, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi, asFake, SYNC_ON, book, file, feed, conflict, state, position, resetMidCall, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 // The reader page is not in jsdom: no details read, as when it fails.
 vi.mock('../../lib/describeBook', () => ({ describeBook: async () => null }))
 
@@ -16,7 +16,7 @@ afterEach(() => {
 
 describe('the V2 probe', () => {
   it('turns V2 on with the server part size on 200, once per app start', async () => {
-    const calls = fakeApi(V2_ON)
+    const calls = fakeApi(SYNC_ON)
     await startV2Probe()
     await startV2Probe()
     expect(await v2Status()).toEqual({ enabled: true, maxPartBytes: 1024 })
@@ -44,7 +44,7 @@ describe('the V2 probe', () => {
 
   it('makes a call before the session bootstrap settles wait for the probe instead of answering off', async () => {
     resetV2ForTests() // a fresh app start: the bootstrap has not settled
-    fakeApi(V2_ON)
+    fakeApi(SYNC_ON)
     const early = v2Status()
     await startV2Probe()
     expect((await early).enabled).toBe(true)
@@ -53,7 +53,7 @@ describe('the V2 probe', () => {
 
 describe('the V2 library', () => {
   beforeEach(async () => {
-    fakeApi(V2_ON)
+    fakeApi(SYNC_ON)
     await startV2Probe()
   })
 
@@ -185,7 +185,7 @@ describe('the V2 upload', () => {
     fakeApi({ [lookup]: [{ status: 404 }], [`PUT /me/v2/books/${B}`]: [{ status: 201, body: book(B, F) }], [content(B, F)]: [conflict('content_mismatch', {}, 422)] })
     const { sent, send } = parts()
     const error = await uploadV2Book(epub(), 5, send).catch((e) => e)
-    expect(error).toBeInstanceOf(V2UploadError)
+    expect(error).toBeInstanceOf(FileUploadError)
     expect(error.code).toBe('content_mismatch')
     expect(sent).toHaveLength(2)
   })
@@ -293,7 +293,7 @@ describe('the V2 reading state', () => {
 
 describe('an answer that outlives a sign-out (v2Store.reset, #1155)', () => {
   beforeEach(async () => {
-    fakeApi(V2_ON)
+    fakeApi(SYNC_ON)
     await startV2Probe()
   })
 

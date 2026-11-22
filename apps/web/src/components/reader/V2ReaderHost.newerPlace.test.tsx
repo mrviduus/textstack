@@ -1,4 +1,4 @@
-import { ApiError, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type ReadingState, type ReadingStateWrite } from '@textstack/shared'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { v2ReaderSyncApi, type V2SyncTarget } from '../../lib/v2ReaderSync'
@@ -11,7 +11,7 @@ import { V2ReaderHost } from './V2ReaderHost'
 const SHA = 'a'.repeat(64)
 const T: V2SyncTarget = { bookId: 'b1', fileId: 'f1', format: 'epub', sha256: SHA, size: 8, name: 'b1.epub' }
 const cfi = (n: number) => `epubcfi(/6/${2 * n + 2}!/4/2/1:0)`
-const state = (revision: number, n: number, at: string): V2ReadingState => ({
+const state = (revision: number, n: number, at: string): ReadingState => ({
   bookId: T.bookId, fileId: T.fileId, currentLocator: { version: 1, scheme: 'epub-cfi', value: cfi(n), quote: `quote ${n}` },
   bookFraction: n / 10, frontierLocator: null, frontierFraction: null, completedAt: null, clientRecordedAt: at, updatedAt: at, revision, resetRevision: null,
 })
@@ -45,7 +45,7 @@ it('firstMoveLosesToAnotherDevicesNewerPlace_OursWrittenOnTheirRevision_TheirsOf
   await fromPage({ type: 'relocate', cfi: cfi(2), index: 2, fraction: 0.2 })
   await fromPage({ type: 'store', key: SHA, json: JSON.stringify({ v: 1, book: { sha256: SHA, size: 8, name: T.name }, position: moved, highlights: [] }) })
 
-  expect(put.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, (c[1] as V2ReadingStateWrite).expectedRevision]))
+  expect(put.mock.calls.map((c) => [(c[1] as ReadingStateWrite).currentLocator.value, (c[1] as ReadingStateWrite).expectedRevision]))
     .toEqual([[cfi(2), 4], [cfi(2), 9]])
   expect(screen.getByRole('status', { name: 'Newer reading place' })).toHaveTextContent('(50%)')
   expect(screen.queryByTestId('v2-not-saved')).toBeNull()

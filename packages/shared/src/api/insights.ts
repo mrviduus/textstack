@@ -1,5 +1,5 @@
 import type { ChapterReviewDto } from '../types/api'
-import { listInsights } from './v2'
+import { listInsights } from './sync'
 
 /**
  * Insights — the conclusions an outside assistant wrote back into a book over MCP.

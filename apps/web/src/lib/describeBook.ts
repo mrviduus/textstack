@@ -3,19 +3,19 @@
 // `readDescribed` takes comes back. Never throws and never blocks an upload past its deadline: null instead.
 // ponytail: deep imports of apps/mobile source, as V2ReaderHost's.
 import { V2_READER_FRAME_PATH } from '../../../../packages/reader/src/framePath.mjs'
-import { readDescribed, type V2Described } from '../../../../packages/reader/src/describe.mjs'
+import { readDescribed, type Described } from '../../../../packages/reader/src/describe.mjs'
 
 /** How long the frame may take to load, parse the file and answer. */
 export const DESCRIBE_MS = 20_000
 
 /** The file's details and cover, or null (no answer in `deadlineMs`, not a book the page reads, any failure). */
-export async function describeBook(file: Blob, deadlineMs = DESCRIBE_MS): Promise<V2Described | null> {
+export async function describeBook(file: Blob, deadlineMs = DESCRIBE_MS): Promise<Described | null> {
   const frame = document.createElement('iframe')
   let onMessage: ((e: MessageEvent) => void) | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const id = crypto.randomUUID()
-    const answer = new Promise<V2Described | null>((done) => {
+    const answer = new Promise<Described | null>((done) => {
       timer = setTimeout(() => done(null), deadlineMs)
       onMessage = (e) => {
         if (e.source !== frame.contentWindow || e.origin !== location.origin || typeof e.data !== 'string') return

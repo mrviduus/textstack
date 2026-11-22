@@ -9,7 +9,7 @@ import {
 } from './offlineDb'
 import { emitDataChange } from './dataEvents'
 import {
-  isPdfAnchor, v2Api, clip, anchorToV2Locator, v2LocatorToAnchor, MAX_SELECTED_TEXT, type V2Annotation, type V2AnnotationWrite,
+  isPdfAnchor, syncApi, clip, anchorToLocator, locatorToAnchor, MAX_SELECTED_TEXT, type Annotation, type AnnotationWrite,
 } from '@textstack/shared'
 import { v2Book, pullFeed, v2Store, resetSince, whileCurrent } from '../api/v2'
 
@@ -54,8 +54,8 @@ export async function replayAllPendingHighlights(): Promise<void> {
 // IndexedDB stays the cache; a highlight's id is its own client uuid and `version` is the V2 revision.
 
 /** A V2 annotation as the reader stores it; null when this reader cannot draw it (an `epub-cfi`, or none). */
-export function fromV2Annotation(a: V2Annotation): StoredHighlight | null {
-  const anchor: HighlightAnchor | null = v2LocatorToAnchor(a.locator)
+export function fromV2Annotation(a: Annotation): StoredHighlight | null {
+  const anchor: HighlightAnchor | null = locatorToAnchor(a.locator)
   if (!anchor) return null
   const chapterId = isPdfAnchor(anchor) ? '' : anchor.chapterId
   return {
@@ -77,17 +77,17 @@ export function fromV2Annotation(a: V2Annotation): StoredHighlight | null {
 
 /**
  * `stored`: the server's row. An edit never moves a highlight (a note or a color), so its locator and
- * file go back unchanged: a migrated anchor may have no offsets, which `anchorToV2Locator` refuses,
+ * file go back unchanged: a migrated anchor may have no offsets, which `anchorToLocator` refuses,
  * and the file may since have been replaced.
  */
-export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRevision: number | null, stored?: V2Annotation): V2AnnotationWrite {
+export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRevision: number | null, stored?: Annotation): AnnotationWrite {
   return {
     expectedRevision,
     bookId: h.userBookId!,
     fileId: stored ? stored.fileId : fileId,
     selectedText: clip(h.selectedText, MAX_SELECTED_TEXT),
     noteText: h.noteText?.trim() ? h.noteText : null,
-    locator: stored ? stored.locator : anchorToV2Locator(h.anchor),
+    locator: stored ? stored.locator : anchorToLocator(h.anchor),
     color: h.color,
   }
 }
@@ -109,7 +109,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     const pull = !pushOnly || !v2Store.pulled.has(bookId)
     if (pull) {
       // ponytail: the feed is per user, filtered here; a per-book list when one exists.
-      const feed = await whileCurrent(pullFeed<V2Annotation>('annotations'), ({ items }) => {
+      const feed = await whileCurrent(pullFeed<Annotation>('annotations'), ({ items }) => {
         for (const a of items) v2Store.annotations.set(a.id, a)
         v2Store.pulled.add(bookId)
       }, reset)
@@ -124,13 +124,13 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     // Every local write below goes through adopt or forget, and every request waits for live():
     // after a reset none happens, and the throw ends the sync (the outer catch).
     const live = () => {
-      if (reset()) throw new v2Api.SessionChangedError()
+      if (reset()) throw new syncApi.SessionChangedError()
     }
     const forget = (id: string) => {
       live()
       return deleteHighlightFromDB(id)
     }
-    const adopt = async (a: V2Annotation) => {
+    const adopt = async (a: Annotation) => {
       live()
       v2Store.annotations.set(a.id, a)
       const row = a.deletedAt ? null : fromV2Annotation(a)
@@ -144,7 +144,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
 
     // A write V2 refuses (an anchor without offsets, #1139) is refused on every replay: an edit of a
     // server row reverts to the server's copy, a local-only create is dropped. Never retried.
-    const refused = async (h: StoredHighlight, stored: V2Annotation | undefined, why: unknown) => {
+    const refused = async (h: StoredHighlight, stored: Annotation | undefined, why: unknown) => {
       console.warn('highlightSync: V2 refuses this highlight write', h.id, why)
       if (stored) await adopt(stored)
       else await forget(h.id)
@@ -157,17 +157,17 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
       const stored = serverById.get(h.id)
       try {
         if (h.deleted || stored?.deletedAt) {
-          if (h.deleted && stored && !stored.deletedAt) await adopt(await v2Api.deleteAnnotation(h.id))
+          if (h.deleted && stored && !stored.deletedAt) await adopt(await syncApi.deleteAnnotation(h.id))
           else await forget(h.id)
         } else {
-          let write: V2AnnotationWrite | undefined
+          let write: AnnotationWrite | undefined
           try { write = toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored) } catch (e) { await refused(h, stored, e) }
-          if (write) await adopt(await v2Api.putAnnotation(h.id, write))
+          if (write) await adopt(await syncApi.putAnnotation(h.id, write))
         }
         changed = true
       } catch (e) {
-        const err = v2Api.v2ErrorOf(e)
-        if ((err?.code === 'stale_revision' || err?.code === 'deleted') && err.current) await adopt(err.current as V2Annotation)
+        const err = syncApi.syncErrorOf(e)
+        if ((err?.code === 'stale_revision' || err?.code === 'deleted') && err.current) await adopt(err.current as Annotation)
         else if (err?.code === 'chapter_not_found' || err?.code === 'not_found') await forget(h.id)
         else if (err?.code === 'invalid_payload') await refused(h, stored, err)
         else continue // stays pending

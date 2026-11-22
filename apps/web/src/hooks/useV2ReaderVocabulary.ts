@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useGuestLimits } from '../context/GuestLimitsContext'
 import { getReaderVocab, saveWord, deleteWord as deleteWordApi, updateWord, type SaveWordRequest, type SaveWordResponse, type VocabWordDto } from '../api/vocabulary'
-import { v2Api } from '@textstack/shared'
+import { syncApi } from '@textstack/shared'
 import { emitDataChange } from '../lib/dataEvents'
 import { translate as translateWord } from '../api/translation'
 import {
@@ -248,7 +248,7 @@ export function useV2ReaderVocabulary(marksLanguage: string | null, targetLang?:
       } catch (e) {
         // V2 refused this entry for good (a deleted word, a reused operation, a bad payload, a book
         // gone): drop it and go on, so it never blocks the saves behind it.
-        const code = v2Api.v2ErrorOf(e)?.code
+        const code = syncApi.syncErrorOf(e)?.code
         if (code === 'deleted' || code === 'operation_conflict' || code === 'invalid_payload' || code === 'book_not_found') {
           console.warn('[vocab] queued save dropped:', code, p.word)
           await deletePendingVocabWord(p.id).catch(() => {})

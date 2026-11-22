@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { V2Popup } from '../../../../../packages/reader/src/wordPopup.mjs'
+import type { Popup } from '../../../../../packages/reader/src/wordPopup.mjs'
 
 // #1270: a word tapped in the V2 reader is saved to the vocabulary as the legacy reader saves it (useReaderVocabulary),
 // and each answer is shown as the legacy reader shows it.
@@ -51,12 +51,12 @@ import { V2ReaderPopups } from './V2ReaderPopups'
 // A V2 card always has its language (the reader marks and fills by it).
 const card = (word: string, extra: object = {}) => ({ id: `id-${word}`, word, stage: 0, translation: null, language: 'en', ...extra })
 const saved = (word: string) => ({ outcome: 'srs', word: card(word), lookupId: null, tapsRemaining: null, pendingId: null, reason: null })
-const popup = (w: string): V2Popup => ({ kind: 'word', index: 0, word: w, sentence: `By the ${w}.`, cfi: null, rect: { x: 400, y: 100, w: 30, h: 10 } })
+const popup = (w: string): Popup => ({ kind: 'word', index: 0, word: w, sentence: `By the ${w}.`, cfi: null, rect: { x: 400, y: 100, w: 30, h: 10 } })
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)) })
 
 function show(w: string, props: { bookId?: string } = { bookId: 'book-1' }) {
   const frame = createRef<HTMLIFrameElement>()
-  const el = (p: V2Popup) => <V2ReaderPopups frame={frame} bookLanguage="en" bookTitle="Walden" onClose={() => {}} {...props} popup={p} />
+  const el = (p: Popup) => <V2ReaderPopups frame={frame} bookLanguage="en" bookTitle="Walden" onClose={() => {}} {...props} popup={p} />
   const first = popup(w)
   const view = render(el(first))
   return { ...view, popup: first, next: (x: string) => view.rerender(el(popup(x))) }

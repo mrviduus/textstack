@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import type { V2Annotation, V2ReadingState } from '../api/v2'
+import type { Annotation, ReadingState } from '../api/sync'
 import {
   annotationHighlight, codePoints, decideServerState, pageNameRefusal, highlightWrite, isUuid, ownAnnotationWrite, ownStateWrite,
   positionWrite, sameJson, spineIndexOf, statePosition, syncableText, type PageHighlight,
-} from './v2LocalSync'
-import { BOOKMARK_COLOR, isBookmark, isPosition } from './v2PageStore'
+} from './localSync'
+import { BOOKMARK_COLOR, isBookmark, isPosition } from './pageStore'
 
 const CFI = 'epubcfi(/6/14!/4/2/1:0)'
 const pos = { cfi: CFI, quote: 'It was a bright cold day', index: 6, fraction: 0.41, at: Date.parse('2026-11-10T10:00:00Z') }
-const state = (extra: Partial<V2ReadingState> = {}): V2ReadingState => ({
+const state = (extra: Partial<ReadingState> = {}): ReadingState => ({
   bookId: 'b', fileId: 'f', currentLocator: { version: 1, scheme: 'epub-cfi', value: CFI, quote: 'It was a bright cold day' },
   bookFraction: 0.41, frontierLocator: null, frontierFraction: null, completedAt: null,
   clientRecordedAt: '2026-11-10T11:00:00.000Z', updatedAt: '2026-11-10T11:00:01Z', revision: 3, resetRevision: null, ...extra,
@@ -16,7 +16,7 @@ const state = (extra: Partial<V2ReadingState> = {}): V2ReadingState => ({
 const hl = (extra: Partial<PageHighlight> = {}): PageHighlight =>
   ({ id: '0b6a2c1e-1111-4222-8333-444455556666', cfi: CFI, index: 6, quote: 'bright', selectedText: 'bright cold', prefix: 'a ', suffix: ' day', color: 'yellow', at: 1, ...extra })
 
-describe('v2LocalSync', () => {
+describe('localSync', () => {
   it('keeps quotation text, source locator and non-visual kind through annotation sync', () => {
     const quote = hl({ color: 'quote', selectedText: 'A quotation to keep.' })
     const write = highlightWrite(quote, 'book', 'file', null)!
@@ -54,7 +54,7 @@ describe('v2LocalSync', () => {
   // #1188: a CBZ page is `page-name`, its entry name and section; never on another format, never by its CFI.
   const cbzPos = { cfi: 'epubcfi(/6/4)', page: 'Vol 1/p02.png', index: 1, fraction: 0.5, at: Date.parse('2026-11-10T10:00:00Z') }
   const pageState = (value: unknown, bookFraction = 0.5) =>
-    state({ currentLocator: { version: 1, scheme: 'page-name', value } as V2ReadingState['currentLocator'], bookFraction })
+    state({ currentLocator: { version: 1, scheme: 'page-name', value } as ReadingState['currentLocator'], bookFraction })
 
   it('positionWrite_CbzPageOnACbz_PageNameWithEntryNameAndIndex', () => {
     expect(positionWrite(cbzPos, 'f', 3, Date.parse('2026-11-10T12:00:00Z'), 'cbz')).toEqual({
@@ -173,12 +173,12 @@ describe('v2LocalSync', () => {
     // pdf-page's value is `{"page":N}`, N a 1-based int (ADR-031): any other shape is no position, on a PDF too.
     for (const value of [3, { page: 0 }, { page: 1.5 }, { page: '3' }, null, {}])
       for (const format of [null, 'pdf'])
-        expect(statePosition(state({ currentLocator: { version: 1, scheme: 'pdf-page', value } as V2ReadingState['currentLocator'] }), format), `${JSON.stringify(value)} ${format}`).toBeNull()
+        expect(statePosition(state({ currentLocator: { version: 1, scheme: 'pdf-page', value } as ReadingState['currentLocator'] }), format), `${JSON.stringify(value)} ${format}`).toBeNull()
   })
 
   // #1128 S5: a PDF position is the page number, `pdf-page` on the wire, and nothing else.
   const pdfPos = { page: 12, index: 11, fraction: 0.3, at: Date.parse('2026-11-10T10:00:00Z') }
-  const pdfState = (page: unknown = 7) => state({ currentLocator: { version: 1, scheme: 'pdf-page', value: { page } } as V2ReadingState['currentLocator'], bookFraction: 0.5 })
+  const pdfState = (page: unknown = 7) => state({ currentLocator: { version: 1, scheme: 'pdf-page', value: { page } } as ReadingState['currentLocator'], bookFraction: 0.5 })
 
   it('positionWrite_PdfPageOnAPdf_PdfPageLocator', () => {
     expect(positionWrite(pdfPos, 'f', 2, Date.parse('2026-11-10T12:00:00Z'), 'pdf')).toEqual({
@@ -282,7 +282,7 @@ describe('v2LocalSync', () => {
 
   it('statePosition_UnknownSchemeWithAValidFraction_Null', () => {
     // An allowlist, not "anything but pdf-page": a scheme this build does not know is kept, as before #1187.
-    const unknown = { version: 1, scheme: 'textstack-future-v9', value: {} } as unknown as V2ReadingState['currentLocator']
+    const unknown = { version: 1, scheme: 'textstack-future-v9', value: {} } as unknown as ReadingState['currentLocator']
     expect(statePosition(state({ currentLocator: unknown, bookFraction: 0.5 }))).toBeNull()
     expect(decideServerState({ local: null, localFileId: 'f', server: state({ currentLocator: unknown, bookFraction: 0.5 }), reader: null })).toBe('keep')
   })
@@ -326,7 +326,7 @@ describe('v2LocalSync', () => {
   })
 
   it('annotationHighlight_PulledEpubCfi_PageShape_TransitionalAnchorNull', () => {
-    const a: V2Annotation = {
+    const a: Annotation = {
       id: 'a', bookId: 'b', fileId: 'f', selectedText: 'bright cold', noteText: null, color: 'yellow',
       locator: { version: 1, scheme: 'epub-cfi', value: CFI, quote: 'bright', prefix: 'a ', suffix: ' day' },
       createdAt: '2026-11-10T00:00:00Z', updatedAt: '2026-11-10T00:00:00Z', deletedAt: null, revision: 1,
@@ -344,7 +344,7 @@ describe('v2LocalSync', () => {
       expectedRevision: null, bookId: 'b', fileId: 'f', selectedText: 'It was a bright cold day in April', noteText: null, color: 'bookmark',
       locator: { version: 1, scheme: 'epub-cfi', value: CFI, quote: 'It was a bright cold day' },
     })
-    const stored: V2Annotation = { id: 'a', bookId: 'b', fileId: 'f', selectedText: w.selectedText, noteText: null, locator: w.locator!, color: w.color!, createdAt: '2026-11-15T10:00:00Z', updatedAt: '2026-11-15T10:00:00Z', deletedAt: null, revision: 1 }
+    const stored: Annotation = { id: 'a', bookId: 'b', fileId: 'f', selectedText: w.selectedText, noteText: null, locator: w.locator!, color: w.color!, createdAt: '2026-11-15T10:00:00Z', updatedAt: '2026-11-15T10:00:00Z', deletedAt: null, revision: 1 }
     // The same form back: a host that holds the server's row never takes the page's as a change (no write per store).
     expect(annotationHighlight(stored)).toEqual(page)
     expect(isBookmark(annotationHighlight(stored))).toBe(true)
@@ -398,7 +398,7 @@ describe('v2LocalSync', () => {
       expect(decideServerState({ local, localFileId: 'f', server: state({ currentLocator: { version: 1, scheme: 'pdf-page', value: 3 } }), reader: null, now })).toBe('keep')
     })
     describe('a transitional textstack-* state (fraction-only, #1187)', () => {
-      const transitional = (extra: Partial<V2ReadingState> = {}) =>
+      const transitional = (extra: Partial<ReadingState> = {}) =>
         state({ currentLocator: { version: 1, scheme: 'textstack-position-v1', value: { chapterSlug: 'x' } }, bookFraction: 0.7, ...extra })
       it('decideServerState_TransitionalNotNewerThanLocalCfi_Keep', () => {
         expect(decideServerState({ local: { ...pos, at: now }, localFileId: 'f', server: transitional(), reader: { restoreApplied: true, moved: false, index: 6 }, now })).toBe('keep')

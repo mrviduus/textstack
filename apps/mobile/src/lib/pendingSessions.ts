@@ -2,8 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   appendPendingSession,
   drainPendingSessions,
-  v2Api,
-  toV2Session,
+  syncApi,
+  toSyncSession,
   rekeyPendingSessions as rekeyQueue,
   type PendingSession,
 } from '@textstack/shared'
@@ -25,7 +25,7 @@ type Submit = (s: PendingSession) => Promise<unknown>
  * before M6) has no route left: it is dropped.
  */
 const submitSession: Submit = async ({ clientSessionId, ...s }) =>
-  clientSessionId ? v2Api.putSession(clientSessionId, toV2Session(s)) : undefined
+  clientSessionId ? syncApi.putSession(clientSessionId, toSyncSession(s)) : undefined
 
 // One JS runtime, so a promise chain is enough to keep a flush from overwriting a session enqueued
 // while it was in flight.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { BOOKMARK_COLOR as BOOKMARK } from '../../shared/src/reader/v2PageStore'
+import { BOOKMARK_COLOR as BOOKMARK } from '../../shared/src/reader/pageStore'
 import { BOOKMARK_TEXT, atTop, lineCount, bookmarkList, bookmarkRange, bookmarkText, isBookmark, readBookmarkList, startsWithin } from './bookmarks.mjs'
 import { foldText } from './store.mjs'
 import { HIGHLIGHT_COLORS, highlightList } from './highlights.mjs'

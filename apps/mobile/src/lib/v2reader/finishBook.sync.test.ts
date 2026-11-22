@@ -9,7 +9,7 @@ import { createLocalLibrary, type LocalLibrary, type PositionAction } from './lo
 import { memoryDb } from './sqliteShim'
 import { createV2Storage, type V2Files } from './hostStorage'
 import { syncV2Library, type SyncHost } from './sync'
-import { fakeApi as fakeV2, conflict, feed, type Answer, type Call } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi as fakeV2, conflict, feed, type Answer, type Call } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }))
 vi.mock('../offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))

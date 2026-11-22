@@ -5,21 +5,21 @@ export const TTS_SPEED_KEY: string
 export function readSpeed(v: unknown): number
 export function createSpeedChoice(store: { load: () => Promise<unknown> | unknown; save: (v: string) => void; show: (speed: number) => void }): (v: number) => void
 export function ttsLang(lang: unknown, fallback?: unknown): string | null
-export type V2TtsPhase = 'idle' | 'loading' | 'playing'
-export interface V2SpokenAt { cfi: string | null; index: number }
-export interface V2Spoken { text: string; at: V2SpokenAt | null }
-export interface V2Listener {
-  press(spoken: V2Spoken | null): void
+export type TtsPhase = 'idle' | 'loading' | 'playing'
+export interface SpokenAt { cfi: string | null; index: number }
+export interface Spoken { text: string; at: SpokenAt | null }
+export interface Listener {
+  press(spoken: Spoken | null): void
   stop(): void
-  follow(open: V2Spoken | null): void
-  state(spoken: V2Spoken | null): V2TtsPhase
+  follow(open: Spoken | null): void
+  state(spoken: Spoken | null): TtsPhase
 }
-export function spokenOf(popup: unknown): V2Spoken | null
+export function spokenOf(popup: unknown): Spoken | null
 export function createListener(host: {
   speak: (text: string, done: (failed?: boolean) => void) => Promise<boolean> | boolean
   stop: () => void
-  mark: (at: V2SpokenAt | null) => void
+  mark: (at: SpokenAt | null) => void
   changed?: () => void
   failed?: () => void
-}): V2Listener
-export function speakingJs(at: V2SpokenAt | null): string
+}): Listener
+export function speakingJs(at: SpokenAt | null): string

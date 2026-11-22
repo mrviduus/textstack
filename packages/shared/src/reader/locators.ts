@@ -4,7 +4,7 @@
  * `PdfAnchor`) as V2 locators, and back. **Never a CFI from or to a `textstack-*` locator**: an
  * `epub-cfi` (the V2 reader's) has no legacy place, and resumes from `bookFraction`.
  */
-import type { V2Locator } from '../api/v2'
+import type { Locator } from '../api/sync'
 import { parsePdfPageLocator } from './pdfProgress'
 import { parseTextPosition } from './textPosition'
 import { clip, type TextAnchor } from './textAnchor'
@@ -25,7 +25,7 @@ export interface LegacyPlace {
  * own `TextPosition` as `textstack-position-v1`. Null: nothing to write (no chapter and no page).
  * ponytail: a place with nothing to quote (the very end of a chapter) goes scroll-only at its start.
  */
-export function placeToV2Locator(place: LegacyPlace): V2Locator | null {
+export function placeToLocator(place: LegacyPlace): Locator | null {
   const page = parsePdfPageLocator(place.locator)
   if (page != null) return { version: 1, scheme: 'pdf-page', value: { page } }
   if (!place.chapterSlug) return null
@@ -38,7 +38,7 @@ export function placeToV2Locator(place: LegacyPlace): V2Locator | null {
  * A stored V2 position as the legacy place, or null for a scheme the transitional reader cannot
  * resolve (`epub-cfi`): the caller resumes from the fraction (`chapterAtFraction`).
  */
-export function v2LocatorToPlace(locator: V2Locator): { chapterSlug: string | null; locator: string | null; positionJson: string | null } | null {
+export function locatorToPlace(locator: Locator): { chapterSlug: string | null; locator: string | null; positionJson: string | null } | null {
   if (locator.scheme === 'pdf-page') return { chapterSlug: null, locator: `page:${(locator.value as { page: number }).page}`, positionJson: null }
   if (locator.scheme !== 'textstack-position-v1') return null
   const value = locator.value as { chapterSlug: string; anchor?: unknown }
@@ -52,7 +52,7 @@ export function v2LocatorToPlace(locator: V2Locator): { chapterSlug: string | nu
  * stored. `exact` is cut as `selectedText` is. Throws on an anchor without a `startOffset` (one
  * parsed from an old `{prefix, exact, suffix}` JSON): the server refuses it (#1139), so never send it.
  */
-export function anchorToV2Locator(anchor: (TextAnchor & { chapterId: string }) | PdfAnchor): V2Locator {
+export function anchorToLocator(anchor: (TextAnchor & { chapterId: string }) | PdfAnchor): Locator {
   if (isPdfAnchor(anchor)) return { version: 1, scheme: 'pdf-page', value: anchor }
   if (!Number.isInteger(anchor.startOffset) || anchor.startOffset < 0) {
     throw new Error('A textstack-anchor-v1 needs an integer startOffset >= 0')
@@ -69,7 +69,7 @@ export function anchorToV2Locator(anchor: (TextAnchor & { chapterId: string }) |
 }
 
 /** A V2 annotation locator as the anchor the transitional reader draws; null when it cannot (an `epub-cfi`, or none). */
-export function v2LocatorToAnchor(locator: V2Locator | null): (TextAnchor & { chapterId: string }) | PdfAnchor | null {
+export function locatorToAnchor(locator: Locator | null): (TextAnchor & { chapterId: string }) | PdfAnchor | null {
   if (locator?.scheme === 'textstack-anchor-v1') {
     const { chapterKey, prefix, exact, suffix, startOffset, endOffset } = locator.value as {
       chapterKey: string; prefix: string; exact: string; suffix: string; startOffset: number; endOffset: number

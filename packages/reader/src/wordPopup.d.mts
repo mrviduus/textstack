@@ -1,23 +1,23 @@
 // Types for wordPopup.mjs (apps/web type-checks it without allowJs); a change to one must update the other.
-import type { V2Rect, V2Selection } from './selection.mjs'
+import type { Rect, PageSelection } from './selection.mjs'
 import type { TapAction } from './tapZone.mjs'
-import type { V2HighlightTap } from './highlights.mjs'
+import type { HighlightTap } from './highlights.mjs'
 
 export const MAX_WORD: number
 /** A tapped word as a host takes it: `rect` in page-viewport px; `cfi` null where nothing can be drawn (a PDF). */
-export interface V2Word { index: number; word: string; sentence: string; cfi: string | null; rect: V2Rect }
-export function readWord(m: unknown): V2Word | null
+export interface PageWord { index: number; word: string; sentence: string; cfi: string | null; rect: Rect }
+export function readWord(m: unknown): PageWord | null
 export function readLang(m: unknown): string | null
-export type V2Popup = ({ kind: 'word' } & V2Word) | ({ kind: 'selection' } & V2Selection) | ({ kind: 'highlight' } & V2HighlightTap)
-export type V2PopupEvent =
-  | { type: 'word'; word: V2Word }
+export type Popup = ({ kind: 'word' } & PageWord) | ({ kind: 'selection' } & PageSelection) | ({ kind: 'highlight' } & HighlightTap)
+export type PopupEvent =
+  | { type: 'word'; word: PageWord }
   | { type: 'tap'; x: number }
-  | { type: 'selection'; selection: V2Selection }
+  | { type: 'selection'; selection: PageSelection }
   | { type: 'selection-cleared' }
   | { type: 'moved' }
-  | { type: 'highlight'; highlight: V2HighlightTap }
+  | { type: 'highlight'; highlight: HighlightTap }
 export function popupStep(
-  popup: V2Popup | null,
-  e: V2PopupEvent,
+  popup: Popup | null,
+  e: PopupEvent,
   zone: { width?: number; flow: 'paginated' | 'scrolled'; dir?: 'ltr' | 'rtl' },
-): { popup: V2Popup | null; turn: TapAction | null }
+): { popup: Popup | null; turn: TapAction | null }

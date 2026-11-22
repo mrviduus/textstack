@@ -192,7 +192,7 @@ export class ApiError extends Error {
    */
   isNetworkError = false
 
-  /** The parsed JSON error body, when there was one (a V2 call's `V2Error`, see `v2ErrorOf`). */
+  /** The parsed JSON error body, when there was one (a V2 call's `SyncError`, see `syncErrorOf`). */
   body: unknown
 
   constructor(

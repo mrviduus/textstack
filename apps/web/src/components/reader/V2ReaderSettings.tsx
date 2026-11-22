@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 // ponytail: a deep import of apps/mobile source, as V2ReaderHost.tsx's (the page's modules live there, #1128).
 import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
-  type V2FontFamily, type V2Settings, type V2TextAlign, type V2Theme,
+  type FontFamily, type Settings, type TextAlign, type Theme,
 } from '../../../../../packages/reader/src/settings.mjs'
 import { TTS_SPEEDS, TTS_SPEED_KEY, readSpeed } from '../../../../../packages/reader/src/listen.mjs'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
@@ -23,7 +23,7 @@ export function useV2ReaderSettings() {
     document.documentElement.dataset.theme = settings.theme
     return () => { delete document.documentElement.dataset.theme }
   }, [settings.theme])
-  const update = (patch: Partial<V2Settings>) => {
+  const update = (patch: Partial<Settings>) => {
     const next = choose(chosen, patch)
     setChosen(next)
     writeItem(SETTINGS_KEY, JSON.stringify(next))
@@ -51,14 +51,14 @@ export function useV2Glosses() {
 }
 
 // `book`: the book's own alignment, the default (no rule of ours).
-const ALIGN_LABEL: Record<V2TextAlign, string> = { book: 'v2Reader.alignBook', left: 'v2Reader.alignLeft', center: 'v2Reader.alignCenter', justify: 'v2Reader.alignJustify' }
-const FAMILY_LABEL: Record<V2FontFamily, string> = { serif: 'v2Reader.fontSerif', sans: 'v2Reader.fontSans', dyslexic: 'v2Reader.fontDyslexic' }
-const THEME_LABEL: Record<V2Theme, string> = { light: 'v2Reader.themeLight', sepia: 'v2Reader.themeSepia', dark: 'v2Reader.themeDark' }
+const ALIGN_LABEL: Record<TextAlign, string> = { book: 'v2Reader.alignBook', left: 'v2Reader.alignLeft', center: 'v2Reader.alignCenter', justify: 'v2Reader.alignJustify' }
+const FAMILY_LABEL: Record<FontFamily, string> = { serif: 'v2Reader.fontSerif', sans: 'v2Reader.fontSans', dyslexic: 'v2Reader.fontDyslexic' }
+const THEME_LABEL: Record<Theme, string> = { light: 'v2Reader.themeLight', sepia: 'v2Reader.themeSepia', dark: 'v2Reader.themeDark' }
 
 interface Props {
   open: boolean
-  settings: V2Settings
-  onUpdate: (patch: Partial<V2Settings>) => void
+  settings: Settings
+  onUpdate: (patch: Partial<Settings>) => void
   onClose: () => void
   /** False for a fixed-layout book (PDF, CBZ, a pre-paginated EPUB): only the theme applies, the rest is disabled. */
   typography: boolean
@@ -99,7 +99,7 @@ export function V2ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typo
         <div className="reader-settings-drawer__section">
           <label>{t('v2Reader.theme')}</label>
           <div className="reader-settings-drawer__themes">
-            {(Object.keys(THEMES) as V2Theme[]).map((theme) => (
+            {(Object.keys(THEMES) as Theme[]).map((theme) => (
               <button
                 key={theme}
                 className={`reader-settings-drawer__theme ${settings.theme === theme ? 'active' : ''}`}

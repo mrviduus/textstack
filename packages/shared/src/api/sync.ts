@@ -7,11 +7,11 @@
  * `revision` is a number: a V2 revision is a per-row write count (an int64 on the server) that stays
  * far below `Number.MAX_SAFE_INTEGER`.
  *
- * Every failure is an `ApiError` whose `body` is the one V2 error shape ({@link V2Error}); read it
- * with {@link v2ErrorOf}. A 503 `v2_unavailable` means "sync paused": keep local data, try later.
+ * Every failure is an `ApiError` whose `body` is the one V2 error shape ({@link SyncError}); read it
+ * with {@link syncErrorOf}. A 503 `v2_unavailable` means "sync paused": keep local data, try later.
  */
 import { authFetch, authFetchResponse, ApiError, buildQuery, getApiConfig, jsonBody, networkError } from './client'
-import { v2LocatorToPlace } from '../reader/v2Locators'
+import { locatorToPlace } from '../reader/locators'
 import { chapterAtFraction } from '../reader/bookProgress'
 
 const V2 = '/me/v2'
@@ -19,19 +19,19 @@ const V2 = '/me/v2'
 // ---- Shapes -------------------------------------------------------------------------------------
 
 /** "The 409 body": one shape for every 4xx and the 503. `current` is the row the write lost to. */
-export interface V2Error {
+export interface SyncError {
   code: string
   message: string
   revision?: number | null
   current?: unknown
   /** The book's current file id, on reading-state and file codes. */
   fileId?: string
-  currentFile?: V2BookFile
+  currentFile?: BookFile
   /** The member an `invalid_payload` names. */
   field?: string
 }
 
-export interface V2Status {
+export interface SyncStatus {
   maxPartBytes: number
 }
 
@@ -55,33 +55,33 @@ export interface UserBookProgressDto {
  * neither stored nor adopted (the local place stays unsynced); `reload` the book's file was
  * replaced; `adopted` the server's place replaces this one.
  */
-export type V2WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: UserBookProgressDto }
+export type WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: UserBookProgressDto }
 
 /** A sign-in's `merge` (a guest merged): guest id → account id, only the ids that changed. */
-export interface V2MergeMap {
+export interface MergeMap {
   books?: Record<string, string>
   files?: Record<string, string>
   words?: Record<string, string>
 }
 
 /** The client's switch: whether this app start talks V2, and the part size the server takes. */
-export interface V2Switch {
+export interface SyncSwitch {
   enabled: boolean
   maxPartBytes: number
 }
 
-export const V2_OFF: V2Switch = { enabled: false, maxPartBytes: 0 }
+export const SYNC_OFF: SyncSwitch = { enabled: false, maxPartBytes: 0 }
 
 /** One page of a change feed; pass `cursor` back while `hasMore`. */
-export interface V2Feed<T> {
+export interface Feed<T> {
   items: T[]
   cursor: string | null
   hasMore: boolean
 }
 
-export type V2FeedName = 'library' | 'reading' | 'annotations' | 'vocabulary'
+export type FeedName = 'library' | 'reading' | 'annotations' | 'vocabulary'
 
-export interface V2BookFile {
+export interface BookFile {
   id: string
   sha256: string
   byteSize: number
@@ -98,12 +98,12 @@ export interface V2BookFile {
    * when null: the latest extraction's status, the chapter count, the chapters' summed word counts.
    * A shelf reads these, never `/chapters`.
    */
-  ingestion?: V2Ingestion
+  ingestion?: Ingestion
   chapterCount?: number | null
   wordCount?: number | null
 }
 
-export interface V2Book {
+export interface Book {
   id: string
   title: string
   author: string | null
@@ -118,11 +118,11 @@ export interface V2Book {
   createdAt: string
   updatedAt: string
   removedAt: string | null
-  currentFile: V2BookFile | null
+  currentFile: BookFile | null
 }
 
 /** A file version as a client sends it (`id` on import; on replace the path's id wins). */
-export interface V2FileWrite {
+export interface FileWrite {
   id?: string
   sha256: string
   byteSize: number
@@ -133,7 +133,7 @@ export interface V2FileWrite {
   toc?: unknown
 }
 
-export interface V2ImportBook {
+export interface ImportBook {
   title: string
   author?: string | null
   language?: string | null
@@ -141,11 +141,11 @@ export interface V2ImportBook {
   genre?: string | null
   publishedYear?: number | null
   tags?: string[]
-  file: V2FileWrite & { id: string }
+  file: FileWrite & { id: string }
 }
 
 /** Merge-patch: an absent member keeps the stored value, null clears it. */
-export interface V2PatchBook {
+export interface PatchBook {
   expectedRevision: number
   title?: string
   author?: string | null
@@ -156,13 +156,13 @@ export interface V2PatchBook {
   tags?: string[] | null
 }
 
-export interface V2FileReplacement {
-  current: V2BookFile
-  superseded: V2BookFile | null
+export interface FileReplacement {
+  current: BookFile
+  superseded: BookFile | null
 }
 
 /** The ADR-031 envelope. Only `epub-cfi` carries `quote` (and, on annotations, `prefix`/`suffix`). */
-export interface V2Locator {
+export interface Locator {
   version: 1
   scheme: 'epub-cfi' | 'pdf-page' | 'page-name' | 'textstack-position-v1' | 'textstack-anchor-v1' | (string & {})
   value: unknown
@@ -171,25 +171,25 @@ export interface V2Locator {
   suffix?: string
 }
 
-export interface V2ReadingStateWrite {
+export interface ReadingStateWrite {
   /** null = first write; else the revision last read. */
   expectedRevision: number | null
   fileId: string
-  currentLocator: V2Locator
+  currentLocator: Locator
   /** 0..1 */
   bookFraction: number
-  frontierLocator?: V2Locator
+  frontierLocator?: Locator
   frontierFraction?: number
   completedAt?: string | null
   clientRecordedAt: string
 }
 
-export interface V2ReadingState {
+export interface ReadingState {
   bookId: string
   fileId: string
-  currentLocator: V2Locator
+  currentLocator: Locator
   bookFraction: number
-  frontierLocator: V2Locator | null
+  frontierLocator: Locator | null
   frontierFraction: number | null
   completedAt: string | null
   clientRecordedAt: string
@@ -198,7 +198,7 @@ export interface V2ReadingState {
   resetRevision: number | null
 }
 
-export interface V2SessionWrite {
+export interface SessionWrite {
   bookId?: string | null
   startedAt: string
   endedAt: string
@@ -209,12 +209,12 @@ export interface V2SessionWrite {
   endPercent: number
 }
 
-export interface V2Session extends Required<V2SessionWrite> {
+export interface Session extends Required<SessionWrite> {
   clientSessionId: string
   createdAt: string
 }
 
-export interface V2AnnotationWrite {
+export interface AnnotationWrite {
   /** null = create. */
   expectedRevision: number | null
   bookId: string
@@ -222,17 +222,17 @@ export interface V2AnnotationWrite {
   fileId?: string | null
   selectedText: string
   noteText?: string | null
-  locator?: V2Locator | null
+  locator?: Locator | null
   color: string
 }
 
-export interface V2Annotation {
+export interface Annotation {
   id: string
   bookId: string
   fileId: string | null
   selectedText: string
   noteText: string | null
-  locator: V2Locator | null
+  locator: Locator | null
   color: string
   createdAt: string
   updatedAt: string
@@ -240,7 +240,7 @@ export interface V2Annotation {
   revision: number
 }
 
-export interface V2ExampleWrite {
+export interface ExampleWrite {
   /** One per "save this sentence"; a retry of the same save reuses it. */
   operationId: string
   sentence: string
@@ -251,17 +251,17 @@ export interface V2ExampleWrite {
   bookTitle?: string | null
 }
 
-export interface V2WordSave {
+export interface WordSave {
   /** Client v4; when the key already exists the stored card's id wins and comes back. */
   id: string
   language: string
   word: string
   translation?: string | null
   definition?: string | null
-  example?: V2ExampleWrite
+  example?: ExampleWrite
 }
 
-export interface V2Example {
+export interface Example {
   id: string
   operationId: string
   sentence: string
@@ -273,7 +273,7 @@ export interface V2Example {
   createdAt: string
 }
 
-export interface V2Word {
+export interface Word {
   id: string
   language: string
   word: string
@@ -289,19 +289,19 @@ export interface V2Word {
   deletedAt: string | null
   retiredAt: string | null
   revision: number
-  examples: V2Example[]
+  examples: Example[]
   /** On a save only: whether its example was added or replayed. */
   example?: 'added' | 'replayed'
 }
 
-/** Merge-patch, as {@link V2PatchBook}. */
-export interface V2PatchWord {
+/** Merge-patch, as {@link PatchBook}. */
+export interface PatchWord {
   expectedRevision: number
   translation?: string | null
   definition?: string | null
 }
 
-export interface V2ReviewWrite {
+export interface ReviewWrite {
   /** One per answer. */
   operationId: string
   wordId: string
@@ -311,7 +311,7 @@ export interface V2ReviewWrite {
   clientRecordedAt: string
 }
 
-export interface V2Review {
+export interface Review {
   id: string
   operationId: string
   wordId: string
@@ -324,31 +324,31 @@ export interface V2Review {
   createdAt: string
 }
 
-export interface V2RecordedReview {
-  review: V2Review
-  word: V2Word
+export interface RecordedReview {
+  review: Review
+  word: Word
 }
 
 /** Transitional (dropped at M6.4). `chapterNumber` orders, never displays. */
-export interface V2ChapterHeading {
+export interface ChapterHeading {
   chapterKey: string
   chapterNumber: number
   title: string
   wordCount: number | null
 }
 
-export type V2Ingestion = 'queued' | 'processing' | 'succeeded' | 'failed' | null
+export type Ingestion = 'queued' | 'processing' | 'succeeded' | 'failed' | null
 
-export interface V2FileChapters {
-  items: V2ChapterHeading[]
+export interface FileChapters {
+  items: ChapterHeading[]
   /** The file's latest extraction job; items stay empty while it runs. */
-  ingestion: V2Ingestion
+  ingestion: Ingestion
 }
 
-export interface V2Chapter extends V2ChapterHeading {
+export interface FileChapter extends ChapterHeading {
   html: string
-  previous: V2ChapterHeading | null
-  next: V2ChapterHeading | null
+  previous: ChapterHeading | null
+  next: ChapterHeading | null
 }
 
 // ---- The uploads shelf (transitional, #1118) ----------------------------------------------------
@@ -358,7 +358,7 @@ export interface V2Chapter extends V2ChapterHeading {
  * A file's status. No extraction job (MOBI, AZW3, FB2, CBZ: the server never extracts them, ADR-033) is
  * not a failure: the reader parses the file itself, so a file with its bytes is ready.
  */
-export function ingestionStatus(ingestion: V2Ingestion | null | undefined, hasContent: boolean): 'Processing' | 'Ready' | 'Failed' {
+export function ingestionStatus(ingestion: Ingestion | null | undefined, hasContent: boolean): 'Processing' | 'Ready' | 'Failed' {
   if (ingestion === 'queued' || ingestion === 'processing') return 'Processing'
   if (ingestion == null) return hasContent ? 'Ready' : 'Failed'
   return ingestion === 'succeeded' ? 'Ready' : 'Failed'
@@ -369,10 +369,10 @@ export function ingestionStatus(ingestion: V2Ingestion | null | undefined, hasCo
  * carried (origin `catalog`; the feed has no origin): the owner reads only uploads, so it stays in the
  * DB and off the shelf. Every upload, clip and import has a file from its first write.
  */
-export const isShelfBook = (b: V2Book) => !b.removedAt && b.currentFile !== null
+export const isShelfBook = (b: Book) => !b.removedAt && b.currentFile !== null
 
 /** A shelf row's status and counts, from the library feed's file alone: a shelf never calls `/chapters`. */
-export const shelfFileSummary = (file: V2BookFile | null | undefined) => ({
+export const shelfFileSummary = (file: BookFile | null | undefined) => ({
   status: ingestionStatus(file?.ingestion, !!file?.hasContent),
   chapterCount: file?.chapterCount ?? 0,
   totalWordCount: file?.wordCount ?? null,
@@ -387,8 +387,8 @@ export const shelfFileSummary = (file: V2BookFile | null | undefined) => ({
  * `textstack-position-v1` / `pdf-page`); it becomes real when the V2 reader does (R5) — then put the
  * chapter on the feed or fetch the TOC for those rows only.
  */
-export function resumeChapterOf(state: V2ReadingState, toc: V2ChapterHeading[] | undefined): string | null {
-  const place = v2LocatorToPlace(state.currentLocator)
+export function resumeChapterOf(state: ReadingState, toc: ChapterHeading[] | undefined): string | null {
+  const place = locatorToPlace(state.currentLocator)
   return place ? place.chapterSlug : chapterAtFraction(toc ?? [], state.bookFraction)
 }
 
@@ -405,14 +405,14 @@ export class SessionChangedError extends Error {
 }
 
 /** The V2 body of a failed call, or null (network failure, or not a V2 answer). */
-export function v2ErrorOf(e: unknown): V2Error | null {
+export function syncErrorOf(e: unknown): SyncError | null {
   if (!(e instanceof ApiError)) return null
-  const body = e.body as Partial<V2Error> | undefined
-  return body && typeof body.code === 'string' ? (body as V2Error) : null
+  const body = e.body as Partial<SyncError> | undefined
+  return body && typeof body.code === 'string' ? (body as SyncError) : null
 }
 
 /** The status probe, once per app start with a session: 200 = on; 404 (unmapped), 503 or offline = off. A 401 rethrows: no session, ask again once there is one. */
-export async function probeV2(): Promise<{ enabled: boolean; maxPartBytes: number }> {
+export async function probeSync(): Promise<{ enabled: boolean; maxPartBytes: number }> {
   try {
     return { enabled: true, maxPartBytes: (await getStatus()).maxPartBytes }
   } catch (e) {
@@ -436,13 +436,13 @@ const file = (bookId: string, fileId: string) => `${book(bookId)}/files/${fileId
 
 // ---- Routes -------------------------------------------------------------------------------------
 
-export const getStatus = () => authFetch<V2Status>(`${V2}/status`)
+export const getStatus = () => authFetch<SyncStatus>(`${V2}/status`)
 
-export const getChanges = <T>(feed: V2FeedName, cursor?: string | null, limit?: number) =>
-  authFetch<V2Feed<T>>(`${V2}/${feed}/changes${buildQuery({ cursor, limit })}`)
+export const getChanges = <T>(feed: FeedName, cursor?: string | null, limit?: number) =>
+  authFetch<Feed<T>>(`${V2}/${feed}/changes${buildQuery({ cursor, limit })}`)
 
 /** Every row of a feed from `cursor` (null = from the start) to the end; the cursor to resume from. */
-export async function pullAll<T>(feed: V2FeedName, cursor: string | null = null): Promise<{ items: T[]; cursor: string | null }> {
+export async function pullAll<T>(feed: FeedName, cursor: string | null = null): Promise<{ items: T[]; cursor: string | null }> {
   const items: T[] = []
   for (;;) {
     const page = await getChanges<T>(feed, cursor)
@@ -452,10 +452,10 @@ export async function pullAll<T>(feed: V2FeedName, cursor: string | null = null)
   }
 }
 
-const inFlight = new Map<V2FeedName, Promise<{ items: unknown[]; cursor: string | null }>>()
+const inFlight = new Map<FeedName, Promise<{ items: unknown[]; cursor: string | null }>>()
 
 /** A full pull of a feed, shared by every caller while one is in flight (a reader open asks twice). */
-export function pullFeed<T>(feed: V2FeedName): Promise<{ items: T[]; cursor: string | null }> {
+export function pullFeed<T>(feed: FeedName): Promise<{ items: T[]; cursor: string | null }> {
   let pull = inFlight.get(feed)
   if (!pull) {
     pull = pullAll(feed).finally(() => inFlight.delete(feed))
@@ -467,11 +467,11 @@ export function pullFeed<T>(feed: V2FeedName): Promise<{ items: T[]; cursor: str
 /** Sign-out / another account / tests: a pull in flight belongs to the previous session. */
 export const forgetPulls = () => inFlight.clear()
 
-export const findBySha256 = (sha256: string) => orNull(authFetch<V2Book>(`${V2}/books/by-sha256/${sha256}`))
-export const importBook = (bookId: string, body: V2ImportBook) => authFetch<V2Book>(book(bookId), jsonBody('PUT', body))
-export const patchBook = (bookId: string, body: V2PatchBook) => authFetch<V2Book>(book(bookId), jsonBody('PATCH', body))
-export const replaceFile = (bookId: string, fileId: string, body: { replacesFileId: string | null; file: V2FileWrite }) =>
-  authFetch<V2FileReplacement>(file(bookId, fileId), jsonBody('PUT', body))
+export const findBySha256 = (sha256: string) => orNull(authFetch<Book>(`${V2}/books/by-sha256/${sha256}`))
+export const importBook = (bookId: string, body: ImportBook) => authFetch<Book>(book(bookId), jsonBody('PUT', body))
+export const patchBook = (bookId: string, body: PatchBook) => authFetch<Book>(book(bookId), jsonBody('PATCH', body))
+export const replaceFile = (bookId: string, fileId: string, body: { replacesFileId: string | null; file: FileWrite }) =>
+  authFetch<FileReplacement>(file(bookId, fileId), jsonBody('PUT', body))
 export const removeBook = (bookId: string) => authFetch<void>(book(bookId), { method: 'DELETE' })
 export const restoreBook = (bookId: string) => authFetch<void>(`${book(bookId)}/restore`, { method: 'POST' })
 
@@ -482,7 +482,7 @@ export const putPart = (bookId: string, fileId: string, index: number, bytes: Bl
   })
 export const partPath = (bookId: string, fileId: string, index: number) => `${file(bookId, fileId)}/parts/${index}`
 export const completeContent = (bookId: string, fileId: string, partCount: number) =>
-  authFetch<V2BookFile>(`${file(bookId, fileId)}/content`, jsonBody('POST', { partCount }))
+  authFetch<BookFile>(`${file(bookId, fileId)}/content`, jsonBody('POST', { partCount }))
 export const removeContent = (bookId: string, fileId: string) => authFetch<void>(`${file(bookId, fileId)}/content`, { method: 'DELETE' })
 /** The bytes, Range-capable; cookies or a Bearer header authenticate it as any call. */
 export const contentUrl = (bookId: string, fileId: string) => `${getApiConfig().baseUrl}${file(bookId, fileId)}/content`
@@ -537,33 +537,33 @@ export async function getContent(
   return out.buffer
 }
 export const putCover = (bookId: string, bytes: Blob | ArrayBuffer | Uint8Array, contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
-  authFetch<V2Book>(`${book(bookId)}/cover`, { method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes as BodyInit })
+  authFetch<Book>(`${book(bookId)}/cover`, { method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes as BodyInit })
 export const readingStateUrl = (bookId: string) => `${getApiConfig().baseUrl}${book(bookId)}/reading-state`
 /** The cover; `updatedAt` busts the year-long cache after a change. */
 export const coverUrl = (bookId: string, updatedAt: string) =>
   `${getApiConfig().baseUrl}${book(bookId)}/cover?v=${encodeURIComponent(updatedAt)}`
 
-export const getChapters = (bookId: string, fileId: string) => authFetch<V2FileChapters>(`${file(bookId, fileId)}/chapters`)
+export const getChapters = (bookId: string, fileId: string) => authFetch<FileChapters>(`${file(bookId, fileId)}/chapters`)
 export const getChapter = (bookId: string, fileId: string, chapterKey: string) =>
-  authFetch<V2Chapter>(`${file(bookId, fileId)}/chapters/${encodeURIComponent(chapterKey)}`)
+  authFetch<FileChapter>(`${file(bookId, fileId)}/chapters/${encodeURIComponent(chapterKey)}`)
 
 /** null: the book has no reading state yet (the next write is a first write). */
 export const getReadingState = (bookId: string, signal?: AbortSignal) =>
-  orNull(authFetch<V2ReadingState>(`${book(bookId)}/reading-state`, { signal }))
-export const putReadingState = (bookId: string, body: V2ReadingStateWrite) =>
-  authFetch<V2ReadingState>(`${book(bookId)}/reading-state`, jsonBody('PUT', body))
+  orNull(authFetch<ReadingState>(`${book(bookId)}/reading-state`, { signal }))
+export const putReadingState = (bookId: string, body: ReadingStateWrite) =>
+  authFetch<ReadingState>(`${book(bookId)}/reading-state`, jsonBody('PUT', body))
 export const resetReadingState = (bookId: string, expectedRevision: number | null) =>
-  authFetch<V2ReadingState>(`${book(bookId)}/reading-state/reset`, jsonBody('POST', { expectedRevision }))
+  authFetch<ReadingState>(`${book(bookId)}/reading-state/reset`, jsonBody('POST', { expectedRevision }))
 /** Idempotent by `clientSessionId`: a replay answers 200 with the stored row. */
-export const putSession = (clientSessionId: string, body: V2SessionWrite) =>
-  authFetch<V2Session>(`${V2}/reading/sessions/${clientSessionId}`, jsonBody('PUT', body))
+export const putSession = (clientSessionId: string, body: SessionWrite) =>
+  authFetch<Session>(`${V2}/reading/sessions/${clientSessionId}`, jsonBody('PUT', body))
 
 /**
  * A chapter the reader shares with their assistant (#1316; v2-sync-protocol "Endpoints", shares). `operationId`
  * makes a retry of the same payload answer the first share; another payload under it is 409 `operation_conflict`.
  * `chapterText` is at most 200 KB as UTF-8 (the server refuses more).
  */
-export interface V2ShareWrite {
+export interface ShareWrite {
   operationId: string
   fileId: string | null
   chapterKey: string
@@ -572,11 +572,11 @@ export interface V2ShareWrite {
   notes: unknown[]
   language: string | null
 }
-export interface V2Share { id: string; bookId: string; chapterKey: string; createdAt: string }
-export const shareChapter = (bookId: string, body: V2ShareWrite) => authFetch<V2Share>(`${book(bookId)}/shares`, jsonBody('POST', body))
+export interface Share { id: string; bookId: string; chapterKey: string; createdAt: string }
+export const shareChapter = (bookId: string, body: ShareWrite) => authFetch<Share>(`${book(bookId)}/shares`, jsonBody('POST', body))
 
 /** A saved insight (`InsightDto`), in reading order; chapter number and title from the book's current file. No delete route. */
-export interface V2Insight {
+export interface Insight {
   id: string
   bookId: string
   chapterKey: string | null
@@ -588,20 +588,20 @@ export interface V2Insight {
   createdAt: string
   updatedAt: string
 }
-export const listInsights = (bookId: string) => authFetch<V2Insight[]>(`${book(bookId)}/insights`)
+export const listInsights = (bookId: string) => authFetch<Insight[]>(`${book(bookId)}/insights`)
 
 /** The annotation's URL, for a keepalive write that outlives the page (the web V2 reader, #1226). */
 export const annotationUrl = (id: string) => `${getApiConfig().baseUrl}${V2}/annotations/${id}`
-export const putAnnotation = (id: string, body: V2AnnotationWrite) => authFetch<V2Annotation>(`${V2}/annotations/${id}`, jsonBody('PUT', body))
-export const deleteAnnotation = (id: string) => authFetch<V2Annotation>(`${V2}/annotations/${id}`, { method: 'DELETE' })
+export const putAnnotation = (id: string, body: AnnotationWrite) => authFetch<Annotation>(`${V2}/annotations/${id}`, jsonBody('PUT', body))
+export const deleteAnnotation = (id: string) => authFetch<Annotation>(`${V2}/annotations/${id}`, { method: 'DELETE' })
 
-export const saveWord = (body: V2WordSave) => authFetch<V2Word>(`${V2}/vocabulary/words`, jsonBody('PUT', body))
-export const getWord = (id: string) => authFetch<V2Word>(`${V2}/vocabulary/words/${id}`)
-export const patchWord = (id: string, body: V2PatchWord) => authFetch<V2Word>(`${V2}/vocabulary/words/${id}`, jsonBody('PATCH', body))
-export const deleteWord = (id: string) => authFetch<V2Word>(`${V2}/vocabulary/words/${id}`, { method: 'DELETE' })
+export const saveWord = (body: WordSave) => authFetch<Word>(`${V2}/vocabulary/words`, jsonBody('PUT', body))
+export const getWord = (id: string) => authFetch<Word>(`${V2}/vocabulary/words/${id}`)
+export const patchWord = (id: string, body: PatchWord) => authFetch<Word>(`${V2}/vocabulary/words/${id}`, jsonBody('PATCH', body))
+export const deleteWord = (id: string) => authFetch<Word>(`${V2}/vocabulary/words/${id}`, { method: 'DELETE' })
 export const restoreWord = (id: string, expectedRevision: number) =>
-  authFetch<V2Word>(`${V2}/vocabulary/words/${id}/restore`, jsonBody('POST', { expectedRevision }))
-export const addExample = (wordId: string, body: V2ExampleWrite) =>
-  authFetch<V2Example>(`${V2}/vocabulary/words/${wordId}/examples`, jsonBody('POST', body))
-export const getDue = (limit?: number) => authFetch<V2Word[]>(`${V2}/vocabulary/due${buildQuery({ limit })}`)
-export const recordReview = (body: V2ReviewWrite) => authFetch<V2RecordedReview>(`${V2}/vocabulary/reviews`, jsonBody('POST', body))
+  authFetch<Word>(`${V2}/vocabulary/words/${id}/restore`, jsonBody('POST', { expectedRevision }))
+export const addExample = (wordId: string, body: ExampleWrite) =>
+  authFetch<Example>(`${V2}/vocabulary/words/${wordId}/examples`, jsonBody('POST', body))
+export const getDue = (limit?: number) => authFetch<Word[]>(`${V2}/vocabulary/due${buildQuery({ limit })}`)
+export const recordReview = (body: ReviewWrite) => authFetch<RecordedReview>(`${V2}/vocabulary/reviews`, jsonBody('POST', body))

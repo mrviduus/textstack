@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CHAPTER_TEXT_MS, createDiscussLocks, createV2Discuss, fillBookMeta, runDiscuss, v2Api, type PagePosition, type V2FileDetails } from '@textstack/shared'
+import { CHAPTER_TEXT_MS, createDiscussLocks, createDiscuss, fillBookMeta, runDiscuss, syncApi, type PagePosition, type FileDetails } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
@@ -9,33 +9,33 @@ import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } fr
 import { readSelection } from '../../../../../packages/reader/src/selection.mjs'
 import { readDescribed } from '../../../../../packages/reader/src/describe.mjs'
 import { DESCRIBE_MS } from '../../lib/describeBook'
-import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readLightbox, readRelocate, readTap, takenWithoutBook, type V2NavKey } from '../../../../../packages/reader/src/chrome.mjs'
-import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../../packages/reader/src/wordPopup.mjs'
+import { createHostMoves, hidesBarsOnRelocate, keyAction, NAV_KEYS, readDir, readKey, readLightbox, readRelocate, readTap, takenWithoutBook, type NavKey } from '../../../../../packages/reader/src/chrome.mjs'
+import { popupStep, readLang, readWord, type Popup, type PopupEvent } from '../../../../../packages/reader/src/wordPopup.mjs'
 import { savesWords } from '../../../../../packages/reader/src/vocabSave.mjs'
 import { ttsLang } from '../../../../../packages/reader/src/listen.mjs'
 import { V2ReaderPopups, type V2HighlightEditor } from './V2ReaderPopups'
-import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
+import { noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
 import { showsFinishBook } from '../../../../../packages/reader/src/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
-import { readBookmarkList, type V2BookmarkList } from '../../../../../packages/reader/src/bookmarks.mjs'
-import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../../packages/reader/src/chapters.mjs'
-import { V2ChapterDiscuss, type V2DiscussState } from './V2ChapterDiscuss'
+import { readBookmarkList, type BookmarkList } from '../../../../../packages/reader/src/bookmarks.mjs'
+import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type ChapterEnd } from '../../../../../packages/reader/src/chapters.mjs'
+import { V2ChapterDiscuss, type DiscussState } from './V2ChapterDiscuss'
 import { v2Store } from '../../api/v2'
 import { listOAuthGrants } from '../../api/oauth'
-import { readToc, tocAround, type V2TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import { readToc, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../../packages/reader/src/sessionTracker.mjs'
 import { flushPendingSessions, queueReadingSession } from '../../hooks/useReadingSession'
 import { useAuth } from '../../context/AuthContext'
 import { trackReadingSessionEnd } from '../../lib/analytics'
 import { V2SectionNav, V2TocDrawer } from './V2ReaderToc'
 import { V2SearchDrawer } from './V2ReaderSearch'
-import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../../../../packages/reader/src/search.mjs'
+import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type Search } from '../../../../../packages/reader/src/search.mjs'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { V2TimeLeft, v2Percent, type V2TimePlace } from './V2TimeLeft'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { useV2Glosses, useV2ReaderSettings, V2ReaderSettingsDrawer } from './V2ReaderSettings'
-import type { V2MarkWord } from '../../../../../packages/reader/src/wordMarks.mjs'
+import type { MarkWord } from '../../../../../packages/reader/src/wordMarks.mjs'
 import { createV2ReaderSync, type V2ReaderSync, type V2SaveStatus, type V2SyncTarget } from '../../lib/v2ReaderSync'
 
 /**
@@ -83,7 +83,7 @@ const SAVE_MESSAGE = { unsaved: 'v2Reader.unsaved', reopen: 'v2Reader.reopen', n
  */
 const FRAME_SRC = V2_READER_FRAME_PATH
 /** The share call (#1316), a seam for the host tests. */
-export const v2DiscussApi = { shareChapter: v2Api.shareChapter }
+export const v2DiscussApi = { shareChapter: syncApi.shareChapter }
 /** The frame's id: the skip link's target. */
 const BOOK_ID = 'v2-reader-book'
 /**
@@ -108,9 +108,9 @@ type HostKeyEvent = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'altKey
  * Escape always (the bars). No
  * Ctrl/Alt/Meta, no Shift+arrow (it extends a selection), as `navKey`.
  */
-export function hostNavKey(e: HostKeyEvent): { key: V2NavKey; shift: boolean; repeat: boolean } | null {
+export function hostNavKey(e: HostKeyEvent): { key: NavKey; shift: boolean; repeat: boolean } | null {
   if (e.ctrlKey || e.altKey || e.metaKey) return null
-  const key = (e.key === ' ' ? 'Space' : e.key) as V2NavKey
+  const key = (e.key === ' ' ? 'Space' : e.key) as NavKey
   if (!NAV_KEYS.includes(key) || (e.shiftKey && key.startsWith('Arrow'))) return null
   const k = { key, shift: !!e.shiftKey, repeat: !!e.repeat }
   if (key === 'Escape') return k
@@ -210,13 +210,13 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
   authenticated.current = isAuthenticated
   const endSession = (e: EndedSession | null) => sendSession(e, authenticated.current)
   /** #1426: the page's `describe` answers awaited, by request id. */
-  const described = useRef(new Map<string, (d: V2FileDetails | null) => void>())
+  const described = useRef(new Map<string, (d: FileDetails | null) => void>())
   /** The open book's details and cover from the page, or null (another open since, no answer in time, an error). */
-  const describeOpen = (o: Opening) => new Promise<V2FileDetails | null>((done) => {
+  const describeOpen = (o: Opening) => new Promise<FileDetails | null>((done) => {
     // Calls run in order in the page: with no open posted since `o`'s, the book it reads is `o`'s.
     if (opening.current !== o || !ready.current) return done(null)
     const id = crypto.randomUUID()
-    const finish = (d: V2FileDetails | null) => { clearTimeout(timer); described.current.delete(id); done(d) }
+    const finish = (d: FileDetails | null) => { clearTimeout(timer); described.current.delete(id); done(d) }
     const timer = setTimeout(() => finish(null), DESCRIBE_MS)
     described.current.set(id, finish)
     call('describe', [id])
@@ -244,7 +244,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * across opens and marks each section as it loads.
    */
   const [glosses, setGlosses] = useV2Glosses()
-  const marks = useRef<{ words: V2MarkWord[]; show: boolean }>({ words: [], show: glosses })
+  const marks = useRef<{ words: MarkWord[]; show: boolean }>({ words: [], show: glosses })
   const sendMarks = () => { if (ready.current) call('markWords', [marks.current.words, marks.current.show]) }
   /** The direction the open book pages in (`opened`, then every `relocate`): the arrow keys follow it. */
   const pageDir = useRef<'ltr' | 'rtl'>('ltr')
@@ -287,11 +287,11 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * while the book is open: a reader who scrolls away and back finds it), and the shared controller (the page's
    * `chapter-text` answers awaited, one operation id per chapter so a retry replays the first share).
    */
-  const [chapterEnd, setChapterEnd] = useState<V2ChapterEnd | null>(null)
+  const [chapterEnd, setChapterEnd] = useState<ChapterEnd | null>(null)
   const [discussBook, setDiscussBook] = useState<{ bookId: string; fileId: string; title: string; author: string | null; language: string | null } | null>(null)
-  const [discussStates, setDiscussStates] = useState<Record<string, V2DiscussState>>({})
+  const [discussStates, setDiscussStates] = useState<Record<string, DiscussState>>({})
   const [discussLocks] = useState(createDiscussLocks)
-  const [discuss] = useState(() => createV2Discuss({
+  const [discuss] = useState(() => createDiscuss({
     askPage: (request, c) => call('chapterText', [request, c.tocIndex, c.section]),
     share: (bookId, body) => v2DiscussApi.shareChapter(bookId, body),
     newId: () => crypto.randomUUID(),
@@ -302,7 +302,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * place is cleared where an open starts, not on `opened`: the page posts a book's first relocate before its
    * `opened`, and a fixed-layout book sends no other until a page turn.
    */
-  const [toc, setToc] = useState<V2TocEntry[]>([])
+  const [toc, setToc] = useState<TocEntry[]>([])
   const [tocIndex, setTocIndex] = useState<number | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
   /** `openContents`, taken once per mount by the first book opened. */
@@ -314,9 +314,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * book can be searched (the ref for the message handler, set with the state: an answer may come before the
    * re-render); the drawer, keyed by the open so a new book's starts empty.
    */
-  const [search, setSearchState] = useState<V2Search>(NO_SEARCH)
-  const searchRef = useRef<V2Search>(NO_SEARCH)
-  const setSearch = (s: V2Search) => {
+  const [search, setSearchState] = useState<Search>(NO_SEARCH)
+  const searchRef = useRef<Search>(NO_SEARCH)
+  const setSearch = (s: Search) => {
     searchRef.current = s
     setSearchState(s)
   }
@@ -361,9 +361,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * The word popup or the selection toolbar (#1269, wordPopup.mjs `popupStep`: one rule for both hosts); the ref for
    * the message handler, set with the state. The book's language (`opened.lang`), `en` when it says none.
    */
-  const [popup, setPopupState] = useState<V2Popup | null>(null)
-  const popupRef = useRef<V2Popup | null>(null)
-  const setPopup = (p: V2Popup | null) => {
+  const [popup, setPopupState] = useState<Popup | null>(null)
+  const popupRef = useRef<Popup | null>(null)
+  const setPopup = (p: Popup | null) => {
     // The highlight editor closing, whatever closes it: its changed draft is written (#1312 review).
     const was = popupRef.current
     if (was?.kind === 'highlight' && !(p?.kind === 'highlight' && p.id === was.id)) flushDraft()
@@ -393,9 +393,9 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * route keeps in memory (the production route's are the session's), a counter that re-renders after a note edit,
    * and the deep link's highlight still to jump to (once per open).
    */
-  const [highlightList, setHighlightList] = useState<V2HighlightItem[]>([])
+  const [highlightList, setHighlightList] = useState<HighlightItem[]>([])
   /** #1314: the open book's bookmarks, the one on screen and whether one can be made here (the page's `bookmark-list`); null until it comes. */
-  const [bookmarks, setBookmarks] = useState<V2BookmarkList | null>(null)
+  const [bookmarks, setBookmarks] = useState<BookmarkList | null>(null)
   /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (false: an image book, a PDF, a pre-paginated EPUB). */
   const [bookmarkable, setBookmarkable] = useState(false)
   const openedSha = useRef<string | null>(null)
@@ -463,7 +463,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     call(name, args)
   }
   /** A tap, word or selection from the page (validated): what is open, and what the tap zones do (`popupStep`). */
-  const onPopupEvent = (e: V2PopupEvent) => {
+  const onPopupEvent = (e: PopupEvent) => {
     // Desktop: no tap zones (scrolled flow has none), and the mouse, not a click, shows the bars.
     const { popup: next, turn } = popupStep(popupRef.current, e, { width: frame.current?.clientWidth, flow: mouse ? 'scrolled' : effectiveFlow(), dir: pageDir.current })
     setPopup(next)
@@ -952,7 +952,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * the share's id. Guarded by the identity it started under (this open, this account's store epoch): once either
    * changed, nothing is sent and nothing is shown. One share at a time per chapter.
    */
-  const discussChapter = (chapter: V2ChapterEnd, title: string | null) => {
+  const discussChapter = (chapter: ChapterEnd, title: string | null) => {
     const book = discussBook
     const open = opening.current
     const epoch = v2Store.epoch
@@ -963,7 +963,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
     const release = discussLocks.take(key)
     if (!release) return
     const current = () => opening.current === open && v2Store.epoch === epoch && account.current === asker
-    const set = (state: V2DiscussState | undefined) => {
+    const set = (state: DiscussState | undefined) => {
       if (!current()) return
       setDiscussStates((all) => {
         const { [key]: _, ...rest } = all
@@ -1020,7 +1020,7 @@ export function V2ReaderHost({ book, onOpened, toolbar, children, idleHeading = 
    * A contents entry the reader chose (the dialog, the section controls). Chosen: the page saves where it lands
    * (README, `goTo`). It is the current one at once: a jump within the view on screen may send no relocate.
    */
-  const goToc = (e: V2TocEntry) => {
+  const goToc = (e: TocEntry) => {
     setTocIndex(e.index)
     hostMove('goTo', [e.href, true])
   }

@@ -5,10 +5,10 @@
 // policy, so a book's own <script> (no nonce) cannot run, while foliate's iframes still need
 // allow-scripts. default-src 'none' + blob:/data: only: nothing a book references outside its zip is
 // fetched. connect-src is blob: data: for every host (the web hosts hand bytes in as blob:, frame.mjs); the
-// Android page (ANDROID_CSP, v2ReaderAndroidPageHtml) adds the two directories its interceptor serves
+// Android page (ANDROID_CSP, readerAndroidPageHtml) adds the two directories its interceptor serves
 // (bookOrigin.mjs, #1228), read by our own (nonce) script. No file: anywhere, so no app file is reachable.
 // The nonce is a placeholder, never a value: a fixed nonce in a public repo is one a book can carry.
-// v2ReaderPageHtml(nonce) fills it per load.
+// readerPageHtml(nonce) fills it per load.
 import { BOOK_CONNECT_SRC } from './bookOrigin.mjs'
 
 export const NONCE = '__V2_READER_NONCE__'

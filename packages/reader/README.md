@@ -33,14 +33,14 @@ and its build only. Hosted by `V2ReaderScreen.tsx` (R2): in production on the re
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
 | `library.d.mts` | Hand-written types for `library.mjs` (apps/web type-checks it without `allowJs`); a change to one must update the other. |
 | `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`; lower-cased keys. A picked file comes as the picker's own URI (no picker cache copy) and is copied straight into `staging/`; a failed copy (full disk) leaves no partial file (#1080 items 4–5). The `store` payload goes to the local library; R2's `library.json` + `store/<sha256>.json` are imported into it once (non-UUID ids remapped), then deleted; `library.json` and each store entry fall back to their `.tmp` when the target does not parse, and when neither parses both are renamed `.corrupt-<ms>` with a warning, never deleted or written over (#1081). |
-| `localLibrary.ts` | R6 (#1038): SQLite database `textstack-v2` — `books`, `reading_state`, `annotations` (the page's position/highlight JSON per row, keyed by client v4 UUIDs), `reading_sessions` (#1313, until pushed), `vocabulary` (#1271: the reader's live saved words as the vocabulary feed last sent them, pull-only, what the marks read offline), `outbox` (one coalescing entry per row, `gen` per re-queue, `failures` per gen: any entry kept and skipped after N, reset every session and by "Try again" = `unpark`, #1186), `meta` (cursors, file-sync setting). The page's entry is rebuilt from rows on `restore` and split into rows on `store`, through `@textstack/shared`'s `v2PageEntry` (the web host's mapping too, #1226); the entry's shape and checks are `v2PageStore.ts` there (`store.mjs` re-exports them). Sign-out (#1070): `signOutLoss` and `wipe` / `wipeV2Library`, below. |
-| `sync.ts` | R6: the sync client to `/me/v2/*` (PDD v2-sync-protocol.md): pull the library/reading/annotations feeds, push, then pull the vocabulary feed (#1271, its failure its own) by cursor, push the outbox in order, opt-in file sync (shared `uploadV2File`), download on demand; conflicts per the PDD's codes, reading state by ADR-019 re-keyed on CFI + spine index; every answer under the shared `whileCurrent` epoch guard. |
+| `localLibrary.ts` | R6 (#1038): SQLite database `textstack-v2` — `books`, `reading_state`, `annotations` (the page's position/highlight JSON per row, keyed by client v4 UUIDs), `reading_sessions` (#1313, until pushed), `vocabulary` (#1271: the reader's live saved words as the vocabulary feed last sent them, pull-only, what the marks read offline), `outbox` (one coalescing entry per row, `gen` per re-queue, `failures` per gen: any entry kept and skipped after N, reset every session and by "Try again" = `unpark`, #1186), `meta` (cursors, file-sync setting). The page's entry is rebuilt from rows on `restore` and split into rows on `store`, through `@textstack/shared`'s `pageEntry` (the web host's mapping too, #1226); the entry's shape and checks are `pageStore.ts` there (`store.mjs` re-exports them). Sign-out (#1070): `signOutLoss` and `wipe` / `wipeV2Library`, below. |
+| `sync.ts` | R6: the sync client to `/me/v2/*` (PDD v2-sync-protocol.md): pull the library/reading/annotations feeds, push, then pull the vocabulary feed (#1271, its failure its own) by cursor, push the outbox in order, opt-in file sync (shared `uploadFile`), download on demand; conflicts per the PDD's codes, reading state by ADR-019 re-keyed on CFI + spine index; every answer under the shared `whileCurrent` epoch guard. |
 | `deviceLibrary.ts` / `.web.ts` | The device's library over expo-sqlite (a failed open is retried, never cached) and its files: `v2Root()` (`<documents>/v2/`, the one definition: host, wipe, measure), `makeV2Dirs`, `clearV2Files` (the one place files are wiped: the root deleted and its three directories made again whenever it ran, so a half-failed call is retried whole), `deviceV2Bytes` (Profile's Device Storage; creates nothing), `deviceV2SignOutLoss`, `wipeDeviceV2Library`. The web twin keeps expo-sqlite out of the web bundle and mirrors every export. |
 | `sqliteShim.ts` | Tests only: localLibrary's `Db` over node:sqlite. |
 | `*.test.ts` | Unit tests (mobile vitest) for the pure modules and hostStorage. |
-| `build.mjs` | Pinned fork clone → esbuild IIFE (+ one per format reader) → `v2ReaderPage.generated.ts`. |
+| `build.mjs` | Pinned fork clone → esbuild IIFE (+ one per format reader) → `readerPage.generated.ts`. |
 | `carrier.mjs` | The page shell (pure): CSP, nonce placeholder, `formatsJs` (readers as escaped strings), `html`. Tested by `carrier.test.ts`. |
-| `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
+| `readerPage.generated.ts` | **Generated, committed.** `readerPageHtml(nonce)`. Never edit by hand. |
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind the fork's paginator fix). |
 | `fixtures.mjs` | Writes crafted books to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated), `tshostile.epub` (one row of `hostileVectors` per sandbox vector; `.mobi`/`.fb2` twins are written by the check), and `tsformat.{epub,mobi,fb2,fbz,cbz}`, `tsdrm.mobi`, `tskf8.mobi`, `tscombo.mobi`, `tsupper.cbz`, `tsutf16.fb2`, `tsformat.pdf`, `tscjk.pdf`, `tslocked.pdf` (and `hostilePdf`, written by the format check), every byte written by the file itself (MOBI6 and PDF by hand). Needs `zip`. |
 | `kf8fixture.mjs` | The recipe for the committed **synthetic** KF8 books in `synthetic/` (#1182): Calibre `ebook-convert` over an original EPUB it writes (and over `tshostile.epub`), then `normalise()`; `SYNTHETIC` records each file's SHA-256, asserted by `formats.test.ts`. CI has no Calibre and only reads the committed files. See `synthetic/README.md`. |
@@ -89,10 +89,10 @@ and its build only. Hosted by `V2ReaderScreen.tsx` (R2): in production on the re
 ## Build
 
 ```bash
-pnpm -C apps/web build:v2-reader     # rewrite v2ReaderPage.generated.ts
+pnpm -C apps/web build:v2-reader     # rewrite readerPage.generated.ts
 pnpm -C apps/web check:v2-reader     # CI: exit 1 if it is stale or over budget (page or any format reader)
 pnpm -C apps/web check:v2-reader-formats   # CI: every format opens as Formats says
-node packages/reader/src/build.mjs --repro   # + .vendor/v2ReaderPage.repro.html (test only)
+node packages/reader/src/build.mjs --repro   # + .vendor/readerPage.repro.html (test only)
 ```
 
 - **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `686afc4200006874a24071a6a57510e027a4cc32`
@@ -300,7 +300,7 @@ default-src 'none'; script-src 'nonce-__V2_READER_NONCE__'; style-src blob: 'uns
 font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'
 ```
 
-That is the page as built and the web frame's. The Android page (`v2ReaderAndroidPageHtml`, #1228) differs in
+That is the page as built and the web frame's. The Android page (`readerAndroidPageHtml`, #1228) differs in
 `connect-src` only: `blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/`,
 the two directories its interceptor serves (`bookOrigin.mjs`) and nothing above them. No `file:` on either host, so
 even a script that got past the nonce reaches no app file.
@@ -350,7 +350,7 @@ node --experimental-strip-types packages/reader/src/sandbox.check.mjs --mutate=b
   widened `connect-src` is caught only through it, because no book script runs to use `connect-src`.
 
 The artifact carries only the placeholder `__V2_READER_NONCE__` (a fixed nonce in a public repo is one a book
-can carry); `v2ReaderPageHtml(nonce)` fills the CSP and the script tag and rejects anything but base64/hex of
+can carry); `readerPageHtml(nonce)` fills the CSP and the script tag and rejects anything but base64/hex of
 16+ chars, and the placeholder itself (it fits that rule, so a page "filled" with it would run any script
 carrying it). The host supplies a fresh random nonce per load; on the web, whoever serves the frame document fills
 it per response (Host responsibilities, "Web, its own document").
@@ -538,7 +538,7 @@ selectedText, prefix: '', suffix: '', color: 'bookmark', at }`, where `selectedT
 
 ## Host responsibilities
 
-- A **fresh random nonce per load** into `v2ReaderPageHtml(nonce)`; the length check is not an entropy check, so the host picks the source of randomness (R2).
+- A **fresh random nonce per load** into `readerPageHtml(nonce)`; the length check is not an entropy check, so the host picks the source of randomness (R2).
 - **Keep every `store` payload** under its `key`, and hand back to `restore` an entry the page accepts. The web dev host keeps it verbatim; the web production host keeps it on the server (#1226); the Android host (R6) splits it into SQLite rows (`localLibrary.ts`) and rebuilds it — same position, same highlights (only those in this file version, none tombstoned). Lower-case hex keys: `sha256()` emits lower case and the key is compared byte for byte.
 - **Serialise library writes.** `library.mjs` is pure; two concurrent imports writing `library.json` can still lose one (web dev host). The web dev host never writes over a stored library that does not parse: it says so and adds nothing (#1081). The Android host runs every row write on one queue.
 - The R2 host passes its file path (`staging/<ts>.epub` or `books/<sha256>.epub`) as `openUrl`'s `name` to match each answer to its open, so the page's stored `book.name` is that path until the contract gains an explicit open id (#1069).
@@ -563,8 +563,8 @@ selectedText, prefix: '', suffix: '', color: 'bookmark', at }`, where `selectedT
   `toc-<index>` or `section-<index>`, the title, an operation id kept per chapter and open book so a retry
   replays), and only with the server's answer builds the message: one sentence and
   `(TextStack: book <bookId>, share <shareId>)`. The assistant reads it with `get_shared_chapter` (the caller's
-  own shares only; in parts of 40,000 characters). The logic is `createV2Discuss` (packages/shared
-  `lib/v2Discuss.ts`), one for both hosts.
+  own shares only; in parts of 40,000 characters). The logic is `createDiscuss` (packages/shared
+  `lib/discuss.ts`), one for both hosts.
   - Never a dead id: a failed, refused or offline share, a chapter with no text, a page that does not answer in
     20 s or a server that does not in 30 s (`timeout`; the retry replays the same operation) is said with a retry
     and opens no chat. A chapter over the cap is shared in part, and that is said on screen and in the message.
@@ -691,7 +691,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   language) is true on the web production route: picking a language saves the word on screen (below).
 - *Saving a word* (#1270, `vocabSave.mjs` `saveOutcome`: what each answer shows, one rule for both hosts). No page
   message is added: `word` carries the sentence, the host knows the book. The save is the legacy reader's, through
-  the app's vocabulary API, which speaks V2 (`PUT /me/v2/vocabulary/words`, the shared `createV2Vocabulary`) with
+  the app's vocabulary API, which speaks V2 (`PUT /me/v2/vocabulary/words`, the shared `createVocabulary`) with
   the flag on: the word, the book's language, its sentence, the book (id and the `opened` title) and the translation.
   - *Web*: as the legacy reader, automatic on a tap, once the reader confirmed a native language, and only for the
     production route's server book (the bytes are its file's; the dev route saves nothing), and only once the
@@ -991,7 +991,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   Space on a button or link and every key in a field, so after a click on Next › the arrows still turn; Escape
   always shows the bars). A held key turns once per press on both paths.
 
-**WebView** (Android, #1228; ADR-029 Decision 4 as amended): `source={{ html: v2ReaderPageHtml(nonce), baseUrl:
+**WebView** (Android, #1228; ADR-029 Decision 4 as amended): `source={{ html: readerPageHtml(nonce), baseUrl:
 'https://appassets.androidplatform.net/' }}`, no file access at all (the library's defaults: `allowFileAccess`,
 `allowFileAccessFromFileURLs`, universal and content access all off). The base URL arms the patched
 react-native-webview's interceptor (`patches/react-native-webview@13.16.1.patch`, `TextStackBookServer.java`): it
@@ -1021,10 +1021,10 @@ hidden `V2Describer` (#1426), which copies the pick into `staging/`, calls `desc
   (an external script has it too; the check opens a MOBI to prove it). `integrity` pins the script to the shell
   that names it: a swapped file is refused, not run under the nonce.
 
-`serveV2ReaderFrame` is the one handler: the Vite dev server (from source) and `vite preview` (from the built
-`dist/reader-v2/`, `v2ReaderDistFiles`, so CI's e2e runs what nginx ships) through plugin `v2-reader-frame`, which
+`serveReaderFrame` is the one handler: the Vite dev server (from source) and `vite preview` (from the built
+`dist/reader-v2/`, `readerDistFiles`, so CI's e2e runs what nginx ships) through plugin `v2-reader-frame`, which
 loads frame.mjs on the first `/reader-v2/` request, and the check use it; any other path under `/reader-v2/` is a 404,
-never the SPA. A production build writes the same two files to `dist/reader-v2/` (`v2ReaderFrameFiles`), the
+never the SPA. A production build writes the same two files to `dist/reader-v2/` (`readerFrameFiles`), the
 shell unfilled; nginx fills it (`location = /reader-v2/frame.html`, `sub_filter … $request_id`) and serves the
 script (`location ~ ^/reader-v2/page\.[0-9a-f]{16}\.js$`, server-level headers, `$cache_immutable`).
 `apps/web/scripts/assert-no-dev-reader.mjs` fails the build unless `dist/reader-v2/` is exactly those two files
@@ -1041,7 +1041,7 @@ the server's place, and when the read fails the page gets no `restore` (an error
 written. The book's annotations (this file version's, live) follow by `addHighlights` when a fresh pull lands
 (answered by `highlights`; ones not drawn are logged); until then highlighting is not offered, no highlight is
 written, and a status line says so (the pull retried on the next `store` and when the tab hides). Each `store` is diffed against what the server is known to hold (`entryChanges`,
-`packages/shared/src/reader/v2PageEntry.ts`, the mapping `localLibrary.ts` uses; twins only within one file
+`packages/shared/src/reader/pageEntry.ts`, the mapping `localLibrary.ts` uses; twins only within one file
 version) and written with the expected revisions. Conflicts: own write = success; `stale_revision`
 written once more on their revision (#1232). The web host never moves the reader by itself: a position write
 exists only because the reader moved, so ADR-019 (`decideServerState` with a reader who moved, against the place
@@ -1060,7 +1060,7 @@ a book without highlights (a PDF, a CBZ) pulls none.
 Bytes that are not the server file's are not synced. A CBZ page position syncs as `page-name` (#1188), as on
 Android. The shim posts to `self.origin` only and takes messages from `parent` at that origin
 only; the frame is same-origin with its host, so that is the host's origin. **Android keeps the inline page**
-(`v2ReaderPageHtml(nonce)`): nothing here changes it.
+(`readerPageHtml(nonce)`): nothing here changes it.
 
 Not `srcdoc`, measured (`prodCsp.check.mjs`): a srcdoc document inherits the app's CSP (`infra/nginx/textstack.conf`)
 on top of its own, and the app's `script-src` refuses the page's nonce'd scripts, so the page never sends `ready`;

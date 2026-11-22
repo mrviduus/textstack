@@ -11,7 +11,7 @@
  * highlight's full selection is `selectedText`. A highlight stored before #1078 has only `quote`,
  * which then holds the full selection.
  */
-import type { PageHighlight, PagePosition } from './v2LocalSync'
+import type { PageHighlight, PagePosition } from './localSync'
 import { isFractionOnly } from './fractionPosition'
 import { isPdfPage } from './pdfPagePosition'
 

@@ -140,7 +140,7 @@ API → Application → Domain ← Infrastructure
 
 ### Shared Frontend Package (`packages/`)
 
-**`@textstack/shared`** (`packages/shared/src/`) — cross-platform TS shared by web and mobile, consumed via source path-aliases (not published / built; `apps/web` resolves it in `vite.config.ts` + `tsconfig.json`, mobile via its bundler config). The home for platform-agnostic logic: `api/` (client, `v2*` sync calls), `types/api`, `i18n/`, `reader/` (locators, `v2PageEntry`, progress), `lib/` (`capabilities`, `pathPrefix`, …), `vocabLevel`, `vocabularyConstants`. Edit here, not in app copies, when both clients need it.
+**`@textstack/shared`** (`packages/shared/src/`) — cross-platform TS shared by web and mobile, consumed via source path-aliases (not published / built; `apps/web` resolves it in `vite.config.ts` + `tsconfig.json`, mobile via its bundler config). The home for platform-agnostic logic: `api/` (client, sync calls: `sync`, `books`, `upload`, `vocabulary`), `types/api`, `i18n/`, `reader/` (locators, `pageEntry`, progress), `lib/` (`capabilities`, `pathPrefix`, …), `vocabLevel`, `vocabularyConstants`. Edit here, not in app copies, when both clients need it.
 
 **Middleware pipeline** (`backend/src/Api/Program.cs`; order matters): `ForwardedHeaders` → `Cors` → `AppVersion` (mobile `X-App-Version` → log scope + Sentry tag) → `ExceptionMiddleware` → `UserStoragePolicy` (404 for an upload's files except its cover; must precede StaticFiles) → `StaticFiles(/storage)` → `/health`, `/health/ready` → `Routing` → `WriteFreeze` (off unless configured) → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `AccountGuard` (refuses tokens of a reset or deleted account) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (`/admin/*` except `/admin/auth`) → `PathGates` (`/me/*` → 401 without a user, `/internal/*` → 403 off the docker network; ADR-024)
 
@@ -238,7 +238,7 @@ Area guides load on their own: `backend/CLAUDE.md` (key files, every API route) 
 | Area | Path |
 |------|------|
 | Reader host, web | `apps/web/src/pages/V2ReaderPage.tsx`, `apps/web/src/components/reader/V2ReaderHost.tsx`, `apps/web/src/lib/v2ReaderSync.ts` |
-| Shared client + locators | `packages/shared/src/api/v2.ts`, `packages/shared/src/reader/v2PageEntry.ts` |
+| Shared client + locators | `packages/shared/src/api/sync.ts`, `packages/shared/src/reader/pageEntry.ts` |
 | Guest policy | `packages/shared/src/lib/capabilities.ts` |
 | Web contexts, pages | `apps/web/src/context/`, `apps/web/src/pages/` |
 | Library (web) | `apps/web/src/pages/LibraryPage.tsx`, `UserBookDetailPage.tsx` |

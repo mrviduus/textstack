@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_SELECTED_TEXT } from '../../shared/src/reader/v2Locators'
+import { MAX_SELECTED_TEXT } from '../../shared/src/reader/locators'
 import { MAX_SELECTION_CFI, MAX_SELECTION_INDEX, MAX_SELECTION_PX, MAX_SELECTION_SENTENCE, SELECTION_MAX_CHARS, readSelection, selectionMessage } from './selection.mjs'
 
 const CFI = 'epubcfi(/6/4!/4/2,/1:0,/1:9)'

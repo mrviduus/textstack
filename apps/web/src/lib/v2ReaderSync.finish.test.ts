@@ -1,4 +1,4 @@
-import { ApiError, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type ReadingState, type ReadingStateWrite } from '@textstack/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createV2ReaderSync, type V2ReaderSyncApi, type V2SyncTarget } from './v2ReaderSync'
 
@@ -11,13 +11,13 @@ const pos = (n: number, at = 1_000) => ({ cfi: cfi(n), quote: `quote ${n}`, inde
 const entry = (position: object) => JSON.stringify({ v: 1, book: { sha256: T.sha256, size: T.size, name: T.name }, position, highlights: [] })
 const AT = '2026-11-01T00:00:00.000Z'
 const DONE = '2026-11-13T10:00:00.000Z'
-const state = (revision: number, n = 1, extra: Partial<V2ReadingState> = {}): V2ReadingState => ({
+const state = (revision: number, n = 1, extra: Partial<ReadingState> = {}): ReadingState => ({
   bookId: T.bookId, fileId: T.fileId, currentLocator: { version: 1, scheme: 'epub-cfi', value: cfi(n), quote: `quote ${n}` },
   bookFraction: n / 10, frontierLocator: null, frontierFraction: null, completedAt: null, clientRecordedAt: AT, updatedAt: AT, revision, resetRevision: null, ...extra,
 })
 
 /** A server of one reading state: every accepted write is revision + 1; `completed_at` is `COALESCE(old, new)`. */
-let server: V2ReadingState | null
+let server: ReadingState | null
 let api: { [K in keyof V2ReaderSyncApi]: ReturnType<typeof vi.fn> }
 let completed: (string | null)[]
 let newer: unknown[]
@@ -29,7 +29,7 @@ beforeEach(() => {
   api = {
     getReadingState: vi.fn(async () => server),
     annotations: vi.fn().mockResolvedValue([]),
-    putReadingState: vi.fn(async (_b: string, w: V2ReadingStateWrite) => {
+    putReadingState: vi.fn(async (_b: string, w: ReadingStateWrite) => {
       if ((w.expectedRevision ?? 0) !== (server?.revision ?? 0)) throw Object.assign(new ApiError(409, 'stale_revision'), { body: { code: 'stale_revision', message: '', current: server } })
       return (server = {
         ...state((server?.revision ?? 0) + 1), currentLocator: w.currentLocator, bookFraction: w.bookFraction, clientRecordedAt: w.clientRecordedAt,
@@ -53,7 +53,7 @@ async function opened() {
   await s.restore()
   return s
 }
-const writes = () => api.putReadingState.mock.calls.map((c) => c[1] as V2ReadingStateWrite)
+const writes = () => api.putReadingState.mock.calls.map((c) => c[1] as ReadingStateWrite)
 
 describe('createV2ReaderSync complete (#1266)', () => {
   it('restore_NotFinished_TellsTheHostNull_Finished_ItsTime', async () => {
@@ -99,8 +99,8 @@ describe('createV2ReaderSync complete (#1266)', () => {
   it('complete_APositionWriteInFlight_NothingReadUntilItLanded', async () => {
     const s = await opened()
     let land!: () => void
-    const write = api.putReadingState.getMockImplementation() as (b: string, w: V2ReadingStateWrite) => Promise<V2ReadingState>
-    api.putReadingState.mockImplementationOnce((b: string, w: V2ReadingStateWrite) => new Promise((ok) => { land = () => ok(write(b, w)) }))
+    const write = api.putReadingState.getMockImplementation() as (b: string, w: ReadingStateWrite) => Promise<ReadingState>
+    api.putReadingState.mockImplementationOnce((b: string, w: ReadingStateWrite) => new Promise((ok) => { land = () => ok(write(b, w)) }))
     s.store(entry(pos(10, Date.now())))
     const done = s.complete()
     await new Promise((r) => setTimeout(r, 0))
@@ -191,7 +191,7 @@ describe('createV2ReaderSync complete (#1266)', () => {
   it('complete_ReadsItsOwnLostWrite_NoOffer', async () => {
     const s = await opened()
     // Our move landed, its answer lost: the read finds it on a revision the session has not seen.
-    api.putReadingState.mockImplementationOnce(async (_b: string, w: V2ReadingStateWrite) => {
+    api.putReadingState.mockImplementationOnce(async (_b: string, w: ReadingStateWrite) => {
       server = { ...state(5, 8), currentLocator: w.currentLocator, bookFraction: w.bookFraction, clientRecordedAt: w.clientRecordedAt }
       throw new ApiError(0, 'offline')
     })

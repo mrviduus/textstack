@@ -1,5 +1,5 @@
 import { ApiError } from '../api/client'
-import { v2Api, toV2Session, type PendingSession } from '@textstack/shared'
+import { syncApi, toSyncSession, type PendingSession } from '@textstack/shared'
 
 const PENDING_SESSIONS_KEY = 'reading.pendingSessions'
 
@@ -69,7 +69,7 @@ export async function flushPendingSessions() {
           // A replay of the same id answers 200: first write wins.
           const { clientSessionId } = sent
           try {
-            await v2Api.putSession(clientSessionId, toV2Session(sent))
+            await syncApi.putSession(clientSessionId, toSyncSession(sent))
           } catch (err) {
             // 404: the book is gone. The session never counted; never retried.
             if (!(err instanceof ApiError && err.status === 404)) throw err

@@ -1,5 +1,5 @@
 // Types for bookmarks.mjs (apps/web type-checks it without allowJs); a change to one must update the other.
-import type { V2ListItem } from './highlights.mjs'
+import type { ListItem } from './highlights.mjs'
 
 /** An entry highlight or a V2 annotation of colour `BOOKMARK_COLOR` (`packages/shared`). */
 export function isBookmark(h: { color?: string | null } | null | undefined): boolean
@@ -18,12 +18,12 @@ export function atTop(
   opts?: { scrolled?: boolean; vertical?: boolean; rects?: (r: Range) => Iterable<{ top: number; left: number; width: number; height: number }> },
 ): boolean
 /** One `bookmark-list` item, in book order; `text` is display only (cut). */
-export type V2BookmarkItem = V2ListItem
+export type BookmarkItem = ListItem
 export function bookmarkList(
   highlights: { id: string; cfi: string; color?: string; selectedText?: string; quote?: string; at?: number }[],
   placed: Set<string>,
   compare: (a: string, b: string) => number,
-): V2BookmarkItem[]
+): BookmarkItem[]
 /** `here`: the bookmark the place being read has (null: none); `can`: one can be made here now; `placing`: bookmarks are still being placed. */
-export interface V2BookmarkList { key: string; bookmarks: V2BookmarkItem[]; here: string | null; can: boolean; placing: boolean }
-export function readBookmarkList(m: unknown): V2BookmarkList | null
+export interface BookmarkList { key: string; bookmarks: BookmarkItem[]; here: string | null; can: boolean; placing: boolean }
+export function readBookmarkList(m: unknown): BookmarkList | null

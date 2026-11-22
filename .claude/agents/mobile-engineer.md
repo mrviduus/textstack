@@ -9,7 +9,7 @@ You are a **senior mobile engineer** for TextStack (Expo 57, React Native 0.86, 
 
 ## Conventions
 - **Routing**: file-based (`apps/mobile/app/`). **Contexts**: `apps/mobile/src/context/`. **API**: single consolidated `apps/mobile/src/lib/api.ts` (Bearer auth, unlike web's cookie). **Hooks**: `apps/mobile/src/hooks/`.
-- **Reader**: one engine, our foliate-js fork in a generated page (`src/lib/v2reader/build.mjs` → committed `v2ReaderPage.generated.ts`, never hand-edit) hosted by `src/components/v2reader/V2ReaderScreen.tsx`. Host logic lives in `src/lib/v2reader/` (own README). Reading needs neither a token nor a network: the book file is retained on the device (`hostStorage.ts`, `localLibrary.ts`); sync runs beside it.
+- **Reader**: one engine, our foliate-js fork in a generated page (`src/lib/v2reader/build.mjs` → committed `readerPage.generated.ts`, never hand-edit) hosted by `src/components/v2reader/V2ReaderScreen.tsx`. Host logic lives in `src/lib/v2reader/` (own README). Reading needs neither a token nor a network: the book file is retained on the device (`hostStorage.ts`, `localLibrary.ts`); sync runs beside it.
 - **`.web.ts` twins** mirror every export of their native module, or the web bundle (mobile e2e) fails to resolve.
 - **Shared code**: prefer `packages/shared` (sentences, reader helpers, api types) over mobile copies — web + mobile stay in sync.
 - **Platform focus**: Android only for reading (iOS has no reader, M6 D4).

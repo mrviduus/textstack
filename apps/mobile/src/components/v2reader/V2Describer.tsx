@@ -6,23 +6,23 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import { uuid } from 'expo-modules-core'
-import type { V2FileDetails } from '@textstack/shared'
+import type { FileDetails } from '@textstack/shared'
 import { bookUrl } from '../../../../../packages/reader/src/bookOrigin.mjs'
 import { readDescribed } from '../../../../../packages/reader/src/describe.mjs'
 import { nonceFromUuid } from '../../lib/v2reader/hostStorage'
 import { DESCRIBE_MS, PAGE_WEBVIEW_PROPS, pageSource } from './pageWebView'
 
-type Job = { id: string; url: string; nonce: string; done: (d: V2FileDetails | null) => void }
+type Job = { id: string; url: string; nonce: string; done: (d: FileDetails | null) => void }
 
 /**
  * `[element, describe]`: render `element` anywhere in the screen; `describe(file)` takes a name under `files/v2/`
  * (`staging/<ms>.epub`) and resolves to its details and cover, or null. One at a time: a new call answers the
  * previous one null.
  */
-export function useV2Describer(): [ReactNode, (file: string) => Promise<V2FileDetails | null>] {
+export function useV2Describer(): [ReactNode, (file: string) => Promise<FileDetails | null>] {
   const [job, setJob] = useState<Job | null>(null)
   const current = useRef<Job | null>(null)
-  const describe = useCallback((file: string) => new Promise<V2FileDetails | null>((resolve) => {
+  const describe = useCallback((file: string) => new Promise<FileDetails | null>((resolve) => {
     const url = bookUrl(file)
     if (!url) return resolve(null)
     current.current?.done(null)

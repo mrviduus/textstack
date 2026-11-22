@@ -8,16 +8,16 @@ export const MAX_COVER_SENT: number
 export const MAX_COVER_BYTES: number
 export function isRequestId(id: unknown): id is string
 /** A book's details as read from its file; each '' when the file has none. */
-export interface V2BookMeta { title: string; author: string; lang: string; description: string }
+export interface BookMeta { title: string; author: string; lang: string; description: string }
 /** The `described` message as a host takes it. */
-export interface V2Described {
+export interface Described {
   id: string
   /** null with `error`. */
-  meta: V2BookMeta | null
+  meta: BookMeta | null
   /** A `data:image/jpeg;base64,` URL, or null. */
   cover: string | null
   error?: string
 }
-export function bookMeta(metadata: unknown, ui?: string): V2BookMeta
+export function bookMeta(metadata: unknown, ui?: string): BookMeta
 export function coverJpeg(blob: Blob | null | undefined): Promise<string | null>
-export function readDescribed(m: unknown): V2Described | null
+export function readDescribed(m: unknown): Described | null

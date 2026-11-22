@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * The V2 reader frame (#1219, #1225): a no-store shell + the content-hashed page script, under /reader-v2/.
- * Both servers answer it with frame.mjs `serveV2ReaderFrame` (the handler prodCsp.check.mjs tests; it fills a
+ * Both servers answer it with frame.mjs `serveReaderFrame` (the handler prodCsp.check.mjs tests; it fills a
  * fresh nonce per response, as nginx does in production): the dev server from source, `vite preview` from the
  * built dist/reader-v2/ (CI's e2e then runs the bytes nginx ships). A build writes the two files there.
  * frame.mjs carries the 3.75 MB page: imported on the first reader request or at the end of a build, never
@@ -21,7 +21,7 @@ const serveFrame = (files: ((m: FrameModule) => object) | null): Connect.NextHan
   let built: object | undefined
   return (req, res, next) => {
     if (!req.url?.startsWith(V2_READER_DIR)) return next()
-    loadFrame().then((m) => m.serveV2ReaderFrame(req, res, files ? (built ??= files(m)) : undefined) || next()).catch(next)
+    loadFrame().then((m) => m.serveReaderFrame(req, res, files ? (built ??= files(m)) : undefined) || next()).catch(next)
   }
 }
 const v2ReaderFrame = (): Plugin => ({
@@ -29,11 +29,11 @@ const v2ReaderFrame = (): Plugin => ({
   configureServer: (server) => { server.middlewares.use(serveFrame(null)) },
   configurePreviewServer: (server) => {
     const dist = path.resolve(server.config.root, server.config.build.outDir)
-    server.middlewares.use(serveFrame((m) => m.v2ReaderDistFiles(dist)))
+    server.middlewares.use(serveFrame((m) => m.readerDistFiles(dist)))
   },
   async generateBundle() {
-    const { v2ReaderFrameFiles } = await loadFrame()
-    const { shell, script, scriptPath } = v2ReaderFrameFiles()
+    const { readerFrameFiles } = await loadFrame()
+    const { shell, script, scriptPath } = readerFrameFiles()
     this.emitFile({ type: 'asset', fileName: V2_READER_FRAME_PATH.slice(1), source: shell })
     this.emitFile({ type: 'asset', fileName: scriptPath.slice(1), source: script })
   },

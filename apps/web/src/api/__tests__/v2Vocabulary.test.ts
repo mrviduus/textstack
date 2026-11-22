@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { saveWord, updateWord, getReviewQueue, submitReview, restoreWord, deleteAllWords } from '../vocabulary'
 import { startV2Probe, resetV2ForTests, v2Store } from '../v2'
-import { fakeApi, V2_ON, feed, card, conflict, resetMidCall } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi, SYNC_ON, feed, card, conflict, resetMidCall } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -16,7 +16,7 @@ const library = { 'GET /me/v2/library/changes': feed({ id: 'b1', currentFile: { 
 
 describe('saveWord', () => {
   it('replays a queued save with the same card id and operation id (V2)', async () => {
-    const calls = fakeApi({ ...V2_ON, ...library, 'PUT /me/v2/vocabulary/words': [{ status: 201, body: card('w1') }] })
+    const calls = fakeApi({ ...SYNC_ON, ...library, 'PUT /me/v2/vocabulary/words': [{ status: 201, body: card('w1') }] })
     await startV2Probe()
 
     await saveWord(queued)
@@ -35,7 +35,7 @@ describe('saveWord', () => {
   it('answers deleted with the tombstone, and the restore names its revision', async () => {
     const tombstone = card('w1', { deletedAt: '2026-11-02T00:00:00Z', revision: 4 })
     const calls = fakeApi({
-      ...V2_ON, ...library,
+      ...SYNC_ON, ...library,
       'PUT /me/v2/vocabulary/words': [conflict('deleted', { current: tombstone })],
       'POST /me/v2/vocabulary/words/w1/restore': [{ status: 200, body: card('w1', { revision: 5 }) }],
     })
@@ -49,7 +49,7 @@ describe('saveWord', () => {
 
 describe('vocabulary edits and review on V2', () => {
   beforeEach(async () => {
-    fakeApi(V2_ON)
+    fakeApi(SYNC_ON)
     await startV2Probe()
   })
 
@@ -107,7 +107,7 @@ describe('vocabulary edits and review on V2', () => {
 
 describe('a sign-out mid-call (#1151)', () => {
   it('a review queue answered after v2Store.reset returns nothing and remembers no card', async () => {
-    fakeApi({ ...V2_ON })
+    fakeApi({ ...SYNC_ON })
     await startV2Probe()
     const queue = await resetMidCall(() => v2Store.reset(), { 'GET /vocabulary/due': { status: 200, body: [card('w1')] } }, () => getReviewQueue(10))
     expect(queue).toMatchObject({ cards: [], totalDue: 0 })

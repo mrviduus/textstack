@@ -3,8 +3,8 @@
  * import the metadata, send the parts, complete. Each app gives its IO: the hash, the ids, one
  * part's send (XHR + `Blob.slice` on web, `readBytes` + fetch on mobile) and the progress it shows.
  */
-import * as v2Api from './v2'
-import type { V2Book, V2FileWrite } from './v2'
+import * as syncApi from './sync'
+import type { Book, FileWrite } from './sync'
 import { clip } from '../reader/textAnchor'
 import { bookTitle } from '../lib/bookTitle'
 
@@ -12,7 +12,7 @@ import { bookTitle } from '../lib/bookTitle'
 export const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
 
 /** A V2 upload the reader must hear about; `code` picks the message. */
-export class V2UploadError extends Error {
+export class FileUploadError extends Error {
   constructor(readonly code: 'content_mismatch' | 'quota_exceeded', readonly quota?: { used: number; limit: number }) {
     super(code === 'content_mismatch'
       ? 'The file changed while it was uploading. Pick it again.'
@@ -24,24 +24,24 @@ export class V2UploadError extends Error {
  * A known book's bytes asked for, but the server does not hold that book's current file (removed,
  * replaced, or never pushed): nothing was imported. The caller pushes the book again first.
  */
-export class V2UploadNotOnServer extends Error {
+export class UploadNotOnServer extends Error {
   constructor(readonly bookId: string) {
     super('The book is not on the server as this device knows it')
   }
 }
 
-export type V2ClientFormat = V2FileWrite['format']
+export type ClientFormat = FileWrite['format']
 const FORMATS: readonly string[] = ['epub', 'pdf', 'mobi', 'azw3', 'fb2', 'cbz']
 
 /** A file's format by its extension (`.fbz` is an FB2); anything else is sent as `epub`, as before. */
-export function formatOfName(name: string): V2ClientFormat {
+export function formatOfName(name: string): ClientFormat {
   const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? ''
   if (ext === 'fbz') return 'fb2'
-  return (FORMATS.includes(ext) ? ext : 'epub') as V2ClientFormat
+  return (FORMATS.includes(ext) ? ext : 'epub') as ClientFormat
 }
 
 /** One part: bytes `[start, end)` of the file, to `index` of `partCount`. */
-export interface V2UploadPart {
+export interface UploadPart {
   bookId: string
   fileId: string
   index: number
@@ -55,36 +55,36 @@ export interface V2UploadPart {
  * packages/reader/src/describe.mjs takes it): each field '' when the file has none, the cover a
  * `data:image/jpeg;base64,` URL or null.
  */
-export interface V2FileDetails {
+export interface FileDetails {
   meta: { title: string; author: string; lang: string; description: string } | null
   cover: string | null
 }
 
-export interface V2UploadIo {
+export interface FileUploadIo {
   /** A v4 uuid. */
   newId(): string
   /** Lowercase hex SHA-256 of the file; asked again on `content_mismatch`. */
   hash(): Promise<string>
-  sendPart(part: V2UploadPart): Promise<unknown>
+  sendPart(part: UploadPart): Promise<unknown>
   /** The last cancel point before the complete (mobile): it throws `aborted` once cancelled. */
   beforeComplete?(): Promise<void>
   /**
    * The book these bytes already are on the server (a synced local book, R6 file sync): only its
-   * current file takes them, never an import under new ids (`V2UploadNotOnServer` instead).
+   * current file takes them, never an import under new ids (`UploadNotOnServer` instead).
    */
   known?: { bookId: string; fileId: string }
   /**
    * The book's details from its file (#1426), started beside the hash and awaited just before the import; null (or
    * a failure) imports the cleaned file name. Bounded by the caller: an upload waits for it.
    */
-  describe?(): Promise<V2FileDetails | null>
+  describe?(): Promise<FileDetails | null>
 }
 
-export interface V2UploadResult {
+export interface UploadResult {
   bookId: string
-  format: V2ClientFormat
+  format: ClientFormat
   /** The book that already had these bytes (by sha256, or the import's `duplicate_file`); null when imported. */
-  found: V2Book | null
+  found: Book | null
   /** Whether this upload sent the bytes: a new book, or a found one whose bytes never arrived. */
   sent: boolean
 }
@@ -98,14 +98,14 @@ export interface V2UploadResult {
  * With `io.describe`, a new import carries the file's title (else the cleaned file name), author, language and
  * description, and its cover is sent after the bytes, best-effort.
  */
-export async function uploadV2File(file: { name: string; size: number; format?: V2ClientFormat }, maxPartBytes: number, io: V2UploadIo): Promise<V2UploadResult> {
+export async function uploadFile(file: { name: string; size: number; format?: ClientFormat }, maxPartBytes: number, io: FileUploadIo): Promise<UploadResult> {
   const format = file.format ?? formatOfName(file.name)
   let imported: string | null = null
   const described = Promise.resolve().then(() => io.describe?.() ?? null).catch(() => null)
   try {
     const sha256 = await io.hash()
-    let found = await v2Api.findBySha256(sha256)
-    if (io.known && (found?.id !== io.known.bookId || found.currentFile?.id !== io.known.fileId)) throw new V2UploadNotOnServer(io.known.bookId)
+    let found = await syncApi.findBySha256(sha256)
+    if (io.known && (found?.id !== io.known.bookId || found.currentFile?.id !== io.known.fileId)) throw new UploadNotOnServer(io.known.bookId)
     let bookId = ''
     let fileId = ''
     if (!found) {
@@ -114,7 +114,7 @@ export async function uploadV2File(file: { name: string; size: number; format?: 
       const meta = (await described)?.meta
       const title = clip(bookTitle(meta?.title, file.name), 500)
       try {
-        await v2Api.importBook(bookId, {
+        await syncApi.importBook(bookId, {
           title,
           // '' (the file has none) is left out: undefined is not sent.
           author: meta?.author || undefined,
@@ -124,10 +124,10 @@ export async function uploadV2File(file: { name: string; size: number; format?: 
         })
         imported = bookId
       } catch (e) {
-        const err = v2Api.v2ErrorOf(e)
+        const err = syncApi.syncErrorOf(e)
         if (err?.code !== 'duplicate_file') throw e
         // The book that has these bytes: the 409's `current`, or looked up again when it carries none.
-        found = (err.current as V2Book | undefined) ?? await v2Api.findBySha256(sha256)
+        found = (err.current as Book | undefined) ?? await syncApi.findBySha256(sha256)
         if (!found) throw e
       }
     }
@@ -138,10 +138,10 @@ export async function uploadV2File(file: { name: string; size: number; format?: 
     }
     await sendBytes(file.size, sha256, bookId, fileId, maxPartBytes, io)
     const cover = imported && (await described)?.cover
-    if (cover) await v2Api.putCover(bookId, jpegBytes(cover), 'image/jpeg').catch(() => {})
+    if (cover) await syncApi.putCover(bookId, jpegBytes(cover), 'image/jpeg').catch(() => {})
     return { bookId, format, found, sent: true }
   } catch (e) {
-    if ((e as { aborted?: boolean } | null)?.aborted && imported) await v2Api.removeBook(imported).catch(() => {})
+    if ((e as { aborted?: boolean } | null)?.aborted && imported) await syncApi.removeBook(imported).catch(() => {})
     throw e
   }
 }
@@ -149,8 +149,8 @@ export async function uploadV2File(file: { name: string; size: number; format?: 
 /** A `data:image/jpeg;base64,` URL's bytes. */
 export const jpegBytes = (dataUrl: string) => Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(',') + 1)), (c) => c.charCodeAt(0))
 
-/** The parts, then the complete, with the retries `uploadV2File` names. */
-async function sendBytes(size: number, sha256: string, bookId: string, fileId: string, maxPartBytes: number, io: V2UploadIo): Promise<void> {
+/** The parts, then the complete, with the retries `uploadFile` names. */
+async function sendBytes(size: number, sha256: string, bookId: string, fileId: string, maxPartBytes: number, io: FileUploadIo): Promise<void> {
   const partBytes = Math.max(1, maxPartBytes)
   const partCount = Math.max(1, Math.ceil(size / partBytes))
   const sendAll = async () => {
@@ -160,8 +160,8 @@ async function sendBytes(size: number, sha256: string, bookId: string, fileId: s
     }
   }
   const quota = (e: unknown) => {
-    const err = v2Api.v2ErrorOf(e)
-    return err?.code === 'quota_exceeded' ? new V2UploadError('quota_exceeded', err.current as { used: number; limit: number }) : e
+    const err = syncApi.syncErrorOf(e)
+    return err?.code === 'quota_exceeded' ? new FileUploadError('quota_exceeded', err.current as { used: number; limit: number }) : e
   }
   // One second round: every part again after `incomplete_upload` (a part went missing), or after
   // `content_mismatch` when the file still hashes the same (the bytes broke in flight). A file that
@@ -174,15 +174,15 @@ async function sendBytes(size: number, sha256: string, bookId: string, fileId: s
       throw quota(e)
     }
     try {
-      await v2Api.completeContent(bookId, fileId, partCount)
+      await syncApi.completeContent(bookId, fileId, partCount)
       return
     } catch (e) {
-      const err = v2Api.v2ErrorOf(e)
+      const err = syncApi.syncErrorOf(e)
       if (err?.code === 'quota_exceeded') throw quota(e)
       const again = !retried && (err?.code === 'incomplete_upload'
         || (err?.code === 'content_mismatch' && (await io.hash()) === sha256))
       if (again) continue
-      throw err?.code === 'content_mismatch' ? new V2UploadError('content_mismatch') : e
+      throw err?.code === 'content_mismatch' ? new FileUploadError('content_mismatch') : e
     }
   }
 }

@@ -1,5 +1,5 @@
 // The production-CSP gate (#1219, #1225): the web host's frame, the no-store shell + its cached page script,
-// served by the one handler that serves them (frame.mjs `serveV2ReaderFrame`, the Vite dev and preview servers'
+// served by the one handler that serves them (frame.mjs `serveReaderFrame`, the Vite dev and preview servers'
 // too), works under the app's real Content-Security-Policy, read from infra/nginx/textstack.conf, so the two
 // cannot drift; and that file's reader locations send what the handler sends. A local server plays nginx; its host
 // document loads an external 'self' script, as the app bundle does, embeds the page in `<iframe
@@ -33,8 +33,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mobi, writeFontsEpub } from './fixtures.mjs'
 import {
-  FRAME_NONCE_PLACEHOLDER, V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, V2_READER_SCRIPT_HEADERS, fillNonce, serveV2ReaderFrame,
-  v2ReaderFrameFiles, v2ReaderFrameTemplate,
+  FRAME_NONCE_PLACEHOLDER, V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, V2_READER_SCRIPT_HEADERS, fillNonce, serveReaderFrame,
+  readerFrameFiles, readerFrameTemplate,
 } from './frame.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -67,7 +67,7 @@ if (!appFrameSrc.split(' ').includes("'self'")) { console.error("the app CSP has
 const frameLocation = conf.match(/\n {4}location = \/reader-v2\/frame\.html \{\n([\s\S]*?)\n {4}\}/)?.[1] ?? ''
 const scriptLocation = conf.match(/\n {4}location ~ "(\^\/reader-v2\/page[^"]*)" \{\n([\s\S]*?)\n {4}\}/)
 
-const { shell: SHELL, script: SCRIPT, scriptPath: SCRIPT_PATH } = v2ReaderFrameFiles()
+const { shell: SHELL, script: SCRIPT, scriptPath: SCRIPT_PATH } = readerFrameFiles()
 // The web frame's own CSP (#1228): connect-src is blob:/data: only; the Android page's book origin is not in it.
 const FRAME_CONNECT = SHELL.match(/connect-src ([^;"]*)/)?.[1]
 if (FRAME_CONNECT !== 'blob: data:') { console.error(`the web frame's connect-src is "${FRAME_CONNECT}", not "blob: data:"`); process.exit(2) }
@@ -123,7 +123,7 @@ const server = createServer((req, res) => {
   if (url.pathname === '/fonts.epub') return res.writeHead(200).end(FONTS_BOOK)
   if (url.pathname === '/book.mobi') return res.writeHead(200).end(MOBI_BOOK)
   if (row?.serve === 'unfilled' && url.pathname === V2_READER_FRAME_PATH)
-    return res.writeHead(200, V2_READER_FRAME_HEADERS).end(v2ReaderFrameTemplate())
+    return res.writeHead(200, V2_READER_FRAME_HEADERS).end(readerFrameTemplate())
   if (row?.serve === 'shell' && url.pathname === V2_READER_FRAME_PATH)
     return res.writeHead(200, V2_READER_FRAME_HEADERS).end(row.shell(fillNonce(SHELL, randomBytes(16).toString('hex'))))
   if (row?.id === 'tampered' && url.pathname === SCRIPT_PATH)
@@ -133,7 +133,7 @@ const server = createServer((req, res) => {
     const writeHead = res.writeHead.bind(res)
     res.writeHead = (status) => writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': APP_CSP, 'X-Frame-Options': APP_XFO })
   }
-  if (serveV2ReaderFrame(req, res)) return
+  if (serveReaderFrame(req, res)) return
   res.writeHead(404).end()
 })
 await new Promise((r) => server.listen(0, '127.0.0.1', r))

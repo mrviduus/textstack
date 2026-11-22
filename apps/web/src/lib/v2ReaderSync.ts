@@ -37,9 +37,9 @@
  */
 import {
   annotationHighlight, annotationQuotation, ApiError, entryChanges, entryFor, highlightWrite, normalisedHighlight, ownAnnotationWrite,
-  decideServerState, ownStateWrite, pageEntry, pageNameRefusal, positionWrite, sameJson, statePosition, v2Api,
-  type HeldHighlight, type PageEntry, type PageHighlight, type PagePosition, type PageQuotation, type V2Annotation, type V2AnnotationWrite, type V2ReadingState,
-  type V2ReadingStateWrite,
+  decideServerState, ownStateWrite, pageEntry, pageNameRefusal, positionWrite, sameJson, statePosition, syncApi,
+  type HeldHighlight, type PageEntry, type PageHighlight, type PagePosition, type PageQuotation, type Annotation, type AnnotationWrite, type ReadingState,
+  type ReadingStateWrite,
 } from '@textstack/shared'
 import { resetSince } from '../api/v2'
 import { keepaliveWrite } from './progressSync'
@@ -62,13 +62,13 @@ export type V2SaveStatus = 'saved' | 'unsaved' | 'reopen' | 'noHighlights'
 
 /** The server calls a session makes (the shared client's; a fake in tests). */
 export interface V2ReaderSyncApi {
-  getReadingState(bookId: string): Promise<V2ReadingState | null>
+  getReadingState(bookId: string): Promise<ReadingState | null>
   /** The user's annotations (the feed is per user: filtered by book here). */
-  annotations(): Promise<V2Annotation[]>
-  putReadingState(bookId: string, body: V2ReadingStateWrite): Promise<V2ReadingState>
-  putAnnotation(id: string, body: V2AnnotationWrite): Promise<V2Annotation>
+  annotations(): Promise<Annotation[]>
+  putReadingState(bookId: string, body: ReadingStateWrite): Promise<ReadingState>
+  putAnnotation(id: string, body: AnnotationWrite): Promise<Annotation>
   /** The tombstone (200, idempotent); 404 when the server never had it. */
-  deleteAnnotation(id: string): Promise<V2Annotation>
+  deleteAnnotation(id: string): Promise<Annotation>
   /** Writes that outlive the page (`pagehide`); their answers are not read. */
   keepalivePutState(bookId: string, body: string): void
   keepalivePutAnnotation(id: string, body: string): void
@@ -76,16 +76,16 @@ export interface V2ReaderSyncApi {
 }
 
 export const v2ReaderSyncApi: V2ReaderSyncApi = {
-  getReadingState: (id) => v2Api.getReadingState(id),
+  getReadingState: (id) => syncApi.getReadingState(id),
   // A fresh pull, never one in flight (pullFeed's): a reopen must see the previous session's writes.
   // ponytail: the whole annotations feed per open, as highlightSync; a per-book list when the API has one.
-  annotations: async () => (await v2Api.pullAll<V2Annotation>('annotations')).items,
-  putReadingState: v2Api.putReadingState,
-  putAnnotation: v2Api.putAnnotation,
-  deleteAnnotation: v2Api.deleteAnnotation,
-  keepalivePutState: (id, body) => void keepaliveWrite(v2Api.readingStateUrl(id), body).catch(() => {}),
-  keepalivePutAnnotation: (id, body) => void keepaliveWrite(v2Api.annotationUrl(id), body).catch(() => {}),
-  keepaliveDeleteAnnotation: (id) => void keepaliveWrite(v2Api.annotationUrl(id), null, 'DELETE').catch(() => {}),
+  annotations: async () => (await syncApi.pullAll<Annotation>('annotations')).items,
+  putReadingState: syncApi.putReadingState,
+  putAnnotation: syncApi.putAnnotation,
+  deleteAnnotation: syncApi.deleteAnnotation,
+  keepalivePutState: (id, body) => void keepaliveWrite(syncApi.readingStateUrl(id), body).catch(() => {}),
+  keepalivePutAnnotation: (id, body) => void keepaliveWrite(syncApi.annotationUrl(id), body).catch(() => {}),
+  keepaliveDeleteAnnotation: (id) => void keepaliveWrite(syncApi.annotationUrl(id), null, 'DELETE').catch(() => {}),
 }
 
 /** The browser's keepalive budget is 64 KiB for every request in flight; headroom kept. */
@@ -140,12 +140,12 @@ export interface V2ReaderSync {
 
 /** A position write exists only because the reader moved (or took an offer): ADR-019 then keeps or asks. */
 const MOVED = { restoreApplied: true, moved: true, index: null }
-const errorCode = (e: unknown) => v2Api.v2ErrorOf(e)?.code ?? (e as Error | null)?.message
+const errorCode = (e: unknown) => syncApi.syncErrorOf(e)?.code ?? (e as Error | null)?.message
 /** The book's file is not what this session reads any more: no write of this open can land. */
 const BOOK_GONE = new Set(['file_replaced', 'unknown_file', 'book_not_found'])
 /** This write as sent is refused for good: not resent until the page changes it. */
 const refusedAsSent = (e: unknown) => {
-  const code = v2Api.v2ErrorOf(e)?.code
+  const code = syncApi.syncErrorOf(e)?.code
   return code === 'invalid_payload' || code === 'chapter_not_found' || (e instanceof ApiError && (e.status === 400 || e.status === 422))
 }
 /** `h` as the page's form held in `m` (compared as normalised). */
@@ -194,12 +194,12 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   const refused = new Map<string, PageHighlight>()
   let refusedPosition: PagePosition | null = null
   /** The last position write sent: a later `stale_revision` whose state is this one is ours (its answer was lost). */
-  let lastSent: { p: PagePosition; write: V2ReadingStateWrite } | null = null
+  let lastSent: { p: PagePosition; write: ReadingStateWrite } | null = null
   /**
    * The last keepalive position write (#1286), its answer never read: ours too if the tab is kept (bfcache). Its own
    * variable: a pass's write still in flight (`lastSent`) may be the one that lands.
    */
-  let keptAlive: { p: PagePosition; write: V2ReadingStateWrite } | null = null
+  let keptAlive: { p: PagePosition; write: ReadingStateWrite } | null = null
   let latest: PageEntry | null = null
   /** The payload `latest` came from: the same one again (the page's posted `store` after the host took it) is not a change. */
   let latestJson: string | null = null
@@ -211,13 +211,13 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
   const status = (s: V2SaveStatus) => { if (current()) o.onStatus(s) }
   /** A state of this file the server holds: the host is told its completion. Another file's (a `file_replaced`
    * 409 carries the new file's state) is not this book's. */
-  const completion = (s: V2ReadingState) => { if (current() && s.fileId === t.fileId) o.onCompleted?.(s.completedAt ?? null) }
+  const completion = (s: ReadingState) => { if (current() && s.fileId === t.fileId) o.onCompleted?.(s.completedAt ?? null) }
   /**
    * A server state this session did not see written (ADR-019, a reader who moved: only `keep` or `prompt`)
    * against this tab's last saved place: `own`'s state (a write whose answer was lost) is ours; theirs provably
    * newer is offered. The move being written is never the comparison (always the newest).
    */
-  const theirs = (cur: V2ReadingState, own: typeof lastSent) => {
+  const theirs = (cur: ReadingState, own: typeof lastSent) => {
     const mine = [own, keptAlive].find((x) => x && ownStateWrite(cur, x.write))
     if (mine) position = mine.p
     else if (current() && decideServerState({ local: position, localFileId: t.fileId, server: cur, reader: MOVED, format: t.format }) === 'prompt') {
@@ -225,7 +225,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       o.onNewerPlace(statePosition(cur, t.format)!)
     }
   }
-  const keep = (a: V2Annotation, highlight = annotationHighlight(a)) =>
+  const keep = (a: Annotation, highlight = annotationHighlight(a)) =>
     held.set(a.id, { id: a.id, highlight, fileId: a.fileId, deleted: !!a.deletedAt, revision: a.revision, note: a.noteText ?? null })
   /** This tab's note edits not yet on the server (id → note, null: cleared), and its removals not yet tombstoned. */
   const notes = new Map<string, string | null>()
@@ -261,8 +261,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       return true
     } catch (e) {
       if (!live()) return true
-      const err = v2Api.v2ErrorOf(e)
-      const cur = (err?.current ?? null) as V2ReadingState | null
+      const err = syncApi.syncErrorOf(e)
+      const cur = (err?.current ?? null) as ReadingState | null
       if (cur) completion(cur)
       if (err?.code === 'stale_revision' && cur && ownStateWrite(cur, write)) {
         position = p
@@ -292,7 +292,7 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     const write = highlightWrite(h, t.bookId, t.fileId, expected, h.noteText)
     if (!write) return false
     /** The note sent is what this tab holds now: its edit is done (a newer edit meanwhile stays). */
-    const landed = (a: V2Annotation) => {
+    const landed = (a: Annotation) => {
       keep(a, pageFormOf(h))
       if (h.id !== pageId) {
         // A re-key (`id_conflict`) landed: the page keeps the old id until the next open (its restore carries the new
@@ -311,8 +311,8 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
       return true
     } catch (e) {
       if (!live()) return true
-      const err = v2Api.v2ErrorOf(e)
-      const cur = (err?.current ?? null) as V2Annotation | null
+      const err = syncApi.syncErrorOf(e)
+      const cur = (err?.current ?? null) as Annotation | null
       const sentForm = { ...h, id: pageId }
       // Re-applied once on their revision: the page's form, and the note only if this tab edited it.
       if (err?.code === 'stale_revision' && cur && !retried && !ownAnnotationWrite(cur, write)) {
@@ -459,14 +459,14 @@ export function createV2ReaderSync(t: V2SyncTarget, o: {
     }
     // As it stands (owner 2026-11-13: the real fraction; the same locator and instant, so no device takes
     // this for a newer place), plus the completion.
-    let done: V2ReadingState
+    let done: ReadingState
     try {
       done = await api.putReadingState(t.bookId, {
         expectedRevision: s.revision, fileId: s.fileId, currentLocator: s.currentLocator, bookFraction: s.bookFraction,
         completedAt: new Date().toISOString(), clientRecordedAt: s.clientRecordedAt,
       })
     } catch (e) {
-      if (!retried && live() && v2Api.v2ErrorOf(e)?.code === 'stale_revision') return completeOnce(true)
+      if (!retried && live() && syncApi.syncErrorOf(e)?.code === 'stale_revision') return completeOnce(true)
       throw e
     }
     if (!done.completedAt) throw new Error('the server did not keep the completion')

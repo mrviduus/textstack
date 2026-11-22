@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { resetV2ForTests, reloadLastV2AnswerForTests, forgetV2Answer, onV2, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, V2UploadError, MAX_DEVICE_PART_BYTES, pullV2Books, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, uploadPicked, UPLOAD_PICKER_TYPES, PICKER_TYPES_BY_FORMAT, type UploadIo, type UploadStaging } from './v2'
+import { resetV2ForTests, reloadLastV2AnswerForTests, forgetV2Answer, onV2, startV2Probe, reprobeV2AfterReconnect, uploadV2Book, saveV2Progress, sha256Of, FileUploadError, MAX_DEVICE_PART_BYTES, pullV2Books, deviceUploadIo, v2Store, getV2UserBooks, v2Chapters, readV2Progress, uploadPicked, UPLOAD_PICKER_TYPES, PICKER_TYPES_BY_FORMAT, type UploadIo, type UploadStaging } from './v2'
 import en from '../../../../packages/shared/src/i18n/en.json'
 import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookV2State, getUserBookV2State } from './progressStorage'
-import { fakeApi as fakeV2, conflict, state, feed, book, file, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi as fakeV2, conflict, state, feed, book, file, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 const dropReplaced = vi.hoisted(() => ({ runs: 0 }))
 vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => { dropReplaced.runs++; return [] } }))
@@ -401,7 +401,7 @@ describe('mobile v2', () => {
 
     resetV2ForTests()
     vi.stubGlobal('fetch', wrapIds([], [{ status: 409, body: { code: 'quota_exceeded', message: 'x', current: { used: 1, limit: 2 } } }]))
-    await expect(uploadV2Book({ uri: 'u', name: 'a.pdf' }, 25, io())).rejects.toBeInstanceOf(V2UploadError)
+    await expect(uploadV2Book({ uri: 'u', name: 'a.pdf' }, 25, io())).rejects.toBeInstanceOf(FileUploadError)
   })
 
   it('caps a device part at 8 MB whatever the server takes (RN sends it as base64)', async () => {

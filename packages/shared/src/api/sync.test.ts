@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { initApi, ApiError } from './client'
-import * as v2 from './v2'
+import * as v2 from './sync'
 
 /** Each call takes the next answer; records what was sent. */
 function stubFetch(...answers: { status: number; body?: unknown }[]) {
@@ -62,7 +62,7 @@ describe('v2 api', () => {
     expect(await v2.getReadingState('b1')).toBeNull()
   })
 
-  it('carries the 409 body on the error, readable as a V2Error', async () => {
+  it('carries the 409 body on the error, readable as a SyncError', async () => {
     const current = { revision: 7, fileId: 'f1' }
     stubFetch({ status: 409, body: { code: 'stale_revision', message: 'Another device saved a newer position.', revision: 7, current } })
 
@@ -70,31 +70,31 @@ describe('v2 api', () => {
 
     expect(error).toBeInstanceOf(ApiError)
     expect(error.status).toBe(409)
-    expect(v2.v2ErrorOf(error)).toMatchObject({ code: 'stale_revision', revision: 7, current })
+    expect(v2.syncErrorOf(error)).toMatchObject({ code: 'stale_revision', revision: 7, current })
   })
 
   it('reads no V2 error from a network failure or a non-V2 body', async () => {
     const offline = new ApiError(0, 'offline')
     offline.isNetworkError = true
-    expect(v2.v2ErrorOf(offline)).toBeNull()
-    expect(v2.v2ErrorOf(new Error('x'))).toBeNull()
+    expect(v2.syncErrorOf(offline)).toBeNull()
+    expect(v2.syncErrorOf(new Error('x'))).toBeNull()
   })
 
   it('probes on with the part size, off on 404, 503 or offline, and rethrows a 401', async () => {
     stubFetch({ status: 200, body: { maxPartBytes: 1024 } })
-    expect(await v2.probeV2()).toEqual({ enabled: true, maxPartBytes: 1024 })
+    expect(await v2.probeSync()).toEqual({ enabled: true, maxPartBytes: 1024 })
 
     stubFetch({ status: 404 })
-    expect((await v2.probeV2()).enabled).toBe(false)
+    expect((await v2.probeSync()).enabled).toBe(false)
 
     stubFetch({ status: 503, body: { code: 'v2_unavailable', message: 'paused' } })
-    expect((await v2.probeV2()).enabled).toBe(false)
+    expect((await v2.probeSync()).enabled).toBe(false)
 
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Network request failed')))
-    expect((await v2.probeV2()).enabled).toBe(false)
+    expect((await v2.probeSync()).enabled).toBe(false)
 
     stubFetch({ status: 401 })
-    await expect(v2.probeV2()).rejects.toMatchObject({ status: 401 })
+    await expect(v2.probeSync()).rejects.toMatchObject({ status: 401 })
   })
 
   it('posts a review with its own operation id, and builds the content and cover URLs on the API base', async () => {

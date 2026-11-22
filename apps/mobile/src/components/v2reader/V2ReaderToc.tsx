@@ -5,16 +5,16 @@ import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
-import { tocAround, withTitle, type V2TocEntry } from '../../../../../packages/reader/src/toc.mjs'
-import type { V2HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
-import type { V2BookmarkItem } from '../../../../../packages/reader/src/bookmarks.mjs'
+import { tocAround, withTitle, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import type { HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
+import type { BookmarkItem } from '../../../../../packages/reader/src/bookmarks.mjs'
 import { HIGHLIGHT_BG } from '../../lib/readerColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
 interface Props {
-  toc: V2TocEntry[]
+  toc: TocEntry[]
   tocIndex: number | null
-  onGo: (entry: V2TocEntry) => void
+  onGo: (entry: TocEntry) => void
 }
 
 /**
@@ -25,7 +25,7 @@ export function V2TocSheet({ visible, toc, tocIndex, onGo, onClose }: Props & { 
   const { colors } = useTheme()
   const { t } = useLanguage()
   const reduceMotion = useReduceMotion()
-  const list = useRef<FlatList<V2TocEntry>>(null)
+  const list = useRef<FlatList<TocEntry>>(null)
   // One scroll to the current entry per opening (a closed Modal unmounts the list).
   const scrolled = useRef(false)
   if (!visible) scrolled.current = false
@@ -133,10 +133,10 @@ function ListSheet<T extends { id: string }>({ visible, title, closeLabel, actio
  */
 export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
   visible: boolean
-  items: V2HighlightItem[]
+  items: HighlightItem[]
   /** A highlight's note (null: none), by the page's id. */
   noteOf: (id: string) => string | null
-  onGo: (item: V2HighlightItem) => void
+  onGo: (item: HighlightItem) => void
   onClose: () => void
 }) {
   const { colors } = useTheme()
@@ -182,7 +182,7 @@ export function V2HighlightsSheet({ visible, items, noteOf, onGo, onClose }: {
  */
 export function V2BookmarksSheet({ visible, items, here, can, placing, onToggle, onGo, onRemove, onClose }: {
   visible: boolean
-  items: V2BookmarkItem[]
+  items: BookmarkItem[]
   /** The bookmark the place being read has (null: none). */
   here: string | null
   /** One can be made at the place on screen. */
@@ -190,7 +190,7 @@ export function V2BookmarksSheet({ visible, items, here, can, placing, onToggle,
   /** Bookmarks are still being placed: the empty list says they are loading. */
   placing: boolean
   onToggle: () => void
-  onGo: (item: V2BookmarkItem) => void
+  onGo: (item: BookmarkItem) => void
   onRemove: (id: string) => void
   onClose: () => void
 }) {

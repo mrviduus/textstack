@@ -9,7 +9,7 @@ import { fill } from '../../lib/fill'
 import { fonts } from '../../theme/typography'
 import {
   ALIGNS, FAMILIES, FONT_MAX, FONT_MIN, FONT_STEP, LINE_HEIGHTS, SETTINGS_KEY, THEMES, choose, parseChosen, readSettings,
-  type V2FontFamily, type V2Settings, type V2TextAlign, type V2Theme,
+  type FontFamily, type Settings, type TextAlign, type Theme,
 } from '../../../../../packages/reader/src/settings.mjs'
 import { TTS_SPEEDS, TTS_SPEED_KEY, createSpeedChoice } from '../../../../../packages/reader/src/listen.mjs'
 
@@ -18,15 +18,15 @@ import { TTS_SPEEDS, TTS_SPEED_KEY, createSpeedChoice } from '../../../../../pac
  * each page load applies them before its first open. settings.mjs reads the stored value: a damaged or older
  * one is no choice.
  */
-let stored: Promise<Partial<V2Settings>> | null = null
+let stored: Promise<Partial<Settings>> | null = null
 export const storedV2Settings = () => (stored ??= AsyncStorage.getItem(SETTINGS_KEY).then(parseChosen, () => ({})))
 
 /** The V2 reader's settings on this device: the defaults until the stored choices are read. */
 export function useV2Settings() {
-  const [chosen, setChosen] = useState<Partial<V2Settings> | null>(null)
+  const [chosen, setChosen] = useState<Partial<Settings> | null>(null)
   useEffect(() => { storedV2Settings().then(setChosen) }, [])
   const settings = useMemo(() => readSettings(chosen), [chosen])
-  const update = (patch: Partial<V2Settings>) => {
+  const update = (patch: Partial<Settings>) => {
     // Not before the stored choices are in: a change then would write over them.
     if (!chosen) return
     const next = choose(chosen, patch)
@@ -49,16 +49,16 @@ export function useV2TtsSpeed() {
   return { speed, update }
 }
 
-const FAMILY_LABEL: Record<V2FontFamily, string> = { serif: 'reader.v2Settings.serif', sans: 'reader.v2Settings.sans', dyslexic: 'reader.v2Settings.dyslexic' }
+const FAMILY_LABEL: Record<FontFamily, string> = { serif: 'reader.v2Settings.serif', sans: 'reader.v2Settings.sans', dyslexic: 'reader.v2Settings.dyslexic' }
 // `book`: the book's own alignment, the default (no rule of ours).
-const ALIGN_LABEL: Record<V2TextAlign, string> = { book: 'reader.v2Settings.alignBook', left: 'reader.v2Settings.alignLeft', center: 'reader.v2Settings.alignCenter', justify: 'reader.v2Settings.alignJustify' }
-const THEME_LABEL: Record<V2Theme, string> = { light: 'reader.v2Settings.light', sepia: 'reader.v2Settings.sepia', dark: 'reader.v2Settings.dark' }
+const ALIGN_LABEL: Record<TextAlign, string> = { book: 'reader.v2Settings.alignBook', left: 'reader.v2Settings.alignLeft', center: 'reader.v2Settings.alignCenter', justify: 'reader.v2Settings.alignJustify' }
+const THEME_LABEL: Record<Theme, string> = { light: 'reader.v2Settings.light', sepia: 'reader.v2Settings.sepia', dark: 'reader.v2Settings.dark' }
 
 interface Props {
   visible: boolean
   onClose: () => void
-  settings: V2Settings
-  onUpdate: (patch: Partial<V2Settings>) => void
+  settings: Settings
+  onUpdate: (patch: Partial<Settings>) => void
   /** False for a fixed-layout book (PDF, CBZ, a pre-paginated EPUB): only the theme applies, the rest is disabled. */
   typography: boolean
   flow: 'paginated' | 'scrolled' | null
@@ -95,7 +95,7 @@ export function V2SettingsSheet({ visible, onClose, settings, onUpdate, typograp
 
             {label(t('reader.v2Settings.theme'))}
             <View style={styles.row}>
-              {(Object.keys(THEMES) as V2Theme[]).map((theme) => (
+              {(Object.keys(THEMES) as Theme[]).map((theme) => (
                 <TouchableOpacity
                   key={theme}
                   style={[styles.themeChip, { backgroundColor: THEMES[theme].bg, borderColor: settings.theme === theme ? colors.primary : colors.border }]}

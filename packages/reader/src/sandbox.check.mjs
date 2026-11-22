@@ -18,7 +18,7 @@ import { BOOK_ORIGIN, bookUrl, servedFile } from './bookOrigin.mjs'
 import { PAGE_URL, routeBookOrigin } from './bookOriginRoute.mjs'
 import { formatsOf, hostileVectors, writeHostileEpub, writeHostileFb2, writeHostileMobi } from './fixtures.mjs'
 import { HOSTILE_KF8 } from './kf8fixture.mjs'
-import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
+import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 // apps/web's Playwright, as build.mjs takes apps/web's esbuild: no new dependency.
@@ -198,7 +198,7 @@ async function step(what, call) {
 
 /** Opens the hostile book under its own CSP or `mutate(csp)`, in a fresh context (its own cache: no prefetch carries over). */
 async function run(browser, evil, dir, file, mutate, scope = false) {
-  let html = v2ReaderPageHtml(randomBytes(18).toString('base64'))
+  let html = readerPageHtml(randomBytes(18).toString('base64'))
   if (mutate) html = html.replace(/(Content-Security-Policy" content=")([^"]*)/, (_, a, csp) => a + mutate(csp))
   writeFileSync(resolve(dir, 'page.html'), html)
   result = { escaped: new Set(), blocked: new Set(), errors: new Set() }

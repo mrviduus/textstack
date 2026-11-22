@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createV2Discuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, v2Api, type PagePosition, type V2ClientFormat, type V2DiscussShared, type V2DiscussState, type V2FileDetails } from '@textstack/shared'
+import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -37,10 +37,10 @@ import {
 import { showsFinishBook } from '../../../../../packages/reader/src/finishBook.mjs'
 import { V2FinishBook } from './V2FinishBook'
 import { V2ChapterDiscuss } from './V2ChapterDiscuss'
-import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type V2ChapterEnd } from '../../../../../packages/reader/src/chapters.mjs'
+import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type ChapterEnd } from '../../../../../packages/reader/src/chapters.mjs'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
 import { ConnectAssistantSheet } from '../library/ConnectAssistantSheet'
-import { popupStep, readLang, readWord, type V2Popup, type V2PopupEvent } from '../../../../../packages/reader/src/wordPopup.mjs'
+import { popupStep, readLang, readWord, type Popup, type PopupEvent } from '../../../../../packages/reader/src/wordPopup.mjs'
 import { readerTextLanguage } from '../../lib/bookLanguage'
 import { saveOutcome, savesWords } from '../../../../../packages/reader/src/vocabSave.mjs'
 import { vocabularyApi } from '../../lib/vocabularyApi'
@@ -60,14 +60,14 @@ import { useHaptics } from '../../hooks/useHaptics'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { SelectionActionBar } from '../SelectionActionBar'
 import { HighlightNoteModal } from '../HighlightNoteModal'
-import { colorOf, noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type V2HighlightColor, type V2HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
+import { colorOf, noteChange, readHighlightList, readHighlightRemoved, readHighlightTap, type HighlightColor, type HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
 import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
-import { readBookmarkList, type V2BookmarkList } from '../../../../../packages/reader/src/bookmarks.mjs'
-import { readToc, tocAround, type V2TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import { readBookmarkList, type BookmarkList } from '../../../../../packages/reader/src/bookmarks.mjs'
+import { readToc, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
 import { V2BookmarksSheet, V2HighlightsSheet, V2SectionNav, V2TocSheet } from './V2ReaderToc'
 import { V2SearchSheet } from './V2SearchSheet'
-import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type V2Search } from '../../../../../packages/reader/src/search.mjs'
+import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type Search } from '../../../../../packages/reader/src/search.mjs'
 import { bookUrl } from '../../../../../packages/reader/src/bookOrigin.mjs'
 import { useLanguage } from '../../context/LanguageContext'
 import { openPlayStorePage } from '../../lib/playStore'
@@ -123,7 +123,7 @@ const v2Storage = () => (storage ??= createV2Storage(deviceFiles(), uuid.v4, dev
  */
 const uploadRetained: SyncHost['upload'] = async (b: BookRow, maxPartBytes, cancelled) => {
   await uploadV2Book(
-    { uri: v2File(bookFile(b.sha256!)).uri, name: b.original_name, format: (b.format ?? undefined) as V2ClientFormat | undefined },
+    { uri: v2File(bookFile(b.sha256!)).uri, name: b.original_name, format: (b.format ?? undefined) as ClientFormat | undefined },
     maxPartBytes,
     deviceUploadIo(cancelled),
     undefined,
@@ -258,7 +258,7 @@ type Place = { fraction: number | null; index: number | null; sections: number |
  * The bottom bar (the legacy reader's footer): re-renders alone on every `relocate`, not the WebView beside it.
  * Its prev/next are page turns for now.
  */
-function V2Footer({ setter, toc, onGoToc, ...props }: { setter: MutableRefObject<Dispatch<SetStateAction<Place>>>; toc: V2TocEntry[]; onGoToc: (entry: V2TocEntry) => void } & Omit<
+function V2Footer({ setter, toc, onGoToc, ...props }: { setter: MutableRefObject<Dispatch<SetStateAction<Place>>>; toc: TocEntry[]; onGoToc: (entry: TocEntry) => void } & Omit<
   Parameters<typeof ReaderFooter>[0],
   'bookProgress' | 'chapterTitle' | 'currentChapterIndex' | 'totalChapters' | 'timeLeftLabel' | 'hasPrev' | 'hasNext' | 'above'
 >) {
@@ -359,7 +359,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The reading session (#1313, sessionTracker.mjs), keyed by the open book's bytes as Finish book is. */
   const [sessions] = useState(createSessionTracker)
   /** The open book's contents (#1261, toc.mjs); the reader's place in them as of the last relocate, read when the sheet opens. */
-  const [toc, setToc] = useState<V2TocEntry[]>([])
+  const [toc, setToc] = useState<TocEntry[]>([])
   const tocIndex = useRef<number | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
   /** `?contents=1` (the book page's Contents): the sheet opens once the linked book is open, if it has contents. */
@@ -373,13 +373,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
 
   const call = (js: string) => webView.current?.injectJavaScript(`${js};true`)
   /** #1426: the page's `describe` answers awaited, by request id. */
-  const described = useRef(new Map<string, (d: V2FileDetails | null) => void>())
+  const described = useRef(new Map<string, (d: FileDetails | null) => void>())
   /** The open book's details and cover from the page, or null (another open since, no answer in time, an error). */
-  const describeOpen = (o: Opening | null) => new Promise<V2FileDetails | null>((done) => {
+  const describeOpen = (o: Opening | null) => new Promise<FileDetails | null>((done) => {
     // Calls run in order in the page: with no open started since `o`, the book it reads is `o`'s.
     if (!o || opening.current !== o || !ready.current) return done(null)
     const id = uuid.v4()
-    const finish = (d: V2FileDetails | null) => { clearTimeout(timer); described.current.delete(id); done(d) }
+    const finish = (d: FileDetails | null) => { clearTimeout(timer); described.current.delete(id); done(d) }
     const timer = setTimeout(() => finish(null), DESCRIBE_MS)
     described.current.set(id, finish)
     call(`window.__fol.describe(${JSON.stringify(id)})`)
@@ -391,8 +391,8 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * untrusted text, sent as text), and the shared controller (the page's `chapter-text` answers awaited, one
    * operation id per chapter so a retry replays the first share).
    */
-  const [chapterEnd, setChapterEnd] = useState<V2ChapterEnd | null>(null)
-  const [discussStates, setDiscussStates] = useState<Record<string, V2DiscussState>>({})
+  const [chapterEnd, setChapterEnd] = useState<ChapterEnd | null>(null)
+  const [discussStates, setDiscussStates] = useState<Record<string, DiscussState>>({})
   const discussBook = useRef<{ title: string; author: string | null; language: string | null } | null>(null)
   const discussUser = useRef(userId)
   discussUser.current = userId
@@ -400,9 +400,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   const [discussLocks] = useState(createDiscussLocks)
   /** Only for the pick between two connected assistants (its Alert, the remembered choice): it decides nothing about grants. */
   const launcher = useAssistantLauncher({ eager: false })
-  const [discuss] = useState(() => createV2Discuss({
+  const [discuss] = useState(() => createDiscuss({
     askPage: (request, c) => call(`window.__fol.chapterText(${JSON.stringify(request)}, ${JSON.stringify(c.tocIndex)}, ${JSON.stringify(c.section)})`),
-    share: v2Api.shareChapter,
+    share: syncApi.shareChapter,
     newId: uuid.v4,
   }))
   /** A new open or a closed book: the previous book's chapter end, shares, operation ids and running locks go. */
@@ -421,7 +421,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * The chat for a share, from the grants its run found (`ready.grants`): never asked again, so a failed or stale
    * request cannot turn into a connect sheet after the share, nor leave the launcher waiting.
    */
-  const openChat = async (shared: V2DiscussShared, grants: readonly { clientName: string }[]) => {
+  const openChat = async (shared: DiscussShared, grants: readonly { clientName: string }[]) => {
     const choice = chooseChat(grants, await loadReviewAssistant())
     if (choice.kind === 'pick') return launcher.choose(() => shared.brief)
     if (choice.kind !== 'open') return
@@ -436,7 +436,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * Guarded by the identity it started under (the user, the session epoch, this open, these bytes): once any
    * changed, nothing is sent or shown.
    */
-  const discussChapter = async (chapter: V2ChapterEnd) => {
+  const discussChapter = async (chapter: ChapterEnd) => {
     const sha = openShaRef.current
     const open = opening.current
     const book = discussBook.current
@@ -447,7 +447,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
     if (!release) return
     const stale = resetSince()
     const current = () => !stale() && discussUser.current === asker && opening.current === open && openShaRef.current === sha
-    const set = (state: V2DiscussState | undefined) => {
+    const set = (state: DiscussState | undefined) => {
       if (!current()) return
       setDiscussStates((all) => {
         const { [key]: _, ...rest } = all
@@ -480,9 +480,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * can be searched (the ref for the message handler, set with the state); the sheet, keyed by the book so a new one's
    * starts empty.
    */
-  const [search, setSearchState] = useState<V2Search>(NO_SEARCH)
-  const searchRef = useRef<V2Search>(NO_SEARCH)
-  const setSearch = (s: V2Search) => {
+  const [search, setSearchState] = useState<Search>(NO_SEARCH)
+  const searchRef = useRef<Search>(NO_SEARCH)
+  const setSearch = (s: Search) => {
     searchRef.current = s
     setSearchState(s)
   }
@@ -523,9 +523,9 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * message handler, set with the state. The sheet a toolbar button opened, with the text it acts on. The open book's
    * language (`opened.lang`, else the app's, as the legacy reader) and whether it takes highlights.
    */
-  const [popup, setPopupState] = useState<V2Popup | null>(null)
-  const popupRef = useRef<V2Popup | null>(null)
-  const setPopup = (p: V2Popup | null) => {
+  const [popup, setPopupState] = useState<Popup | null>(null)
+  const popupRef = useRef<Popup | null>(null)
+  const setPopup = (p: Popup | null) => {
     popupRef.current = p
     setPopupState(p)
   }
@@ -538,7 +538,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * sheet, the colour a new highlight takes (the legacy bar's: the last one chosen), and a deep link's highlight still
    * to jump to (the dev route's `?book=&highlight=`, once).
    */
-  const [highlightList, setHighlightList] = useState<V2HighlightItem[]>([])
+  const [highlightList, setHighlightList] = useState<HighlightItem[]>([])
   /** Null: this open's notes not read yet (an editor waits). Keyed by the page's ids (a re-keyed one's old id too). */
   const [notes, setNotes] = useState<BookNotes | null>(null)
   /** The page listed a changed highlight set: the notes are read again once its `store` is written (#1312 review). */
@@ -549,13 +549,13 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * for the bytes `openShaRef` names; null until it comes), and their sheet. A bookmark is the local library's
    * annotation row of colour `bookmark`: stored, queued and tombstoned by the highlights' own path.
    */
-  const [bookmarks, setBookmarks] = useState<V2BookmarkList | null>(null)
+  const [bookmarks, setBookmarks] = useState<BookmarkList | null>(null)
   const [bookmarksOpen, setBookmarksOpen] = useState(false)
   /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (false: an image book, a PDF, a pre-paginated EPUB). */
   const [bookmarkable, setBookmarkable] = useState(false)
-  const [highlightColor, setHighlightColor] = useState<V2HighlightColor>('yellow')
+  const [highlightColor, setHighlightColor] = useState<HighlightColor>('yellow')
   useEffect(() => { AsyncStorage.getItem(HIGHLIGHT_COLOR_KEY).then((c) => setHighlightColor(colorOf(c)), () => {}) }, [])
-  const chooseColor = (c: V2HighlightColor) => {
+  const chooseColor = (c: HighlightColor) => {
     setHighlightColor(c)
     AsyncStorage.setItem(HIGHLIGHT_COLOR_KEY, c).catch(() => {})
   }
@@ -660,7 +660,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * A contents entry the reader chose (the sheet, the footer's section controls): the page saves where it lands.
    * It is the current one at once: a jump within the view on screen may send no relocate.
    */
-  const goToc = (e: V2TocEntry) => {
+  const goToc = (e: TocEntry) => {
     tocIndex.current = e.index
     setProgress.current((p) => p && { ...p, tocIndex: e.index })
     startHostMove()
@@ -735,7 +735,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * selection (validated): what is open and what the tap zones do (wordPopup.mjs `popupStep`): an edge turns the page,
    * a word elsewhere opens its popup, the centre toggles the bars. A fixed-layout book pages whatever the flow setting.
    */
-  const onPopupEvent = (e: V2PopupEvent) => {
+  const onPopupEvent = (e: PopupEvent) => {
     const { popup: next, turn } = popupStep(popupRef.current, e, { width: pageWidth.current, flow: effectiveFlow, dir: pageDir.current })
     // Only another highlight's editor is a new one (its key): a pass-through event (a move, a cleared selection) keeps
     // the same, and its typed draft (#1312 review).
@@ -847,7 +847,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   }, [userId])
   /** False when the book's `opened.lang` does not read (savesWords): its words would be filed under the fallback. */
   const [langSaves, setLangSaves] = useState(true)
-  const closeIfOpen = (p: V2Popup) => { if (popupRef.current === p) closePopup() }
+  const closeIfOpen = (p: Popup) => { if (popupRef.current === p) closePopup() }
   const wordSavedToast = async () => {
     haptics.play('complete')
     const added = () => showToast({
@@ -869,7 +869,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       onPress: () => router.push({ pathname: '/(auth)/login', params: { mode: 'register', then: 'back' } }), duration: 6000,
     })
   }
-  const restoreWord = async (_p: V2Popup, id: string) => {
+  const restoreWord = async (_p: Popup, id: string) => {
     const ctx = writeContext()
     return vocabularyApi.restoreWord(id).then(
     (w) => { void takeWord(w, ctx) },
@@ -881,7 +881,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
    * undone. Optimistic: unmarked at once; deleted, the bar closes and the next sync pass pulls the tombstone that drops
    * the row; failed, the row's mark comes back. A later Save saves it anew.
    */
-  const removeWord = (p: V2Popup, id: string) => {
+  const removeWord = (p: Popup, id: string) => {
     const rows = vocab.current.filter((w) => w.id !== id)
     vocab.current = rows
     setVocabRows(rows)
@@ -892,7 +892,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       showToast({ variant: 'error', message: t('reader.vocab.removeFailed') })
     })
   }
-  const saveWord = async (p: V2Popup, translation?: string) => {
+  const saveWord = async (p: Popup, translation?: string) => {
     if (p.kind === 'highlight' || !langSaves) return
     const text = p.kind === 'word' ? p.word : p.text.trim()
     if (text.length > MAX_VOCABULARY_TEXT) return showToast({ variant: 'info', message: t('reader.actionBar.saveTooLong') })
@@ -915,7 +915,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
       const { saved: resp, bookId } = await saveWordForBook(openBook?.id ?? null, {
         save: (id) => saveWordWithRetry(id ? { ...body, userBookId: id } : body),
         resolve: () => (sha ? v2Storage().bookIdOf(sha) : Promise.resolve(null)),
-        isNotFound: (e) => v2Api.v2ErrorOf(e)?.code === 'book_not_found',
+        isNotFound: (e) => syncApi.syncErrorOf(e)?.code === 'book_not_found',
       })
       // Another user since the save was asked: its answer is not this user's.
       if (asker !== vocabUser.current) return
@@ -1598,7 +1598,7 @@ function V2Reader({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; on
   /** The bar's ✓ (and Remove's card id): the word is one of the book's language's rows (saved here or anywhere, pulled or answered). */
   const savedKeys = useMemo(() => new Map(forBook(vocabRows, vocabLang.current).map((w) => [vocabMapKey(w.word), w.id])), [vocabRows, langSaves, textLang])
   /** The saved card the bar is about: a tapped word, or a selection that is exactly one saved word (a long-press). */
-  const savedIdOf = (p: V2Popup) =>
+  const savedIdOf = (p: Popup) =>
     p.kind === 'word' ? savedKeys.get(vocabMapKey(p.word)) : p.kind === 'selection' ? savedKeys.get(vocabMapKey(p.text.trim())) : undefined
   // #1271: missing translations filled once per (open, user, native language) — `vocabOpen` is bumped by an open and by a
   // user change — over the book's language's rows without one (the legacy readers' backfill). Each one the server took is

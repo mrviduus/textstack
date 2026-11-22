@@ -2,21 +2,21 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { V2ReaderHost, type V2HostBook } from './V2ReaderHost'
-import type { V2MarkWord } from '../../../../../packages/reader/src/wordMarks.mjs'
+import type { MarkWord } from '../../../../../packages/reader/src/wordMarks.mjs'
 
 // #1271: the host sends the page the reader's saved words (V2ReaderPopups' vocabulary) and the gloss setting (the
 // legacy reader's `showInlineTranslations`), driven through a fake frame as V2ReaderHost.settings.test.tsx.
 
-let onMarks: ((w: V2MarkWord[]) => void) | undefined
+let onMarks: ((w: MarkWord[]) => void) | undefined
 vi.mock('./V2ReaderPopups', () => ({
-  V2ReaderPopups: (p: { onMarks?: (w: V2MarkWord[]) => void }) => { onMarks = p.onMarks; return null },
+  V2ReaderPopups: (p: { onMarks?: (w: MarkWord[]) => void }) => { onMarks = p.onMarks; return null },
 }))
 
 const LEGACY = 'reader.settings.v1'
 const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement
 let posted: { call: string; args: unknown[] }[]
 const marksSent = () => posted.filter((m) => m.call === 'markWords').map((m) => m.args)
-const WORDS: V2MarkWord[] = [{ word: 'keeper', stage: 2, gloss: 'хранитель' }]
+const WORDS: MarkWord[] = [{ word: 'keeper', stage: 2, gloss: 'хранитель' }]
 
 beforeEach(() => { localStorage.clear(); posted = []; onMarks = undefined })
 afterEach(() => cleanup())

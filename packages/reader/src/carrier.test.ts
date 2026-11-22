@@ -2,7 +2,7 @@
 import { Script, runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { formatsJs, html } from './carrier.mjs'
-import { v2ReaderPageHtml } from './v2ReaderPage.generated'
+import { readerPageHtml } from './readerPage.generated'
 
 // #1128 QA: the format readers ride in the page's one <script> as strings (`formatsJs`), and the
 // whole page goes through `html()`: both from carrier.mjs, the module build.mjs writes the page with.
@@ -41,7 +41,7 @@ describe('formatsJs + html (carrier.mjs)', () => {
 
 describe('the committed page, as an HTML parser reads it', () => {
   it('oneScript_CarriesEveryFormatReader_EachValidJs', () => {
-    const scripts = scriptsOf(v2ReaderPageHtml(NONCE))
+    const scripts = scriptsOf(readerPageHtml(NONCE))
     expect(scripts).toHaveLength(1)
     // The script ends where the page ends: nothing of it spilled into the document or was cut short.
     expect(scripts[0].trimEnd().endsWith('})();')).toBe(true)

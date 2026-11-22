@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { ApiError, initApi, type PendingSession } from '@textstack/shared'
-import { fakeApi } from '../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi } from '../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 import {
   clearPendingSessions,
   enqueuePendingSession,
