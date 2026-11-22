@@ -89,9 +89,9 @@ and its build only. Hosted by `V2ReaderScreen.tsx` (R2): in production on the re
 ## Build
 
 ```bash
-pnpm -C apps/web build:v2-reader     # rewrite readerPage.generated.ts
-pnpm -C apps/web check:v2-reader     # CI: exit 1 if it is stale or over budget (page or any format reader)
-pnpm -C apps/web check:v2-reader-formats   # CI: every format opens as Formats says
+pnpm -C apps/web build:reader     # rewrite readerPage.generated.ts
+pnpm -C apps/web check:reader     # CI: exit 1 if it is stale or over budget (page or any format reader)
+pnpm -C apps/web check:reader-formats   # CI: every format opens as Formats says
 node packages/reader/src/build.mjs --repro   # + .vendor/readerPage.repro.html (test only)
 ```
 
@@ -215,7 +215,7 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   each page blob is typed by its extension (an untyped SVG is no image). `opened.reflowable` is `false`: `flow()`
   changes nothing on a fixed layout, is not counted as a switch, and the hosts disable their toggle.
 - **PDF (#1128 S5): the V2 page only.** The page is reachable from the dev hosts alone (Android `__DEV__` route,
-  web `/dev/reader-v2` on the dev server); **the ADR-012 pdf.js viewer remains the production PDF reader** and is
+  web `/dev/reader` on the dev server); **the ADR-012 pdf.js viewer remains the production PDF reader** and is
   untouched. **The ADR-032 PDF gate is NOT complete**: its evidence is desktop headless Chromium only
   (`pdfgate.mjs`, `formats.check.mjs`); no Android System WebView or device row has been run.
   - *Where pdf.js's worker runs:* on the page's main thread. The PDF reader's IIFE evaluates `pdf.worker.mjs`
@@ -287,7 +287,7 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   for EPUB today). The Android host stops reopening a book after its second renderer crash.
 
 ```bash
-pnpm -C apps/web check:v2-reader-formats   # needs Chromium (playwright install chromium)
+pnpm -C apps/web check:reader-formats   # needs Chromium (playwright install chromium)
 ```
 
 ## Sandbox
@@ -334,7 +334,7 @@ route (lenient on fixture names).
 
 ```bash
 pnpm -C apps/web exec playwright install chromium   # once
-pnpm -C apps/web check:v2-reader-sandbox            # real CSP holds, every mutation is caught
+pnpm -C apps/web check:reader-sandbox            # real CSP holds, every mutation is caught
 node --experimental-strip-types packages/reader/src/sandbox.check.mjs --mutate=base-uri   # one mutation: exits 1
 ```
 
@@ -599,7 +599,7 @@ selectedText, prefix: '', suffix: '', color: 'bookmark', at }`, where `selectedT
     has not seen (a pull's `resetRevision` past the revision last seen) clears it; a completion made on another file
     version is not carried to a new one; an adopted position keeps a finish the server does not have queued. The
     list shows "Finished".
-  - Web: online, through the open book's session (`v2ReaderSync.complete`: the state as the server holds it plus
+  - Web: online, through the open book's session (`readerSync.complete`: the state as the server holds it plus
     `completedAt`, on its revision, which the session then holds). A state read there on an unseen revision goes
     through the lost-write check (own write, or another device's place offered); lost to the session's own position
     write, it is written once more; a close waits for it. Every state the session takes tells the host the
@@ -674,7 +674,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   rule). No book id is sent with the translation.
 - *Web*: the legacy reader's `WordPopup` (the native-language picker inside), `SelectionToolbar` (the four highlight
   colours, #1312), `TranslationPopup`, `ExplanationPopup` (explain streamed, `useExplain`), positioned by
-  the page's rects plus the frame's offset (`V2ReaderPopups.tsx`). A failed word translation says so in the popup.
+  the page's rects plus the frame's offset (`ReaderPopups.tsx`). A failed word translation says so in the popup.
   Highlight is offered where the top bar's is (`annotatable`, and on the production route once the server's
   highlights are in).
 - *Android*: the legacy reader's `SelectionActionBar` (a word's gloss; its native-language line opens
@@ -735,8 +735,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `useReaderSettings`. The switch is in the V2 settings panel where `annotatable`.
 - *Drawn*: foliate's underline (vertical writing included) in the stage's colour; the range being spoken (#1272)
   over it, so it stays visible; the gloss as SVG text.
-- *Web*: its own hook, `useV2ReaderVocabulary` (V2ReaderPopups; the legacy reader's `useReaderVocabulary` is not
-  touched): the legacy saves, guest queue and mint, with V2's rules. One read per load, each card with its language,
+- *Web*: its own hook, `useReaderVocabulary` (ReaderPopups): the legacy saves, guest queue and mint, with V2's rules. One read per load, each card with its language,
   filtered to the book's, loaded again for a new identity (a guest becoming an account); kept in memory, and what is
   saved while a load is in flight is replayed over its words when it commits; a save, a flushed guest word or a footer-picked translation updates it
   (another language's queued word is not added, nor given this book's card's translation by key). Missing
@@ -862,7 +861,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   `opened` (`searchReset` / `searchOpened`); the reader's text, debounced `SEARCH_DEBOUNCE_MS`, through `readQuery`; results as text only (the hit, up to 60
   characters each side, the title of the contents entry it is under), a status line (`searchStatusKeys`: too short, searching, the count, none, the first 500; and that part of the book could not be searched); streamed results put on screen at most once per `SEARCH_RENDER_MS` (a book of hundreds of sections is not hundreds of renders of the whole reader), the end at once; a
   result jumps and closes the list; the search stays until cleared, so reopening shows the same list. A new open (or a
-  closed book) ends it. Web: `V2ReaderSearch.tsx`, the legacy search drawer's dialog (opened on results, focus goes to the first of them, not the field: no phone keyboard over the list). Android: `V2SearchSheet.tsx`, the
+  closed book) ends it. Web: `ReaderSearch.tsx`, the legacy search drawer's dialog (opened on results, focus goes to the first of them, not the field: no phone keyboard over the list). Android: `V2SearchSheet.tsx`, the
   contents sheet's modal (the keyboard comes up only on an empty sheet, and a drag on the list puts it away, so a
   reopened sheet's rows are reachable). The query is the one string a host puts into the page that the reader typed (never book
   text): as an argument (web `postMessage`, Android `JSON.stringify` into the injected call), read by `readQuery`.
@@ -888,7 +887,7 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
 - *Web*: the editor is the legacy `PdfHighlightPopup`; the list is a Highlights tab beside Contents in the contents
   drawer (the Contents button shows for a book with no contents too, then on that tab). The production route offers
   highlights once the server's are in (as before); `?highlight=<id>` jumps to it once the page lists it (once per
-  open; never if it is not drawn). Notes and removals go through the session (`v2ReaderSync.ts`: `setNote`, `remove`,
+  open; never if it is not drawn). Notes and removals go through the session (`readerSync.ts`: `setNote`, `remove`,
   `note`): a note diffed with the page's form, a removal a `DELETE` before any write of that highlight (a 404, never on
   the server, is done), both retried on the next pass and sent by keepalive on `pagehide`. The dev route keeps notes
   in memory only.
@@ -949,11 +948,11 @@ reader's `ReaderTopBar`/`ReaderFooter`/`useReaderBars`, keep-awake `useKeepReade
   overdues in a row (dropped with its staged file, the reader told, as a book that crashes the reader). Web: bytes still held (no `ready` yet) open on the new
   frame's `ready`; bytes the old frame took are gone, so the host asks its route for the book again (`onReload`;
   the dev route has none: pick again).
-- Web production route states (`V2ReaderPage.tsx`): downloading (percent from `Content-Length`, never past 99 %
+- Web production route states (`ReaderPage.tsx`): downloading (percent from `Content-Length`, never past 99 %
   before the bytes are in; no header: "Loading the book…"; no byte for `DOWNLOAD_STALL_MS` 30 s: a stalled-download
   alert with Retry; aborted on unmount, Retry or another book), opening (`Opening <name>`), open-failed (the page's
   message), and a failed load by cause: 401 session ended, 404 book or file gone (no Retry: it cannot help; said only
-  after a fresh library pull still gives a 404 or no file, since `v2Book` answers from the session's copy), offline
+  after a fresh library pull still gives a 404 or no file, since `liveBook` answers from the session's copy), offline
   (a failed body read only; an allocation or other failure keeps its own message),
   503 `v2_unavailable` and anything else (Retry). A failed open shows no title (#1168): web blank, Android
   "Pick a book".
@@ -1004,16 +1003,16 @@ once, in `src/components/v2reader/pageWebView.ts`, for every WebView of the page
 hidden `V2Describer` (#1426), which copies the pick into `staging/`, calls `describe(id, <its URL>)` and unmounts.
 
 **Web, its own document** (#1219, production route #1225): `frame.mjs` splits the page into two files under
-`/reader-v2/` (paths: `framePath.mjs`):
+`/reader/` (paths: `framePath.mjs`):
 
-- **the shell**, `/reader-v2/frame.html` (1,326 bytes, #1312): the page's head (its meta CSP), the host shim inline, and
-  `<script src="/reader-v2/page.<hash>.js" integrity="sha384-…">`, all under one nonce placeholder
-  `%V2_READER_FRAME_NONCE%`. It fails closed: `%` is outside the CSP nonce grammar, so a shell served unfilled has
+- **the shell**, `/reader/frame.html` (1,326 bytes, #1312): the page's head (its meta CSP), the host shim inline, and
+  `<script src="/reader/page.<hash>.js" integrity="sha384-…">`, all under one nonce placeholder
+  `%READER_FRAME_NONCE%`. It fails closed: `%` is outside the CSP nonce grammar, so a shell served unfilled has
   no valid script source and runs nothing (not the shim, not the page script, not a script carrying the
   placeholder). Sent `no-store` with a fresh nonce per response (16 random bytes, hex, nginx's `$request_id`;
-  `fillNonce` takes nothing else) and its own headers (`V2_READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
+  `fillNonce` takes nothing else) and its own headers (`READER_FRAME_HEADERS`: `frame-ancestors 'self'`,
   `no-store, no-transform`, nosniff, `no-referrer`, `X-Robots-Tag: noindex`).
-- **the page script**, `/reader-v2/page.<first 16 hex of its SHA-384>.js` (3,865,725 bytes; 1,775,611 gzipped by node's zlib default, #1315; #1260: OpenDyslexic adds about 120 KB of it):
+- **the page script**, `/reader/page.<first 16 hex of its SHA-384>.js` (3,865,725 bytes; 1,775,611 gzipped by node's zlib default, #1315; #1260: OpenDyslexic adds about 120 KB of it):
   the page's one script, byte for byte what the inline page runs, sent `public, max-age=31536000, immutable`,
   `text/javascript; charset=utf-8` (it is not ASCII), nosniff. A book open fetches the shell only; the script
   comes from the HTTP cache (ADR-029 Decision 4 as amended 2026-11-11). The format readers stay inside it as
@@ -1022,21 +1021,21 @@ hidden `V2Describer` (#1426), which copies the pick into `staging/`, calls `desc
   that names it: a swapped file is refused, not run under the nonce.
 
 `serveReaderFrame` is the one handler: the Vite dev server (from source) and `vite preview` (from the built
-`dist/reader-v2/`, `readerDistFiles`, so CI's e2e runs what nginx ships) through plugin `v2-reader-frame`, which
-loads frame.mjs on the first `/reader-v2/` request, and the check use it; any other path under `/reader-v2/` is a 404,
-never the SPA. A production build writes the same two files to `dist/reader-v2/` (`readerFrameFiles`), the
-shell unfilled; nginx fills it (`location = /reader-v2/frame.html`, `sub_filter … $request_id`) and serves the
-script (`location ~ ^/reader-v2/page\.[0-9a-f]{16}\.js$`, server-level headers, `$cache_immutable`).
-`apps/web/scripts/assert-no-dev-reader.mjs` fails the build unless `dist/reader-v2/` is exactly those two files
+`dist/reader/`, `readerDistFiles`, so CI's e2e runs what nginx ships) through plugin `reader-frame`, which
+loads frame.mjs on the first `/reader/` request, and the check use it; any other path under `/reader/` is a 404,
+never the SPA. A production build writes the same two files to `dist/reader/` (`readerFrameFiles`), the
+shell unfilled; nginx fills it (`location = /reader/frame.html`, `sub_filter … $request_id`) and serves the
+script (`location ~ ^/reader/page\.[0-9a-f]{16}\.js$`, server-level headers, `$cache_immutable`).
+`apps/web/scripts/assert-no-dev-reader.mjs` fails the build unless `dist/reader/` is exactly those two files
 (the name is the hash, the shell pins it) and no other file carries the page code or the dev route.
 
-One host component, `apps/web/src/components/reader/V2ReaderHost.tsx`, serves the dev route (`/dev/reader-v2`, a
+One host component, `apps/web/src/components/reader/ReaderHost.tsx`, serves the dev route (`/dev/reader`, a
 picked file, dev server only) and the production route (`/:lang/library/my/:id/read`, `/read-v2` an alias:
 the current file's bytes from `/me/v2/books/{id}/files/{fileId}/content`, transferred). It embeds the shell with
 `<iframe sandbox="allow-scripts allow-same-origin" src>`, checks every message's source and origin, tracks opens
 with `openTracker.mjs`, and runs the deadlines below. Reader data: localStorage on the
 dev route (keyed on the route, `dev`); on the production route the server only (#1226,
-`apps/web/src/lib/v2ReaderSync.ts`, one session per open). No reading-state read, no session: `restore` gets
+`apps/web/src/lib/readerSync.ts`, one session per open). No reading-state read, no session: `restore` gets
 the server's place, and when the read fails the page gets no `restore` (an error with Retry), so nothing is
 written. The book's annotations (this file version's, live) follow by `addHighlights` when a fresh pull lands
 (answered by `highlights`; ones not drawn are logged); until then highlighting is not offered, no highlight is
@@ -1073,5 +1072,5 @@ the frame's headers itself (nginx drops server-level `add_header` there, #857, a
 (`docs/internal/v2/v2-reader-web-hosting.md`).
 
 ```bash
-pnpm -C apps/web check:v2-reader-prod-csp   # CI, ~15 s: shell + script work under the app CSP read from nginx (EPUB, fonts, MOBI); srcdoc, header-less, foreign-framed, unfilled, un-nonced script and tampered script do not; nginx's reader locations send the handler's headers
+pnpm -C apps/web check:reader-prod-csp   # CI, ~15 s: shell + script work under the app CSP read from nginx (EPUB, fonts, MOBI); srcdoc, header-less, foreign-framed, unfilled, un-nonced script and tampered script do not; nginx's reader locations send the handler's headers
 ```

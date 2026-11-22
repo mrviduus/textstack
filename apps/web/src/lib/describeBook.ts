@@ -1,8 +1,8 @@
 // #1426: a book's details and cover, read from its file by the reader page before it is uploaded. The page parses
-// untrusted books, so it runs in its own hidden frame (the reader's, sandboxed as V2ReaderHost's) and only what
+// untrusted books, so it runs in its own hidden frame (the reader's, sandboxed as ReaderHost's) and only what
 // `readDescribed` takes comes back. Never throws and never blocks an upload past its deadline: null instead.
-// ponytail: deep imports of apps/mobile source, as V2ReaderHost's.
-import { V2_READER_FRAME_PATH } from '../../../../packages/reader/src/framePath.mjs'
+// ponytail: deep imports of apps/mobile source, as ReaderHost's.
+import { READER_FRAME_PATH } from '../../../../packages/reader/src/framePath.mjs'
 import { readDescribed, type Described } from '../../../../packages/reader/src/describe.mjs'
 
 /** How long the frame may take to load, parse the file and answer. */
@@ -35,7 +35,7 @@ export async function describeBook(file: Blob, deadlineMs = DESCRIBE_MS): Promis
     frame.tabIndex = -1
     // Off screen, not display:none: the page lays out and draws the cover on a canvas.
     frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none'
-    frame.src = V2_READER_FRAME_PATH
+    frame.src = READER_FRAME_PATH
     document.body.append(frame)
     return await answer
   } catch {

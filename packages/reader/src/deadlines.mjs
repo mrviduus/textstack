@@ -1,5 +1,5 @@
 // The `ready` and `opened` deadlines (#1227, #1080 item 3), one rule for both hosts (V2ReaderScreen, web
-// V2ReaderHost). Pure apart from setTimeout. Without them a page that never answers (a WebView too old for it,
+// ReaderHost). Pure apart from setTimeout. Without them a page that never answers (a WebView too old for it,
 // a refused script, a parser stuck on a file) leaves the host saying "Opening…" forever.
 //
 // A late answer is still taken: `ready()`/`answered()` after the deadline clear the overdue state, so the host

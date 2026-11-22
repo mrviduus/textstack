@@ -8,7 +8,7 @@ Web, mobile, browser extension and a retained admin shell; two shared packages.
 ## Apps
 
 ### `apps/web/` — the web app (Vite SPA)
-- Served by host nginx, plus the reader frame under `dist/reader-v2/` (`infra/nginx/textstack.conf`).
+- Served by host nginx, plus the reader frame under `dist/reader/` (`infra/nginx/textstack.conf`).
 - Pages: home, library, book detail, reader, vocabulary + review, highlights, changelog, MCP landing,
   OAuth consent, device, legal pages.
 - i18n: `/:lang/` prefix on all routes, but the only language is `en`
@@ -59,7 +59,7 @@ a 401 refreshes the cookie and retries once). Modules in `apps/web/src/api/`.
 
 ## Reader (web)
 
-`pages/V2ReaderPage.tsx` → `components/reader/V2ReaderHost.tsx`, which hosts the reader page in a
+`pages/ReaderPage.tsx` → `components/reader/ReaderHost.tsx`, which hosts the reader page in a
 sandboxed frame (`/:lang/library/my/:id/read`):
 - Settings: theme, font, size, line height, alignment, speech speed, inline translations.
 - Contents, search in the book, bookmarks, highlights and notes, time left.

@@ -2,15 +2,15 @@ import { defineConfig, type Connect, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { V2_READER_DIR, V2_READER_FRAME_PATH } from '../../packages/reader/src/framePath.mjs'
+import { READER_DIR, READER_FRAME_PATH } from '../../packages/reader/src/framePath.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * The V2 reader frame (#1219, #1225): a no-store shell + the content-hashed page script, under /reader-v2/.
+ * The V2 reader frame (#1219, #1225): a no-store shell + the content-hashed page script, under /reader/.
  * Both servers answer it with frame.mjs `serveReaderFrame` (the handler prodCsp.check.mjs tests; it fills a
  * fresh nonce per response, as nginx does in production): the dev server from source, `vite preview` from the
- * built dist/reader-v2/ (CI's e2e then runs the bytes nginx ships). A build writes the two files there.
+ * built dist/reader/ (CI's e2e then runs the bytes nginx ships). A build writes the two files there.
  * frame.mjs carries the 3.75 MB page: imported on the first reader request or at the end of a build, never
  * into the app's own chunks (scripts/assert-no-dev-reader.mjs).
  */
@@ -20,12 +20,12 @@ type FrameModule = Awaited<ReturnType<typeof loadFrame>>
 const serveFrame = (files: ((m: FrameModule) => object) | null): Connect.NextHandleFunction => {
   let built: object | undefined
   return (req, res, next) => {
-    if (!req.url?.startsWith(V2_READER_DIR)) return next()
+    if (!req.url?.startsWith(READER_DIR)) return next()
     loadFrame().then((m) => m.serveReaderFrame(req, res, files ? (built ??= files(m)) : undefined) || next()).catch(next)
   }
 }
-const v2ReaderFrame = (): Plugin => ({
-  name: 'v2-reader-frame',
+const readerFrame = (): Plugin => ({
+  name: 'reader-frame',
   configureServer: (server) => { server.middlewares.use(serveFrame(null)) },
   configurePreviewServer: (server) => {
     const dist = path.resolve(server.config.root, server.config.build.outDir)
@@ -34,13 +34,13 @@ const v2ReaderFrame = (): Plugin => ({
   async generateBundle() {
     const { readerFrameFiles } = await loadFrame()
     const { shell, script, scriptPath } = readerFrameFiles()
-    this.emitFile({ type: 'asset', fileName: V2_READER_FRAME_PATH.slice(1), source: shell })
+    this.emitFile({ type: 'asset', fileName: READER_FRAME_PATH.slice(1), source: shell })
     this.emitFile({ type: 'asset', fileName: scriptPath.slice(1), source: script })
   },
 })
 
 export default defineConfig({
-  plugins: [react(), v2ReaderFrame()],
+  plugins: [react(), readerFrame()],
   resolve: {
     alias: {
       '@textstack/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),

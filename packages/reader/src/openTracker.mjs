@@ -1,5 +1,5 @@
 // What a host makes of the page's open answers (S5 review), one rule for both hosts (V2ReaderScreen,
-// web V2ReaderDevPage). Pure. Each open is known by the `name` the host passed to `openUrl`, which the page
+// web ReaderDevPage). Pure. Each open is known by the `name` the host passed to `openUrl`, which the page
 // echoes in `opened.book.name` / `open-failed.name`.
 //
 // The page answers `opened` for the book on screen even while a newer open is under way (that one may

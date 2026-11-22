@@ -3,7 +3,7 @@
 // and PDF readers (and pdf.js's cMaps) are IIFEs of their own, carried as strings and run only when a
 // book of that format opens (README, Formats).
 //
-//   node build.mjs           write readerPage.generated.ts   (pnpm -C apps/web build:v2-reader)
+//   node build.mjs           write readerPage.generated.ts   (pnpm -C apps/web build:reader)
 //   node build.mjs --check   exit 1 if the committed file differs or the page outgrew its budget (CI)
 //   node build.mjs --repro   also write .vendor/readerPage.repro.html: the page + repro.mjs (test only)
 import { execFileSync } from 'node:child_process'
@@ -269,7 +269,7 @@ const page = formatsJs(chunks) + js
 const sizes = Object.entries(chunks).map(([k, v]) => `${k} ${v.length}`).join(', ')
 const content = `// AUTO-GENERATED — do not edit.
 // Source: packages/reader/src/page.mjs (+ store.mjs), built by build.mjs beside it.
-// Regenerate: pnpm -C apps/web build:v2-reader
+// Regenerate: pnpm -C apps/web build:reader
 //
 // foliate-js fork ${FOLIATE_SHA} (mrviduus/foliate-js, branch textstack-pin:
 // upstream 78914aef + our paginator commit d73682a + six #1182 commits, see build.mjs;
@@ -302,20 +302,20 @@ export function readerAndroidPageHtml(nonce: string): string {
 if (process.argv.includes('--check')) {
   let failed = false
   if (js.length > BUDGET) {
-    console.error(`[check:v2-reader] the page script is ${js.length} chars, over its ${BUDGET} budget (build.mjs BUDGET, ADR-029).`)
+    console.error(`[check:reader] the page script is ${js.length} chars, over its ${BUDGET} budget (build.mjs BUDGET, ADR-029).`)
     failed = true
   }
   // A reader with no budget fails too: `undefined` would let any size through.
   for (const [k, v] of Object.entries(chunks)) if (!(v.length <= FORMAT_BUDGET[k])) {
-    console.error(`[check:v2-reader] the ${k} reader is ${v.length} chars, over its ${FORMAT_BUDGET[k] ?? 'missing'} budget (build.mjs FORMAT_BUDGET).`)
+    console.error(`[check:reader] the ${k} reader is ${v.length} chars, over its ${FORMAT_BUDGET[k] ?? 'missing'} budget (build.mjs FORMAT_BUDGET).`)
     failed = true
   }
   if ((existsSync(out) ? readFileSync(out, 'utf8') : null) !== content) {
-    console.error(`[check:v2-reader] ${out} is out of date. Run: pnpm -C apps/web build:v2-reader`)
+    console.error(`[check:reader] ${out} is out of date. Run: pnpm -C apps/web build:reader`)
     failed = true
   }
   if (failed) process.exit(1)
-  console.log(`[check:v2-reader] ${out} is up to date (${js.length} chars; formats: ${sizes}).`)
+  console.log(`[check:reader] ${out} is up to date (${js.length} chars; formats: ${sizes}).`)
 } else {
   writeFileSync(out, content)
   console.log(`wrote ${out} (${js.length} chars script; formats: ${sizes}; foliate-js ${FOLIATE_SHA.slice(0, 8)})`)

@@ -6,7 +6,7 @@ import { useLanguage } from '../../context/LanguageContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useDragFileTracker } from '../../hooks/useDragFileTracker'
 import { partitionFiles } from '../../lib/uploadFileValidation'
-import { emit } from '../../lib/telemetry/myBooksV2'
+import { emit } from '../../lib/telemetry/myBooks'
 import { Toast } from '../Toast'
 import { UploadModal } from './UploadModal'
 

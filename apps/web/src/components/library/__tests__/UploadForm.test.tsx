@@ -8,7 +8,7 @@ vi.mock('../../../api/userBooks', () => ({
   uploadUserBook: (...args: unknown[]) => uploadUserBookMock(...args),
   getStorageQuota: () => getStorageQuotaMock(),
 }))
-vi.mock('../../../lib/telemetry/myBooksV2', () => ({ emit: vi.fn() }))
+vi.mock('../../../lib/telemetry/myBooks', () => ({ emit: vi.fn() }))
 vi.mock('../../../hooks/useTranslation', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }))

@@ -112,9 +112,9 @@ apps/web/e2e/
     ├── smoke.spec.ts             # Pages render, API health
     ├── auth.spec.ts              # Login, user session
     ├── delete-account.spec.ts    # Account deletion
-    ├── v2-reader.spec.ts         # The V2 reader page
-    ├── v2-sync.spec.ts           # V2 sync
-    └── v2-reader-dev.spec.ts     # The dev route (dev server only)
+    ├── reader.spec.ts            # The reader page
+    ├── sync.spec.ts              # Sync (/me/v2)
+    └── reader-dev.spec.ts        # The dev route (dev server only)
 ```
 
 CI runs the whole suite once, in V2 mode, as the PR gate (`.github/workflows/ci.yml`, job `e2e`).

@@ -67,8 +67,8 @@ tests/                 Backend tests
 docs/                  Documentation
 ```
 
-Start with the web reader's [page](apps/web/src/pages/V2ReaderPage.tsx) and
-[host](apps/web/src/components/reader/V2ReaderHost.tsx). Its shared renderer lives in
+Start with the web reader's [page](apps/web/src/pages/ReaderPage.tsx) and
+[host](apps/web/src/components/reader/ReaderHost.tsx). Its shared renderer lives in
 [`packages/reader`](packages/reader/README.md); mobile storage and sync stay in
 `apps/mobile/src/lib/v2reader/`. Tool commands: [`tools/README.md`](tools/README.md).
 

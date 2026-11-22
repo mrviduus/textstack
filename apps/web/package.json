@@ -14,11 +14,11 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
-    "build:v2-reader": "node ../../packages/reader/src/build.mjs",
-    "check:v2-reader": "node ../../packages/reader/src/build.mjs --check",
-    "check:v2-reader-sandbox": "node --experimental-strip-types ../../packages/reader/src/sandbox.check.mjs",
-    "check:v2-reader-formats": "node --experimental-strip-types ../../packages/reader/src/formats.check.mjs",
-    "check:v2-reader-prod-csp": "node --experimental-strip-types ../../packages/reader/src/prodCsp.check.mjs"
+    "build:reader": "node ../../packages/reader/src/build.mjs",
+    "check:reader": "node ../../packages/reader/src/build.mjs --check",
+    "check:reader-sandbox": "node --experimental-strip-types ../../packages/reader/src/sandbox.check.mjs",
+    "check:reader-formats": "node --experimental-strip-types ../../packages/reader/src/formats.check.mjs",
+    "check:reader-prod-csp": "node --experimental-strip-types ../../packages/reader/src/prodCsp.check.mjs"
   },
   "dependencies": {
     "@sentry/react": "catalog:",

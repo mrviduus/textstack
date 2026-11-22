@@ -1,7 +1,7 @@
 // The web host's frame (#1219, #1225): the generated page split in two files, served as its own same-origin
 // document and embedded with `<iframe src>`. Not srcdoc: a srcdoc frame inherits the app's CSP, which refuses
 // the page's nonce'd scripts (prodCsp.check.mjs, README "Web, its own document").
-//   - the shell, V2_READER_FRAME_PATH: the page's head (its CSP), the host shim inline, and a `<script src>` of
+//   - the shell, READER_FRAME_PATH: the page's head (its CSP), the host shim inline, and a `<script src>` of
 //     the page code, all under one nonce placeholder filled per response. Small and `no-store`.
 //   - the page script, `page.<hash>.js`: the page's one script, unchanged, content-hashed and `immutable`, so
 //     opening a book does not download 3.75 MB again (ADR-029 Decision 4 as amended 2026-11-11).
@@ -11,10 +11,10 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { V2_READER_DIR, V2_READER_FRAME_PATH, V2_READER_SCRIPT_PATH } from './framePath.mjs'
+import { READER_DIR, READER_FRAME_PATH, READER_SCRIPT_PATH } from './framePath.mjs'
 import { readerPageHtml } from './readerPage.generated.ts'
 
-export { V2_READER_DIR, V2_READER_FRAME_PATH, V2_READER_SCRIPT_PATH }
+export { READER_DIR, READER_FRAME_PATH, READER_SCRIPT_PATH }
 
 /**
  * The shell's nonce placeholder. Fails closed: `%` is outside the CSP nonce grammar, so a shell served unfilled
@@ -22,7 +22,7 @@ export { V2_READER_DIR, V2_READER_FRAME_PATH, V2_READER_SCRIPT_PATH }
  * that matches it. Not the page's own placeholder (`__V2_READER_NONCE__`), which is a valid nonce-source.
  * Whoever serves the file replaces it per response (nginx: `sub_filter` with `$request_id`).
  */
-export const FRAME_NONCE_PLACEHOLDER = '%V2_READER_FRAME_NONCE%'
+export const FRAME_NONCE_PLACEHOLDER = '%READER_FRAME_NONCE%'
 
 /**
  * The shell's own response headers. Its own CSP is the page's meta one; this header adds only what a meta CSP
@@ -30,7 +30,7 @@ export const FRAME_NONCE_PLACEHOLDER = '%V2_READER_FRAME_NONCE%'
  * add_header there (#857), and those include `frame-ancestors 'none'` and X-Frame-Options DENY, which would
  * refuse the frame.
  */
-export const V2_READER_FRAME_HEADERS = {
+export const READER_FRAME_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'Content-Security-Policy': "frame-ancestors 'self'",
   // no-transform: an edge (Cloudflare) must not rewrite the shell; an injected script breaks the nonce CSP.
@@ -42,7 +42,7 @@ export const V2_READER_FRAME_HEADERS = {
 }
 
 /** The page script's headers: a JS type under nosniff, cached for a year (its name changes with its bytes). */
-export const V2_READER_SCRIPT_HEADERS = {
+export const READER_SCRIPT_HEADERS = {
   'Content-Type': 'text/javascript; charset=utf-8',
   'Cache-Control': 'public, max-age=31536000, immutable',
   'X-Content-Type-Options': 'nosniff',
@@ -97,7 +97,7 @@ export function readerFrameFiles() {
     throw new Error('readerFrameFiles: the page must be its head, then <body> with one nonce\'d script and nothing after it')
   const script = page.slice(at + open.length, -PAGE_TAIL.length)
   const sha384 = createHash('sha384').update(script).digest()
-  const scriptPath = `${V2_READER_DIR}page.${sha384.toString('hex').slice(0, 16)}.js`
+  const scriptPath = `${READER_DIR}page.${sha384.toString('hex').slice(0, 16)}.js`
   const head = page.slice(0, at).split(sentinel).join(FRAME_NONCE_PLACEHOLDER)
   const N = FRAME_NONCE_PLACEHOLDER
   const shell = `${head}<body><script nonce="${N}">${HOST_SHIM}</script>`
@@ -106,14 +106,14 @@ export function readerFrameFiles() {
 }
 
 /**
- * The two files as a build wrote them to `<distDir>/reader-v2/`, in `readerFrameFiles`' shape: what `vite
+ * The two files as a build wrote them to `<distDir>/reader/`, in `readerFrameFiles`' shape: what `vite
  * preview` serves (`serveReaderFrame(req, res, files)`), so CI's e2e runs the bytes nginx ships, not the source.
  */
 export function readerDistFiles(distDir) {
-  const dir = join(distDir, V2_READER_DIR)
-  const name = readdirSync(dir).find((f) => V2_READER_SCRIPT_PATH.test(`${V2_READER_DIR}${f}`))
+  const dir = join(distDir, READER_DIR)
+  const name = readdirSync(dir).find((f) => READER_SCRIPT_PATH.test(`${READER_DIR}${f}`))
   if (!name) throw new Error(`readerDistFiles: no page.<hash>.js in ${dir}`)
-  return { shell: readFileSync(join(dir, 'frame.html'), 'utf8'), script: readFileSync(join(dir, name)), scriptPath: `${V2_READER_DIR}${name}` }
+  return { shell: readFileSync(join(dir, 'frame.html'), 'utf8'), script: readFileSync(join(dir, name)), scriptPath: `${READER_DIR}${name}` }
 }
 
 /** The shell, nonce unfilled: what the build writes and nginx fills. */
@@ -128,23 +128,23 @@ export function fillNonce(template, nonce) {
 }
 
 /**
- * Serves anything under V2_READER_DIR (any query): GET/HEAD of the shell, with its headers and a fresh nonce
+ * Serves anything under READER_DIR (any query): GET/HEAD of the shell, with its headers and a fresh nonce
  * per response; of the current page script, with its immutable headers; 404 for any other path there (a stale
- * script name, never the SPA's index.html). Returns false outside V2_READER_DIR (the caller goes on). Node
+ * script name, never the SPA's index.html). Returns false outside READER_DIR (the caller goes on). Node
  * `http` request/response, as a Vite (connect) middleware or a plain server gets them. `files`: the source's
  * (`readerFrameFiles`, the default) or a build's (`readerDistFiles`).
  */
 export function serveReaderFrame(req, res, files) {
   const path = new URL(req.url ?? '/', 'http://x').pathname
-  if (!path.startsWith(V2_READER_DIR)) return false
+  if (!path.startsWith(READER_DIR)) return false
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { Allow: 'GET, HEAD' }).end()
     return true
   }
   const { shell, script, scriptPath } = files ?? readerFrameFiles()
   const body = (b) => (req.method === 'HEAD' ? undefined : b)
-  if (path === V2_READER_FRAME_PATH) res.writeHead(200, V2_READER_FRAME_HEADERS).end(body(fillNonce(shell, randomBytes(16).toString('hex'))))
-  else if (path === scriptPath) res.writeHead(200, V2_READER_SCRIPT_HEADERS).end(body(script))
+  if (path === READER_FRAME_PATH) res.writeHead(200, READER_FRAME_HEADERS).end(body(fillNonce(shell, randomBytes(16).toString('hex'))))
+  else if (path === scriptPath) res.writeHead(200, READER_SCRIPT_HEADERS).end(body(script))
   else res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }).end(body('not found'))
   return true
 }

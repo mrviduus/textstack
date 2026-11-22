@@ -10,7 +10,7 @@ Updated for M6 (2026-11-17): one database, no SSG, no systemd pollers.
 ## CI/CD
 
 **GitHub Actions workflows** (`.github/workflows/`):
-- **ci.yml** — runs on PR + push to main. Jobs: `changes`, `docs-links` (`tools/checks/check-doc-links.mjs`), `docs-site`, `extension`, `advisories`, `backend` (build, format, vulnerable packages, migrations round trip, persistence/MCP/unit/extraction/AI eval tests, pack the MCP tool), `frontend` (web build + unit tests, shared tests + typecheck, drift-check the V2 reader page, admin build, repo script tests), `v2-reader` (sandbox, formats, prod CSP), `mobile` (typecheck, unit tests, Expo alignment, Metro bundle; **not a required check**), `mobile-runtime`, `docker` (migrator through compose, integration tests, isolated rate-limit test), `e2e` (Playwright)
+- **ci.yml** — runs on PR + push to main. Jobs: `changes`, `docs-links` (`tools/checks/check-doc-links.mjs`), `docs-site`, `extension`, `advisories`, `backend` (build, format, vulnerable packages, migrations round trip, persistence/MCP/unit/extraction/AI eval tests, pack the MCP tool), `frontend` (web build + unit tests, shared tests + typecheck, drift-check the reader page, admin build, repo script tests), `reader` (sandbox, formats, prod CSP), `mobile` (typecheck, unit tests, Expo alignment, Metro bundle; **not a required check**), `mobile-runtime`, `docker` (migrator through compose, integration tests, isolated rate-limit test), `e2e` (Playwright)
 - **deploy.yml** — skips docs, `apps/mobile/**`, `apps/browser-extension/**` pushes (never `packages/**`/lockfile). In parallel: `ci` (merged-tree) and `images` (`images.yml`: build → `infra/scripts/scan-image-secrets.sh` gate → push `ghcr.io/mrviduus/textstack-<svc>:<sha>`, outputs digests; job `web` pushes `textstack-web` as a `FROM scratch` image). Then self-hosted `deploy`: checkout → fatal pre-deploy dump of `textstack_v2` → fetch and scan the web bundle with the server's real values → `infra/scripts/swap-web-dist.sh` (`index.html` last) → pull `name@digest` (the migrator runs first; api/worker wait for it) → sync nginx → health checks (API, frontend, MCP) → CSP live check. Rollback (`rollback_commit`) must be hex and on `origin/main` (`guard` job). Pipeline, deps, controls: `docs/architecture/delivery.md`, ADR-020
 - **Pins**: every action by commit SHA (`# vX.Y`), every pulled image `tag@sha256:…`; Dependabot moves them. Every workflow has a read-only/none top-level `permissions:`; widen per job only
 - **backup.yml** — daily at 3 AM UTC. `textstack_v2` dump (fatal if absent or incomplete; legacy is archived, no longer dumped) + storage tar.gz, keeps 2 newest of each; R2 off-site (`/db_v2.sql`, `/backup` = `data/storage` + `data/library` + `.env`). The deploy's pre-deploy dump is V2 too, and fatal. `make backup` dumps V2; `make restore FILE=` = V2 into an absent database. `restore-drill.yml` (monthly) restores V2 from R2, row-counts its migrated tables (`users`, `books`, `book_files`, `annotations` non-empty) and checks book files exist in the restored library. Details: `docs/internal/ops/backup.md`, `database/README.md`
@@ -21,7 +21,7 @@ Updated for M6 (2026-11-17): one database, no SSG, no systemd pollers.
 
 ```
 Internet → Cloudflare (DNS+SSL) → Cloudflare Tunnel → nginx (port 80)
-  ├─ textstack.app → SPA (dist/) + /reader-v2/ + /api/ proxy to :8080 + /mcp proxy to :8090; catalog URLs 410
+  ├─ textstack.app → SPA (dist/) + /reader/ + /api/ proxy to :8080 + /mcp proxy to :8090; catalog URLs 410
   └─ textstack.dev → admin shell (:81)
 ```
 

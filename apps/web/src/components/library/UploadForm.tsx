@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { uploadUserBook } from '../../api/userBooks'
-import { emit } from '../../lib/telemetry/myBooksV2'
+import { emit } from '../../lib/telemetry/myBooks'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { useTranslation } from '../../hooks/useTranslation'
-import { v2UploadMessage } from '../../api/v2'
+import { uploadErrorMessage } from '../../api/sync'
 
 interface UploadFormProps {
   onUploadComplete: (newBookId?: string, hasOriginalPdf?: boolean) => void
@@ -44,7 +44,7 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       emit('upload.failed', { reason: msg })
-      setError(v2UploadMessage(err, t) ?? msg)
+      setError(uploadErrorMessage(err, t) ?? msg)
     } finally {
       setIsUploading(false)
       setUploadProgress(0)

@@ -19,7 +19,7 @@ docker compose up web
 ```
 src/
 ├── api/          # API client functions (`@textstack/shared` client in cookie mode)
-├── components/   # UI components; the reader host is `components/reader/V2ReaderHost.tsx`
+├── components/   # UI components; the reader host is `components/reader/ReaderHost.tsx`
 ├── context/      # React contexts (Auth, GuestLimits, NativeLanguage, Language)
 ├── data/         # Static data
 ├── hooks/        # Custom React hooks
@@ -56,8 +56,8 @@ pnpm test:watch # Watch mode
 
 ## Key Features
 
-### Reader (`components/reader/V2ReaderHost.tsx`)
-- Hosts the foliate-js fork in a sandboxed frame (`dist/reader-v2/`); built by
+### Reader (`components/reader/ReaderHost.tsx`)
+- Hosts the foliate-js fork in a sandboxed frame (`dist/reader/`); built by
   `packages/reader/src/build.mjs`, documented in that folder's README
 - Position, highlights and bookmarks sync through `/me/v2`
 

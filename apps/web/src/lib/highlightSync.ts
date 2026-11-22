@@ -11,7 +11,7 @@ import { emitDataChange } from './dataEvents'
 import {
   isPdfAnchor, syncApi, clip, anchorToLocator, locatorToAnchor, MAX_SELECTED_TEXT, type Annotation, type AnnotationWrite,
 } from '@textstack/shared'
-import { v2Book, pullFeed, v2Store, resetSince, whileCurrent } from '../api/v2'
+import { liveBook, pullFeed, syncStore, resetSince, whileCurrent } from '../api/sync'
 
 export interface HighlightSyncUi {
   isCancelled: () => boolean
@@ -54,7 +54,7 @@ export async function replayAllPendingHighlights(): Promise<void> {
 // IndexedDB stays the cache; a highlight's id is its own client uuid and `version` is the V2 revision.
 
 /** A V2 annotation as the reader stores it; null when this reader cannot draw it (an `epub-cfi`, or none). */
-export function fromV2Annotation(a: Annotation): StoredHighlight | null {
+export function fromAnnotation(a: Annotation): StoredHighlight | null {
   const anchor: HighlightAnchor | null = locatorToAnchor(a.locator)
   if (!anchor) return null
   const chapterId = isPdfAnchor(anchor) ? '' : anchor.chapterId
@@ -80,7 +80,7 @@ export function fromV2Annotation(a: Annotation): StoredHighlight | null {
  * file go back unchanged: a migrated anchor may have no offsets, which `anchorToLocator` refuses,
  * and the file may since have been replaced.
  */
-export function toV2Write(h: StoredHighlight, fileId: string | null, expectedRevision: number | null, stored?: Annotation): AnnotationWrite {
+export function toAnnotationWrite(h: StoredHighlight, fileId: string | null, expectedRevision: number | null, stored?: Annotation): AnnotationWrite {
   return {
     expectedRevision,
     bookId: h.userBookId!,
@@ -105,18 +105,18 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
   // Signed out (or another account) mid-sync: the rest of this sync is the previous account's (#1155).
   const reset = resetSince()
   try {
-    const fileId = (await v2Book(bookId)).currentFile?.id ?? null
-    const pull = !pushOnly || !v2Store.pulled.has(bookId)
+    const fileId = (await liveBook(bookId)).currentFile?.id ?? null
+    const pull = !pushOnly || !syncStore.pulled.has(bookId)
     if (pull) {
       // ponytail: the feed is per user, filtered here; a per-book list when one exists.
       const feed = await whileCurrent(pullFeed<Annotation>('annotations'), ({ items }) => {
-        for (const a of items) v2Store.annotations.set(a.id, a)
-        v2Store.pulled.add(bookId)
+        for (const a of items) syncStore.annotations.set(a.id, a)
+        syncStore.pulled.add(bookId)
       }, reset)
       if (!feed) return false
     }
     if (cancelled()) return false
-    const server = [...v2Store.annotations.values()].filter((a) => a.bookId === bookId)
+    const server = [...syncStore.annotations.values()].filter((a) => a.bookId === bookId)
     const serverById = new Map(server.map((a) => [a.id, a]))
     const local = await getHighlightsForUserBook(bookId)
     const pending = new Set(local.filter((h) => h.syncStatus === 'pending').map((h) => h.id))
@@ -132,8 +132,8 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
     }
     const adopt = async (a: Annotation) => {
       live()
-      v2Store.annotations.set(a.id, a)
-      const row = a.deletedAt ? null : fromV2Annotation(a)
+      syncStore.annotations.set(a.id, a)
+      const row = a.deletedAt ? null : fromAnnotation(a)
       if (row) await saveHighlight(row)
       else await forget(a.id)
     }
@@ -161,7 +161,7 @@ async function syncOnceV2(bookId: string, ui?: HighlightSyncUi, pushOnly = false
           else await forget(h.id)
         } else {
           let write: AnnotationWrite | undefined
-          try { write = toV2Write(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored) } catch (e) { await refused(h, stored, e) }
+          try { write = toAnnotationWrite(h, fileId, stored ? (h.base?.version ?? h.version) : null, stored) } catch (e) { await refused(h, stored, e) }
           if (write) await adopt(await syncApi.putAnnotation(h.id, write))
         }
         changed = true

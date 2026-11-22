@@ -10,8 +10,8 @@ import type { GuestMergeSkipReason } from '@textstack/shared'
 import { authToastFor, type AuthToast } from '../lib/authToast'
 import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
-import { startV2Probe, settleV2Session, v2Store } from '../api/v2'
-import { applyV2MergeMap, type MergeMap } from '../lib/v2Merge'
+import { startSyncProbe, settleSyncSession, syncStore } from '../api/sync'
+import { applyMergeMap, type MergeMap } from '../lib/mergeMap'
 
 export type AuthModalView = 'login' | 'register'
 
@@ -88,7 +88,7 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
  * replay what was made without a session. The in-memory V2 cache is emptied by the account change.
  */
 async function afterMerge(merge: MergeMap | undefined) {
-  if (merge) await applyV2MergeMap(merge)
+  if (merge) await applyMergeMap(merge)
   void replayAllPendingHighlights()
 }
 
@@ -107,13 +107,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const dismissGuestMergeSkipped = useCallback(() => setGuestMergeSkipped(null), [])
   // The V2 probe needs a session (PathGates answers 401 without one): started wherever a user is
   // set, before anything that calls the API next. API calls await the same probe, so none races it.
-  const probeSync = useCallback(() => { void startV2Probe() }, [])
+  const probeSync = useCallback(() => { void startSyncProbe() }, [])
 
   // The V2 cache is one account's: an account change (sign-out, another sign-in) empties it.
   const userId = user?.id ?? null
   const cachedForRef = useRef<string | null>(null)
   useEffect(() => {
-    if (cachedForRef.current !== null && cachedForRef.current !== userId) v2Store.reset()
+    if (cachedForRef.current !== null && cachedForRef.current !== userId) syncStore.reset()
     cachedForRef.current = userId
   }, [userId])
 
@@ -231,7 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (timeoutId) clearTimeout(timeoutId)
         setIsLoading(false)
         sessionReady.resolve()
-        settleV2Session()
+        settleSyncSession()
       }
     })()
   }, [])

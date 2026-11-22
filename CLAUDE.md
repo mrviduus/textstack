@@ -16,7 +16,7 @@ Personal book library w/ a Kindle-like reader. Upload EPUB, MOBI, AZW3, FB2, CBZ
 
 **History**: the V2 program (#1013) finished 2026-11-17: one database, one reader, the public catalog/SEO/SSG retired. Plan and decisions, kept as history: [`docs/internal/v2/`](docs/internal/v2/), ADR-029–032. Where the project is now: [`docs/STATUS.md`](docs/STATUS.md).
 
-**The reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `packages/reader/src/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx` (route `app/my-books/read/…`; dev route `app/dev/epub-v2.tsx`, `__DEV__` only) and web `apps/web/src/components/reader/V2ReaderHost.tsx` (route `/:lang/library/my/:id/read`; dev route `/dev/reader-v2`, dev server only, `main.tsx`). The web build ships `dist/reader-v2/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script; nginx locations in `infra/nginx/textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `packages/reader/`. iOS has no reader (M6 D4).
+**The reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `packages/reader/src/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx` (route `app/my-books/read/…`; dev route `app/dev/epub-v2.tsx`, `__DEV__` only) and web `apps/web/src/components/reader/ReaderHost.tsx` (route `/:lang/library/my/:id/read`; dev route `/dev/reader`, dev server only, `main.tsx`). The web build ships `dist/reader/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script; nginx locations in `infra/nginx/textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `packages/reader/`. iOS has no reader (M6 D4).
 
 ## Where to write things down
 
@@ -170,9 +170,9 @@ Context files: `apps/web/src/context/{Auth,GuestLimits,NativeLanguage,Language}C
 
 **i18n**: `apps/web/src/locales/en.json`. Hook: `useTranslation()`. Languages: `['en']`.
 
-**API client layer**: `apps/web/src/api/` — `client.ts` (runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `v2.ts` (sync), `auth.ts`, `explain.ts`, `oauth.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `userData.ts`, `vocabulary.ts`.
+**API client layer**: `apps/web/src/api/` — `client.ts` (runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `sync.ts` (sync), `auth.ts`, `explain.ts`, `oauth.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `userData.ts`, `vocabulary.ts`.
 
-**Hooks** (`apps/web/src/hooks/`), e.g. reader: `useReadingSession`, `useReaderSettings`, `useV2ReaderVocabulary`, `useImmersiveMode`, `useTextTranslation`, `useTts`, `useDarkMode`; library: `useLibrarySource`, `useLibraryStatus`, `useLibrarySort`, `useLibrarySearch`, `useBookActions`; vocabulary: `useVocabulary`, `useVocabularyReview`; UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useOnline`.
+**Hooks** (`apps/web/src/hooks/`), e.g. reader: `useReadingSession`, `useReaderSettings`, `useReaderVocabulary`, `useImmersiveMode`, `useTextTranslation`, `useTts`, `useDarkMode`; library: `useLibrarySource`, `useLibraryStatus`, `useLibrarySort`, `useLibrarySearch`, `useBookActions`; vocabulary: `useVocabulary`, `useVocabularyReview`; UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useOnline`.
 
 **Admin panel**: `apps/admin/`, a shell (M6 D2): login and an empty home. Backend: `/admin/auth/*` + `AdminAuthMiddleware`; admins come from `create-admin`.
 
@@ -186,7 +186,7 @@ tests/
 ├── TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres built by database/migrate.sh (ADR-028)
 ├── TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
 ├── TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)
-apps/web/e2e/                      # Playwright E2E (auth, smoke, delete-account, v2-reader, v2-sync)
+apps/web/e2e/                      # Playwright E2E (auth, smoke, delete-account, reader, reader-dev, sync)
 apps/mobile/e2e/                   # Mobile Playwright E2E (not run by CI; needs a live backend)
 ```
 
@@ -237,7 +237,7 @@ Area guides load on their own: `backend/CLAUDE.md` (key files, every API route) 
 
 | Area | Path |
 |------|------|
-| Reader host, web | `apps/web/src/pages/V2ReaderPage.tsx`, `apps/web/src/components/reader/V2ReaderHost.tsx`, `apps/web/src/lib/v2ReaderSync.ts` |
+| Reader host, web | `apps/web/src/pages/ReaderPage.tsx`, `apps/web/src/components/reader/ReaderHost.tsx`, `apps/web/src/lib/readerSync.ts` |
 | Shared client + locators | `packages/shared/src/api/sync.ts`, `packages/shared/src/reader/pageEntry.ts` |
 | Guest policy | `packages/shared/src/lib/capabilities.ts` |
 | Web contexts, pages | `apps/web/src/context/`, `apps/web/src/pages/` |

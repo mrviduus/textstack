@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit.
 // Source: packages/reader/src/page.mjs (+ store.mjs), built by build.mjs beside it.
-// Regenerate: pnpm -C apps/web build:v2-reader
+// Regenerate: pnpm -C apps/web build:reader
 //
 // foliate-js fork 686afc4200006874a24071a6a57510e027a4cc32 (mrviduus/foliate-js, branch textstack-pin:
 // upstream 78914aef + our paginator commit d73682a + six #1182 commits, see build.mjs;

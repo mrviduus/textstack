@@ -21,7 +21,7 @@
 //   tampered        the page script with one byte more than the shell's integrity: refused, never run.
 // A negative row waits the whole READY_MS for `ready` before it says "never".
 //
-//   node --experimental-strip-types prodCsp.check.mjs      (pnpm -C apps/web check:v2-reader-prod-csp)
+//   node --experimental-strip-types prodCsp.check.mjs      (pnpm -C apps/web check:reader-prod-csp)
 //
 // Exit 1 when a row's outcome differs from the one stated above.
 import { randomBytes } from 'node:crypto'
@@ -33,7 +33,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mobi, writeFontsEpub } from './fixtures.mjs'
 import {
-  FRAME_NONCE_PLACEHOLDER, V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, V2_READER_SCRIPT_HEADERS, fillNonce, serveReaderFrame,
+  FRAME_NONCE_PLACEHOLDER, READER_DIR, READER_FRAME_HEADERS, READER_FRAME_PATH, READER_SCRIPT_HEADERS, fillNonce, serveReaderFrame,
   readerFrameFiles, readerFrameTemplate,
 } from './frame.mjs'
 
@@ -64,8 +64,14 @@ const appFrameSrc = APP_CSP.match(/(?:^|; )frame-src ([^;]*)/)?.[1] ?? ''
 if (!appFrameSrc.split(' ').includes("'self'")) { console.error("the app CSP has no frame-src 'self': the reader frame cannot load"); process.exit(2) }
 
 // The reader's nginx locations (textstack.app server), as text: what they send must be what the handler sends.
-const frameLocation = conf.match(/\n {4}location = \/reader-v2\/frame\.html \{\n([\s\S]*?)\n {4}\}/)?.[1] ?? ''
-const scriptLocation = conf.match(/\n {4}location ~ "(\^\/reader-v2\/page[^"]*)" \{\n([\s\S]*?)\n {4}\}/)
+const nginxLocations = [READER_DIR, '/reader-v2/'].map((dir) => {
+  const d = dir.replaceAll('/', '\\/')
+  return {
+    dir, compat: dir !== READER_DIR,
+    frameLocation: conf.match(new RegExp(`\\n {4}location = ${d}frame\\.html \\{\\n([\\s\\S]*?)\\n {4}\\}`))?.[1] ?? '',
+    scriptLocation: conf.match(new RegExp(`\\n {4}location ~ "(\\^${d}\\(?page[^"]*)" \\{\\n([\\s\\S]*?)\\n {4}\\}`)),
+  }
+})
 
 const { shell: SHELL, script: SCRIPT, scriptPath: SCRIPT_PATH } = readerFrameFiles()
 // The web frame's own CSP (#1228): connect-src is blob:/data: only; the Android page's book origin is not in it.
@@ -106,7 +112,7 @@ window.__open = async (path, name) => {
   const bytes = await (await fetch(path)).arrayBuffer();
   f.contentWindow.postMessage({ call: 'openBytes', args: [bytes, name] }, location.origin, [bytes]);
 };
-const frameUrl = (p.get('frameOrigin') ?? '') + ${JSON.stringify(V2_READER_FRAME_PATH)} + '?row=' + p.get('row');
+const frameUrl = (p.get('frameOrigin') ?? '') + ${JSON.stringify(READER_FRAME_PATH)} + '?row=' + p.get('row');
 if (p.get('mode') === 'src') f.src = frameUrl;
 else f.srcdoc = await (await fetch(frameUrl)).text();
 document.body.append(f);`
@@ -122,12 +128,12 @@ const server = createServer((req, res) => {
   if (url.pathname === '/book.epub') return res.writeHead(200).end(BOOK)
   if (url.pathname === '/fonts.epub') return res.writeHead(200).end(FONTS_BOOK)
   if (url.pathname === '/book.mobi') return res.writeHead(200).end(MOBI_BOOK)
-  if (row?.serve === 'unfilled' && url.pathname === V2_READER_FRAME_PATH)
-    return res.writeHead(200, V2_READER_FRAME_HEADERS).end(readerFrameTemplate())
-  if (row?.serve === 'shell' && url.pathname === V2_READER_FRAME_PATH)
-    return res.writeHead(200, V2_READER_FRAME_HEADERS).end(row.shell(fillNonce(SHELL, randomBytes(16).toString('hex'))))
+  if (row?.serve === 'unfilled' && url.pathname === READER_FRAME_PATH)
+    return res.writeHead(200, READER_FRAME_HEADERS).end(readerFrameTemplate())
+  if (row?.serve === 'shell' && url.pathname === READER_FRAME_PATH)
+    return res.writeHead(200, READER_FRAME_HEADERS).end(row.shell(fillNonce(SHELL, randomBytes(16).toString('hex'))))
   if (row?.id === 'tampered' && url.pathname === SCRIPT_PATH)
-    return res.writeHead(200, V2_READER_SCRIPT_HEADERS).end(`${SCRIPT};`)
+    return res.writeHead(200, READER_SCRIPT_HEADERS).end(`${SCRIPT};`)
   if (row?.serve === 'server-headers') {
     // The handler's own document, with the headers a location that sets none of its own would send.
     const writeHead = res.writeHead.bind(res)
@@ -225,30 +231,36 @@ async function runRow(browser, row) {
 const browser = await chromium.launch()
 try {
   // The nonce is the handler's, per response: two fetches, two 32-hex nonces.
-  const nonceOf = async () => (await (await fetch(`${base}${V2_READER_FRAME_PATH}`)).text()).match(/script-src 'nonce-([^']+)'/)?.[1]
+  const nonceOf = async () => (await (await fetch(`${base}${READER_FRAME_PATH}`)).text()).match(/script-src 'nonce-([^']+)'/)?.[1]
   const [n1, n2] = [await nonceOf(), await nonceOf()]
   check(report, /^[0-9a-f]{32}$/.test(n1 ?? '') && n1 !== n2, `handler: a fresh nonce per response (${n1}, ${n2})`)
-  const head = await fetch(`${base}${V2_READER_FRAME_PATH}`, { method: 'HEAD' })
-  check(report, Object.entries(V2_READER_FRAME_HEADERS).every(([k, v]) => head.headers.get(k) === v), 'handler: sends every V2_READER_FRAME_HEADERS header')
+  const head = await fetch(`${base}${READER_FRAME_PATH}`, { method: 'HEAD' })
+  check(report, Object.entries(READER_FRAME_HEADERS).every(([k, v]) => head.headers.get(k) === v), 'handler: sends every READER_FRAME_HEADERS header')
   const js = await fetch(`${base}${SCRIPT_PATH}`)
-  check(report, Object.entries(V2_READER_SCRIPT_HEADERS).every(([k, v]) => js.headers.get(k) === v) && (await js.text()) === SCRIPT,
+  check(report, Object.entries(READER_SCRIPT_HEADERS).every(([k, v]) => js.headers.get(k) === v) && (await js.text()) === SCRIPT,
     `handler: ${SCRIPT_PATH} is the page script, immutable, JS under nosniff`)
-  check(report, (await fetch(`${base}/reader-v2/page.0000000000000000.js`)).status === 404, 'handler: a stale script name is a 404')
+  check(report, (await fetch(`${base}/reader/page.0000000000000000.js`)).status === 404, 'handler: a stale script name is a 404')
 
   // nginx, as text (no nginx here): the shell location sends the frame headers and fills the placeholder with
   // $request_id; the script location takes this script's name and caches it as the handler does.
-  const addHeader = (k, v) => frameLocation.includes(`add_header ${k} "${v}" always;`)
-  const nginxNames = [...frameLocation.matchAll(/add_header (\S+) /g)].map((m) => m[1]).sort().join()
-  const handlerNames = Object.keys(V2_READER_FRAME_HEADERS).filter((k) => k !== 'Content-Type').sort().join()
-  check(report, Object.entries(V2_READER_FRAME_HEADERS).every(([k, v]) => k === 'Content-Type' || addHeader(k, v))
-    && nginxNames === handlerNames
-    && /default_type text\/html;\s+charset utf-8;/.test(frameLocation), 'nginx: the frame location sends every V2_READER_FRAME_HEADERS header')
-  check(report, frameLocation.includes(`sub_filter '${FRAME_NONCE_PLACEHOLDER}' $request_id;`) && frameLocation.includes('sub_filter_once off;'),
-    'nginx: the frame location fills every placeholder with $request_id')
-  check(report, !!scriptLocation && new RegExp(scriptLocation[1]).test(SCRIPT_PATH) && !/add_header/.test(scriptLocation[2])
-    && scriptLocation[2].includes(`set $cache_immutable "${V2_READER_SCRIPT_HEADERS['Cache-Control']}";`)
-    && /default_type text\/javascript;\s+charset utf-8;\s+charset_types text\/javascript;/.test(scriptLocation[2]),
-    'nginx: the script location matches this script, immutable, JS utf-8, server-level headers (nosniff) kept')
+  // Both paths: READER_DIR, and the compat /reader-v2/ serving the same files from it (#1440 2c, one release).
+  const handlerNames = Object.keys(READER_FRAME_HEADERS).filter((k) => k !== 'Content-Type').sort().join()
+  for (const { dir, frameLocation, scriptLocation, compat } of nginxLocations) {
+    const addHeader = (k, v) => frameLocation.includes(`add_header ${k} "${v}" always;`)
+    const nginxNames = [...frameLocation.matchAll(/add_header (\S+) /g)].map((m) => m[1]).sort().join()
+    check(report, Object.entries(READER_FRAME_HEADERS).every(([k, v]) => k === 'Content-Type' || addHeader(k, v))
+      && nginxNames === handlerNames
+      && /default_type text\/html;\s+charset utf-8;/.test(frameLocation), `nginx ${dir}: the frame location sends every READER_FRAME_HEADERS header`)
+    check(report, frameLocation.includes(`sub_filter '${FRAME_NONCE_PLACEHOLDER}' $request_id;`) && frameLocation.includes('sub_filter_once off;'),
+      `nginx ${dir}: the frame location fills every placeholder with $request_id`)
+    check(report, !!scriptLocation && new RegExp(scriptLocation[1]).test(SCRIPT_PATH.replace(READER_DIR, dir)) && !/add_header/.test(scriptLocation[2])
+      && scriptLocation[2].includes(`set $cache_immutable "${READER_SCRIPT_HEADERS['Cache-Control']}";`)
+      && /default_type text\/javascript;\s+charset utf-8;\s+charset_types text\/javascript;/.test(scriptLocation[2]),
+      `nginx ${dir}: the script location matches this script, immutable, JS utf-8, server-level headers (nosniff) kept`)
+    if (compat)
+      check(report, frameLocation.includes(`try_files ${READER_FRAME_PATH} =404;`) && scriptLocation?.[2].includes(`try_files ${READER_DIR}$1 =404;`),
+        `nginx ${dir}: serves the files of ${READER_DIR}`)
+  }
   await Promise.all(ROWS.map((row) => runRow(browser, row)))
 } finally {
   await browser.close()
