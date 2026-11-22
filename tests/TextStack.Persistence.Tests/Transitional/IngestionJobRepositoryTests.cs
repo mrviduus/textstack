@@ -74,7 +74,7 @@ public class IngestionJobRepositoryTests(V2PostgresFixture db)
 
         var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.EnqueueAsync(bob, alices.Id, alices.CurrentFile!.Id, Ct));
         Assert.Equal("23503", error.SqlState);
-        Assert.Null(await _repo.GetLatestForFileAsync(bob, alices.Id, alices.CurrentFile.Id, Ct));
+        Assert.Null(await _repo.GetLatestForFileAsync(bob, alices.Id, alices.CurrentFile!.Id, Ct));
         Assert.False(await _repo.CancelActiveAsync(bob, alices.Id, Ct));
 
         Assert.Equal(FileIngestionJob.Queued, (await ReadAsync(job)).Status);
