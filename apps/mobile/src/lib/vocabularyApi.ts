@@ -4,27 +4,27 @@
  */
 import { uuid } from 'expo-modules-core'
 import { createVocabulary, type WordSaveInput } from '@textstack/shared'
-import { v2Book, v2Store, v2Epoch } from './v2'
+import { liveBook, syncStore, syncEpoch } from './sync'
 
-const v2 = createVocabulary({
+const vocabulary = createVocabulary({
   newId: () => uuid.v4(),
-  fileIdOf: async (bookId) => (await v2Book(bookId)).currentFile?.id ?? null,
-  cards: v2Store.cards,
-  epoch: v2Epoch,
+  fileIdOf: async (bookId) => (await liveBook(bookId)).currentFile?.id ?? null,
+  cards: syncStore.cards,
+  epoch: syncEpoch,
 })
 
 type SaveWord = Omit<WordSaveInput, 'language'> & { language?: string }
 
 export const vocabularyApi = {
   /** `id`/`operationId`: minted once per save, so a retry is the same card and operation. */
-  saveWord: (data: SaveWord) => v2.saveWord({ ...data, language: data.language ?? 'en' }),
-  getWords: (params?: Parameters<typeof v2.getWords>[0] & { filter?: string }) =>
-    v2.getWords({ ...params, stage: params?.stage || params?.filter }),
-  getReaderVocab: v2.getReaderVocab,
-  updateWord: v2.updateWord,
-  deleteWord: v2.deleteWord,
-  getReviewQueue: v2.getReviewQueue,
-  submitReview: v2.submitReview,
+  saveWord: (data: SaveWord) => vocabulary.saveWord({ ...data, language: data.language ?? 'en' }),
+  getWords: (params?: Parameters<typeof vocabulary.getWords>[0] & { filter?: string }) =>
+    vocabulary.getWords({ ...params, stage: params?.stage || params?.filter }),
+  getReaderVocab: vocabulary.getReaderVocab,
+  updateWord: vocabulary.updateWord,
+  deleteWord: vocabulary.deleteWord,
+  getReviewQueue: vocabulary.getReviewQueue,
+  submitReview: vocabulary.submitReview,
   /** A save answered `deleted` (the reader deleted the word earlier) offers this (#1270). */
-  restoreWord: (id: string) => v2.restoreWord(id),
+  restoreWord: (id: string) => vocabulary.restoreWord(id),
 }

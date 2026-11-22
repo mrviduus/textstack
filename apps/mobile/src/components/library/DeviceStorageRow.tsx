@@ -55,7 +55,7 @@ export function DeviceStorageRow() {
       <Text style={[styles.detail, { color: colors.textSecondary }]}>
         {`Books ${formatBytes(report.originalsBytes)}`}
         {report.ttsBytes > 0 ? ` · Speech ${formatBytes(report.ttsBytes)}` : ''}
-        {report.v2Bytes > 0 ? ` · ${t('profile.deviceStorageV2').replace('{{size}}', formatBytes(report.v2Bytes))}` : ''}
+        {report.libraryBytes > 0 ? ` · ${t('profile.deviceStorageV2').replace('{{size}}', formatBytes(report.libraryBytes))}` : ''}
       </Text>
 
       {report.ttsBytes > 0 && (

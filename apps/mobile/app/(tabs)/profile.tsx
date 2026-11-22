@@ -18,8 +18,8 @@ import { useOnline } from '../../src/hooks/useOnline'
 import { useNativeLanguage } from '../../src/context/NativeLanguageContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { createAccountSignOut, deleteGuestData, signOutIntent } from '../../src/lib/profileActions'
-import { pushV2BeforeSignOut } from '../../src/lib/v2reader/sync'
-import { deviceV2SignOutLoss } from '../../src/lib/v2reader/deviceLibrary'
+import { pushBeforeSignOut } from '../../src/lib/reader/sync'
+import { deviceSignOutLoss } from '../../src/lib/reader/deviceLibrary'
 import { getLanguage } from '@textstack/shared'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
 import { VocabReminderSettingsRow } from '../../src/components/profile/VocabReminderSettingsRow'
@@ -209,11 +209,11 @@ export default function ProfileScreen() {
   // phone (or that could not be checked), the confirm. Unit-tested as `createAccountSignOut`.
   const accountSignOut = useRef(createAccountSignOut()).current
   const [signingOut, setSigningOut] = useState(false)
-  const confirmV2LossThenLeave = async () => {
+  const confirmLossThenLeave = async () => {
     const left = await accountSignOut({
       onBusy: setSigningOut,
-      syncFirst: () => (user ? pushV2BeforeSignOut(user.id, capabilitiesFor(user).isGuest) : Promise.resolve()),
-      loss: deviceV2SignOutLoss,
+      syncFirst: () => (user ? pushBeforeSignOut(user.id, capabilitiesFor(user).isGuest) : Promise.resolve()),
+      loss: deviceSignOutLoss,
       confirm: (loss) => new Promise<boolean>((resolve) => Alert.alert(
         t('profile.signOutLossTitle'),
         loss
@@ -237,7 +237,7 @@ export default function ProfileScreen() {
   // offline (`deleteGuestData`). The branch is `signOutIntent`; both are
   // unit-tested in `src/lib/profileActions.test.ts`.
   const handleSignOut = () => {
-    if (signOutIntent(user) === 'immediate') { void confirmV2LossThenLeave(); return }
+    if (signOutIntent(user) === 'immediate') { void confirmLossThenLeave(); return }
     Alert.alert(
       t('guest.deleteTitle'),
       t('guest.deleteMessage'),

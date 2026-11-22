@@ -22,7 +22,7 @@ import { listStoredOriginalIds } from '../lib/originalFileCache'
 import { declineDownload, forgetDeclinedDownloads, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
 import { clearDeletedOnServer, forgetDeletedOnServer } from '../lib/deletedOnServer'
 import { markUnlistedLeftovers } from '../lib/localLeftovers'
-import { v2Epoch } from '../lib/v2'
+import { syncEpoch } from '../lib/sync'
 import { AppState } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { CACHE_BUDGET_BYTES, isOutOfSpaceError } from '../lib/originalFilePolicy'
@@ -624,8 +624,8 @@ const PROCESSING_RECHECK_LIMIT = 25
         // A V2 store reset (account switch, guest → account re-key) during or after the listing makes
         // it the previous account's: deleting by it removes the new account's downloads (#1191). Read
         // again instead; the per-id check below covers a reset that lands mid-delete.
-        const epoch = v2Epoch()
-        const resetSince = () => v2Epoch() !== epoch
+        const epoch = syncEpoch()
+        const resetSince = () => syncEpoch() !== epoch
         let listed
         try {
           listed = await Promise.all([

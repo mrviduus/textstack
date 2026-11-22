@@ -5,7 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { isOfflineError, plural } from '@textstack/shared'
 import { userBooksApi } from '../../src/lib/userBooksApi'
-import { v2Epoch } from '../../src/lib/v2'
+import { syncEpoch } from '../../src/lib/sync'
 import { logLoadError } from '../../src/lib/logLoadError'
 import {
   buildLibraryEntries, filterEntries, countEntries, sortEntries, entryTitle, entryAuthor, OPENED_AT_KEY, parseOpenedAt,
@@ -84,7 +84,7 @@ export default function LibraryScreen() {
     // Bumped before the session check: a sign-out supersedes a load still in flight (#1191).
     const myGen = ++loadGenRef.current
     if (!isAuthenticated) { setLoading(false); return }
-    const epoch = v2Epoch()
+    const epoch = syncEpoch()
     try {
       const books = await userBooksApi.getUserBooks()
       if (myGen !== loadGenRef.current) return // superseded or unmounted
@@ -97,7 +97,7 @@ export default function LibraryScreen() {
       clearDeletedOnServer(books.map(b => b.id)).catch(() => {})
       // And what it lacks is deleted (#1193 item 3), on any network: only copies from the store that
       // listed, never after a V2 reset (#1191) or a superseding load. Bytes stay (#1164).
-      const stale = () => v2Epoch() !== epoch || myGen !== loadGenRef.current
+      const stale = () => syncEpoch() !== epoch || myGen !== loadGenRef.current
       markUnlistedLeftovers(new Set(books.map(b => b.id)), 'v2', stale)
         .then(ids => { if (ids.length > 0 && !stale()) setMarksVersion(v => v + 1) })
         .catch(e => console.warn('Marking deleted books failed:', e))
@@ -105,7 +105,7 @@ export default function LibraryScreen() {
       if (myGen !== loadGenRef.current) return
       // The V2 store was reset mid-load (account switch, guest → account): the list is the new
       // account's to fetch, not a failure to show (#1191).
-      if (v2Epoch() !== epoch) return void loadData()
+      if (syncEpoch() !== epoch) return void loadData()
       logLoadError('Library load error:', e)
       const offline = isOfflineError(e)
       setLoadError(offline ? 'offline' : 'failed')

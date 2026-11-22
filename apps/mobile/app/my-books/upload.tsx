@@ -8,9 +8,9 @@ import { useAuth } from '../../src/context/AuthContext'
 import { useDownload } from '../../src/context/DownloadContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { SessionGate } from '../../src/components/SessionGate'
-import { startV2Probe, uploadPicked, deviceUploadIo, UPLOAD_PICKER_TYPES, type UploadStaging } from '../../src/lib/v2'
-import { makeV2Dirs, v2Root } from '../../src/lib/v2reader/deviceLibrary'
-import { useV2Describer } from '../../src/components/v2reader/V2Describer'
+import { startSyncProbe, uploadPicked, deviceUploadIo, UPLOAD_PICKER_TYPES, type UploadStaging } from '../../src/lib/sync'
+import { makeFileDirs, filesRoot } from '../../src/lib/reader/deviceLibrary'
+import { useDescriber } from '../../src/components/reader/Describer'
 import { useLanguage } from '../../src/context/LanguageContext'
 
 /**
@@ -19,9 +19,9 @@ import { useLanguage } from '../../src/context/LanguageContext'
  */
 const deviceStaging: UploadStaging = {
   async copyIn(uri) {
-    makeV2Dirs()
+    makeFileDirs()
     const name = `staging/${Date.now()}.epub`
-    const dest = new File(v2Root(), ...name.split('/'))
+    const dest = new File(filesRoot(), ...name.split('/'))
     try {
       // expo-file-system copies a SAF/content:// source to a local file (as the reader's pick does).
       await new File(uri).copy(dest)
@@ -32,7 +32,7 @@ const deviceStaging: UploadStaging = {
     return { name, uri: dest.uri }
   },
   remove(name) {
-    const file = new File(v2Root(), ...name.split('/'))
+    const file = new File(filesRoot(), ...name.split('/'))
     if (file.exists) file.delete()
   },
 }
@@ -56,7 +56,7 @@ function UploadScreen() {
   const { syncOfflineLibrary } = useDownload()
   const { canUpload } = capabilitiesFor(user)
   const { t } = useLanguage()
-  const [describer, describe] = useV2Describer()
+  const [describer, describe] = useDescriber()
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -110,11 +110,11 @@ function UploadScreen() {
 
       // V2 (#1025): sha256 → by-sha256 → import → parts → complete. The same bytes already in the
       // library open that book instead. The part size is the status probe's answer: none, no upload.
-      const v2 = await startV2Probe()
-      if (!v2.enabled) throw new Error('Network error — check your connection.')
+      const sync = await startSyncProbe()
+      if (!sync.enabled) throw new Error('Network error — check your connection.')
       // The page reads the book's title, author and cover from the staged copy beside the hash (#1426).
       const { bookId, existing } = await uploadPicked(
-        file, v2.maxPartBytes, deviceUploadIo(() => upload.cancelled), deviceStaging, describe,
+        file, sync.maxPartBytes, deviceUploadIo(() => upload.cancelled), deviceStaging, describe,
         // A superseded upload's last part never moves the newer upload's bar.
         p => { if (live()) setUploadProgress(p) })
       if (!live()) return

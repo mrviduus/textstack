@@ -3,20 +3,20 @@
  * shared shapes. Open, read, progress, finish and delete.
  */
 import {
-  getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
-  readV2Progress, saveV2Progress, completeV2Book, uncompleteV2Book,
-} from './v2'
+  getUserBooks, getUserBook, getUserBookChapter, removeBook, originalFileUrl,
+  readProgress, saveProgress, completeBook, uncompleteBook,
+} from './sync'
 
 export const userBooksApi = {
-  getUserBooks: getV2UserBooks,
-  getUserBook: getV2UserBook,
-  getUserBookChapter: getV2UserBookChapter,
-  deleteUserBook: removeV2Book,
-  getUserBookProgress: readV2Progress,
+  getUserBooks,
+  getUserBook,
+  getUserBookChapter,
+  deleteUserBook: removeBook,
+  getUserBookProgress: readProgress,
   /** The revision rule decides (`WriteOutcome`). */
-  updateUserBookProgress: saveV2Progress,
-  markUserBookComplete: completeV2Book,
-  unmarkUserBookComplete: uncompleteV2Book,
+  updateUserBookProgress: saveProgress,
+  markUserBookComplete: completeBook,
+  unmarkUserBookComplete: uncompleteBook,
   /** '' while the book's file is not known yet: callers treat it as no URL. */
-  getUserBookFileUrl: v2FileUrl,
+  getUserBookFileUrl: originalFileUrl,
 }

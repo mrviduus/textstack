@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BOOK_CONNECT_SRC, BOOK_ORIGIN, BOOK_PATH, PAGE_URL, bookUrl, servedFile } from './bookOrigin.mjs'
 import { ANDROID_CSP, CSP } from './carrier.mjs'
-import { USER_AGENT_PROBE } from '../../../apps/mobile/src/lib/v2reader/webViewVersion'
+import { USER_AGENT_PROBE } from '../../../apps/mobile/src/lib/reader/webViewVersion'
 
 const SHA = 'ab'.repeat(32)
 const PATCH = readFileSync(resolve(__dirname, '../../../patches/react-native-webview@13.16.1.patch'), 'utf8')

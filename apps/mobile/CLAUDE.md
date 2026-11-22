@@ -7,8 +7,8 @@ Loaded when working under `apps/mobile/`. Updated for M6 (2026-11-17): the catal
 | Area | Path |
 |------|------|
 | Reader page (both hosts) | `packages/reader/src/` (`build.mjs`, `page.mjs`, `readerPage.generated.ts`); `packages/reader/README.md` |
-| Reader host, Android | `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx`, `apps/mobile/app/my-books/read/` |
-| Local library + sync | `apps/mobile/src/lib/v2reader/localLibrary.ts`, `sync.ts` |
+| Reader host, Android | `apps/mobile/src/components/reader/ReaderScreen.tsx`, `apps/mobile/app/my-books/read/` |
+| Local library + sync | `apps/mobile/src/lib/reader/localLibrary.ts`, `sync.ts` |
 | Guest session | `apps/mobile/src/lib/guestSession.ts`, `src/components/SessionGate.tsx` |
 | App, API, contexts, e2e | `apps/mobile/app/`, `apps/mobile/src/lib/api.ts`, `apps/mobile/src/context/`, `apps/mobile/e2e/` |
 
@@ -17,7 +17,7 @@ Loaded when working under `apps/mobile/`. Updated for M6 (2026-11-17): the catal
 **Framework**: Expo 57, React Native 0.86.3, Expo Router (file-based routing). TypeScript is deliberately held at the
 workspace catalog's 5.9 and listed in `expo.install.exclude` (the SDK asks for 6.0, a major across the workspace).
 
-**Pages** (`apps/mobile/app/`): tabs (`index`, library, upload, vocabulary, profile), `(auth)/login`, `onboarding/language`, book detail `my-books/[id]`, the reader `my-books/read/[bookId]/[chapterSlug].tsx` (renders `V2ReaderScreen`; the slug is ignored), `my-books/upload`, `highlights/`, `vocabulary/review`, static pages (about, privacy, terms, contact, connect, reset-password), dev route `dev/epub-v2.tsx` (`__DEV__` only).
+**Pages** (`apps/mobile/app/`): tabs (`index`, library, upload, vocabulary, profile), `(auth)/login`, `onboarding/language`, book detail `my-books/[id]`, the reader `my-books/read/[bookId]/[chapterSlug].tsx` (renders `ReaderScreen`; the slug is ignored), `my-books/upload`, `highlights/`, `vocabulary/review`, static pages (about, privacy, terms, contact, connect, reset-password), dev route `dev/epub.tsx` (`__DEV__` only).
 
 **Contexts** (`apps/mobile/src/context/`): AuthContext, DownloadContext, LanguageContext, NativeLanguageContext, ThemeContext, ToastContext.
 
@@ -25,9 +25,9 @@ workspace catalog's 5.9 and listed in `expo.install.exclude` (the SDK asks for 6
 
 **API**: `apps/mobile/src/lib/api.ts`, over `@textstack/shared`'s client (`/me/v2` calls in `packages/shared/src/api/` (`sync.ts`, `books.ts`, `upload.ts`, `vocabulary.ts`)).
 
-**The reader** is the V2 page in a WebView (`apps/mobile/src/components/v2reader/V2ReaderScreen.tsx`, page and protocol in `packages/reader/src/`, `packages/reader/README.md` is the reference). It opens the book's file retained on the device (`hostStorage.ts`, `<documents>/v2/`) and keeps positions, highlights, sessions and saved words in the local SQLite library `textstack-v2` (`localLibrary.ts`); `sync.ts` pushes an outbox and pulls change feeds beside it. **The reading path waits for neither a token nor a network**, and nothing on it may need an account. Sign-out wipes the V2 library after one push and a warning with what the server lacks (README "Sign-out and identities").
+**The reader** is the V2 page in a WebView (`apps/mobile/src/components/reader/ReaderScreen.tsx`, page and protocol in `packages/reader/src/`, `packages/reader/README.md` is the reference). It opens the book's file retained on the device (`hostStorage.ts`, `<documents>/v2/`) and keeps positions, highlights, sessions and saved words in the local SQLite library `textstack-v2` (`localLibrary.ts`); `sync.ts` pushes an outbox and pulls change feeds beside it. **The reading path waits for neither a token nor a network**, and nothing on it may need an account. Sign-out wipes the V2 library after one push and a warning with what the server lacks (README "Sign-out and identities").
 
-**Offline downloads**: `DownloadContext` still stores an upload as the old SQLite chapter rows (`src/lib/offlineDb.ts`), which the V2 reader does not read — open in [#1406](https://github.com/mrviduus/textstack/issues/1406). A PDF's original file cache is `src/lib/originalFileCache.ts`. `offlineDb.web.ts` and `v2reader/deviceLibrary.web.ts` are web twins and **every export must exist in both** or the web bundle (which mobile e2e runs against) fails to resolve.
+**Offline downloads**: `DownloadContext` still stores an upload as the old SQLite chapter rows (`src/lib/offlineDb.ts`), which the V2 reader does not read — open in [#1406](https://github.com/mrviduus/textstack/issues/1406). A PDF's original file cache is `src/lib/originalFileCache.ts`. `offlineDb.web.ts` and `reader/deviceLibrary.web.ts` are web twins and **every export must exist in both** or the web bundle (which mobile e2e runs against) fails to resolve.
 
 **What an account is still for**, now that reading needs none: cross-device sync, the upload quota, and wiping one account's private files when it signs out. Nothing on the reading path may grow a fourth reason.
 

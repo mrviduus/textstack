@@ -15,9 +15,9 @@ import { HighlightQuote } from '../../src/components/HighlightQuote'
 const PAGE_SIZE = 50
 /**
  * #1312: this device's V2 reader highlights (Android dev builds only: the V2 route is dev-only), each opening that route at
- * itself. Required inside `__DEV__`, so a release bundle carries none of it (as `app/dev/epub-v2.tsx`).
+ * itself. Required inside `__DEV__`, so a release bundle carries none of it (as `app/dev/epub.tsx`).
  */
-const V2DeviceHighlights: ComponentType | null = __DEV__ && Platform.OS === 'android' ? require('../../src/components/v2reader/V2DeviceHighlights').V2DeviceHighlights : null
+const DeviceHighlights: ComponentType | null = __DEV__ && Platform.OS === 'android' ? require('../../src/components/reader/DeviceHighlights').DeviceHighlights : null
 const HIGHLIGHT_COLORS: Record<string, string> = {
   yellow: '#FEF3C7',
   green: '#D1FAE5',
@@ -224,7 +224,7 @@ export default function HighlightsScreen() {
           />
         </View>
 
-        {V2DeviceHighlights && <V2DeviceHighlights />}
+        {DeviceHighlights && <DeviceHighlights />}
 
         {/* Filters: sort + color */}
         <View style={styles.filterRow}>

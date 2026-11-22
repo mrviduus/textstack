@@ -12,7 +12,7 @@ vi.mock('./translateCache', () => ({ cachedTranslate: (...a: unknown[]) => trans
 
 import { fillSavedTranslation, saveWordWithRetry } from './savedWord'
 
-const v2Error = (code: string) => Object.assign(new ApiError(404, code), { body: { code, message: '' } })
+const codedError = (code: string) => Object.assign(new ApiError(404, code), { body: { code, message: '' } })
 const body = { word: 'pond', language: 'en' } as Parameters<typeof saveWordWithRetry>[0]
 
 beforeEach(() => {
@@ -24,14 +24,14 @@ afterEach(() => vi.useRealTimers())
 
 describe('saveWordWithRetry', () => {
   it('aServerAnswer_RethrownAtOnce_NeverRetried', async () => {
-    api.saveWord.mockRejectedValue(v2Error('book_not_found'))
+    api.saveWord.mockRejectedValue(codedError('book_not_found'))
     await expect(saveWordWithRetry(body)).rejects.toMatchObject({ body: { code: 'book_not_found' } })
     expect(api.saveWord).toHaveBeenCalledTimes(1)
   })
 
   it('v2Unavailable_Retried', async () => {
     vi.useFakeTimers()
-    api.saveWord.mockRejectedValueOnce(v2Error('v2_unavailable')).mockResolvedValue({ outcome: 'srs' })
+    api.saveWord.mockRejectedValueOnce(codedError('v2_unavailable')).mockResolvedValue({ outcome: 'srs' })
     const done = saveWordWithRetry(body)
     await vi.runAllTimersAsync()
     expect(await done).toEqual({ outcome: 'srs' })
