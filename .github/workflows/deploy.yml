@@ -242,8 +242,6 @@ jobs:
         run: |
           mkdir -p ~/backups/textstack
           db=$(sed -n 's/^TEXTSTACK_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
-          # fallback: drop V2_POSTGRES_DB after #1440 2b
-          [ -n "$db" ] || db=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
           db=${db:-textstack_v2}
           POSTGRES_USER=textstack_prod bash $PROJECT_DIR/infra/scripts/pg-dump-checked.sh \
             "$db" ~/backups/textstack/"$db-pre-deploy-$(date +%F-%H%M).sql.gz"

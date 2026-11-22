@@ -120,8 +120,8 @@ nginx-setup-mac:
 BACKUP_DIR := $(HOME)/backups/textstack
 # Overridable only so the targets can be run against a throwaway Postgres.
 DB_CONTAINER ?= textstack_db_prod
-# The database's name, in a recipe that sourced .env. fallback: drop V2_POSTGRES_DB after #1440 2b
-DB_NAME_SH = $${TEXTSTACK_DB:-$${V2_POSTGRES_DB:-textstack_v2}}
+# The database's name, in a recipe that sourced .env.
+DB_NAME_SH = $${TEXTSTACK_DB:-textstack_v2}
 # Prints the database's name (ADR-030) when it exists in DB_CONTAINER, nothing when it does not.
 DB_EXISTS = docker exec $(DB_CONTAINER) psql -XtA -U $$POSTGRES_USER -d postgres \
 	-c "SELECT datname FROM pg_database WHERE datname = '$(DB_NAME_SH)'"

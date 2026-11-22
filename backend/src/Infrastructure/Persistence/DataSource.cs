@@ -55,8 +55,7 @@ public static class DataSource
 
     /// <summary>The database's connection string: <c>ConnectionStrings:Default</c>, null when unset.</summary>
     public static string? AppConnectionString(this IConfiguration configuration) =>
-        configuration.GetConnectionString("Default")
-        ?? configuration.GetConnectionString("V2"); // fallback: drop after #1440 2b
+        configuration.GetConnectionString("Default");
 
     /// <summary>
     /// The data source as a singleton (DI disposes it, and its pool, on shutdown) and the Dapper

@@ -27,8 +27,6 @@ jobs:
           # The V2 database (ADR-030) holds all live data since the cutover; the legacy one is
           # read-only and archived, so it is no longer dumped. Files are prefixed by the database name.
           db=$(sed -n 's/^TEXTSTACK_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
-          # fallback: drop V2_POSTGRES_DB after #1440 2b
-          [ -n "$db" ] || db=$(sed -n 's/^V2_POSTGRES_DB=//p' $PROJECT_DIR/.env | tr -d "\"' ")
           echo "DB_NAME=${db:-textstack_v2}" >> $GITHUB_ENV
 
       - name: Create backup directory
