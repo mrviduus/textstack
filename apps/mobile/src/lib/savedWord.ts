@@ -3,7 +3,7 @@
  * reader #1270): the save with its retries, and the translation a saved card without one gets.
  */
 import { uuid } from 'expo-modules-core'
-import { v2Api, type VocabularyWordDto } from '@textstack/shared'
+import { syncApi, type VocabularyWordDto } from '@textstack/shared'
 import { vocabularyApi } from './vocabularyApi'
 import { cachedTranslate } from './translateCache'
 
@@ -21,7 +21,7 @@ export async function saveWordWithRetry(body: Parameters<typeof vocabularyApi.sa
     try {
       return await vocabularyApi.saveWord(once)
     } catch (e) {
-      const code = v2Api.v2ErrorOf(e)?.code
+      const code = syncApi.syncErrorOf(e)?.code
       if (code && code !== 'v2_unavailable') throw e
       lastErr = e
       if (attempt < 2) await delay(350 * (attempt + 1))

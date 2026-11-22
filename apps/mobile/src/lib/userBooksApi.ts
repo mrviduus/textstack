@@ -13,7 +13,7 @@ export const userBooksApi = {
   getUserBookChapter: getV2UserBookChapter,
   deleteUserBook: removeV2Book,
   getUserBookProgress: readV2Progress,
-  /** The revision rule decides (`V2WriteOutcome`). */
+  /** The revision rule decides (`WriteOutcome`). */
   updateUserBookProgress: saveV2Progress,
   markUserBookComplete: completeV2Book,
   unmarkUserBookComplete: uncompleteV2Book,

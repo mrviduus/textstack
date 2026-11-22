@@ -1,6 +1,6 @@
 /**
  * "Discuss this chapter" on the device (#1316): what a share of the open bytes names on the server, on a real
- * SQLite against the fake V2 API. The share itself is `createV2Discuss` (packages/shared, its own tests).
+ * SQLite against the fake V2 API. The share itself is `createDiscuss` (packages/shared, its own tests).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { initApi } from '@textstack/shared'
@@ -8,7 +8,7 @@ import { resetV2ForTests } from '../v2'
 import { createLocalLibrary } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { syncV2Library, type SyncHost } from './sync'
-import { fakeApi as fakeV2, feed, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi as fakeV2, feed, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }))
 vi.mock('../offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))

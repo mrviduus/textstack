@@ -5,12 +5,12 @@ export const MAX_SELECTION_CFI: number
 export function isCfi(c: unknown): c is string
 export const MAX_SELECTION_INDEX: number
 export const MAX_SELECTION_PX: number
-export interface V2Rect { x: number; y: number; w: number; h: number }
+export interface Rect { x: number; y: number; w: number; h: number }
 /**
  * The `selection` message as the page sends it. It supersedes a `word`: a double-click sends `word` then
  * `selection`, and the host closes a word popup when a selection arrives.
  */
-export interface V2SelectionMessage {
+export interface SelectionMessage {
   type: 'selection'
   index: number
   text: string
@@ -18,10 +18,10 @@ export interface V2SelectionMessage {
   cfi: string | null
   sentence: string
   /** Page-viewport coordinates of the selection's bounding box. */
-  rect: V2Rect
+  rect: Rect
 }
 /** What a host takes: the message's fields and `tooLong` (over the translate/TTS cap), derived by the host. */
-export interface V2Selection extends Omit<V2SelectionMessage, 'type'> { tooLong: boolean }
-export function selectionMessage(s: { index: number; text: string; cfi: string | null; sentence: string; rect: V2Rect }): V2SelectionMessage | null
-export function readSelection(m: unknown): V2Selection | null
-export function readRect(rect: unknown): V2Rect | null
+export interface PageSelection extends Omit<SelectionMessage, 'type'> { tooLong: boolean }
+export function selectionMessage(s: { index: number; text: string; cfi: string | null; sentence: string; rect: Rect }): SelectionMessage | null
+export function readSelection(m: unknown): PageSelection | null
+export function readRect(rect: unknown): Rect | null

@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi, ApiError } from '@textstack/shared'
-import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, saveV2Progress, uploadV2Book, pullV2Books, getV2UserBook, V2UploadError, type UploadIo } from './v2'
+import { resetV2ForTests, startV2Probe, reprobeV2AfterReconnect, saveV2Progress, uploadV2Book, pullV2Books, getV2UserBook, FileUploadError, type UploadIo } from './v2'
 import { userBooksApi } from './userBooksApi'
 import { vocabularyApi } from './vocabularyApi'
 import { flushPendingSessions, enqueuePendingSession, clearPendingSessions } from './pendingSessions'
@@ -268,8 +268,8 @@ describe('upload error paths', () => {
     const sent: number[] = []
     const err = await uploadV2Book({ uri: 'u', name: 'a.epub' }, 25, io(changing, sent)).catch((e) => e)
     expect(sent).toEqual([0]) // changed bytes are never re-sent
-    expect(err).toBeInstanceOf(V2UploadError)
-    expect((err as V2UploadError).code).toBe('content_mismatch')
+    expect(err).toBeInstanceOf(FileUploadError)
+    expect((err as FileUploadError).code).toBe('content_mismatch')
   })
 
   it('uploadV2Book_IncompleteTwice_GivesUpAfterOneResend', async () => {
@@ -302,7 +302,7 @@ describe('upload error paths', () => {
       return { ok: a.status < 300, status: a.status, text: async () => (a.body === undefined ? '' : JSON.stringify(a.body)) }
     })
     const err = await uploadV2Book({ uri: 'u', name: 'a.epub' }, 25, io()).catch((e) => e)
-    expect(err).toBeInstanceOf(V2UploadError)
+    expect(err).toBeInstanceOf(FileUploadError)
     expect((err as Error).message).toContain('10 MB of 20 MB')
   })
 

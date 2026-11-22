@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import type { V2DiscussFailure, V2DiscussShared, V2DiscussState } from '@textstack/shared'
+import type { DiscussFailure, DiscussShared, DiscussState } from '@textstack/shared'
 import { withTitle } from '../../../../../packages/reader/src/toc.mjs'
 
 /** The host's words (`reader.v2.discuss.*`), one per state and per failure. */
-export type V2DiscussLabels = Record<'start' | 'startTitled' | 'sharing' | 'shared' | 'cut' | 'open' | 'retry' | V2DiscussFailure, string>
+export type V2DiscussLabels = Record<'start' | 'startTitled' | 'sharing' | 'shared' | 'cut' | 'open' | 'retry' | DiscussFailure, string>
 
 /**
  * The end-of-chapter Discuss of the Android V2 reader (#1316): host UI over the page, never injected into the book.
@@ -13,10 +13,10 @@ export type V2DiscussLabels = Record<'start' | 'startTitled' | 'sharing' | 'shar
  */
 export function V2ChapterDiscuss({ title, state, onShare, onOpen, bottom, background, color, accent, labels }: {
   title: string | null
-  state: V2DiscussState | undefined
+  state: DiscussState | undefined
   onShare: () => void
   /** Opens the chat for a share already made. */
-  onOpen: (shared: V2DiscussShared) => void
+  onOpen: (shared: DiscussShared) => void
   /** Px above the screen's bottom edge. */
   bottom: number
   background: string

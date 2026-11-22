@@ -28,7 +28,7 @@ export const serverTranslation = (card: { translation?: string | null } | null |
 
 /**
  * The row a save's answer card makes (saved, already saved, restored, added anyway; the pull's shape), or null: the
- * save did not go through V2 (`viaV2` false: a legacy card is no V2 row; the next V2 pull brings it), no card, no
+ * save did not go through V2 (`viaSync` false: a legacy card is no V2 row; the next V2 pull brings it), no card, no
  * language to file it under (the card's, else the book's), or the user changed since the save was asked (`asker` is
  * not `user`: the answer is another session's and lands nowhere).
  */
@@ -37,10 +37,10 @@ export function answerRow(
   asker: string | null,
   user: string | null,
   bookLanguage: string | null,
-  viaV2: boolean,
+  viaSync: boolean,
 ): { id: string; word: string; language: string; stage: number; translation: string | null } | null {
   const language = card?.language || bookLanguage
-  if (!viaV2 || !card || !language || asker !== user) return null
+  if (!viaSync || !card || !language || asker !== user) return null
   return { id: card.id, word: card.word, language, stage: card.stage, translation: card.translation }
 }
 

@@ -6,7 +6,7 @@ Loaded when working under `apps/mobile/`. Updated for M6 (2026-11-17): the catal
 
 | Area | Path |
 |------|------|
-| Reader page (both hosts) | `packages/reader/src/` (`build.mjs`, `page.mjs`, `v2ReaderPage.generated.ts`); `packages/reader/README.md` |
+| Reader page (both hosts) | `packages/reader/src/` (`build.mjs`, `page.mjs`, `readerPage.generated.ts`); `packages/reader/README.md` |
 | Reader host, Android | `apps/mobile/src/components/v2reader/V2ReaderScreen.tsx`, `apps/mobile/app/my-books/read/` |
 | Local library + sync | `apps/mobile/src/lib/v2reader/localLibrary.ts`, `sync.ts` |
 | Guest session | `apps/mobile/src/lib/guestSession.ts`, `src/components/SessionGate.tsx` |
@@ -23,7 +23,7 @@ workspace catalog's 5.9 and listed in `expo.install.exclude` (the SDK asks for 6
 
 **Hooks** (`apps/mobile/src/hooks/`), e.g. useReaderBars, useReaderSettings, useTts, useVocabularyReview, useBookOffline, useHaptics, useFlushOnLeave.
 
-**API**: `apps/mobile/src/lib/api.ts`, over `@textstack/shared`'s client (`/me/v2` calls in `packages/shared/src/api/v2*.ts`).
+**API**: `apps/mobile/src/lib/api.ts`, over `@textstack/shared`'s client (`/me/v2` calls in `packages/shared/src/api/` (`sync.ts`, `books.ts`, `upload.ts`, `vocabulary.ts`)).
 
 **The reader** is the V2 page in a WebView (`apps/mobile/src/components/v2reader/V2ReaderScreen.tsx`, page and protocol in `packages/reader/src/`, `packages/reader/README.md` is the reference). It opens the book's file retained on the device (`hostStorage.ts`, `<documents>/v2/`) and keeps positions, highlights, sessions and saved words in the local SQLite library `textstack-v2` (`localLibrary.ts`); `sync.ts` pushes an outbox and pulls change feeds beside it. **The reading path waits for neither a token nor a network**, and nothing on it may need an account. Sign-out wipes the V2 library after one push and a warning with what the server lacks (README "Sign-out and identities").
 

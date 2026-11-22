@@ -1,4 +1,4 @@
-import { ApiError, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type ReadingState, type ReadingStateWrite } from '@textstack/shared'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -12,7 +12,7 @@ const SHA = 'a'.repeat(64)
 const T: V2SyncTarget = { bookId: 'b1', fileId: 'f1', format: 'epub', sha256: SHA, size: 8, name: 'b1.epub' }
 const cfi = (n: number) => `epubcfi(/6/${2 * n + 2}!/4/2/1:0)`
 const AT = '2026-01-01T00:00:00.000Z'
-const state = (revision: number, extra: Partial<V2ReadingState> = {}): V2ReadingState => ({
+const state = (revision: number, extra: Partial<ReadingState> = {}): ReadingState => ({
   bookId: T.bookId, fileId: T.fileId, currentLocator: { version: 1, scheme: 'epub-cfi', value: cfi(9), quote: 'quote 9' },
   bookFraction: 0.97, frontierLocator: null, frontierFraction: null, completedAt: null, clientRecordedAt: AT, updatedAt: AT, revision, resetRevision: null, ...extra,
 })
@@ -20,12 +20,12 @@ const state = (revision: number, extra: Partial<V2ReadingState> = {}): V2Reading
 afterEach(() => vi.restoreAllMocks())
 
 /** The host with a synced book opened and restored; `put` is the reading-state write. */
-async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null; dev?: boolean } = {}) {
+async function reader(o: { target?: V2SyncTarget; server?: ReadingState | null; dev?: boolean } = {}) {
   const target = o.target ?? T
   let server = o.server === undefined ? state(4) : o.server
   vi.spyOn(v2ReaderSyncApi, 'getReadingState').mockImplementation(async () => server)
   vi.spyOn(v2ReaderSyncApi, 'annotations').mockResolvedValue([])
-  const put = vi.spyOn(v2ReaderSyncApi, 'putReadingState').mockImplementation(async (_b, w: V2ReadingStateWrite) =>
+  const put = vi.spyOn(v2ReaderSyncApi, 'putReadingState').mockImplementation(async (_b, w: ReadingStateWrite) =>
     (server = { ...state((w.expectedRevision ?? 0) + 1), currentLocator: w.currentLocator, bookFraction: w.bookFraction, clientRecordedAt: w.clientRecordedAt, completedAt: w.completedAt ?? null }))
   const host = (book: V2HostBook | null) => <MemoryRouter><V2ReaderHost book={book} dev={o.dev} /></MemoryRouter>
   const view = render(host(null))
@@ -53,7 +53,7 @@ async function reader(o: { target?: V2SyncTarget; server?: V2ReadingState | null
     screen.getByRole('button', { name }).click()
     await new Promise((r) => setTimeout(r, 0))
   })
-  const setServer = (st: V2ReadingState | null) => { server = st }
+  const setServer = (st: ReadingState | null) => { server = st }
   return { put, relocate, click, openBook, pick, fromPage, setServer }
 }
 const block = () => screen.queryByTestId('v2-finish')
@@ -158,7 +158,7 @@ describe('V2ReaderHost finish book (#1266)', () => {
     // and no block offers to finish the old one meanwhile (its session is still the host's).
     await relocate({ atEnd: true })
     expect(block()).toBeNull()
-    let read!: (s: V2ReadingState | null) => void
+    let read!: (s: ReadingState | null) => void
     vi.mocked(v2ReaderSyncApi.getReadingState).mockImplementationOnce(() => new Promise((ok) => { read = ok }))
     await answer()
     expect(block()).toBeNull()

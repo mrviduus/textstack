@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
 import { fb2, hostilePdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
-import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
+import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { chromium } = createRequire(resolve(here, '../../../apps/web/package.json'))('@playwright/test')
@@ -40,7 +40,7 @@ try {
   writeFormatFixtures(dir)
   for (const f of ['tssynthetic-kf8.azw3', 'tssynthetic-combo.mobi']) copyFileSync(resolve(here, 'synthetic', f), resolve(dir, f))
   writeFileSync(resolve(dir, 'tsplain.txt'), 'plain text, no book')
-  writeFileSync(resolve(dir, 'page.html'), v2ReaderPageHtml(randomBytes(18).toString('base64')))
+  writeFileSync(resolve(dir, 'page.html'), readerPageHtml(randomBytes(18).toString('base64')))
 
   /**
    * An older WebView (S5 review), on pages of their own, after the main page: the APIs pdf.js 5.5 calls that

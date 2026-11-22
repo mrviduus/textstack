@@ -18,7 +18,7 @@ export interface PendingSession {
 }
 
 /** A queued upload session as V2's `PUT /me/v2/reading/sessions/{clientSessionId}` body. */
-export function toV2Session({ clientSessionId: _id, editionId: _editionId, userBookId, ...rest }: PendingSession) {
+export function toSyncSession({ clientSessionId: _id, editionId: _editionId, userBookId, ...rest }: PendingSession) {
   return { ...rest, bookId: userBookId ?? null }
 }
 

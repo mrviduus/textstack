@@ -1,7 +1,7 @@
 import { act, cleanup, render } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { V2Popup } from '../../../../../packages/reader/src/wordPopup.mjs'
+import type { Popup } from '../../../../../packages/reader/src/wordPopup.mjs'
 import { V2ReaderPopups } from './V2ReaderPopups'
 
 // #1269 review: what WordPopup is rendered with, render by render (the first frame of a new word included).
@@ -21,7 +21,7 @@ vi.mock('../../api/translation', () => ({
 
 afterEach(cleanup)
 
-const word = (w: string): V2Popup => ({ kind: 'word', index: 0, word: w, sentence: `The ${w}.`, cfi: null, rect: { x: 400, y: 100, w: 30, h: 10 } })
+const word = (w: string): Popup => ({ kind: 'word', index: 0, word: w, sentence: `The ${w}.`, cfi: null, rect: { x: 400, y: 100, w: 30, h: 10 } })
 
 describe('V2ReaderPopups word popup', () => {
   it('aNewWord_NeverRenderedWithThePreviousWordsGloss', async () => {

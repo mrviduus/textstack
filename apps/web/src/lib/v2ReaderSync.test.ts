@@ -1,4 +1,4 @@
-import { ApiError, type PageHighlight, type PagePosition, type PageQuotation, type V2Annotation, type V2AnnotationWrite, type V2ReadingState, type V2ReadingStateWrite } from '@textstack/shared'
+import { ApiError, type PageHighlight, type PagePosition, type PageQuotation, type Annotation, type AnnotationWrite, type ReadingState, type ReadingStateWrite } from '@textstack/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v2Store } from '../api/v2'
 import { createV2ReaderSync, KEEPALIVE_BUDGET, v2ReaderSyncApi, type V2ReaderSyncApi, type V2SaveStatus, type V2SyncTarget } from './v2ReaderSync'
@@ -17,11 +17,11 @@ const hl = (id = H1, color = 'yellow') => ({ id, cfi: 'epubcfi(/6/4!/4/2,/1:0,/1
 const entry = (position: object | null, highlights: object[] = [], t: V2SyncTarget = T) =>
   JSON.stringify({ v: 1, book: { sha256: t.sha256, size: t.size, name: t.name }, position, highlights })
 
-const state = (revision: number, n = 1, at = '2026-11-01T00:00:00.000Z'): V2ReadingState => ({
+const state = (revision: number, n = 1, at = '2026-11-01T00:00:00.000Z'): ReadingState => ({
   bookId: T.bookId, fileId: T.fileId, currentLocator: { version: 1, scheme: 'epub-cfi', value: cfi(n), quote: `quote ${n}` },
   bookFraction: n / 10, frontierLocator: null, frontierFraction: null, completedAt: null, clientRecordedAt: at, updatedAt: at, revision, resetRevision: null,
 })
-const annotation = (w: Partial<V2Annotation> & { id: string }): V2Annotation => ({
+const annotation = (w: Partial<Annotation> & { id: string }): Annotation => ({
   bookId: T.bookId, fileId: T.fileId, selectedText: 'Hello', noteText: null, color: 'yellow',
   locator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4/2,/1:0,/1:5)', quote: 'Hello' },
   createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', deletedAt: null, revision: 1, ...w,
@@ -51,8 +51,8 @@ beforeEach(() => {
   api = {
     getReadingState: vi.fn().mockResolvedValue(null),
     annotations: vi.fn().mockResolvedValue([]),
-    putReadingState: vi.fn(async (_b: string, w: V2ReadingStateWrite) => ({ ...state((w.expectedRevision ?? 0) + 1), currentLocator: w.currentLocator, clientRecordedAt: w.clientRecordedAt })),
-    putAnnotation: vi.fn(async (id: string, w: V2AnnotationWrite) => annotation({ id, color: w.color, noteText: w.noteText ?? null, revision: (w.expectedRevision ?? 0) + 1 })),
+    putReadingState: vi.fn(async (_b: string, w: ReadingStateWrite) => ({ ...state((w.expectedRevision ?? 0) + 1), currentLocator: w.currentLocator, clientRecordedAt: w.clientRecordedAt })),
+    putAnnotation: vi.fn(async (id: string, w: AnnotationWrite) => annotation({ id, color: w.color, noteText: w.noteText ?? null, revision: (w.expectedRevision ?? 0) + 1 })),
     deleteAnnotation: vi.fn(async (id: string) => annotation({ id, deletedAt: '2026-11-03T00:00:00.000Z', revision: 9 })),
     keepalivePutState: vi.fn(),
     keepalivePutAnnotation: vi.fn(),
@@ -81,7 +81,7 @@ describe('createV2ReaderSync', () => {
   describe('restore', () => {
     it('restore_PositionFromTheReadingState_HighlightsWhenThePullLandsThisFilesLiveOnly', async () => {
       api.getReadingState.mockResolvedValue(state(4, 2))
-      const pull = deferred<V2Annotation[]>()
+      const pull = deferred<Annotation[]>()
       api.annotations.mockReturnValue(pull.promise)
       const s = open()
       const e = JSON.parse((await s.restore())!)
@@ -130,7 +130,7 @@ describe('createV2ReaderSync', () => {
     })
 
     it('closedBeforeRestoreAnswers_Null', async () => {
-      const read = deferred<V2ReadingState>()
+      const read = deferred<ReadingState>()
       api.getReadingState.mockReturnValue(read.promise)
       const s = open()
       const restored = s.restore()
@@ -178,7 +178,7 @@ describe('createV2ReaderSync', () => {
     })
 
     it('pullLandsWhileClosing_NotDrawn', async () => {
-      const pull = deferred<V2Annotation[]>()
+      const pull = deferred<Annotation[]>()
       api.annotations.mockReturnValueOnce(pull.promise)
       const s = open()
       await s.restore()
@@ -251,7 +251,7 @@ describe('createV2ReaderSync', () => {
 
     it('reopenAfterAnotherBook_ReadsAfterTheOldSessionsLastWrite', async () => {
       const a1 = await opened()
-      const put = deferred<V2ReadingState>()
+      const put = deferred<ReadingState>()
       api.putReadingState.mockReturnValueOnce(put.promise)
       a1.store(entry(pos(2)))
       void a1.close()
@@ -288,7 +288,7 @@ describe('createV2ReaderSync', () => {
 
     it('staleRevision_OwnWriteLost_AcceptedNoRetry', async () => {
       const s = await opened()
-      api.putReadingState.mockImplementationOnce(async (_b: string, w: V2ReadingStateWrite) => {
+      api.putReadingState.mockImplementationOnce(async (_b: string, w: ReadingStateWrite) => {
         throw conflict('stale_revision', { ...state(7), currentLocator: w.currentLocator, clientRecordedAt: w.clientRecordedAt })
       })
       await stored(s, entry(pos(2)))
@@ -300,11 +300,11 @@ describe('createV2ReaderSync', () => {
     // #1232: ADR-019 by decideServerState on a lost write, as Android: against the place this tab last saved or restored.
     describe('another device wrote meanwhile', () => {
       const theirs = (n: number) => expect.objectContaining({ cfi: cfi(n), index: n })
-      const sent = () => api.putReadingState.mock.calls.map((c) => [(c[1] as V2ReadingStateWrite).currentLocator.value, expectedOf(c)])
+      const sent = () => api.putReadingState.mock.calls.map((c) => [(c[1] as ReadingStateWrite).currentLocator.value, expectedOf(c)])
       const SAVED_AT = Date.parse('2026-01-01T00:00:00.000Z')
       const BETWEEN = '2026-02-01T00:00:00.000Z'
       /** pos(2) saved (revision 5, recorded at SAVED_AT); the next move loses to `server`. */
-      async function savedThenLost(...server: V2ReadingState[]) {
+      async function savedThenLost(...server: ReadingState[]) {
         api.getReadingState.mockResolvedValue(state(4, 1, OLD))
         const s = await opened()
         await stored(s, entry(pos(2, SAVED_AT)))
@@ -349,7 +349,7 @@ describe('createV2ReaderSync', () => {
         // pos(2) lands (revision 5) but its answer is lost: this tab still holds pos(1) as saved.
         api.putReadingState.mockRejectedValueOnce(offline())
         await stored(s, entry(pos(2, SAVED_AT)))
-        const landed = api.putReadingState.mock.calls[0][1] as V2ReadingStateWrite
+        const landed = api.putReadingState.mock.calls[0][1] as ReadingStateWrite
         api.putReadingState.mockRejectedValueOnce(conflict('stale_revision',
           { ...state(5), currentLocator: landed.currentLocator, clientRecordedAt: landed.clientRecordedAt }))
         await stored(s, entry(pos(3, Date.now() + 120_000)))
@@ -362,7 +362,7 @@ describe('createV2ReaderSync', () => {
         api.getReadingState.mockResolvedValue(state(4, 1, OLD))
         const s = await opened()
         await stored(s, entry(pos(2, SAVED_AT)))
-        const put = deferred<V2ReadingState>()
+        const put = deferred<ReadingState>()
         api.putReadingState.mockReturnValueOnce(put.promise)
         s.store(entry(pos(3, Date.now() + 120_000)))
         const closing = s.close()
@@ -433,7 +433,7 @@ describe('createV2ReaderSync', () => {
     it('imagePage_PutAsPageName_Saved_RestoredFromTheServerOnTheNextOpen', async () => {
       const s = await opened(CBZ)
       await stored(s, entry(page('p3.jpg'), [], CBZ))
-      expect(api.putReadingState.mock.calls.map((c) => [expectedOf(c), (c[1] as V2ReadingStateWrite).currentLocator])).toEqual([[null, pageName('p3.jpg')]])
+      expect(api.putReadingState.mock.calls.map((c) => [expectedOf(c), (c[1] as ReadingStateWrite).currentLocator])).toEqual([[null, pageName('p3.jpg')]])
       expect(statuses).toEqual(['saved'])
       expect(localStorage.length).toBe(0)
       api.getReadingState.mockResolvedValue({ ...state(1), currentLocator: pageName('p3.jpg'), bookFraction: 0.1 })
@@ -447,7 +447,7 @@ describe('createV2ReaderSync', () => {
       await stored(s, entry(restored, [], CBZ))
       expect(api.putReadingState).not.toHaveBeenCalled()
       await stored(s, entry(page('p4.jpg', 2), [], CBZ))
-      expect(api.putReadingState.mock.calls.map((c) => [expectedOf(c), (c[1] as V2ReadingStateWrite).currentLocator])).toEqual([[2, pageName('p4.jpg', 2)]])
+      expect(api.putReadingState.mock.calls.map((c) => [expectedOf(c), (c[1] as ReadingStateWrite).currentLocator])).toEqual([[2, pageName('p4.jpg', 2)]])
     })
 
     it('tabGoingAway_TheLatestImagePageGoesByKeepalive', async () => {
@@ -474,8 +474,8 @@ describe('createV2ReaderSync', () => {
       const s = await opened()
       await stored(s, entry(page('OEBPS/p2.xhtml'), []))
       await stored(s, entry(pos(3), []))
-      expect(api.putReadingState.mock.calls.map((c) => (c[1] as V2ReadingStateWrite).currentLocator.scheme)).toEqual(['page-name', 'epub-cfi'])
-      expect((api.putReadingState.mock.calls[0][1] as V2ReadingStateWrite).currentLocator).toEqual(pageName('OEBPS/p2.xhtml'))
+      expect(api.putReadingState.mock.calls.map((c) => (c[1] as ReadingStateWrite).currentLocator.scheme)).toEqual(['page-name', 'epub-cfi'])
+      expect((api.putReadingState.mock.calls[0][1] as ReadingStateWrite).currentLocator).toEqual(pageName('OEBPS/p2.xhtml'))
       api.getReadingState.mockResolvedValue({ ...state(2), currentLocator: pageName('OEBPS/p2.xhtml'), bookFraction: 0.1 })
       expect(JSON.parse((await open(T).restore())!).position).toMatchObject({ page: 'OEBPS/p2.xhtml', index: 1 })
     })
@@ -486,7 +486,7 @@ describe('createV2ReaderSync', () => {
       const s = await opened()
       await stored(s, entry(null, [hl()]))
       await stored(s, entry(null, [hl(H1, 'green')]))
-      expect(api.putAnnotation.mock.calls.map((c) => [c[0], expectedOf(c), (c[1] as V2AnnotationWrite).color])).toEqual([[H1, null, 'yellow'], [H1, 1, 'green']])
+      expect(api.putAnnotation.mock.calls.map((c) => [c[0], expectedOf(c), (c[1] as AnnotationWrite).color])).toEqual([[H1, null, 'yellow'], [H1, 1, 'green']])
     })
 
     it('staleAnotherDevice_ReappliedOnceOnTheirRevision', async () => {
@@ -534,7 +534,7 @@ describe('createV2ReaderSync', () => {
     // under the old id while the re-keyed write was in flight move to the new id.
     async function rekeyInFlight(edit: (s: ReturnType<typeof open>) => void) {
       const s = await opened()
-      const retry = deferred<V2Annotation>()
+      const retry = deferred<Annotation>()
       api.putAnnotation.mockRejectedValueOnce(conflict('id_conflict', null)).mockReturnValueOnce(retry.promise)
       s.store(entry(null, [hl()]))
       await vi.waitFor(() => expect(api.putAnnotation).toHaveBeenCalledTimes(2))
@@ -549,7 +549,7 @@ describe('createV2ReaderSync', () => {
 
     it('idConflict_ANoteMadeUnderTheOldIdWhileTheRetryFlew_WrittenToTheNewRow', async () => {
       const s = await rekeyInFlight((x) => x.setNote(H1, 'a note'))
-      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], expectedOf(c), (c[1] as V2AnnotationWrite).noteText])).toEqual([[MINTED, 1, 'a note']])
+      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], expectedOf(c), (c[1] as AnnotationWrite).noteText])).toEqual([[MINTED, 1, 'a note']])
       expect(s.note(MINTED)).toBe('a note')
       expect(last()).toBe('saved')
     })
@@ -560,7 +560,7 @@ describe('createV2ReaderSync', () => {
       s.setNote(H1, 'late')
       expect(s.note(H1)).toBe('late')
       await s.flush()
-      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], (c[1] as V2AnnotationWrite).noteText])).toEqual([[MINTED, 'late']])
+      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], (c[1] as AnnotationWrite).noteText])).toEqual([[MINTED, 'late']])
       s.remove(H1)
       await s.flush()
       expect(api.deleteAnnotation.mock.calls.map((c) => c[0])).toEqual([MINTED])
@@ -568,7 +568,7 @@ describe('createV2ReaderSync', () => {
 
     it('idConflict_LandingWhileTheSessionCloses_TheLastStoresRecolourWrittenToTheNewId', async () => {
       const s = await opened()
-      const retry = deferred<V2Annotation>()
+      const retry = deferred<Annotation>()
       api.putAnnotation.mockRejectedValueOnce(conflict('id_conflict', null)).mockReturnValueOnce(retry.promise)
       s.store(entry(null, [hl()]))
       await vi.waitFor(() => expect(api.putAnnotation).toHaveBeenCalledTimes(2))
@@ -576,13 +576,13 @@ describe('createV2ReaderSync', () => {
       const closing = s.close(entry(null, [hl(H1, 'green')]))
       retry.resolve(annotation({ id: MINTED, revision: 1 }))
       await closing
-      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], (c[1] as V2AnnotationWrite).color])).toEqual([[MINTED, 'green']])
+      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], (c[1] as AnnotationWrite).color])).toEqual([[MINTED, 'green']])
     })
 
     it('idConflict_ThePageStillOnTheOldId_ItsRecolourReachesTheNewRow', async () => {
       const s = await rekeyInFlight(() => {})
       await stored(s, entry(null, [hl(H1, 'pink')]))
-      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], expectedOf(c), (c[1] as V2AnnotationWrite).color])).toEqual([[MINTED, 1, 'pink']])
+      expect(api.putAnnotation.mock.calls.slice(2).map((c) => [c[0], expectedOf(c), (c[1] as AnnotationWrite).color])).toEqual([[MINTED, 1, 'pink']])
     })
 
     it('idConflict_ARemovalOfTheOldIdWhileTheRetryFlew_DeletesTheNewRow', async () => {
@@ -636,7 +636,7 @@ describe('createV2ReaderSync', () => {
     })
 
     it('closeDuringAPass_AStoreQueuedBeforeIsWritten', async () => {
-      const put = deferred<V2ReadingState>()
+      const put = deferred<ReadingState>()
       api.putReadingState.mockReturnValueOnce(put.promise)
       const s = await opened()
       s.store(entry(pos(2)))
@@ -644,12 +644,12 @@ describe('createV2ReaderSync', () => {
       const closed = s.close()
       put.resolve(state(1))
       await closed
-      expect(api.putReadingState.mock.calls.map((c) => (c[1] as V2ReadingStateWrite).currentLocator.value)).toEqual([cfi(2), cfi(3)])
+      expect(api.putReadingState.mock.calls.map((c) => (c[1] as ReadingStateWrite).currentLocator.value)).toEqual([cfi(2), cfi(3)])
       expect(statuses).toEqual([])
     })
 
     it('storeWhileClosing_NotWritten', async () => {
-      const put = deferred<V2ReadingState>()
+      const put = deferred<ReadingState>()
       api.putReadingState.mockReturnValueOnce(put.promise)
       const s = await opened()
       s.store(entry(pos(2)))
@@ -661,7 +661,7 @@ describe('createV2ReaderSync', () => {
     })
 
     it('closedWhileAFailingWriteIsInFlight_NoStatus', async () => {
-      const put = deferred<V2ReadingState>()
+      const put = deferred<ReadingState>()
       api.putReadingState.mockReturnValueOnce(put.promise)
       const s = await opened()
       s.store(entry(pos(2)))
@@ -683,7 +683,7 @@ describe('createV2ReaderSync', () => {
     })
 
     it('storeDuringAPass_OneMorePassOnTheLatestEntry', async () => {
-      const put = deferred<V2ReadingState>()
+      const put = deferred<ReadingState>()
       api.putReadingState.mockReturnValueOnce(put.promise)
       const s = await opened()
       s.store(entry(pos(2)))
@@ -691,7 +691,7 @@ describe('createV2ReaderSync', () => {
       s.store(entry(pos(4)))
       put.resolve(state(1))
       await s.flush()
-      expect(api.putReadingState.mock.calls.map((c) => (c[1] as V2ReadingStateWrite).currentLocator.value)).toEqual([cfi(2), cfi(4)])
+      expect(api.putReadingState.mock.calls.map((c) => (c[1] as ReadingStateWrite).currentLocator.value)).toEqual([cfi(2), cfi(4)])
       expect(expectedOf(api.putReadingState.mock.calls[1])).toBe(1)
     })
   })
@@ -710,18 +710,18 @@ describe('createV2ReaderSync', () => {
     it('close_TheLastEntryWritten', async () => {
       const s = await opened()
       await s.close(entry(pos(3)))
-      expect(api.putReadingState.mock.calls.map((c) => (c[1] as V2ReadingStateWrite).currentLocator.value)).toEqual([cfi(3)])
+      expect(api.putReadingState.mock.calls.map((c) => (c[1] as ReadingStateWrite).currentLocator.value)).toEqual([cfi(3)])
     })
 
     it('close_WhileAPassRuns_TheLastEntryOneMorePass_InOrder', async () => {
       const s = await opened()
-      const put = deferred<V2ReadingState>()
+      const put = deferred<ReadingState>()
       api.putReadingState.mockReturnValueOnce(put.promise)
       s.store(entry(pos(2)))
       const closed = s.close(entry(pos(3)))
       put.resolve(state(1, 2))
       await closed
-      expect(api.putReadingState.mock.calls.map((c) => (c[1] as V2ReadingStateWrite).currentLocator.value)).toEqual([cfi(2), cfi(3)])
+      expect(api.putReadingState.mock.calls.map((c) => (c[1] as ReadingStateWrite).currentLocator.value)).toEqual([cfi(2), cfi(3)])
       expect(expectedOf(api.putReadingState.mock.calls[1])).toBe(1)
     })
 
@@ -750,12 +750,12 @@ describe('createV2ReaderSync', () => {
       // Turns recorded after the restored state (2026-11-01T00:00Z), as a reader's are.
       const later = (min: number) => Date.parse('2026-11-01T00:00:00.000Z') + min * 60_000
       s.flushKeepalive(entry(pos(3, later(1))))
-      const kept = JSON.parse(api.keepalivePutState.mock.calls[0][1]) as V2ReadingStateWrite
+      const kept = JSON.parse(api.keepalivePutState.mock.calls[0][1]) as ReadingStateWrite
       api.putReadingState.mockRejectedValueOnce(conflict('stale_revision', { ...state(5, 3), currentLocator: kept.currentLocator, clientRecordedAt: kept.clientRecordedAt }))
       await stored(s, entry(pos(4, later(2))))
       expect(newer).toEqual([])
       expect(api.putReadingState.mock.calls.map(expectedOf)).toEqual([4, 5])
-      expect((api.putReadingState.mock.calls[1][1] as V2ReadingStateWrite).currentLocator.value).toBe(cfi(4))
+      expect((api.putReadingState.mock.calls[1][1] as ReadingStateWrite).currentLocator.value).toBe(cfi(4))
     })
 
     it('keepaliveWhileAPassWriteIsInFlight_ThatWriteLandsItsAnswerLost_ANextTurnLosesToIt_OursNoOffer', async () => {
@@ -764,11 +764,11 @@ describe('createV2ReaderSync', () => {
       api.getReadingState.mockResolvedValue(state(4, 1))
       const s = await opened()
       const later = (min: number) => Date.parse('2026-11-01T00:00:00.000Z') + min * 60_000
-      const w1 = deferred<V2ReadingState>()
+      const w1 = deferred<ReadingState>()
       api.putReadingState.mockReturnValueOnce(w1.promise)
       s.store(entry(pos(2, later(1))))
       await vi.waitFor(() => expect(api.putReadingState).toHaveBeenCalledTimes(1))
-      const sent = api.putReadingState.mock.calls[0][1] as V2ReadingStateWrite
+      const sent = api.putReadingState.mock.calls[0][1] as ReadingStateWrite
       s.flushKeepalive(entry(pos(3, later(2))))
       expect(api.keepalivePutState).toHaveBeenCalledTimes(1)
       w1.reject(offline())
@@ -840,8 +840,8 @@ describe('createV2ReaderSync', () => {
 
   // #1312: notes (the host's), recolours (the page's form) and removals (a DELETE), against the server's rows.
   describe('notes and removals', () => {
-    const body = (n = 0) => api.putAnnotation.mock.calls[n][1] as V2AnnotationWrite
-    async function withServerRow(row: Partial<V2Annotation> = {}) {
+    const body = (n = 0) => api.putAnnotation.mock.calls[n][1] as AnnotationWrite
+    async function withServerRow(row: Partial<Annotation> = {}) {
       api.annotations.mockResolvedValue([annotation({ id: H1, revision: 2, ...row })])
       return opened()
     }
@@ -884,14 +884,14 @@ describe('createV2ReaderSync', () => {
 
     it('noteEditedWhileItsWriteIsInFlight_TheNewerOneWrittenNext', async () => {
       const s = await withServerRow()
-      const put = deferred<V2Annotation>()
+      const put = deferred<Annotation>()
       api.putAnnotation.mockReturnValueOnce(put.promise)
       s.setNote(H1, 'first')
       await Promise.resolve()
       s.setNote(H1, 'second')
       put.resolve(annotation({ id: H1, revision: 3, noteText: 'first' }))
       await s.flush()
-      expect(api.putAnnotation.mock.calls.map((c) => [(c[1] as V2AnnotationWrite).noteText, expectedOf(c)])).toEqual([['first', 2], ['second', 3]])
+      expect(api.putAnnotation.mock.calls.map((c) => [(c[1] as AnnotationWrite).noteText, expectedOf(c)])).toEqual([['first', 2], ['second', 3]])
       expect(s.note(H1)).toBe('second')
     })
 
@@ -933,7 +933,7 @@ describe('createV2ReaderSync', () => {
       api.deleteAnnotation.mockRejectedValue(offline())
       s.remove(H1)
       await stored(s, entry(null, [hl(U3, 'bookmark')]))
-      expect(api.putAnnotation.mock.calls.map((c) => [c[0], (c[1] as V2AnnotationWrite).color])).toEqual([[U3, 'bookmark']])
+      expect(api.putAnnotation.mock.calls.map((c) => [c[0], (c[1] as AnnotationWrite).color])).toEqual([[U3, 'bookmark']])
       s.flushKeepalive()
       expect(api.keepaliveDeleteAnnotation.mock.calls.map((c) => c[0])).toEqual([H1])
     })
@@ -1013,7 +1013,7 @@ describe('createV2ReaderSync', () => {
     })
 
     it('setNote_BeforeTheHighlightsLoaded_WrittenOnceTheyLand', async () => {
-      const pull = deferred<V2Annotation[]>()
+      const pull = deferred<Annotation[]>()
       api.annotations.mockReturnValue(pull.promise)
       const s = open()
       await s.restore()

@@ -4,7 +4,7 @@ import { isUuid } from '@textstack/shared'
 import { createV2Storage, nonceFromUuid, readRecovering, sha256Key, type V2Files } from './hostStorage'
 import { createLocalLibrary } from './localLibrary'
 import { memoryDb } from './sqliteShim'
-import { v2ReaderPageHtml } from '../../../../../packages/reader/src/v2ReaderPage.generated'
+import { readerPageHtml } from '../../../../../packages/reader/src/readerPage.generated'
 
 const CFI = 'epubcfi(/6/14!/4/2/1:0)'
 const pos = { cfi: CFI, quote: 'It was a bright cold day', index: 6, fraction: 0.41, at: 1000 }
@@ -372,7 +372,7 @@ describe('v2 host storage', () => {
   it('nonceFromUuid_RandomUuid_ThirtyTwoHexThePageAccepts', () => {
     const nonce = nonceFromUuid(randomUUID())
     expect(nonce).toMatch(/^[0-9a-f]{32}$/)
-    expect(v2ReaderPageHtml(nonce)).toContain(`'nonce-${nonce}'`)
+    expect(readerPageHtml(nonce)).toContain(`'nonce-${nonce}'`)
     expect(() => nonceFromUuid('not-a-uuid')).toThrow()
   })
 })

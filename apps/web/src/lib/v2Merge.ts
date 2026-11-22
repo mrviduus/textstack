@@ -1,9 +1,9 @@
-import { rekeyPendingSessions, type V2MergeMap, type PendingSession } from '@textstack/shared'
+import { rekeyPendingSessions, type MergeMap, type PendingSession } from '@textstack/shared'
 import {
   getAllStoredHighlights, saveHighlight, listPendingVocabWords, deletePendingVocabWord, addPendingVocabWord,
 } from './offlineDb'
 
-export type { V2MergeMap } from '@textstack/shared'
+export type { MergeMap } from '@textstack/shared'
 
 /** The localStorage records keyed by a user book's id. */
 const BOOK_KEYS = ['userbook.progress.', 'reader.pdfPage.', 'reader.pdfPageAt.']
@@ -16,7 +16,7 @@ const SESSIONS_KEY = 'reading.pendingSessions'
  * book's current file), and the in-memory V2 cache is reset by the caller. Best effort: storage that
  * is unavailable keeps its old ids, and their writes are then refused and dropped.
  */
-export async function applyV2MergeMap(map: V2MergeMap): Promise<void> {
+export async function applyV2MergeMap(map: MergeMap): Promise<void> {
   const books = map.books ?? {}
   const words = map.words ?? {}
 

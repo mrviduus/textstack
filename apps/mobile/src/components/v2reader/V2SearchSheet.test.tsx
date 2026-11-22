@@ -2,7 +2,7 @@
 import { act, createElement, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { NO_SEARCH, SEARCH_DEBOUNCE_MS, readSearchResults, searchStart, searchTake, type V2Search } from '../../../../../packages/reader/src/search.mjs'
+import { NO_SEARCH, SEARCH_DEBOUNCE_MS, readSearchResults, searchStart, searchTake, type Search } from '../../../../../packages/reader/src/search.mjs'
 
 // #1315: the Android host's search sheet. No React Native renderer here (as readerBars.a11y.test.tsx): react-native's
 // views are stubbed as DOM elements carrying their accessible name and press handler.
@@ -36,7 +36,7 @@ const { V2SearchSheet, searchStatus } = await import('./V2SearchSheet')
 const CFI = (n: number) => `epubcfi(/6/${n}!/4/2,/1:0,/1:5)`
 const hit = (n: number, o: object = {}) => ({ cfi: CFI(n), pre: `before ${n} `, match: 'Whale', post: ` after ${n}`, label: `Chapter ${n}`, ...o })
 /** A search for `query` that the page answered with `hits`. */
-const answered = (query: string, hits: object[], o: object = { done: true }): V2Search => {
+const answered = (query: string, hits: object[], o: object = { done: true }): Search => {
   const s = searchStart(NO_SEARCH, query)
   return searchTake(s, readSearchResults({ type: 'search-results', key: 'aa', id: s.id, results: hits, done: false, more: false, ...o })!)
 }
@@ -44,14 +44,14 @@ const answered = (query: string, hits: object[], o: object = { done: true }): V2
 let div: HTMLElement
 let unmount: () => void
 const on = { query: vi.fn(), go: vi.fn(), close: vi.fn() }
-function show(search: V2Search, visible = true) {
+function show(search: Search, visible = true) {
   div = document.createElement('div')
   document.body.append(div)
   const root = createRoot(div)
-  const el = (s: V2Search, v: boolean) => createElement(V2SearchSheet, { visible: v, search: s, onQuery: on.query, onGo: on.go, onClose: on.close })
+  const el = (s: Search, v: boolean) => createElement(V2SearchSheet, { visible: v, search: s, onQuery: on.query, onGo: on.go, onClose: on.close })
   act(() => root.render(el(search, visible)))
   unmount = () => act(() => root.unmount())
-  return (s: V2Search, v = true) => act(() => root.render(el(s, v)))
+  return (s: Search, v = true) => act(() => root.render(el(s, v)))
 }
 const input = () => div.querySelector('input')!
 const type = (text: string) => act(() => {

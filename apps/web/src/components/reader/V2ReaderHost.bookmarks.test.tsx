@@ -21,7 +21,7 @@ const api = vi.hoisted(() => ({
 }))
 vi.mock('@textstack/shared', async (orig) => {
   const real = await orig<typeof import('@textstack/shared')>()
-  return { ...real, v2Api: { ...real.v2Api, ...api } }
+  return { ...real, syncApi: { ...real.syncApi, ...api } }
 })
 
 beforeEach(() => {

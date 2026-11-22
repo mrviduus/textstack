@@ -1,21 +1,21 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { v2ReaderAndroidPageHtml, v2ReaderPageHtml } from './v2ReaderPage.generated'
-import { MAX_SELECTED_TEXT } from '../../shared/src/reader/v2Locators'
+import { readerAndroidPageHtml, readerPageHtml } from './readerPage.generated'
+import { MAX_SELECTED_TEXT } from '../../shared/src/reader/locators'
 
 const NONCE = 'q7Rk2mW9xLpA4vBn8cZt0g=='
 
-describe('v2ReaderPageHtml', () => {
+describe('readerPageHtml', () => {
   it('generatedSource_CarriesOnlyThePlaceholder_NoLiteralNonce', () => {
-    const src = readFileSync(resolve(__dirname, 'v2ReaderPage.generated.ts'), 'utf8')
+    const src = readFileSync(resolve(__dirname, 'readerPage.generated.ts'), 'utf8')
     // The page's CSP, and the web and Android CSP literals the Android page swaps: every one the placeholder.
     expect(new Set(src.match(/'nonce-[^']*'/g))).toEqual(new Set(["'nonce-__V2_READER_NONCE__'"]))
     expect(src.match(/nonce=\\"[^\\]*\\"/g)).toEqual(['nonce=\\"__V2_READER_NONCE__\\"'])
   })
 
   it('validNonce_FillsTheCspAndTheScriptTag_ExactlyTwice', () => {
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     expect(html.split(NONCE)).toHaveLength(3)
     expect(html).toContain(`script-src 'nonce-${NONCE}'`)
     expect(html).toContain(`<script nonce="${NONCE}">`)
@@ -24,26 +24,26 @@ describe('v2ReaderPageHtml', () => {
 
   it('weakOrUnsafeNonce_Throws', () => {
     for (const bad of ['', 'tsfoliate', '__V2_READER_NONCE__', 'x__V2_READER_NONCE__', 'a'.repeat(15), `${'a'.repeat(16)}"><script>`, `${'a'.repeat(16)}'`])
-      expect(() => v2ReaderPageHtml(bad), bad).toThrow()
+      expect(() => readerPageHtml(bad), bad).toThrow()
   })
 
   it('nonceShapes_PaddedBase64AndHexAccepted_InjectionShapesRejected', () => {
-    for (const ok of ['a'.repeat(16), NONCE, 'ab'.repeat(16), 'A-_b'.repeat(6)]) expect(() => v2ReaderPageHtml(ok), ok).not.toThrow()
+    for (const ok of ['a'.repeat(16), NONCE, 'ab'.repeat(16), 'A-_b'.repeat(6)]) expect(() => readerPageHtml(ok), ok).not.toThrow()
     for (const bad of [`${'a'.repeat(16)}\n`, ` ${'a'.repeat(16)}`, `${'a'.repeat(16)}===`, `${'a'.repeat(16)}$&`, `${'a'.repeat(16)}; script-src *`])
-      expect(() => v2ReaderPageHtml(bad), JSON.stringify(bad)).toThrow()
+      expect(() => readerPageHtml(bad), JSON.stringify(bad)).toThrow()
   })
 
   it('twoLoads_DifferentNonces_EachCarriesOnlyItsOwn', () => {
     // Not runs of one letter: the carried pdf.js and cMaps hold base64 data with long runs of 'A'.
     const [na, nb] = ['Qa1Qa1'.repeat(4), 'Zb2Zb2'.repeat(4)]
-    const a = v2ReaderPageHtml(na)
-    const b = v2ReaderPageHtml(nb)
+    const a = readerPageHtml(na)
+    const b = readerPageHtml(nb)
     expect(a).not.toContain(nb)
     expect(b).not.toContain(na)
   })
 
   it('csp_MatchesAdr029Decision4_AndPrecedesTheOnlyScript', () => {
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     expect(html.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1]).toBe(
       `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'`,
     )
@@ -52,17 +52,17 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('androidPage_CspAddsTheServedDirectories_RestIdentical', () => {
-    const web = v2ReaderPageHtml(NONCE)
-    const android = v2ReaderAndroidPageHtml(NONCE)
+    const web = readerPageHtml(NONCE)
+    const android = readerAndroidPageHtml(NONCE)
     expect(android.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1]).toBe(
       `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'`,
     )
     expect(android.replace(/connect-src [^;]*/, '')).toBe(web.replace(/connect-src [^;]*/, ''))
-    expect(() => v2ReaderAndroidPageHtml('__V2_READER_NONCE__')).toThrow()
+    expect(() => readerAndroidPageHtml('__V2_READER_NONCE__')).toThrow()
   })
 
   it('bundle_PatchedPaginatorGuardAndPaginatedDefault_NoTestOnlyCode', () => {
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     // Fork commit d73682a (was patches/0001): Paginator.render() returns while the current view's document has no body yet.
     // esbuild's temporaries are renamed as the bundle grows (_a → _a2): matched by shape, not by name.
     expect(html).toMatch(/if \(!\(\((\w+) = \((\w+) = this\.#view\) == null \? void 0 : \2\.document\) == null \? void 0 : \1\.body\)\) return;/)
@@ -79,7 +79,7 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('bundle_Kf8ForkCommits_AndTheRelocateReasonFromTheView', () => {
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     // #1182 fork commits. view.js: the view's relocate carries the renderer's reason; the page reads it there
     // and keeps no capture listener of its own on the renderer.
     expect(html).toContain('this.#emit("relocate", { ...this.lastLocation, reason });')
@@ -100,7 +100,7 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('bundle_OpenFlushesPendingSaves_AndNoHighlightBeforeRestored', () => {
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
     // #1128 S5: the book is made before the swap; a superseded or empty one is destroyed and never swapped
     // in; at the swap the book on screen's pending save is flushed under its own key, then forgotten (#1286 review: flush()
@@ -122,7 +122,7 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('bundle_EveryStateChangeGuarded_SoOneBadBookCannotWedgeThePage', () => {
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     // A view that never rendered throws from close(); the next open must still work.
     expect(html).toMatch(/try \{\s*view == null \? void 0 : view\.close\(\);\s*\} catch/)
     // A replaced view's events are dropped: each view's listeners carry the seq of the open that made them
@@ -149,7 +149,7 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('formatReaders_CarriedAsEscapedStrings_RunOnlyUnderThePageNonce', () => {
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     // #1128: MOBI, FB2 and CBZ ride ahead of the page in its one script, as strings with no raw `<`
     // (nothing in them can end or bend the script element), and are run by page.mjs on first use
     // through a script element carrying the page's own nonce: no CSP directive is widened.
@@ -178,7 +178,7 @@ describe('v2ReaderPageHtml', () => {
   it('pdfReader_WorkerOnTheMainThread_NoEvalNoWasmNothingFetched', () => {
     // #1128 S5: the PDF reader evaluates pdf.js's worker first (it sets globalThis.pdfjsWorker, so pdf.js
     // never asks for a Worker or import()s a URL), then the fork's pdf.js, which forces isEvalSupported off.
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     const pdf: string = JSON.parse(html.match(/\npdf: ("(?:[^"\\]|\\.)*")/)![1])
     expect(pdf).toMatch(/globalThis\.pdfjsWorker\s*=/)
     expect(pdf.search(/globalThis\.pdfjsWorker\s*=/)).toBeLessThan(pdf.indexOf('isEvalSupported:!1'))
@@ -204,7 +204,7 @@ describe('v2ReaderPageHtml', () => {
   })
 
   it('bundle_SyncPrereqs_UuidIdsCodePointQuotesSelectedText', () => {
-    const html = v2ReaderPageHtml(NONCE)
+    const html = readerPageHtml(NONCE)
     // #1078: v4 UUID ids from getRandomValues (no randomUUID: needs a secure context), quotes cut by
     // code points, the full selection in selectedText and restore comparing it (old entries: quote).
     expect(html).toContain('crypto.getRandomValues(new Uint8Array(16))')
@@ -219,7 +219,7 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toMatch(/type: "highlighted", id: \w+\.id, cfi: \w+\.cfi, quote: \w+\.quote, selectedText, color \}/)
     // A selection with no text, or one the server would refuse (SyncLimits.MaxSelectedText), is not
     // stored, and nothing is drawn or announced for it.
-    // The cap is the shared one (packages/shared v2Locators, SyncLimits.MaxSelectedText), bundled once.
+    // The cap is the shared one (packages/shared locators, SyncLimits.MaxSelectedText), bundled once.
     expect(html.match(/var MAX_SELECTED_TEXT = (\S+);/g)).toHaveLength(1)
     expect(Number(html.match(/var MAX_SELECTED_TEXT = (\S+);/)?.[1])).toBe(MAX_SELECTED_TEXT)
     expect(html).toMatch(/const selectedText = \w+\.range\.toString\(\);\s*if \(!selectedText\.trim\(\)\) return log\("warn"[^;]*;\s*if \(selectedText\.length > MAX_SELECTED_TEXT\) return log\("warn"/)

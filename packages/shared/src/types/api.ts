@@ -1,4 +1,4 @@
-import type { V2MergeMap } from '../api/v2'
+import type { MergeMap } from '../api/sync'
 export interface BookAuthor {
   id: string
   slug: string
@@ -178,7 +178,7 @@ export interface MobileAuthResponse {
   /** See {@link AuthResponse.guestMergeSkipped}. */
   guestMergeSkipped?: GuestMergeSkipReason | null
   /** V2 on and a guest merged: the ids that changed (PDD "Guest → account merge"). */
-  merge?: V2MergeMap
+  merge?: MergeMap
 }
 
 // Reading Progress (matches backend ReadingProgressDto)

@@ -6,13 +6,13 @@ import { useLanguage } from '../../context/LanguageContext'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
 import { fonts } from '../../theme/typography'
 import { fill } from '../../lib/fill'
-import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type V2Search } from '../../../../../packages/reader/src/search.mjs'
+import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type Search } from '../../../../../packages/reader/src/search.mjs'
 
 /** search.mjs `searchStatusKeys` in the reader's words. */
 const STATUS = { tooShort: 'reader.v2.searchTooShort', searching: 'reader.v2.searching', none: 'reader.v2.searchNone', count: 'reader.v2.searchCount', more: 'reader.v2.searchMore' } as const
 
 /** The line under the field (`searchStatusKeys`), and that part of the book could not be read, once the search ended. */
-export function searchStatus(search: V2Search, typed: string, t: (key: string) => string): string {
+export function searchStatus(search: Search, typed: string, t: (key: string) => string): string {
   const { status, incomplete } = searchStatusKeys(search, typed)
   const line = status ? fill(t(STATUS[status]), { count: search.results.length }) : ''
   return incomplete ? `${line} ${t('reader.v2.searchIncomplete')}` : line
@@ -28,7 +28,7 @@ export function searchStatus(search: V2Search, typed: string, t: (key: string) =
 export function V2SearchSheet({ visible, search, onQuery, onGo, onClose }: {
   visible: boolean
   /** The host's search (search.mjs): the query the page was asked, its results so far. */
-  search: V2Search
+  search: Search
   /** What the reader typed, debounced; '' clears the search and the hits drawn in the book. */
   onQuery: (raw: string) => void
   onGo: (result: { cfi: string }) => void

@@ -5,13 +5,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   FRAME_NONCE_PLACEHOLDER, V2_READER_FRAME_HEADERS, V2_READER_FRAME_PATH, V2_READER_SCRIPT_HEADERS, V2_READER_SCRIPT_PATH,
-  fillNonce, serveV2ReaderFrame, v2ReaderDistFiles, v2ReaderFrameFiles,
+  fillNonce, serveReaderFrame, readerDistFiles, readerFrameFiles,
 } from './frame.mjs'
-import { v2ReaderPageHtml } from './v2ReaderPage.generated'
+import { readerPageHtml } from './readerPage.generated'
 
 // #1225: the web frame is a no-store shell (CSP, shim, nonce) + the page code as one content-hashed script.
 const NONCE = '0123456789abcdef0123456789abcdef'
-const { shell, script, scriptPath } = v2ReaderFrameFiles()
+const { shell, script, scriptPath } = readerFrameFiles()
 const count = (s: string, sub: string) => s.split(sub).length - 1
 
 /** A fake Node response: what the handler wrote. */
@@ -21,11 +21,11 @@ function serve(url: string, method = 'GET') {
     writeHead(status: number, headers: Record<string, string>) { Object.assign(out, { status, headers }); return res },
     end(body?: string) { out.body = body },
   }
-  out.handled = serveV2ReaderFrame({ url, method }, res)
+  out.handled = serveReaderFrame({ url, method }, res)
   return out
 }
 
-describe('v2ReaderFrameFiles (frame.mjs)', () => {
+describe('readerFrameFiles (frame.mjs)', () => {
   it('shell_CarriesOnlyThePlaceholder_InItsCspAndBothScripts_AndNoPageCode', () => {
     expect(count(shell, FRAME_NONCE_PLACEHOLDER)).toBe(3)
     expect(shell).toContain(`script-src 'nonce-${FRAME_NONCE_PLACEHOLDER}'`)
@@ -38,7 +38,7 @@ describe('v2ReaderFrameFiles (frame.mjs)', () => {
     const filled = fillNonce(shell, NONCE)
     const tags = filled.match(/<script nonce="[0-9a-f]{32}">[\s\S]*?<\/script><script [^>]*><\/script>/)
     expect(tags).not.toBeNull()
-    expect(filled.replace(tags![0], () => `<script nonce="${NONCE}">${script}</script>`)).toBe(v2ReaderPageHtml(NONCE))
+    expect(filled.replace(tags![0], () => `<script nonce="${NONCE}">${script}</script>`)).toBe(readerPageHtml(NONCE))
   })
 
   it('scriptPath_IsItsContentHash_AndTheShellPinsItsIntegrity', () => {
@@ -60,7 +60,7 @@ describe('fillNonce (frame.mjs)', () => {
   })
 })
 
-describe('serveV2ReaderFrame (frame.mjs)', () => {
+describe('serveReaderFrame (frame.mjs)', () => {
   it('shell_FrameHeaders_AndAFreshNoncePerResponse', () => {
     const [a, b] = [serve(`${V2_READER_FRAME_PATH}?x=1`), serve(V2_READER_FRAME_PATH)]
     expect(a).toMatchObject({ handled: true, status: 200, headers: V2_READER_FRAME_HEADERS })
@@ -92,18 +92,18 @@ describe('serveV2ReaderFrame (frame.mjs)', () => {
   })
 })
 
-describe('v2ReaderDistFiles (frame.mjs): vite preview serves the build', () => {
+describe('readerDistFiles (frame.mjs): vite preview serves the build', () => {
   it('servedFromABuild_TheBuiltBytes_ShellFilledPerResponse', () => {
     const dist = mkdtempSync(join(tmpdir(), 'ts-frame-dist-'))
     mkdirSync(join(dist, 'reader-v2'))
     writeFileSync(join(dist, 'reader-v2/frame.html'), shell.replace('<body>', '<body><!--built-->'))
     writeFileSync(join(dist, `reader-v2/page.${'a'.repeat(16)}.js`), 'built script')
-    const files = v2ReaderDistFiles(dist)
+    const files = readerDistFiles(dist)
     expect(files.scriptPath).toBe(`/reader-v2/page.${'a'.repeat(16)}.js`)
     const req = (url: string) => {
       const out: { status?: number; body?: unknown } = {}
       const res = { writeHead(status: number) { out.status = status; return res }, end(b?: unknown) { out.body = b } }
-      serveV2ReaderFrame({ url, method: 'GET' }, res, files)
+      serveReaderFrame({ url, method: 'GET' }, res, files)
       return out
     }
     const page = req(V2_READER_FRAME_PATH)

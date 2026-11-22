@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   REVIEW_ASSISTANT_KEY, chooseChat, connectedAssistants, handoffUrl, parseAssistant,
-  type Assistant, type V2DiscussFailure, type V2DiscussState,
+  type Assistant, type DiscussFailure, type DiscussState,
 } from '@textstack/shared'
 import { useTranslation } from '../../hooks/useTranslation'
 import { ConnectAssistantDialog } from '../library/ReviewChapterButton'
 
-export type { V2DiscussState }
+export type { DiscussState }
 
-const FAILURE: Record<V2DiscussFailure, string> = {
+const FAILURE: Record<DiscussFailure, string> = {
   empty: 'v2Reader.discussEmpty',
   unavailable: 'v2Reader.discussUnavailable',
   offline: 'v2Reader.discussOffline',
@@ -38,7 +38,7 @@ const openChat = (a: Assistant, brief: string) => { window.open(handoffUrl(a, br
  */
 export function V2ChapterDiscuss({ title, state, onShare, onDismiss }: {
   title: string | null
-  state: V2DiscussState | undefined
+  state: DiscussState | undefined
   onShare: () => void
   onDismiss: () => void
 }) {

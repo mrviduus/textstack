@@ -2,7 +2,7 @@
 // Pure, no DOM: the page renders untrusted book content, so a host takes only what `readSelection` returns.
 // The format check loads it bundled (esbuild): plain node does not resolve packages/shared's extensionless imports.
 import { clip } from '../../shared/src/reader/textAnchor'
-import { MAX_SELECTED_TEXT } from '../../shared/src/reader/v2Locators'
+import { MAX_SELECTED_TEXT } from '../../shared/src/reader/locators'
 
 /** The server's translate and TTS cap: a longer selection is still sent, flagged. */
 export const SELECTION_MAX_CHARS = 500

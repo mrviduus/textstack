@@ -2,13 +2,13 @@
 // second WebView of the page cannot drift from the reader's.
 import type { WebViewProps } from 'react-native-webview'
 import { PAGE_URL } from '../../../../../packages/reader/src/bookOrigin.mjs'
-import { v2ReaderAndroidPageHtml } from '../../../../../packages/reader/src/v2ReaderPage.generated'
+import { readerAndroidPageHtml } from '../../../../../packages/reader/src/readerPage.generated'
 
 /** #1426: how long the page may take to describe a book (its cover drawn on a canvas). */
 export const DESCRIBE_MS = 20_000
 
 /** The page under `nonce`. The base URL arms the patched WebView's book interceptor (bookOrigin.mjs) and gives the page that https origin. */
-export const pageSource = (nonce: string) => ({ html: v2ReaderAndroidPageHtml(nonce), baseUrl: PAGE_URL })
+export const pageSource = (nonce: string) => ({ html: readerAndroidPageHtml(nonce), baseUrl: PAGE_URL })
 
 /**
  * README "WebView": no file access at all (the library's defaults, stated here); the page reads its book by XHR from the

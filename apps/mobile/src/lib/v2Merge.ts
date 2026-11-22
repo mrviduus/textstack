@@ -1,4 +1,4 @@
-import type { V2MergeMap } from '@textstack/shared'
+import type { MergeMap } from '@textstack/shared'
 import { rekeyCachedUserBooks } from './offlineDb'
 import { rekeyUserBookProgress } from './progressStorage'
 import { rekeyPendingSessions } from './pendingSessions'
@@ -15,7 +15,7 @@ import { rekeyDeletedOnServer } from './deletedOnServer'
  * is keyed by the guest's user id too, so it is a cold cache refilled by the first pull. Best
  * effort: a store that fails keeps its old ids.
  */
-export async function applyV2MergeMap(merge: V2MergeMap): Promise<void> {
+export async function applyV2MergeMap(merge: MergeMap): Promise<void> {
   const books = merge.books ?? {}
   await rekeyCachedUserBooks(books, merge.files ?? {}).catch(() => {})
   await rekeyUserBookProgress(books)

@@ -5,15 +5,15 @@
  * `whileCurrent` epoch guard), plus the pull merges, id re-keying, opt-in file sync and download.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { initApi, V2UploadNotOnServer, type OpenReader } from '@textstack/shared'
-import { resetV2ForTests, v2Store, V2UploadError } from '../v2'
+import { initApi, UploadNotOnServer, type OpenReader } from '@textstack/shared'
+import { resetV2ForTests, v2Store, FileUploadError } from '../v2'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeV2Library, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createV2Storage } from './hostStorage'
 import { adoptV2LocalAccount, claimV2LibraryFor, downloadV2Book, MAX_FAILURES, openBookHost, pushV2BeforeSignOut, syncV2Library, tryAgainV2Book, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
-} from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+} from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }))
 vi.mock('../offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
@@ -1568,7 +1568,7 @@ describe('V2 local library sync (R6)', () => {
       const { lib, bookId, fileId } = await synced()
       await lib.setFileSync(true)
       fakeApi({ 'GET /library/changes': feed(serverBook(bookId, fileId, {}, { contentRemovedAt: '2026-11-10T00:00:00Z' })) })
-      const upload = vi.fn(async () => { throw new V2UploadError('quota_exceeded', { used: 1, limit: 1 }) })
+      const upload = vi.fn(async () => { throw new FileUploadError('quota_exceeded', { used: 1, limit: 1 }) })
       await syncV2Library(lib, host({ upload }))
       expect(upload).not.toHaveBeenCalled()
       fakeApi({ 'GET /library/changes': feed(serverBook(bookId, fileId)) })
@@ -1581,7 +1581,7 @@ describe('V2 local library sync (R6)', () => {
       const { lib, bookId } = await synced()
       await lib.setFileSync(true)
       fakeApi({})
-      const upload = vi.fn(async () => { throw new V2UploadNotOnServer(bookId) })
+      const upload = vi.fn(async () => { throw new UploadNotOnServer(bookId) })
       await syncV2Library(lib, host({ upload }))
       expect(await lib.book(bookId)).toMatchObject({ has_content: 0, server_file_id: null })
       expect((await lib.outbox()).map((o) => o.kind)).toEqual(['book'])

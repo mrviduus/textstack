@@ -1,30 +1,30 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, networkError } from '../api/client'
-import type { V2Share, V2ShareWrite } from '../api/v2'
+import type { Share, ShareWrite } from '../api/sync'
 import { MAX_BRIEF_CHARS, handoffUrl } from './assistantHandoff'
-import { CHAPTER_TEXT_MS, SHARE_MS, V2DiscussError, buildV2DiscussBrief, createDiscussLocks, createV2Discuss, discussFailureOf, runDiscuss, shareChapterForDiscuss, withDeadline, type V2DiscussDeps, type V2DiscussRun, type V2DiscussShared } from './v2Discuss'
+import { CHAPTER_TEXT_MS, SHARE_MS, DiscussError, buildDiscussBrief, createDiscussLocks, createDiscuss, discussFailureOf, runDiscuss, shareChapterForDiscuss, withDeadline, type DiscussDeps, type DiscussRun, type DiscussShared } from './discuss'
 
 const BOOK = '77777777-7777-4777-8777-777777777777'
 const FILE = '88888888-8888-4888-8888-888888888888'
 const SHARE = '5ba7ed00-0000-4000-8000-000000000001'
 const OP = '0be7a000-0000-4000-8000-000000000001'
 
-describe('buildV2DiscussBrief', () => {
+describe('buildDiscussBrief', () => {
   const input = { title: 'Dracula', author: 'Bram Stoker', bookId: BOOK, shareId: SHARE, chapterTitle: 'Chapter II', cut: false }
 
   it('is one sentence and the book and share ids', () => {
-    expect(buildV2DiscussBrief(input)).toBe(
+    expect(buildDiscussBrief(input)).toBe(
       `I'm reading "Dracula" by Bram Stoker in TextStack, at the chapter "Chapter II". Let's talk about it.\n\n(TextStack: book ${BOOK}, share ${SHARE})`)
   })
   it('names no chapter in a book with no contents, and no author when there is none', () => {
-    expect(buildV2DiscussBrief({ ...input, author: null, chapterTitle: null })).toBe(
+    expect(buildDiscussBrief({ ...input, author: null, chapterTitle: null })).toBe(
       `I'm reading "Dracula" in TextStack. Let's talk about it.\n\n(TextStack: book ${BOOK}, share ${SHARE})`)
   })
   it('says in words that a long chapter is shared in part', () => {
-    expect(buildV2DiscussBrief({ ...input, cut: true })).toContain(`Let's talk about it. It is a long chapter: only its first part is shared.\n\n(TextStack:`)
+    expect(buildDiscussBrief({ ...input, cut: true })).toContain(`Let's talk about it. It is a long chapter: only its first part is shared.\n\n(TextStack:`)
   })
   it('keeps the id line whatever the book calls itself, and carries its titles as text', () => {
-    const brief = buildV2DiscussBrief({ ...input, title: 'T'.repeat(5000), author: 'A'.repeat(5000), chapterTitle: '<img src=x onerror=alert(1)>' + 'C'.repeat(5000), cut: true })
+    const brief = buildDiscussBrief({ ...input, title: 'T'.repeat(5000), author: 'A'.repeat(5000), chapterTitle: '<img src=x onerror=alert(1)>' + 'C'.repeat(5000), cut: true })
     expect(brief.length).toBeLessThanOrEqual(MAX_BRIEF_CHARS)
     expect(brief.endsWith(`(TextStack: book ${BOOK}, share ${SHARE})`)).toBe(true)
     expect(handoffUrl('claude', brief)).toContain(encodeURIComponent('<img src=x onerror=alert(1)>'))
@@ -40,15 +40,15 @@ describe('discussFailureOf', () => {
     expect(discussFailureOf(v2(422, 'unknown_file'))).toBe('noBook')
     expect(discussFailureOf(v2(409, 'operation_conflict'))).toBe('failed')
     expect(discussFailureOf(new ApiError(500, 'boom'))).toBe('failed')
-    expect(discussFailureOf(new V2DiscussError('empty'))).toBe('empty')
+    expect(discussFailureOf(new DiscussError('empty'))).toBe('empty')
   })
 })
 
 describe('shareChapterForDiscuss', () => {
   const chapter = { bookId: BOOK, fileId: FILE, chapterKey: 'toc-3', chapterTitle: 'Chapter II', bookTitle: 'Dracula', author: 'Bram Stoker', language: 'en' }
-  const answer: V2Share = { id: SHARE, bookId: BOOK, chapterKey: 'toc-3', createdAt: '2026-11-15T10:00:00Z' }
-  const deps = (over: Partial<V2DiscussDeps> = {}) => {
-    const share = vi.fn(async (_bookId: string, _body: V2ShareWrite) => answer)
+  const answer: Share = { id: SHARE, bookId: BOOK, chapterKey: 'toc-3', createdAt: '2026-11-15T10:00:00Z' }
+  const deps = (over: Partial<DiscussDeps> = {}) => {
+    const share = vi.fn(async (_bookId: string, _body: ShareWrite) => answer)
     return { share, deps: { chapterText: async () => ({ text: 'It was the night.', cut: false }), share, current: () => true, operationId: OP, ...over } }
   }
 
@@ -74,7 +74,7 @@ describe('shareChapterForDiscuss', () => {
     expect(body.chapterTitle).toHaveLength(500)
   })
   it('sends nothing when the page has no text, and says why', async () => {
-    const d = deps({ chapterText: async () => { throw new V2DiscussError('empty') } })
+    const d = deps({ chapterText: async () => { throw new DiscussError('empty') } })
     await expect(shareChapterForDiscuss(chapter, d.deps)).rejects.toMatchObject({ reason: 'empty' })
     expect(d.share).not.toHaveBeenCalled()
   })
@@ -86,7 +86,7 @@ describe('shareChapterForDiscuss', () => {
   })
   it('hands over nothing for an answer that is no share of this book', async () => {
     for (const bad of [{ ...answer, id: 'not-an-id' }, { ...answer, id: undefined }, { ...answer, bookId: SHARE }, null]) {
-      const d = deps({ share: async () => bad as unknown as V2Share })
+      const d = deps({ share: async () => bad as unknown as Share })
       await expect(shareChapterForDiscuss(chapter, d.deps)).rejects.toMatchObject({ reason: 'failed' })
     }
   })
@@ -105,14 +105,14 @@ describe('shareChapterForDiscuss', () => {
   })
 })
 
-describe('createV2Discuss', () => {
+describe('createDiscuss', () => {
   afterEach(() => vi.useRealTimers())
   const request = { bookId: BOOK, fileId: FILE, chapterKey: 'toc-3', chapterTitle: 'Chapter II', bookTitle: 'Dracula', tocIndex: 3, section: 1 }
   const make = () => {
     let n = 0
     const asked: [string, { tocIndex: number | null; section: number }][] = []
-    const share = vi.fn(async (bookId: string, body: V2ShareWrite): Promise<V2Share> => ({ id: SHARE, bookId, chapterKey: body.chapterKey, createdAt: '' }))
-    const d = createV2Discuss({ askPage: (r, c) => asked.push([r, c]), share, newId: () => `id-${++n}` })
+    const share = vi.fn(async (bookId: string, body: ShareWrite): Promise<Share> => ({ id: SHARE, bookId, chapterKey: body.chapterKey, createdAt: '' }))
+    const d = createDiscuss({ askPage: (r, c) => asked.push([r, c]), share, newId: () => `id-${++n}` })
     return { d, asked, share }
   }
 
@@ -140,7 +140,7 @@ describe('createV2Discuss', () => {
   it('replays one operation per chapter on a retry, a new one after a refusal and after a reset, another per chapter', async () => {
     const { d, asked, share } = make()
     const run = async (chapterKey = 'toc-3') => {
-      const going = d.discuss({ ...request, chapterKey }, () => true).catch((e: V2DiscussError) => e.reason)
+      const going = d.discuss({ ...request, chapterKey }, () => true).catch((e: DiscussError) => e.reason)
       d.answer({ request: asked[asked.length - 1][0], text: 'x', cut: false })
       await going
       return share.mock.calls[share.mock.calls.length - 1][1].operationId
@@ -159,7 +159,7 @@ describe('createV2Discuss', () => {
   it('says the chapter could not be read when the page does not answer in time, and a late answer shares nothing', async () => {
     vi.useFakeTimers()
     const { d, asked, share } = make()
-    const going = d.discuss(request, () => true).catch((e: V2DiscussError) => e.reason)
+    const going = d.discuss(request, () => true).catch((e: DiscussError) => e.reason)
     await vi.advanceTimersByTimeAsync(CHAPTER_TEXT_MS - 1)
     expect(d.busy('toc-3')).toBe(true)
     await vi.advanceTimersByTimeAsync(1)
@@ -171,8 +171,8 @@ describe('createV2Discuss', () => {
   it('gives a share that does not answer a deadline: said as a timeout, the chapter free again, and the retry replays the same operation', async () => {
     vi.useFakeTimers()
     const { d, asked, share } = make()
-    share.mockImplementationOnce(() => new Promise<V2Share>(() => {}))
-    const going = d.discuss(request, () => true).catch((e: V2DiscussError) => e.reason)
+    share.mockImplementationOnce(() => new Promise<Share>(() => {}))
+    const going = d.discuss(request, () => true).catch((e: DiscussError) => e.reason)
     d.answer({ request: asked[0][0], text: 'x', cut: false })
     await vi.advanceTimersByTimeAsync(SHARE_MS - 1)
     expect(d.busy('toc-3')).toBe(true)
@@ -186,7 +186,7 @@ describe('createV2Discuss', () => {
   })
   it('passes the page\'s own refusal on', async () => {
     const { d, asked, share } = make()
-    const going = d.discuss(request, () => true).catch((e: V2DiscussError) => e.reason)
+    const going = d.discuss(request, () => true).catch((e: DiscussError) => e.reason)
     d.answer({ request: asked[0][0], error: 'empty' })
     expect(await going).toBe('empty')
     expect(share).not.toHaveBeenCalled()
@@ -203,7 +203,7 @@ describe('withDeadline', () => {
   })
   it('is a timeout once the deadline passes', async () => {
     vi.useFakeTimers()
-    const late = withDeadline(new Promise(() => {}), 100).catch((e: V2DiscussError) => e.reason)
+    const late = withDeadline(new Promise(() => {}), 100).catch((e: DiscussError) => e.reason)
     await vi.advanceTimersByTimeAsync(100)
     expect(await late).toBe('timeout')
   })
@@ -211,14 +211,14 @@ describe('withDeadline', () => {
 
 describe('runDiscuss (#1316, both hosts)', () => {
   afterEach(() => vi.useRealTimers())
-  const handed: V2DiscussShared = { shareId: SHARE, cut: false, brief: 'b' }
+  const handed: DiscussShared = { shareId: SHARE, cut: false, brief: 'b' }
   const CLAUDE = [{ clientName: 'Claude' }]
   const offline = () => Object.assign(new ApiError(0, 'down'), { isNetworkError: true })
   const base = () => ({
     canConnect: true,
-    grants: vi.fn<V2DiscussRun['grants']>(async () => CLAUDE),
-    serverBook: vi.fn<V2DiscussRun['serverBook']>(async () => ({ bookId: 'b', fileId: 'f' })),
-    share: vi.fn<V2DiscussRun['share']>(async () => handed),
+    grants: vi.fn<DiscussRun['grants']>(async () => CLAUDE),
+    serverBook: vi.fn<DiscussRun['serverBook']>(async () => ({ bookId: 'b', fileId: 'f' })),
+    share: vi.fn<DiscussRun['share']>(async () => handed),
     current: () => true,
   })
   const flow = (over: Partial<ReturnType<typeof base>> = {}) => ({ ...base(), ...over })
@@ -230,19 +230,19 @@ describe('runDiscuss (#1316, both hosts)', () => {
     expect(d.grants).toHaveBeenCalledTimes(1)
   })
   it('with no assistant connected shares nothing: the connect step', async () => {
-    const d = flow({ grants: vi.fn<V2DiscussRun['grants']>(async () => [{ clientName: 'Some other app' }]) })
+    const d = flow({ grants: vi.fn<DiscussRun['grants']>(async () => [{ clientName: 'Some other app' }]) })
     expect(await runDiscuss(d)).toEqual({ phase: 'connect' })
     expect(d.serverBook).not.toHaveBeenCalled()
     expect(d.share).not.toHaveBeenCalled()
   })
   it('reads a grants request that fails as that, with a retry: never as "none connected"', async () => {
-    const d = flow({ grants: vi.fn<V2DiscussRun['grants']>(async () => { throw offline() }) })
+    const d = flow({ grants: vi.fn<DiscussRun['grants']>(async () => { throw offline() }) })
     expect(await runDiscuss(d)).toEqual({ phase: 'failed', reason: 'offline' })
     expect(d.share).not.toHaveBeenCalled()
   })
   it('gives a grants request that never answers a deadline', async () => {
     vi.useFakeTimers()
-    const going = runDiscuss(flow({ grants: vi.fn<V2DiscussRun['grants']>(() => new Promise<never>(() => {})) }))
+    const going = runDiscuss(flow({ grants: vi.fn<DiscussRun['grants']>(() => new Promise<never>(() => {})) }))
     await vi.advanceTimersByTimeAsync(SHARE_MS)
     expect(await going).toEqual({ phase: 'failed', reason: 'timeout' })
   })
@@ -252,10 +252,10 @@ describe('runDiscuss (#1316, both hosts)', () => {
     expect(d.grants).not.toHaveBeenCalled()
   })
   it('says a book that is not on the server, and a failed share by its cause', async () => {
-    const none = flow({ serverBook: vi.fn<V2DiscussRun['serverBook']>(async () => null) })
+    const none = flow({ serverBook: vi.fn<DiscussRun['serverBook']>(async () => null) })
     expect(await runDiscuss(none)).toEqual({ phase: 'failed', reason: 'noBook' })
     expect(none.share).not.toHaveBeenCalled()
-    expect(await runDiscuss(flow({ share: vi.fn<V2DiscussRun['share']>(async () => { throw new V2DiscussError('timeout') }) }))).toEqual({ phase: 'failed', reason: 'timeout' })
+    expect(await runDiscuss(flow({ share: vi.fn<DiscussRun['share']>(async () => { throw new DiscussError('timeout') }) }))).toEqual({ phase: 'failed', reason: 'timeout' })
   })
   it('shows nothing once the identity or the book changed: after the grants (none connected too), the ids, the share, a failure', async () => {
     for (const leaveAfter of ['grants', 'none', 'serverBook', 'share'] as const) {
@@ -270,21 +270,21 @@ describe('runDiscuss (#1316, both hosts)', () => {
       if (leaveAfter !== 'share') expect(d.share).not.toHaveBeenCalled()
     }
     let live = true
-    expect(await runDiscuss(flow({ current: () => live, share: vi.fn<V2DiscussRun['share']>(async () => { live = false; throw offline() }) }))).toBeUndefined()
+    expect(await runDiscuss(flow({ current: () => live, share: vi.fn<DiscussRun['share']>(async () => { live = false; throw offline() }) }))).toBeUndefined()
   })
 })
 
-describe('buildV2DiscussBrief with astral characters', () => {
+describe('buildDiscussBrief with astral characters', () => {
   it('never cuts a surrogate pair, so the link can be encoded', () => {
     const title = 'T'.repeat(198) + '😀' + 'tail'
-    const brief = buildV2DiscussBrief({ title, author: 'A'.repeat(118) + '😀x', bookId: BOOK, shareId: SHARE, chapterTitle: title, cut: false })
+    const brief = buildDiscussBrief({ title, author: 'A'.repeat(118) + '😀x', bookId: BOOK, shareId: SHARE, chapterTitle: title, cut: false })
     // No lone half of a surrogate pair anywhere.
     expect(brief).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/)
     expect(() => encodeURIComponent(brief)).not.toThrow()
     expect(brief).toContain(`"${'T'.repeat(198)}…"`)
   })
   it('clips a shared title on the server cap without a lone half', async () => {
-    const share = vi.fn(async (bookId: string, body: V2ShareWrite): Promise<V2Share> => ({ id: SHARE, bookId, chapterKey: body.chapterKey, createdAt: '' }))
+    const share = vi.fn(async (bookId: string, body: ShareWrite): Promise<Share> => ({ id: SHARE, bookId, chapterKey: body.chapterKey, createdAt: '' }))
     await shareChapterForDiscuss(
       { bookId: BOOK, fileId: null, chapterKey: 'toc-1', chapterTitle: 'T'.repeat(499) + '😀', bookTitle: 'B' },
       { chapterText: async () => ({ text: 'x', cut: false }), share, current: () => true, operationId: OP })

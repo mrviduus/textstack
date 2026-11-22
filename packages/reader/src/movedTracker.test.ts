@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decideServerState, type PagePosition, type V2ReadingState } from '@textstack/shared'
+import { decideServerState, type PagePosition, type ReadingState } from '@textstack/shared'
 import { readRelocate } from './chrome.mjs'
 import { createMovedTracker } from './movedTracker.mjs'
 
@@ -19,7 +19,7 @@ const openedAndRestored = (landed?: number) => {
 /** ADR-019 on another device's provably newer place in spine item `index`. */
 const decide = (t: ReturnType<typeof createMovedTracker>, index: number) => {
   const local: PagePosition = { cfi: 'epubcfi(/6/2!/4/2/1:0)', quote: 'ours', index: 0, at: Date.parse('2026-11-10T10:00:00Z') }
-  const server: V2ReadingState = {
+  const server: ReadingState = {
     bookId: 'b', fileId: 'f', currentLocator: { version: 1, scheme: 'epub-cfi', value: `epubcfi(/6/${2 * (index + 1)}!/4/2/1:0)`, quote: 'theirs' },
     bookFraction: 0.5, frontierLocator: null, frontierFraction: null, completedAt: null,
     clientRecordedAt: '2026-11-10T11:00:00.000Z', updatedAt: '2026-11-10T11:00:01Z', revision: 3, resetRevision: null,

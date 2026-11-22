@@ -4,7 +4,7 @@ export interface MovedTracker {
   restored(): void
   relocate(r: { index: number | null; moved: boolean } | null): void
   hostMove(): void
-  /** `decideServerState`'s `reader` (`OpenReader`, packages/shared v2LocalSync.ts). */
+  /** `decideServerState`'s `reader` (`OpenReader`, packages/shared localSync.ts). */
   reader(): { restoreApplied: boolean; moved: boolean; index: number | null }
 }
 export function createMovedTracker(): MovedTracker

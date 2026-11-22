@@ -1,36 +1,36 @@
 import { useEffect, useState } from 'react'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
-import { tocAround, type V2TocEntry } from '../../../../../packages/reader/src/toc.mjs'
-import type { V2HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
-import type { V2BookmarkItem } from '../../../../../packages/reader/src/bookmarks.mjs'
+import { tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import type { HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
+import type { BookmarkItem } from '../../../../../packages/reader/src/bookmarks.mjs'
 import { COLOR_MAP } from './decorationColors'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
 interface Props {
-  toc: V2TocEntry[]
+  toc: TocEntry[]
   tocIndex: number | null
-  onGo: (entry: V2TocEntry) => void
+  onGo: (entry: TocEntry) => void
 }
 
 /** #1312: the Highlights tab (absent where the host offers no highlights: an image or PDF book, the server's not in yet). */
 interface HighlightsTab {
   /** The page's `highlight-list` (in book order, drawn ones only). */
-  items: V2HighlightItem[]
+  items: HighlightItem[]
   /** The host's note of one (the page holds none). */
   noteOf: (id: string) => string | null
-  onGo: (item: V2HighlightItem) => void
+  onGo: (item: HighlightItem) => void
 }
 
 /** #1314: the Bookmarks tab, offered with the Highlights tab. */
 interface BookmarksTab {
   /** The page's `bookmark-list` items (in book order). */
-  items: V2BookmarkItem[]
+  items: BookmarkItem[]
   /** One can be made at the place on screen (the page's `can`): the empty list says how, or that this page takes none. */
   can: boolean
   /** Bookmarks are still being placed (or the page has not said yet): the empty list says they are loading. */
   placing: boolean
-  onGo: (item: V2BookmarkItem) => void
+  onGo: (item: BookmarkItem) => void
   /** The row's remove button: the page removes it and the host tombstones it, wherever in the book it is. */
   onRemove: (id: string) => void
 }

@@ -1,11 +1,11 @@
 // Builds the V2 reader page (ADR-029): pinned foliate-js fork + page.mjs → one IIFE inlined into an
-// HTML string under the book-sandbox CSP → v2ReaderPage.generated.ts (committed). The MOBI, FB2, CBZ
+// HTML string under the book-sandbox CSP → readerPage.generated.ts (committed). The MOBI, FB2, CBZ
 // and PDF readers (and pdf.js's cMaps) are IIFEs of their own, carried as strings and run only when a
 // book of that format opens (README, Formats).
 //
-//   node build.mjs           write v2ReaderPage.generated.ts   (pnpm -C apps/web build:v2-reader)
+//   node build.mjs           write readerPage.generated.ts   (pnpm -C apps/web build:v2-reader)
 //   node build.mjs --check   exit 1 if the committed file differs or the page outgrew its budget (CI)
-//   node build.mjs --repro   also write .vendor/v2ReaderPage.repro.html: the page + repro.mjs (test only)
+//   node build.mjs --repro   also write .vendor/readerPage.repro.html: the page + repro.mjs (test only)
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -64,7 +64,7 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // +851 (#1128 S5 review): a book still on screen after its init answers `opened` (viewSeq, not the latest
 // attempt), `restored` carries its key, goTo refuses a page past the end, arrival never through a missing
 // section, the structuredClone refusal, PDF outline entries that reject go nowhere.
-// +63 (#1226): the entry checks moved to packages/shared/src/reader/v2PageStore.ts (one home for the page and both
+// +63 (#1226): the entry checks moved to packages/shared/src/reader/pageStore.ts (one home for the page and both
 // hosts); the bundle's module-path comment line is the growth, the code is the same.
 // +791 (#1226): `addHighlights(list)`, the web host's highlights drawn after the restore without moving the reader;
 // +350: its `highlights` answer, one status per item.
@@ -157,7 +157,7 @@ const BUDGET = 345457
 const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883, dyslexic: 158436, serif: 550100, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
-const out = resolve(here, 'v2ReaderPage.generated.ts')
+const out = resolve(here, 'readerPage.generated.ts')
 const vendor = resolve(here, '.vendor/foliate-js')
 const git = (...args) => execFileSync('git', ['-C', vendor, ...args], { stdio: 'inherit' })
 
@@ -287,12 +287,12 @@ function fill(page: string, nonce: string): string {
 }
 
 /** The page with \`nonce\` in its CSP and script tag. A fresh random nonce per load, base64 or hex, >= 16 chars. The web frame's (frame.mjs). */
-export function v2ReaderPageHtml(nonce: string): string {
+export function readerPageHtml(nonce: string): string {
   return fill(PAGE_HTML, nonce)
 }
 
 /** The Android host's page (#1228): the same, with connect-src naming the two directories its interceptor serves. */
-export function v2ReaderAndroidPageHtml(nonce: string): string {
+export function readerAndroidPageHtml(nonce: string): string {
   // The CSP meta is the first thing in the head, ahead of the script: its first occurrence is the one replaced.
   // Not kept: a second copy of the page would stay in memory for the life of the app.
   return fill(PAGE_HTML.replace(${JSON.stringify(CSP)}, ${JSON.stringify(ANDROID_CSP)}), nonce)
@@ -322,7 +322,7 @@ if (process.argv.includes('--check')) {
 }
 
 if (process.argv.includes('--repro')) {
-  const repro = resolve(here, '.vendor/v2ReaderPage.repro.html')
+  const repro = resolve(here, '.vendor/readerPage.repro.html')
   writeFileSync(repro, html(formatsJs(chunks) + await bundle('repro.mjs')).split(NONCE).join(randomBytes(18).toString('base64')))
   console.log(`wrote ${repro} (test only)`)
 }

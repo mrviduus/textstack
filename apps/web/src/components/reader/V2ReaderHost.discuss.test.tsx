@@ -1,4 +1,4 @@
-import { ApiError, CHAPTER_TEXT_MS, type V2Share, type V2ShareWrite } from '@textstack/shared'
+import { ApiError, CHAPTER_TEXT_MS, type Share, type ShareWrite } from '@textstack/shared'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -38,7 +38,7 @@ afterEach(() => {
 async function reader(o: { toc?: object[]; dev?: boolean; title?: string } = {}) {
   vi.spyOn(v2ReaderSyncApi, 'getReadingState').mockResolvedValue(null)
   vi.spyOn(v2ReaderSyncApi, 'annotations').mockResolvedValue([])
-  const share = vi.spyOn(v2DiscussApi, 'shareChapter').mockImplementation(async (bookId: string, body: V2ShareWrite): Promise<V2Share> =>
+  const share = vi.spyOn(v2DiscussApi, 'shareChapter').mockImplementation(async (bookId: string, body: ShareWrite): Promise<Share> =>
     ({ id: SHARE, bookId, chapterKey: body.chapterKey, createdAt: '2026-11-15T10:00:00Z' }))
   const opened = vi.spyOn(window, 'open').mockImplementation(() => null)
   let lastBook: V2HostBook | null = null
@@ -280,8 +280,8 @@ describe('V2ReaderHost discuss chapter (#1316)', () => {
     await answer({ text: 'Beta begins.' })
     expect(share).not.toHaveBeenCalled()
 
-    let land: (s: V2Share) => void = () => {}
-    share.mockImplementationOnce(() => new Promise<V2Share>((r) => { land = r }))
+    let land: (s: Share) => void = () => {}
+    share.mockImplementationOnce(() => new Promise<Share>((r) => { land = r }))
     await relocate({ chapterEnd: { tocIndex: 1, section: 0, title: 'Beta' } })
     await click('v2-discuss-share')
     await answer({ text: 'Beta begins.' })
@@ -295,8 +295,8 @@ describe('V2ReaderHost discuss chapter (#1316)', () => {
 
   it('discuss_TheAccountChangedWhileTheShareWasInFlight_NothingOffered', async () => {
     const { share, relocate, click, answer } = await reader()
-    let land: (s: V2Share) => void = () => {}
-    share.mockImplementationOnce(() => new Promise<V2Share>((r) => { land = r }))
+    let land: (s: Share) => void = () => {}
+    share.mockImplementationOnce(() => new Promise<Share>((r) => { land = r }))
     await relocate({ chapterEnd: { tocIndex: 1, section: 0, title: 'Beta' } })
     await click('v2-discuss-share')
     await answer({ text: 'Beta begins.' })
@@ -401,8 +401,8 @@ describe('V2ReaderHost discuss chapter (#1316)', () => {
   // Item 4: the session ends mid-share: after the next sign-in the block is usable without reopening the book.
   it('accountChangedMidShare_TheBlockIsIdleAtOnce_ANewDiscussRunsUnderTheNewAccount_TheOldAnswerShowsNothing', async () => {
     const { share, relocate, click, asked, answer, signIn } = await reader()
-    let land: (s: V2Share) => void = () => {}
-    share.mockImplementationOnce(() => new Promise<V2Share>((r) => { land = r }))
+    let land: (s: Share) => void = () => {}
+    share.mockImplementationOnce(() => new Promise<Share>((r) => { land = r }))
     await relocate({ chapterEnd: { tocIndex: 1, section: 0, title: 'Beta' } })
     await click('v2-discuss-share')
     await answer({ text: 'Beta begins.' })

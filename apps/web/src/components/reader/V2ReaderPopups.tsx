@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react'
-import type { V2Popup } from '../../../../../packages/reader/src/wordPopup.mjs'
-import type { V2Rect } from '../../../../../packages/reader/src/selection.mjs'
+import type { Popup } from '../../../../../packages/reader/src/wordPopup.mjs'
+import type { Rect } from '../../../../../packages/reader/src/selection.mjs'
 import { saveOutcome } from '../../../../../packages/reader/src/vocabSave.mjs'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useAuth } from '../../context/AuthContext'
@@ -18,18 +18,18 @@ import { SelectionToolbar } from './SelectionToolbar'
 import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
-import type { V2HighlightColor, V2HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
-import type { V2MarkWord } from '../../../../../packages/reader/src/wordMarks.mjs'
+import type { HighlightColor, HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
+import type { MarkWord } from '../../../../../packages/reader/src/wordMarks.mjs'
 import { markWordsOf } from '../../../../../packages/reader/src/vocabWords.mjs'
 import { createListener, spokenOf } from '../../../../../packages/reader/src/listen.mjs'
 import { useTts } from '../../hooks/useTts'
 
 /** #1312: the highlight a tap opened (`popup.kind === 'highlight'`), as the host knows it, and what its editor does. */
 export interface V2HighlightEditor {
-  item: V2HighlightItem
+  item: HighlightItem
   /** The host's note (the page holds none); null: none. */
   note: string | null
-  onRecolor: (color: V2HighlightColor) => void
+  onRecolor: (color: HighlightColor) => void
   /** The draft as typed, Save's and Cancel's included (null: Delete, nothing to write): the host writes a changed one whatever closes the editor. */
   onDraft: (draft: { text: string; from: string | null } | null) => void
   onDelete: () => void
@@ -37,7 +37,7 @@ export interface V2HighlightEditor {
 
 interface Props {
   /** What is open (wordPopup.mjs `popupStep`, run by the host on the page's messages). */
-  popup: V2Popup | null
+  popup: Popup | null
   /** The reader frame: the page's rects are in its viewport. */
   frame: RefObject<HTMLIFrameElement | null>
   /** `opened.lang` through readLang, else `en` (the legacy reader's default). */
@@ -49,14 +49,14 @@ interface Props {
   /** Its title as the page read it (untrusted: React text, and the example's `bookTitle`, clipped by the save). */
   bookTitle?: string
   /** The toolbar's Highlight in the colour chosen; absent where the host offers none (an image or PDF book, the server's highlights not in yet). */
-  onHighlight?: (color: V2HighlightColor) => void
+  onHighlight?: (color: HighlightColor) => void
   /** #1312: the editor of the highlight tapped, when the host knows it. */
   highlight?: V2HighlightEditor | null
   /**
    * #1271: the reader's saved words as the page marks them, each time they change (loaded, saved, a translation
    * backfilled): `useReaderVocabulary` reads them once per mount, keeps them in memory and fills missing translations once.
    */
-  onMarks?: (words: V2MarkWord[]) => void
+  onMarks?: (words: MarkWord[]) => void
   /** The word popup or the toolbar closed (`selectionDone` false), or the selection's actions are done (true): the page's selection goes, and the toolbar if it is still what is open (never a newer word popup). */
   onClose: (selectionDone: boolean) => void
   /** #1272: the language the book is spoken in (listen.mjs `ttsLang`); null: no Listen (Ukrainian, no language). */
@@ -81,7 +81,7 @@ export function V2ReaderPopups({ popup, frame, bookLanguage, marksLanguage = boo
   // As ReaderHighlights' resolveTargetLang: null (definition mode) when the reader's language is the book's.
   const targetLang = nativeLanguage !== bookLanguage ? nativeLanguage : null
   // The frame's viewport → this document's (the legacy components position by the window's coordinates).
-  const toHost = (r: V2Rect) => {
+  const toHost = (r: Rect) => {
     const f = frame.current?.getBoundingClientRect()
     return new DOMRect(r.x + (f?.left ?? 0), r.y + (f?.top ?? 0), r.w, r.h)
   }

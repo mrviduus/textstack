@@ -7,12 +7,12 @@
  * locator is `{fraction, at}` alone, #1187) and a highlight
  * `{id, cfi, index, quote, selectedText, prefix, suffix, color, at}`.
  */
-import type { V2Annotation, V2AnnotationWrite, V2Locator, V2ReadingState, V2ReadingStateWrite } from '../api/v2'
+import type { Annotation, AnnotationWrite, Locator, ReadingState, ReadingStateWrite } from '../api/sync'
 import { isFractionOnly } from './fractionPosition'
 import { isPdfPage } from './pdfPagePosition'
 import { decideNewerPosition, serverProvablyNewer, type NewerPositionAction } from './newerPosition'
-import { MAX_SELECTED_TEXT } from './v2Locators'
-import { isQuotation, type PageQuotation } from './v2PageStore'
+import { MAX_SELECTED_TEXT } from './locators'
+import { isQuotation, type PageQuotation } from './pageStore'
 
 export interface PagePosition {
   /** Absent on a fraction-only position (a transitional server locator): restored by `fraction`, never pushed. */
@@ -94,9 +94,9 @@ const isIndex = (n: unknown): n is number => Number.isInteger(n) && (n as number
 /** The formats a `page-name` position fits (`SyncValidation.FitsFile`): a CBZ, an EPUB (a pre-paginated one, #1196). */
 const PAGE_NAMED = new Set<string | null>(['cbz', 'epub'])
 
-export function positionWrite(p: PagePosition, fileId: string, expectedRevision: number | null, now = Date.now(), format: string | null = null): V2ReadingStateWrite | null {
+export function positionWrite(p: PagePosition, fileId: string, expectedRevision: number | null, now = Date.now(), format: string | null = null): ReadingStateWrite | null {
   const pdf = format === 'pdf'
-  let currentLocator: V2Locator
+  let currentLocator: Locator
   if (pdf && isPdfPage(p)) currentLocator = { version: 1, scheme: 'pdf-page', value: { page: p.page } }
   else if (PAGE_NAMED.has(format) && p.quote === undefined && isPageName(p.page) && isIndex(p.index)) {
     currentLocator = { version: 1, scheme: 'page-name', value: { page: p.page, index: p.index } }
@@ -135,7 +135,7 @@ const FRACTION_SCHEMES = new Set<string>(['textstack-position-v1', 'textstack-an
  * locators", #1187): approximate, never converted to a CFI. Null for a scheme that does not fit the
  * file, an unknown one, and a state without a fraction in [0, 1].
  */
-export function statePosition(s: V2ReadingState, format: string | null = null): PagePosition | null {
+export function statePosition(s: ReadingState, format: string | null = null): PagePosition | null {
   const l = s.currentLocator
   const at = Date.parse(s.clientRecordedAt)
   if (l.scheme === 'pdf-page') {
@@ -163,10 +163,10 @@ export function statePosition(s: V2ReadingState, format: string | null = null): 
  * note the host holds for it (#1312; the page holds none), always sent: the PUT replaces the row, so a write without
  * it would clear a note another device wrote.
  */
-export function highlightWrite(h: PageHighlight, bookId: string, fileId: string, expectedRevision: number | null, noteText: string | null = null): V2AnnotationWrite | null {
+export function highlightWrite(h: PageHighlight, bookId: string, fileId: string, expectedRevision: number | null, noteText: string | null = null): AnnotationWrite | null {
   const selectedText = syncableText(h)
   if (!selectedText) return null
-  const locator: V2Locator = { version: 1, scheme: 'epub-cfi', value: h.cfi, quote: codePoints(h.quote, 64) }
+  const locator: Locator = { version: 1, scheme: 'epub-cfi', value: h.cfi, quote: codePoints(h.quote, 64) }
   // The page's 30 characters of context: the server bounds each at 32 code points, kept nearest the selection.
   if (h.prefix) locator.prefix = codePoints(h.prefix, 32, true)
   if (h.suffix) locator.suffix = codePoints(h.suffix, 32)
@@ -177,7 +177,7 @@ export function highlightWrite(h: PageHighlight, bookId: string, fileId: string,
  * A pulled annotation as the page's highlight; null for one the page cannot draw (no `epub-cfi`
  * locator: a `textstack-anchor-v1` quotation from the transitional reader, a catalog quotation).
  */
-export function annotationHighlight(a: V2Annotation): PageHighlight | null {
+export function annotationHighlight(a: Annotation): PageHighlight | null {
   const l = a.locator
   if (!l || l.scheme !== 'epub-cfi' || typeof l.value !== 'string') return null
   return {
@@ -188,7 +188,7 @@ export function annotationHighlight(a: V2Annotation): PageHighlight | null {
 }
 
 /** #1195: a pulled live `textstack-anchor-v1` annotation as the page's quotation (listed, never drawn); null for any other. */
-export function annotationQuotation(a: V2Annotation): PageQuotation | null {
+export function annotationQuotation(a: Annotation): PageQuotation | null {
   const q: PageQuotation = { id: a.id, quotation: true, selectedText: a.selectedText, color: a.color, at: Date.parse(a.createdAt) }
   return a.locator?.scheme === 'textstack-anchor-v1' && !a.deletedAt && isQuotation(q) ? q : null
 }
@@ -206,11 +206,11 @@ export function sameJson(a: unknown, b: unknown): boolean {
 const sameInstant = (a: string, b: string) => Date.parse(a) === Date.parse(b)
 
 /** PDD "Own write, lost response": the stored state is what this write sent (file, locator, time). */
-export const ownStateWrite = (current: V2ReadingState, sent: V2ReadingStateWrite) =>
+export const ownStateWrite = (current: ReadingState, sent: ReadingStateWrite) =>
   current.fileId === sent.fileId && sameJson(current.currentLocator, sent.currentLocator) && sameInstant(current.clientRecordedAt, sent.clientRecordedAt)
 
 /** The same for an annotation: every field sent. */
-export const ownAnnotationWrite = (current: V2Annotation, sent: V2AnnotationWrite) =>
+export const ownAnnotationWrite = (current: Annotation, sent: AnnotationWrite) =>
   !current.deletedAt && current.bookId === sent.bookId && (current.fileId ?? null) === (sent.fileId ?? null)
   && current.selectedText === sent.selectedText && (current.noteText ?? null) === (sent.noteText ?? null)
   && sameJson(current.locator ?? null, sent.locator ?? null) && current.color === sent.color
@@ -236,7 +236,7 @@ export interface OpenReader {
 export function decideServerState(o: {
   local: PagePosition | null
   localFileId: string | null
-  server: V2ReadingState
+  server: ReadingState
   reader: OpenReader | null
   /** The server state's file format, when known: a PDF takes a page position only (`statePosition`). */
   format?: string | null

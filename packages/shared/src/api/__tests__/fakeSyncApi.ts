@@ -50,7 +50,7 @@ export async function resetMidCall<T>(reset: () => void, routes: Record<string, 
 }
 
 /** The probe answering V2 on. */
-export const V2_ON = { 'GET /me/v2/status': [{ status: 200, body: { maxPartBytes: 1024 } }] }
+export const SYNC_ON = { 'GET /me/v2/status': [{ status: 200, body: { maxPartBytes: 1024 } }] }
 
 export const file = (id: string, extra: object = {}) =>
   ({ id, sha256: 'x', byteSize: 3, originalName: 'b.epub', format: 'epub', hasContent: true, ...extra })

@@ -15,7 +15,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BOOK_ORIGIN } from './bookOrigin.mjs'
 import { PAGE_URL, routeBookOrigin } from './bookOriginRoute.mjs'
-import { v2ReaderAndroidPageHtml as v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
+import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { chromium } = createRequire(resolve(here, '../../../apps/web/package.json'))('@playwright/test')
@@ -48,7 +48,7 @@ function classOf(msg) {
 }
 
 const dir = mkdtempSync(resolve(tmpdir(), 'ts-pdfgate-'))
-writeFileSync(resolve(dir, 'page.html'), v2ReaderPageHtml(randomBytes(18).toString('base64')))
+writeFileSync(resolve(dir, 'page.html'), readerPageHtml(randomBytes(18).toString('base64')))
 const browser = await chromium.launch()
 const rows = []
 

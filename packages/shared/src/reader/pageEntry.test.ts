@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { entryChanges, normalisedHighlight, pageEntry, type HeldHighlight } from './v2PageEntry'
-import { STORE_VERSION } from './v2PageStore'
-import type { PageHighlight } from './v2LocalSync'
+import { entryChanges, normalisedHighlight, pageEntry, type HeldHighlight } from './pageEntry'
+import { STORE_VERSION } from './pageStore'
+import type { PageHighlight } from './localSync'
 
 const U1 = '11111111-1111-4111-8111-111111111111'
 const U2 = '22222222-2222-4222-8222-222222222222'

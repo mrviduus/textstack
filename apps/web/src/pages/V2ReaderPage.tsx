@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { ApiError, isOfflineError, OPENED_AT_KEY, v2Api, withOpened } from '@textstack/shared'
+import { ApiError, isOfflineError, OPENED_AT_KEY, syncApi, withOpened } from '@textstack/shared'
 import { readItem, writeItem } from '../lib/safeLocalStorage'
 import { fetchV2FileBytes, pullV2Books, v2Answer, v2Book, v2Status } from '../api/v2'
 import { SeoHead } from '../components/SeoHead'
@@ -28,7 +28,7 @@ function loadError(e: unknown, t: (key: string, vars?: Record<string, string | n
   if (isOfflineError(e)) return { error: t('v2Reader.offline'), retry: true }
   if (e instanceof ApiError && e.status === 401) return { error: t('v2Reader.sessionEnded'), retry: false }
   if (e instanceof ApiError && e.status === 404) return { error: t('v2Reader.gone'), retry: false }
-  if (v2Api.v2ErrorOf(e)?.code === 'v2_unavailable' || (e instanceof ApiError && e.status === 503)) return { error: t('v2Reader.unavailable'), retry: true }
+  if (syncApi.syncErrorOf(e)?.code === 'v2_unavailable' || (e instanceof ApiError && e.status === 503)) return { error: t('v2Reader.unavailable'), retry: true }
   return { error: t('v2Reader.loadFailed', { error: e instanceof Error ? e.message : String(e) }), retry: true }
 }
 

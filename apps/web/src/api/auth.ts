@@ -1,4 +1,4 @@
-import type { V2MergeMap } from '../lib/v2Merge'
+import type { MergeMap } from '../lib/v2Merge'
 import type { GuestMergeSkipReason } from '@textstack/shared'
 
 import { authFetch as meFetch, API_BASE } from './client'
@@ -29,7 +29,7 @@ export interface AuthResponse {
    */
   guestMergeSkipped?: GuestMergeSkipReason | null
   /** V2 on and a guest merged: the ids that changed (the client re-keys its local stores by it). */
-  merge?: V2MergeMap
+  merge?: MergeMap
 }
 
 async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {

@@ -1,4 +1,4 @@
-// The V2 reader page (ADR-029), bundled alone by build.mjs into v2ReaderPage.generated.ts and run in
+// The V2 reader page (ADR-029), bundled alone by build.mjs into readerPage.generated.ts and run in
 // the reader's WebView. foliate-js parses AND renders a local EPUB, MOBI/AZW3, FB2, CBZ or PDF (#1128: all
 // but EPUB have readers that run only when such a book opens, see formatModule); this file adds word tap → host, the
 // translation drawn above the word, and the reader data (position + highlights by CFI and quote, a PDF's
@@ -22,8 +22,8 @@ import { SPOKEN_FILL } from './listen.mjs'
 import { navKey } from './chrome.mjs'
 import { HIGHLIGHT_FILL, colorOf, highlightList, isHighlightColor, sameRangeHighlight } from './highlights.mjs'
 import { atTop, bookmarkList, bookmarkRange, bookmarkText, isBookmark, startsWithin } from './bookmarks.mjs'
-import { BOOKMARK_COLOR } from '../../shared/src/reader/v2PageStore'
-import { MAX_SELECTED_TEXT } from '../../shared/src/reader/v2Locators'
+import { BOOKMARK_COLOR } from '../../shared/src/reader/pageStore'
+import { MAX_SELECTED_TEXT } from '../../shared/src/reader/locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
 import { applyAlignment } from './alignment.mjs'
 import { applyFontFamily } from './fonts.mjs'

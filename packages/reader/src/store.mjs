@@ -1,9 +1,9 @@
-// V2 reader data (ADR-029): the stored entry's shape and checks live in packages/shared/src/reader/v2PageStore.ts,
+// V2 reader data (ADR-029): the stored entry's shape and checks live in packages/shared/src/reader/pageStore.ts,
 // the one definition the page and both hosts use (#1226); re-exported here for page.mjs. Pure: page.mjs and the
 // tests import it.
 import { isPdfPage } from '../../shared/src/reader/pdfPagePosition'
 
-export { STORE_VERSION, emptyEntry, entryFor, isPosition, isQuotation, withPosition, withHighlight } from '../../shared/src/reader/v2PageStore'
+export { STORE_VERSION, emptyEntry, entryFor, isPosition, isQuotation, withPosition, withHighlight } from '../../shared/src/reader/pageStore'
 /** A PDF position (#1128 S5): the 1-based page number, no CFI, no quote. The shared predicate. */
 export { isPdfPage }
 

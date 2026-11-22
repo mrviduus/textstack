@@ -4,7 +4,7 @@
 // text still is, as a highlight is. Pure, page and both hosts: the range and text a bookmark keeps, whether one is at
 // the top of the screen, the page's `bookmark-list` builder and the hosts' reader of it (the page renders untrusted
 // book content).
-import { isBookmark } from '../../shared/src/reader/v2PageStore'
+import { isBookmark } from '../../shared/src/reader/pageStore'
 import { blockOf, rangesIn, textNodes } from './text'
 import { listItems, readItems } from './highlights.mjs'
 

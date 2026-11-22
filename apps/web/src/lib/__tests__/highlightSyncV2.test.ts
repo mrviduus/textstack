@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { V2Annotation } from '@textstack/shared'
+import type { Annotation } from '@textstack/shared'
 import type { StoredHighlight, TextAnchor } from '../offlineDb'
 
 // IndexedDB as a map: what the sync reads and writes; `duringDelete` runs inside a delete's await.
@@ -14,14 +14,14 @@ vi.mock('../offlineDb', () => ({
 
 import { fromV2Annotation, toV2Write, syncBookHighlights } from '../highlightSync'
 import { startV2Probe, resetV2ForTests, v2Store } from '../../api/v2'
-import { fakeApi, asFake, V2_ON, book, feed, conflict, resetMidCall, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi, asFake, SYNC_ON, book, feed, conflict, resetMidCall, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 const text: TextAnchor = { prefix: 'before ', exact: 'the quote', suffix: ' after', startOffset: 7, endOffset: 16, chapterId: '2-the-woods' }
 
 /** A reflow anchor without offsets: V2 refuses it as textstack-anchor-v1 (#1139). */
 const bare = { prefix: 'before ', exact: 'the quote', suffix: ' after', chapterId: '2-the-woods' } as unknown as TextAnchor
 
-const annotation = (id: string, extra: Partial<V2Annotation> = {}): V2Annotation => ({
+const annotation = (id: string, extra: Partial<Annotation> = {}): Annotation => ({
   id, bookId: 'b1', fileId: 'f1', selectedText: 'the quote', noteText: null, color: 'pink',
   locator: { version: 1, scheme: 'textstack-anchor-v1', value: { chapterKey: '2-the-woods', prefix: 'before ', exact: 'the quote', suffix: ' after', startOffset: 7, endOffset: 16 } },
   createdAt: '2026-11-02T00:00:00Z', updatedAt: '2026-11-02T00:00:01Z', deletedAt: null, revision: 3, ...extra,
@@ -54,7 +54,7 @@ describe('the V2 highlight sync', () => {
   beforeEach(async () => {
     db.clear()
     warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    fakeApi(V2_ON)
+    fakeApi(SYNC_ON)
     await startV2Probe()
   })
   afterEach(() => {
@@ -157,7 +157,7 @@ describe('a highlight sync that outlives a sign-out (v2Store.reset, #1155)', () 
   beforeEach(async () => {
     db.clear()
     duringDelete = undefined
-    fakeApi(V2_ON)
+    fakeApi(SYNC_ON)
     await startV2Probe()
   })
   afterEach(() => {

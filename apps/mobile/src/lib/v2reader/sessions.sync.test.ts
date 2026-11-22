@@ -8,7 +8,7 @@ import { resetV2ForTests } from '../v2'
 import { CHANGES_NOT_SYNCED, MAX_FAILURES, createLocalLibrary, type LocalLibrary } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { syncV2Library, type SyncHost } from './sync'
-import { fakeApi as fakeV2, feed, type Answer, type Call } from '../../../../../packages/shared/src/api/__tests__/fakeV2Api'
+import { fakeApi as fakeV2, feed, type Answer, type Call } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }))
 vi.mock('../offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))

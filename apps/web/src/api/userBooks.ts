@@ -4,7 +4,7 @@ import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
   v2Status, startV2Probe, pullV2Books, getV2UserBooks, getV2UserBook, getV2UserBookChapter, removeV2Book, v2FileUrl,
-  readV2Progress, saveV2Progress, uploadV2Book, V2UploadError, completeV2Book, uncompleteV2Book, type V2WriteOutcome, type V2MarkOutcome,
+  readV2Progress, saveV2Progress, uploadV2Book, FileUploadError, completeV2Book, uncompleteV2Book, type WriteOutcome, type MarkOutcome,
 } from './v2'
 
 export interface UserBook {
@@ -128,7 +128,7 @@ async function sendV2Part(url: string, part: Blob, onLoaded: (loaded: number) =>
     await withOneRetry(() => send('PUT', url, part, onLoaded, 'application/octet-stream'))
   } catch (err) {
     if (err instanceof UploadError && err.status === 413) {
-      throw new V2UploadError('quota_exceeded', (err.body as { current?: { used: number; limit: number } } | undefined)?.current)
+      throw new FileUploadError('quota_exceeded', (err.body as { current?: { used: number; limit: number } } | undefined)?.current)
     }
     throw err
   }
@@ -200,11 +200,11 @@ export function deleteUserBook(id: string): Promise<void> {
   return removeV2Book(id)
 }
 
-export function markUserBookComplete(id: string): Promise<V2MarkOutcome> {
+export function markUserBookComplete(id: string): Promise<MarkOutcome> {
   return completeV2Book(id)
 }
 
-export function unmarkUserBookComplete(id: string): Promise<V2MarkOutcome> {
+export function unmarkUserBookComplete(id: string): Promise<MarkOutcome> {
   return uncompleteV2Book(id)
 }
 
@@ -292,6 +292,6 @@ export function saveUserBookProgress(
     /** Serialised TextPosition (ADR-015). Beside the locator, never instead. */
     positionJson?: string
   }
-): Promise<V2WriteOutcome> {
+): Promise<WriteOutcome> {
   return saveV2Progress(bookId, data)
 }

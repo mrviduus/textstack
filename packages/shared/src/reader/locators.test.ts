@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { placeToV2Locator, v2LocatorToPlace, anchorToV2Locator, v2LocatorToAnchor } from './v2Locators'
+import { placeToLocator, locatorToPlace, anchorToLocator, locatorToAnchor } from './locators'
 import { clip, type TextAnchor } from './textAnchor'
 import { chapterAtFraction } from './bookProgress'
 
@@ -9,17 +9,17 @@ const pdf = { v: 1 as const, kind: 'pdf' as const, page: 3, rects: [{ x: 0.1, y:
 
 describe('a reading place on V2', () => {
   it("is the reader's TextPosition as textstack-position-v1, never a CFI, and a PDF page as pdf-page", () => {
-    expect(placeToV2Locator({ chapterSlug: 'two', positionJson: JSON.stringify(position) })).toEqual({ version: 1, scheme: 'textstack-position-v1', value: position })
-    expect(placeToV2Locator({ chapterSlug: null, locator: 'page:12' })).toEqual({ version: 1, scheme: 'pdf-page', value: { page: 12 } })
-    expect(placeToV2Locator({ chapterSlug: 'two' })).toEqual({ version: 1, scheme: 'textstack-position-v1', value: { v: 1, chapterSlug: 'two', chapterFraction: 0 } })
-    expect(placeToV2Locator({ chapterSlug: null })).toBeNull()
+    expect(placeToLocator({ chapterSlug: 'two', positionJson: JSON.stringify(position) })).toEqual({ version: 1, scheme: 'textstack-position-v1', value: position })
+    expect(placeToLocator({ chapterSlug: null, locator: 'page:12' })).toEqual({ version: 1, scheme: 'pdf-page', value: { page: 12 } })
+    expect(placeToLocator({ chapterSlug: 'two' })).toEqual({ version: 1, scheme: 'textstack-position-v1', value: { v: 1, chapterSlug: 'two', chapterFraction: 0 } })
+    expect(placeToLocator({ chapterSlug: null })).toBeNull()
   })
 
   it('reads back as the legacy place: page:N, the chapter with its TextPosition, nothing for an epub-cfi', () => {
-    expect(v2LocatorToPlace({ version: 1, scheme: 'pdf-page', value: { page: 12 } })).toEqual({ chapterSlug: null, locator: 'page:12', positionJson: null })
-    expect(v2LocatorToPlace({ version: 1, scheme: 'textstack-position-v1', value: position })).toEqual({ chapterSlug: 'two', locator: null, positionJson: JSON.stringify(position) })
-    expect(v2LocatorToPlace({ version: 1, scheme: 'textstack-position-v1', value: { v: 1, chapterSlug: 'two', chapterFraction: 0 } })?.positionJson).toBeNull()
-    expect(v2LocatorToPlace({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' })).toBeNull()
+    expect(locatorToPlace({ version: 1, scheme: 'pdf-page', value: { page: 12 } })).toEqual({ chapterSlug: null, locator: 'page:12', positionJson: null })
+    expect(locatorToPlace({ version: 1, scheme: 'textstack-position-v1', value: position })).toEqual({ chapterSlug: 'two', locator: null, positionJson: JSON.stringify(position) })
+    expect(locatorToPlace({ version: 1, scheme: 'textstack-position-v1', value: { v: 1, chapterSlug: 'two', chapterFraction: 0 } })?.positionJson).toBeNull()
+    expect(locatorToPlace({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' })).toBeNull()
   })
 
   it('picks the chapter at a fraction by cumulative word counts', () => {
@@ -33,43 +33,43 @@ describe('a reading place on V2', () => {
 
 describe('a highlight anchor on V2', () => {
   it('is textstack-anchor-v1 naming the chapter key it was made in, and reads back as the same anchor', () => {
-    const locator = anchorToV2Locator(text)
+    const locator = anchorToLocator(text)
     expect(locator).toEqual({
       version: 1,
       scheme: 'textstack-anchor-v1',
       value: { chapterKey: '2-the-woods', prefix: 'before ', exact: 'the quote', suffix: ' after', startOffset: 7, endOffset: 16 },
     })
-    expect(v2LocatorToAnchor(locator)).toEqual(text)
+    expect(locatorToAnchor(locator)).toEqual(text)
   })
 
   it('round-trips a PdfAnchor through pdf-page', () => {
-    const locator = anchorToV2Locator(pdf)
+    const locator = anchorToLocator(pdf)
     expect(locator).toEqual({ version: 1, scheme: 'pdf-page', value: pdf })
-    expect(v2LocatorToAnchor(locator)).toEqual(pdf)
+    expect(locatorToAnchor(locator)).toEqual(pdf)
   })
 
   it('is nothing for an epub-cfi or no locator', () => {
-    expect(v2LocatorToAnchor({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)' })).toBeNull()
-    expect(v2LocatorToAnchor(null)).toBeNull()
+    expect(locatorToAnchor({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)' })).toBeNull()
+    expect(locatorToAnchor(null)).toBeNull()
   })
 
   it('always carries numeric offsets; an anchor without a startOffset throws instead of sending null (#1139)', () => {
-    const value = anchorToV2Locator(text).value as { startOffset: unknown; endOffset: unknown }
+    const value = anchorToLocator(text).value as { startOffset: unknown; endOffset: unknown }
     expect([typeof value.startOffset, typeof value.endOffset]).toEqual(['number', 'number'])
     // The phone's old {prefix, exact, suffix}: endOffset was NaN → JSON null → 400 invalid_payload.
     const bare = { prefix: 'before ', exact: 'the quote', suffix: ' after', chapterId: 'k' } as unknown as TextAnchor & { chapterId: string }
-    expect(() => anchorToV2Locator(bare)).toThrow(/startOffset/)
-    expect(() => anchorToV2Locator({ ...text, startOffset: -1 })).toThrow(/startOffset/)
-    expect(() => anchorToV2Locator({ ...text, startOffset: 1.5 })).toThrow(/startOffset/)
+    expect(() => anchorToLocator(bare)).toThrow(/startOffset/)
+    expect(() => anchorToLocator({ ...text, startOffset: -1 })).toThrow(/startOffset/)
+    expect(() => anchorToLocator({ ...text, startOffset: 1.5 })).toThrow(/startOffset/)
   })
 
   it('accepts a selection at the chapter start: startOffset 0 is an offset, not a missing one (#1139)', () => {
-    expect(anchorToV2Locator({ ...text, prefix: '', startOffset: 0, endOffset: 9 }).value).toMatchObject({ startOffset: 0, endOffset: 9 })
+    expect(anchorToLocator({ ...text, prefix: '', startOffset: 0, endOffset: 9 }).value).toMatchObject({ startOffset: 0, endOffset: 9 })
   })
 
   it('cuts its quote to the selection cap, the end offset following', () => {
     const exact = 'a'.repeat(4001)
-    const value = anchorToV2Locator({ ...text, exact }).value as { exact: string; endOffset: number }
+    const value = anchorToLocator({ ...text, exact }).value as { exact: string; endOffset: number }
     expect([value.exact.length, value.endOffset]).toEqual([4000, 7 + 4000])
   })
 })

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { Platform } from 'react-native'
-import type { UserDto, V2MergeMap } from '@textstack/shared'
+import type { UserDto, MergeMap } from '@textstack/shared'
 import { authApi } from '@textstack/shared'
 import { onAuthFailure } from '../lib/authEvents'
 import { resetAuthFailureLatch } from '../lib/api'
@@ -113,7 +113,7 @@ interface AuthState {
   // truth for one policy is how the profile screen shipped the pencil bug.
   isLoading: boolean
   /** `merge`: the sign-in's V2 id map (a guest merged); the local stores are re-keyed before the user is set. */
-  signInWithTokens: (accessToken: string, refreshToken: string, user: UserDto, merge?: V2MergeMap) => Promise<void>
+  signInWithTokens: (accessToken: string, refreshToken: string, user: UserDto, merge?: MergeMap) => Promise<void>
   updateUser: (user: UserDto) => Promise<void>
   getAccessToken: () => Promise<string | null>
   signOut: () => Promise<void>
@@ -260,7 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id])
 
   const signInWithTokens = useCallback(
-    async (accessToken: string, refreshToken: string, userData: UserDto, merge?: V2MergeMap) => {
+    async (accessToken: string, refreshToken: string, userData: UserDto, merge?: MergeMap) => {
       // Synchronous, and before anything can yield: this is what an in-flight
       // guest mint reads to discover that it lost.
       queueRef.current.bumpEpoch()

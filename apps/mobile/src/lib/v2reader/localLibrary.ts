@@ -35,7 +35,7 @@
 import { createWriteQueue } from '../sessionWrites'
 import {
   annotationHighlight, annotationQuotation, decideServerState, entryChanges, entryFor, isBookmark, isFractionOnly, isQuotation, isUuid, pageEntry, statePosition, syncableText,
-  type OpenReader, type PageHighlight, type PagePosition, type PageQuotation, type V2Annotation, type V2Book, type V2BookFile, type V2ReadingState, type V2Word,
+  type OpenReader, type PageHighlight, type PagePosition, type PageQuotation, type Annotation, type Book, type BookFile, type ReadingState, type Word,
 } from '@textstack/shared'
 import type { LibraryBook } from './hostStorage'
 import type { LibraryEntry } from '../../../../../packages/reader/src/library.mjs'
@@ -239,7 +239,7 @@ const parse = <T>(json: string | null): T | null => {
 
 /** The server's current file, as the `server_*` columns and `has_content`. */
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
-const serverFile = (f: V2BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
+const serverFile = (f: BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
 
 /** `meta` key: '1' when the owner (`meta.account`) is a guest. */
 const OWNER_GUEST = 'account_guest'
@@ -393,7 +393,7 @@ export function createLocalLibrary(db: Db) {
    * The server's book onto its row: current file, removal, title and author (the server's metadata
    * wins). The server holds this book, so a park (a refusal of its import) no longer stands.
    */
-  const setServer = (b: V2Book) => run(
+  const setServer = (b: Book) => run(
     `UPDATE books SET ${SERVER_FILE}, content_removed = ?, removed_at = ?, title = ?, author = ?, blocked = NULL WHERE id = ?`,
     [...serverFile(b.currentFile), b.currentFile?.contentRemovedAt ? 1 : 0, b.removedAt, b.title, b.author ?? '', b.id],
   )
@@ -428,7 +428,7 @@ export function createLocalLibrary(db: Db) {
   }
 
   /** A local book IS this server book (same bytes): the server's ids and metadata win; nothing left to push for it. */
-  async function adoptIn(local: BookRow, server: V2Book) {
+  async function adoptIn(local: BookRow, server: Book) {
     const f = server.currentFile
     await rekeyIn({ [local.id]: server.id }, local.file_id && f && local.sha256 === f.sha256 ? { [local.file_id]: f.id } : {})
     await setServer(server)
@@ -775,7 +775,7 @@ export function createLocalLibrary(db: Db) {
     session: (id: string) => job(() => one<SessionRow>('SELECT * FROM reading_sessions WHERE id = ?', [id])),
 
     /** The server's book for a local one (import answer, `duplicate_file`, an adopt by sha256): its ids win. */
-    adoptServerBook: (localId: string, server: V2Book) => tx(async () => {
+    adoptServerBook: (localId: string, server: Book) => tx(async () => {
       const local = await bookById(localId)
       if (local) await adoptIn(local, server)
     }),
@@ -815,7 +815,7 @@ export function createLocalLibrary(db: Db) {
       return true
     }),
 
-    setServerFile: (bookId: string, f: V2BookFile | null) => job(() => run(`UPDATE books SET ${SERVER_FILE} WHERE id = ?`, [...serverFile(f), bookId])),
+    setServerFile: (bookId: string, f: BookFile | null) => job(() => run(`UPDATE books SET ${SERVER_FILE} WHERE id = ?`, [...serverFile(f), bookId])),
 
     setHasContent: (bookId: string) => job(() => run('UPDATE books SET has_content = 1 WHERE id = ?', [bookId])),
 
@@ -828,7 +828,7 @@ export function createLocalLibrary(db: Db) {
      * reset). `sent` is the completion that write carried: a finish tapped here while it was in flight is not
      * the write's to clear, so it stays unless the server has one.
      */
-    takeState: (bookId: string, s: V2ReadingState | null, sent: string | null) => tx(async () => {
+    takeState: (bookId: string, s: ReadingState | null, sent: string | null) => tx(async () => {
       await upsertRevision(bookId, s?.revision ?? null, s?.fileId ?? null)
       const theirs = s?.completedAt ?? null
       await run(
@@ -838,7 +838,7 @@ export function createLocalLibrary(db: Db) {
     }),
 
     /** An annotation as the server holds it (accepted, own write, kept server's, tombstone). */
-    setAnnotation: (a: V2Annotation) => tx(async () => {
+    setAnnotation: (a: Annotation) => tx(async () => {
       const h = annotationHighlight(a)
       if (a.deletedAt) await run('UPDATE annotations SET revision = ?, deleted_at = ? WHERE id = ?', [a.revision, a.deletedAt, a.id])
       else if (h) await run('UPDATE annotations SET revision = ?, highlight = ?, file_id = ?, note = ?, note_dirty = 0, note_known = 1 WHERE id = ?', [a.revision, JSON.stringify(h), a.fileId, a.noteText ?? null, a.id])
@@ -882,7 +882,7 @@ export function createLocalLibrary(db: Db) {
      * the same bytes takes the server's ids (PDD "sha256 first"); anything else is kept as a book not
      * imported here. Removed books keep their local copy (owner decision 11: removal is a hide).
      */
-    applyBooks: (items: V2Book[], cursor?: string | null) => tx(async () => {
+    applyBooks: (items: Book[], cursor?: string | null) => tx(async () => {
       for (const b of items) {
         const f = b.currentFile
         if (await bookById(b.id)) {
@@ -912,7 +912,7 @@ export function createLocalLibrary(db: Db) {
      * the server's `reset` 409 makes) drops the local one; otherwise the local one stays, and is still
      * owed to the server: an adopted position keeps the state queued so it is sent.
      */
-    applyStates: (items: V2ReadingState[], reader: (sha256: string | null) => OpenReader | null, cursor?: string | null) => tx(async () => {
+    applyStates: (items: ReadingState[], reader: (sha256: string | null) => OpenReader | null, cursor?: string | null) => tx(async () => {
       const owed: PositionAction[] = []
       for (const s of items) {
         const book = await bookById(s.bookId)
@@ -959,7 +959,7 @@ export function createLocalLibrary(db: Db) {
      * resolve (`stale_revision`); otherwise the server's row replaces the local copy. One the page
      * cannot draw (no `epub-cfi`) is not kept, except a legacy anchor one: kept as a quotation (#1195).
      */
-    applyAnnotations: (items: V2Annotation[], cursor?: string | null) => tx(async () => {
+    applyAnnotations: (items: Annotation[], cursor?: string | null) => tx(async () => {
       for (const a of items) {
         const row = await annotationById(a.id)
         if (a.deletedAt) {
@@ -987,7 +987,7 @@ export function createLocalLibrary(db: Db) {
      * #1271: a vocabulary feed page (and its cursor, in the same transaction). The server's row replaces the local
      * copy; a tombstone removes it (a deleted word is unmarked). Nothing is queued: the copy is pull-only.
      */
-    applyVocabulary: (items: V2Word[], cursor?: string | null) => tx(async () => {
+    applyVocabulary: (items: Word[], cursor?: string | null) => tx(async () => {
       for (const w of items) {
         if (w.deletedAt) await run('DELETE FROM vocabulary WHERE id = ?', [w.id])
         else await upsertWordRow(w)

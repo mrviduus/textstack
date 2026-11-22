@@ -4,8 +4,8 @@
  * (the server's rows, online) both map through this, so a highlight is matched, re-keyed and tombstoned the
  * same way on both.
  */
-import { codePoints, isUuid, sameJson, type PageHighlight, type PagePosition } from './v2LocalSync'
-import { emptyEntry, isBookmark, type PageEntry, type PageEntryBook, type PageQuotation } from './v2PageStore'
+import { codePoints, isUuid, sameJson, type PageHighlight, type PagePosition } from './localSync'
+import { emptyEntry, isBookmark, type PageEntry, type PageEntryBook, type PageQuotation } from './pageStore'
 
 /** The entry `restore` takes: the position, highlights and quotations (#1195) of THIS file version only (the caller filters). */
 export const pageEntry = (book: PageEntryBook, position: PagePosition | null, highlights: PageHighlight[], quotations: PageQuotation[] = []): PageEntry =>
