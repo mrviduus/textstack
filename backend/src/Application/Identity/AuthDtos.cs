@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Application.Auth;
+namespace Application.Identity;
 
 public record GoogleLoginRequest(string IdToken);
 

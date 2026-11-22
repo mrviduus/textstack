@@ -1,4 +1,3 @@
-using Application.Auth;
 using Application.Identity;
 using Dapper;
 using Domain.Identity;

@@ -1,5 +1,4 @@
 using Api.Middleware;
-using Application.Auth;
 using Application.Identity;
 using Domain.Enums;
 using Domain.Identity;

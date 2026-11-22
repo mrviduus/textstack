@@ -4,7 +4,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using JsonWebToken = Microsoft.IdentityModel.JsonWebTokens.JsonWebToken;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>A sign-in a provider vouched for: Google's verified id token, or Apple's identity token.</summary>
 public sealed record ProviderIdentity(string Subject, string? Email, string? Name, string? Picture);

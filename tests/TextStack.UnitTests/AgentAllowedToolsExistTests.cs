@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Runtime.CompilerServices;
-using Application.Agents;
+using Application.Ai;
 using Application.Tools;
 using TextStack.Ai.Core;
 
@@ -49,7 +49,7 @@ public class AgentAllowedToolsExistTests
     {
         var data = new TheoryData<string, string[]>();
         var agents = typeof(EnrichmentAgent).Assembly.GetTypes()
-            .Where(t => t.Namespace == "Application.Agents" && !t.IsAbstract);
+            .Where(t => t.Namespace == "Application.Ai" && !t.IsAbstract);
 
         foreach (var agent in agents)
         {
@@ -103,7 +103,7 @@ public class AgentAllowedToolsExistTests
         var offenders = new List<string>();
 
         foreach (var agent in typeof(EnrichmentAgent).Assembly.GetTypes()
-                     .Where(t => t.Namespace == "Application.Agents" && !t.IsAbstract))
+                     .Where(t => t.Namespace == "Application.Ai" && !t.IsAbstract))
         {
             var field = agent.GetField("AllTools", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
             if (field?.GetValue(null) is not string[] allowed) continue;
@@ -145,7 +145,7 @@ public class AgentAllowedToolsExistTests
     private static string SourcePathFor(Type agent)
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
-        var matches = Directory.GetFiles(Path.Combine(root, "backend/src/Application/Agents"),
+        var matches = Directory.GetFiles(Path.Combine(root, "backend/src/Application/Ai"),
             agent.Name + ".cs", SearchOption.AllDirectories);
         Assert.True(matches.Length == 1,
             $"expected exactly one source file for {agent.Name}, found {matches.Length} — this test "

@@ -1,4 +1,4 @@
-using Application.Agents;
+using Application.Ai;
 using Microsoft.Extensions.Logging;
 using TextStack.Ai.Core;
 

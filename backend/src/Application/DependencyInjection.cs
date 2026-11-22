@@ -1,5 +1,5 @@
-using Application.Auth;
-using Application.LLM;
+using Application.Identity;
+using Application.Ai;
 using Application.Vocabulary;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

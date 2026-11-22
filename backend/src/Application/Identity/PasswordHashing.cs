@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>The password rules legacy and V2 sign-in share: what is accepted, how it is hashed and checked.</summary>
 public static class PasswordHashing

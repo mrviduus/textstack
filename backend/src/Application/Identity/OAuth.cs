@@ -2,7 +2,7 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>
 /// Pure helpers for the MCP OAuth authorization server (ADR-017): token shapes, PKCE, redirect

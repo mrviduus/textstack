@@ -1,8 +1,7 @@
 using Api.Extensions;
 using Api.Mapping;
-using Application.Auth;
-using Application.Common.Interfaces;
 using Application.Identity;
+using Application.Common.Interfaces;
 using Domain.Identity;
 using Microsoft.AspNetCore.Mvc;
 

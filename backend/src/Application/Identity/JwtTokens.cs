@@ -6,7 +6,7 @@ using Domain.Enums;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>
 /// Access tokens and opaque secrets, shared by every sign-in (legacy and V2, readers and admins). Pure:

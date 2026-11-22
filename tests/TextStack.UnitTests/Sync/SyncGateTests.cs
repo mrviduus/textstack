@@ -7,8 +7,6 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Api.Sync;
-using Application.AdminAuth;
-using Application.Auth;
 using Application.Identity;
 using Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Hosting;

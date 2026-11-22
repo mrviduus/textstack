@@ -2,7 +2,7 @@ using Microsoft.Extensions.Options;
 using Api.Extensions;
 using Api.Mapping;
 using Api.Sync;
-using Application.Auth;
+using Application.Identity;
 using Domain.Identity;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;

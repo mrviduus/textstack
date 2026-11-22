@@ -1,6 +1,6 @@
 using Domain.LLM;
 
-namespace Application.LLM;
+namespace Application.Ai;
 
 /// <summary>
 /// Bridges the legacy <see cref="ILlmService"/> (string in / string out) onto the

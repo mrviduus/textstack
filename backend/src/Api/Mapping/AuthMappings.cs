@@ -1,4 +1,4 @@
-using Application.Auth;
+using Application.Identity;
 using Domain.Identity;
 
 namespace Api.Mapping;

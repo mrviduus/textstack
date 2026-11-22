@@ -1,6 +1,6 @@
 using Domain.Enums;
 
-namespace Application.AdminAuth;
+namespace Application.Identity;
 
 /// <summary>
 /// The admin panel's sign-in, as <c>AdminAuthEndpoints</c> and <c>AdminAuthMiddleware</c> use it: legacy

@@ -1,6 +1,5 @@
 using Api.Extensions;
 using Api.Middleware;
-using Application.Auth;
 using Application.Identity;
 using Domain.Identity;
 using Microsoft.AspNetCore.Http;

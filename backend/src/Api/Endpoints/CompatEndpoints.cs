@@ -2,7 +2,7 @@ using Api.Extensions;
 using Api.Sync;
 using Application.Ai;
 using Application.Annotations;
-using Application.Auth;
+using Application.Identity;
 using Application.Library;
 using Application.Vocabulary;
 using Contracts.UserBooks;

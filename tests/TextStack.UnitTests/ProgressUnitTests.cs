@@ -1,4 +1,4 @@
-using Application.ReadingTracking;
+using Application.Reading;
 
 namespace TextStack.UnitTests;
 

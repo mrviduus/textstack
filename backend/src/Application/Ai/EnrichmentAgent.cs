@@ -5,7 +5,7 @@ using Application.Tools;
 using TextStack.Ai.Agents;
 using TextStack.Ai.Core;
 
-namespace Application.Agents;
+namespace Application.Ai;
 
 /// <summary>
 /// The book-metadata Enrichment agent (AI-Agent-1). Upgrades the single-shot Ollama guess

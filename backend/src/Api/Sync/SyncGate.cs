@@ -1,8 +1,7 @@
 using System.Globalization;
 using Api.Extensions;
-using Application.Auth;
-using Application.Common;
 using Application.Identity;
+using Application.Common;
 using Application.Sync;
 using Npgsql;
 using Domain.Identity;

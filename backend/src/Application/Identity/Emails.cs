@@ -1,4 +1,4 @@
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>The account email rules legacy and V2 sign-in share, and the placeholders they mint.</summary>
 public static class Emails

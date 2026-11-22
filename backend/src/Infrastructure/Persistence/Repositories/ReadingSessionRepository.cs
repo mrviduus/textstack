@@ -1,6 +1,5 @@
 using Application.Common;
 using Application.Reading;
-using Application.ReadingTracking;
 using Dapper;
 using Domain.Reading;
 

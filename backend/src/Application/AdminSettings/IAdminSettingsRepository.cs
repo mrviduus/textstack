@@ -1,4 +1,4 @@
-namespace Application.Ops;
+namespace Application.AdminSettings;
 
 /// <summary>The V2 runtime settings edited from the admin panel (table <c>admin_settings</c>): one value per key.</summary>
 public interface IAdminSettingsRepository

@@ -61,7 +61,7 @@ Docker services (docker-compose.yml, all bound to 127.0.0.1):
 | `Vocabulary/TextStack.Vocabulary` | SRS engine, review cards, distractor generator |
 | `Ai/TextStack.Ai.Core` | AI abstractions (`ILlmService` etc.) |
 | `Ai/TextStack.Ai.Llm` | `ModelGateway`: OpenAI + Ollama clients, routing, tracing, budgets |
-| `Ai/TextStack.Ai.Tools`, `Ai/TextStack.Ai.Agents` | Tool calling + agent loop (`EnrichmentAgent` in `Application/Agents/`) |
+| `Ai/TextStack.Ai.Tools`, `Ai/TextStack.Ai.Agents` | Tool calling + agent loop (`EnrichmentAgent` in `Application/Ai/`) |
 | `Ai/TextStack.Ai.Evals`, `Ai/TextStack.Ai.EvalSuite` | Eval framework + runners |
 | `Ai/TextStack.Ai.Mcp` | MCP server; references only `Contracts`, talks to the API over HTTP |
 

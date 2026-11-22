@@ -1,4 +1,4 @@
-namespace Application.ReadingTracking;
+namespace Application.Reading;
 
 /// <summary>
 /// Whether a reading percentage a client sent means what this server thinks it means.

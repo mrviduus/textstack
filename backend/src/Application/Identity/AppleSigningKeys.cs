@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>
 /// Apple's identity-token signing keys (JWKS), cached process-wide.

@@ -1,7 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Application.Auth;
+using Application.Identity;
 using Microsoft.IdentityModel.Tokens;
 
 namespace TextStack.UnitTests;

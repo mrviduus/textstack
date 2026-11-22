@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Api.Extensions;
 using Api.Services;
-using Application.Auth;
 using Application.Identity;
 using Contracts.Mcp;
 using Domain.Identity;

@@ -1,5 +1,5 @@
 using Api.Extensions;
-using Application.Auth;
+using Application.Identity;
 
 namespace Api.Middleware;
 

@@ -1,5 +1,4 @@
 using Api.Extensions;
-using Application.Auth;
 using Application.Identity;
 using Contracts.Mcp;
 using Microsoft.AspNetCore.Mvc;
