@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The migrations this build was written against: /health/ready and V2Readiness compare them
+    <!-- The migrations this build was written against: /health/ready and SyncReadiness compare them
          with the textstack_v2 schema_migrations ledger (Extensions/SchemaVersion.cs, ADR-026). -->
     <EmbeddedResource Include="..\..\..\database\migrations\*.up.sql" LogicalName="v2migrations/%(Filename)%(Extension)" />
   </ItemGroup>

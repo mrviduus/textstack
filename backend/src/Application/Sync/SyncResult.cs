@@ -1,11 +1,11 @@
 using Application.Common;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Library;
 
 namespace Application.Sync;
 
 /// <summary>
-/// What a V2 use case answers: an HTTP status and its body (a DTO, a <see cref="V2Error"/>, or none).
+/// What a V2 use case answers: an HTTP status and its body (a DTO, a <see cref="SyncError"/>, or none).
 /// The endpoint writes it as is; the status of a failure follows from its code (<see cref="SyncCodes.StatusOf"/>).
 /// </summary>
 public sealed record SyncResult(int Status, object? Body)
@@ -30,18 +30,18 @@ public sealed record SyncResult(int Status, object? Body)
     public static readonly SyncResult NoContent = new(204, null);
 
     public static SyncResult Fail(string code, long? revision = null, object? current = null, Guid? fileId = null, BookFileDto? currentFile = null) =>
-        new(SyncCodes.StatusOf(code), new V2Error(code, SyncCodes.MessageOf(code), revision, current, fileId, currentFile));
+        new(SyncCodes.StatusOf(code), new SyncError(code, SyncCodes.MessageOf(code), revision, current, fileId, currentFile));
 
     /// <summary>The one failure whose message is the field's own.</summary>
     public static SyncResult Invalid(string field, string message) =>
-        new(SyncCodes.StatusOf(SyncCodes.InvalidPayload), new V2Error(SyncCodes.InvalidPayload, message, Field: field));
+        new(SyncCodes.StatusOf(SyncCodes.InvalidPayload), new SyncError(SyncCodes.InvalidPayload, message, Field: field));
 
     public static readonly SyncResult BookNotFound = Fail(SyncCodes.BookNotFound);
     public static readonly SyncResult NotFound = Fail(SyncCodes.NotFound);
     public static readonly SyncResult IdConflict = Fail(SyncCodes.IdConflict);
     public static readonly SyncResult UnknownFile = Fail(SyncCodes.UnknownFile);
     public static readonly SyncResult ChapterNotFound = Fail(SyncCodes.ChapterNotFound);
-    public static readonly SyncResult V2Unavailable = Fail(SyncCodes.V2Unavailable);
+    public static readonly SyncResult Unavailable = Fail(SyncCodes.Unavailable);
 
     public static SyncResult BookRemoved(Book book) => Fail(SyncCodes.BookRemoved, book.Revision, book.ToDto());
     public static SyncResult DuplicateFile(Book book) => Fail(SyncCodes.DuplicateFile, book.Revision, book.ToDto());
@@ -86,7 +86,7 @@ public static class SyncCodes
     public const string InvalidPayload = "invalid_payload";
     public const string QuotaExceeded = "quota_exceeded";
     public const string LengthRequired = "length_required";
-    public const string V2Unavailable = "v2_unavailable";
+    public const string Unavailable = "v2_unavailable";
     public const string ReviewExists = "review_exists";
 
     public static int StatusOf(string code) => Table(code).Status;
@@ -114,7 +114,7 @@ public static class SyncCodes
         InvalidPayload => (400, "The request does not match the protocol."),
         QuotaExceeded => (413, "Storage limit reached."),
         LengthRequired => (411, "Send the part with its Content-Length."),
-        V2Unavailable => (503, "Sync is paused; reading is unaffected."),
+        Unavailable => (503, "Sync is paused; reading is unaffected."),
         ReviewExists => (409, "This chapter has a structured review, which an insight does not replace."),
         _ => throw new ArgumentOutOfRangeException(nameof(code), code, "Not a code of the sync protocol."),
     };

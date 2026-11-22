@@ -3,11 +3,11 @@ using Application.Entitlements;
 using Application.Identity;
 using Application.Sync;
 using Application.Transitional;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Enums;
 using Domain.Library;
 using Microsoft.Extensions.Logging;
-using static Contracts.V2.SyncLimits;
+using static Contracts.Sync.SyncLimits;
 
 namespace Application.Library;
 
@@ -241,7 +241,7 @@ public sealed class LibraryContentService(
 
     private static SyncResult QuotaExceeded(long used, long limit) => SyncResult.Fail(SyncCodes.QuotaExceeded, current: new StorageQuotaDto(used, limit));
 
-    // Legacy's tiers over the V2 user row (V2Gate made sure it exists).
+    // Legacy's tiers over the V2 user row (SyncGate made sure it exists).
     private async Task<long> LimitAsync(Guid userId, CancellationToken ct)
     {
         var user = await users.GetAsync(userId, ct);

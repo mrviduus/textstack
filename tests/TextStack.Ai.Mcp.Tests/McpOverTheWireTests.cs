@@ -430,7 +430,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     [InlineData(404)]
     public async Task ListMyVocabulary_FeedNotAnswering_IsAToolErrorNotAnEmptyList(int status)
     {
-        _harness.Stub.V2FeedStatus = status;
+        _harness.Stub.FeedStatus = status;
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var listed = await CallAsync(client, "list_my_vocabulary", Args());
@@ -593,7 +593,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     public async Task DiscussionTools_InvalidArguments_RefusedWithReason_NothingSent(string tool, string argsJson, string expectedMessage)
     {
         await using var client = await ConnectSharedAsync();
-        var oversize = new string('ж', Contracts.V2.SyncLimits.MaxChapterTextBytes / 2 + 1);
+        var oversize = new string('ж', Contracts.Sync.SyncLimits.MaxChapterTextBytes / 2 + 1);
         var book = Guid.NewGuid().ToString();
 
         var result = await CallAsync(client, tool, ArgsJson(argsJson.Replace("{book}", book).Replace("{oversize}", oversize)));
@@ -611,7 +611,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     [InlineData("save_checkpoint", $$"""{ "bookId": "{{StubBackend.UserBookId}}", """ + CheckpointBody + $$""", "sharedChapterId": "{{StubBackend.MismatchedShareId}}", "operationId": "{other}" }""", "save_checkpoint refused: The share is of another chapter or file version.")]
     [InlineData("get_shared_chapter", """{ "shareId": "{other}" }""", "get_shared_chapter: no shared chapter found with id '{other}'")]
     [InlineData("list_checkpoints", """{ "bookId": "{other}" }""", "list_checkpoints: no uploaded book found with id '{other}'")]
-    [InlineData("list_checkpoints", $$"""{ "bookId": "{{StubBackend.V2OffBookId}}" }""", "list_checkpoints refused: upstream answered 404")] // a server without /me/v2: the bare 404, not a book claim
+    [InlineData("list_checkpoints", $$"""{ "bookId": "{{StubBackend.NoSyncBookId}}" }""", "list_checkpoints refused: upstream answered 404")] // a server without /me/v2: the bare 404, not a book claim
     public async Task DiscussionTools_UpstreamRefusal_IsAToolErrorThatSaysWhy(string tool, string argsJson, string expectedMessage)
     {
         await using var client = await ConnectSharedAsync();

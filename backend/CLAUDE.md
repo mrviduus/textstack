@@ -8,13 +8,13 @@ Loaded when working under `backend/`. Rewritten for one database at M6 (2026-11-
 |------|------|
 | Domain | `backend/src/Domain/` (`Library`, `Reading`, `Annotations`, `Vocabulary`, `Discussion`, `Identity`, `Transitional`, `LLM`) |
 | Application (services, repository ports) | `backend/src/Application/` (`Library`, `Reading`, `Annotations`, `Vocabulary`, `Discussion`, `Identity`, `Sync`) |
-| Data source + repositories (Dapper) | `backend/src/Infrastructure/Persistence/V2DataSource.cs`, `Persistence/Repositories/` |
+| Data source + repositories (Dapper) | `backend/src/Infrastructure/Persistence/AppDataSource.cs`, `Persistence/Repositories/` |
 | Schema ledger | `database/migrations/`, `database/migrate.sh`, `database/run.sh`, `database/README.md`; image `backend/Docker/Migrator.Dockerfile` |
 | API entry, middleware | `backend/src/Api/Program.cs`, `backend/src/Api/Middleware/` |
-| Sync API (`/me/v2`) | `backend/src/Api/Endpoints/V2Endpoints.cs`, gate `backend/src/Api/V2/V2Gate.cs` |
-| Old paths on V2 (clip, highlights/all, explain, translate) | `backend/src/Api/Endpoints/V2CompatEndpoints.cs` |
+| Sync API (`/me/v2`) | `backend/src/Api/Endpoints/SyncEndpoints.cs`, gate `backend/src/Api/Sync/SyncGate.cs` |
+| Old paths on V2 (clip, highlights/all, explain, translate) | `backend/src/Api/Endpoints/CompatEndpoints.cs` |
 | Route snapshot | `tests/TextStack.UnitTests/Routes/routes.public.txt` |
-| Worker | `backend/src/Worker/Services/` (`V2IngestionWorker.cs`, `RetentionCleanupWorker.cs`) |
+| Worker | `backend/src/Worker/Services/` (`IngestionWorker.cs`, `RetentionCleanupWorker.cs`) |
 | Extraction | `backend/src/Extraction/TextStack.Extraction/` |
 | Storage | `backend/src/Infrastructure/Services/LocalFileStorageService.cs` (`/storage`), `LibraryFileStore.cs` (`/library`) |
 | Vocabulary SRS | `backend/src/Vocabulary/TextStack.Vocabulary/` (`SrsEngine.cs`) |
@@ -36,7 +36,7 @@ Source of truth: `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`
 
 **Account**: `GET/PUT /me/profile`, `POST/DELETE /me/profile/avatar`, `DELETE /me/account`, `GET/POST/DELETE /me/mcp/keys`
 
-**Sync API** `/me/v2` (every route, payload and code: `docs/internal/v2/v2-sync-protocol.md` "Endpoints"; `V2Gate` filter):
+**Sync API** `/me/v2` (every route, payload and code: `docs/internal/v2/v2-sync-protocol.md` "Endpoints"; `SyncGate` filter):
 - status: `GET /status`
 - library: `GET /library/changes`, `GET /books/by-sha256/{sha256}`, `PUT/PATCH/DELETE /books/{id}`, `POST /books/{id}/restore`, `PUT /books/{id}/files/{fileId}` (replace)
 - bytes: `PUT /books/{id}/files/{fileId}/parts/{index}`, `POST|GET|DELETE /books/{id}/files/{fileId}/content`, `PUT|GET /books/{id}/cover`
@@ -46,7 +46,7 @@ Source of truth: `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`
 - vocabulary: `GET /vocabulary/changes`, `GET /vocabulary/due`, `PUT /vocabulary/words`, `GET/PATCH/DELETE /vocabulary/words/{id}`, `POST /vocabulary/words/{id}/{restore,examples}`, `POST /vocabulary/reviews`
 - discussion: `POST/GET /books/{id}/shares`, `GET/DELETE /shares/{id}`, `POST/GET /books/{id}/checkpoints`, `DELETE /checkpoints/{id}`, `PUT /books/{id}/checkpoint-saving`, `GET/POST /books/{id}/insights`
 
-**Old paths answered from V2** (`V2CompatEndpoints.cs`; clients still call them): `POST /me/books/clip` (browser extension), `GET /me/highlights/all`
+**Old paths answered from V2** (`CompatEndpoints.cs`; clients still call them): `POST /me/books/clip` (browser extension), `GET /me/highlights/all`
 
 **Admin**: `POST /admin/auth/{login,logout,refresh}`, `GET /admin/auth/me`. Nothing else (the admin app is a shell, M6 D2).
 

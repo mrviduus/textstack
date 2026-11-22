@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Application.Common;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Discussion;
 
 namespace Application.Discussion;

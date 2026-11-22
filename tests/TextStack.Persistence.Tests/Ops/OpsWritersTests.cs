@@ -1,11 +1,11 @@
 using Dapper;
 using Infrastructure.Persistence.Repositories;
 using TextStack.Ai.Core;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Ops;
 
-public class OpsWritersTests(V2PostgresFixture db)
+public class OpsWritersTests(PostgresFixture db)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -15,7 +15,7 @@ public class OpsWritersTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var trace = NewTrace(user);
 
-        await new V2LlmTraceWriter(db.DataSource).WriteAsync(trace, Ct);
+        await new LlmTraceWriter(db.DataSource).WriteAsync(trace, Ct);
 
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         var stored = await conn.QuerySingleAsync<(string FeatureTag, int TokensIn, decimal CostUsd, Guid UserId)>(new CommandDefinition(
@@ -29,7 +29,7 @@ public class OpsWritersTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var run = NewRun(user);
 
-        await new V2AgentRunWriter(db.DataSource).WriteAsync(run, Ct);
+        await new AgentRunWriter(db.DataSource).WriteAsync(run, Ct);
 
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         var stored = await conn.QuerySingleAsync<(string Status, int Iterations, int ToolCallsCount, int Steps)>(new CommandDefinition(
@@ -43,7 +43,7 @@ public class OpsWritersTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var old = NewTrace(user) with { CreatedAt = DateTimeOffset.UtcNow.AddDays(-31) };
         var recent = NewTrace(user);
-        var writer = new V2LlmTraceWriter(db.DataSource);
+        var writer = new LlmTraceWriter(db.DataSource);
         await writer.WriteAsync(old, Ct);
         await writer.WriteAsync(recent, Ct);
 
@@ -65,7 +65,7 @@ public class OpsWritersTests(V2PostgresFixture db)
         var user = await db.NewReaderAsync();
         var old = NewRun(user) with { CreatedAt = DateTimeOffset.UtcNow.AddDays(-31) };
         var recent = NewRun(user);
-        var writer = new V2AgentRunWriter(db.DataSource);
+        var writer = new AgentRunWriter(db.DataSource);
         await writer.WriteAsync(old, Ct);
         await writer.WriteAsync(recent, Ct);
 

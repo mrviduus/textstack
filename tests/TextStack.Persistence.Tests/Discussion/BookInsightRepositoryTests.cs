@@ -1,10 +1,10 @@
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Discussion;
 
-public class BookInsightRepositoryTests(V2PostgresFixture db)
+public class BookInsightRepositoryTests(PostgresFixture db)
 {
     private readonly BookInsightRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

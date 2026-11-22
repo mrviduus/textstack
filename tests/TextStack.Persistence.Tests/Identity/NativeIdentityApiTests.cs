@@ -17,7 +17,7 @@ using TextStack.UnitTests;
 namespace TextStack.Persistence.Tests.Identity;
 
 /// <summary>The real HTTP pipeline and real V2 repositories.</summary>
-public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposable
+public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposable
 {
     private readonly string _prefix = "native_" + Guid.NewGuid().ToString("N")[..12];
     private readonly List<WebApplicationFactory<ApiMarker>> _apps = [];
@@ -177,7 +177,7 @@ public sealed class NativeIdentityApiTests(V2PostgresFixture db) : IAsyncDisposa
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health", Ct)).StatusCode);
             var account = await RegisterAsync(client);
             Bearer(client, Access(account));
-            // Ported (V2CompatEndpoints): the legacy path answers from V2, the legacy shape.
+            // Ported (CompatEndpoints): the legacy path answers from V2, the legacy shape.
             var highlights = await BodyAsync(await client.GetAsync("/me/highlights/all?limit=5", Ct));
             Assert.Equal(0, highlights.GetProperty("totalCount").GetInt32());
         }

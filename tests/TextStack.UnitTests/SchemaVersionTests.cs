@@ -9,13 +9,13 @@ namespace TextStack.UnitTests;
 public class SchemaVersionTests
 {
     [Fact]
-    public void V2Known_EmbeddedFromTheV2Folder_IsItsOwnLedger() =>
-        Assert.Equal(["0000_baseline", "0001_sync_protocol_deltas"], SchemaVersion.V2Known.Take(2));
+    public void Known_EmbeddedFromTheV2Folder_IsItsOwnLedger() =>
+        Assert.Equal(["0000_baseline", "0001_sync_protocol_deltas"], SchemaVersion.Known.Take(2));
 
     // migrate.sh refuses other names too; this fails the build before an image is made.
     [Fact]
-    public void V2Known_EveryName_IsFourDigitsUnderscoreSnakeCase() =>
-        Assert.All(SchemaVersion.V2Known, k => Assert.Matches("^[0-9]{4}_[a-z0-9_]+$", k));
+    public void Known_EveryName_IsFourDigitsUnderscoreSnakeCase() =>
+        Assert.All(SchemaVersion.Known, k => Assert.Matches("^[0-9]{4}_[a-z0-9_]+$", k));
 
     [Fact]
     public void Pending_SomeApplied_ReturnsTheRestInOrder() =>

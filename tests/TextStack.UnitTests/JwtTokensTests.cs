@@ -7,7 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace TextStack.UnitTests;
 
-/// <summary>The token code legacy <see cref="AuthService"/> and <c>V2AuthService</c> share.</summary>
+/// <summary>The token code legacy <c>AuthService</c> and <see cref="Application.Identity.AuthService"/> share.</summary>
 public class JwtTokensTests
 {
     private static JwtSettings Settings(string secret = TestTokens.Secret, int accessMinutes = 60) =>

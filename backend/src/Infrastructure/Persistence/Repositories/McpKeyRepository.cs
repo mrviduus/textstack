@@ -5,7 +5,7 @@ using Domain.Identity;
 namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>Dapper implementation of <see cref="IMcpKeyRepository"/> on <c>textstack_v2</c>; a key hash is unique (<c>ix_mcp_access_keys_key_hash</c>).</summary>
-public sealed class McpKeyRepository(V2DataSource dataSource) : IMcpKeyRepository
+public sealed class McpKeyRepository(AppDataSource dataSource) : IMcpKeyRepository
 {
     private const string Columns = "id, user_id, name, key_hash, prefix, last_used_at, revoked_at, created_at";
 

@@ -6,7 +6,7 @@ using static TextStack.Persistence.Tests.TestJson;
 
 namespace TextStack.Persistence.Tests.Annotations;
 
-public class AnnotationRepositoryTests(V2PostgresFixture db)
+public class AnnotationRepositoryTests(PostgresFixture db)
 {
     private readonly AnnotationRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

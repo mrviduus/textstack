@@ -56,7 +56,7 @@ cookies, re-set on every refresh so an active session slides).
 
 ## User data endpoints
 
-The sync API under `/me/v2` (`V2Endpoints.cs`): library, reading state, annotations (highlights, notes
+The sync API under `/me/v2` (`SyncEndpoints.cs`): library, reading state, annotations (highlights, notes
 and bookmarks are all annotations), vocabulary, shares/checkpoints/insights. Routes:
 [`backend/CLAUDE.md`](../../backend/CLAUDE.md) "API endpoints".
 
@@ -78,7 +78,7 @@ and bookmarks are all annotations), vocabulary, shares/checkpoints/insights. Rou
 | `apps/mobile/src/context/AuthContext.tsx` | Mobile auth context |
 | `apps/mobile/src/lib/capabilities.ts` | Guest vs account policy (mobile) |
 | `backend/src/Api/Endpoints/AuthEndpoints.cs` | Auth endpoints, cookies |
-| `backend/src/Application/Identity/V2AuthService.cs` | Sign-in, refresh rotation, guest promote/merge |
+| `backend/src/Application/Identity/AuthService.cs` | Sign-in, refresh rotation, guest promote/merge |
 | `backend/src/Domain/Identity/UserAccount.cs` | User entity |
 
 ## Configuration

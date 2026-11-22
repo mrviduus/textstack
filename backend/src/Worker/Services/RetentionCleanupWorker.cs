@@ -75,7 +75,7 @@ public class RetentionCleanupWorker(
         var aiCutoff = now - AiTextRetention;
         await DeleteAsync("LLM trace texts (scrubbed)", async () =>
         {
-            var traces = services.GetRequiredService<V2LlmTraceWriter>();
+            var traces = services.GetRequiredService<LlmTraceWriter>();
             int batch, total = 0;
             do
             {
@@ -85,7 +85,7 @@ public class RetentionCleanupWorker(
             return total;
         }, ct);
         await DeleteAsync("agent runs",
-            () => services.GetRequiredService<V2AgentRunWriter>().DeleteOlderThanAsync(aiCutoff, ct), ct);
+            () => services.GetRequiredService<AgentRunWriter>().DeleteOlderThanAsync(aiCutoff, ct), ct);
     }
 
     private async Task DeleteAsync(string what, Func<Task<int>> delete, CancellationToken ct)

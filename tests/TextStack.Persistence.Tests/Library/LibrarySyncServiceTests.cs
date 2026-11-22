@@ -3,7 +3,7 @@ using Application.Library;
 using Application.Reading;
 using Application.Sync;
 using Application.Transitional;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Library;
 using Domain.Reading;
 using Npgsql;
@@ -14,7 +14,7 @@ using static TextStack.Persistence.Tests.TestJson;
 namespace TextStack.Persistence.Tests.Library;
 
 /// <summary>The replacement use case composes two repositories in one V2 transaction (#1067): only Postgres can show that.</summary>
-public class LibrarySyncServiceTests(V2PostgresFixture db)
+public class LibrarySyncServiceTests(PostgresFixture db)
 {
     private readonly ReadingStateRepository _reading = new(db.DataSource);
     // A store on a temp directory: the replacement deletes the old version's bytes from it.
@@ -23,7 +23,7 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static ReplaceFileRequest Replacing(Guid? replacesFileId) =>
-        new(replacesFileId, new BookFileRequest(null, V2PostgresFixture.PayloadSha256(Guid.NewGuid().ToString()), 2048, "book v2.epub", "epub", null, null));
+        new(replacesFileId, new BookFileRequest(null, PostgresFixture.PayloadSha256(Guid.NewGuid().ToString()), 2048, "book v2.epub", "epub", null, null));
 
     private async Task<Book> BookWithStateAsync()
     {
@@ -36,13 +36,13 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
     [Fact]
     public async Task ImportAsync_EmptyBookOrFileId_IsInvalidPayload()
     {
-        var file = new BookFileRequest(Guid.Empty, V2PostgresFixture.PayloadSha256("x"), 1024, "book.epub", "epub", null, null);
+        var file = new BookFileRequest(Guid.Empty, PostgresFixture.PayloadSha256("x"), 1024, "book.epub", "epub", null, null);
         var request = new ImportBookRequest("A book", null, null, null, null, null, null, file);
 
         var emptyBook = await _service.ImportAsync(Guid.NewGuid(), Guid.Empty, request with { File = file with { Id = Guid.NewGuid() } }, Ct);
         var emptyFile = await _service.ImportAsync(Guid.NewGuid(), Guid.NewGuid(), request, Ct);
 
-        Assert.Equal(("bookId", "file.id"), (((V2Error)emptyBook.Body!).Field, ((V2Error)emptyFile.Body!).Field));
+        Assert.Equal(("bookId", "file.id"), (((SyncError)emptyBook.Body!).Field, ((SyncError)emptyFile.Body!).Field));
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public class LibrarySyncServiceTests(V2PostgresFixture db)
 
         var result = await _service.ReplaceFileAsync(book.UserId, book.Id, Guid.NewGuid(), Replacing(Guid.NewGuid()), Ct);
 
-        Assert.Equal((409, SyncCodes.FileReplaced), (result.Status, ((V2Error)result.Body!).Code));
+        Assert.Equal((409, SyncCodes.FileReplaced), (result.Status, ((SyncError)result.Body!).Code));
         Assert.NotNull(await _reading.GetAsync(book.UserId, book.Id, Ct));
     }
 

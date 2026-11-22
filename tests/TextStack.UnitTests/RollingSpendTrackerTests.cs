@@ -144,7 +144,7 @@ public class RollingSpendTrackerTests
 
     private sealed record TraceRow(string Feature, decimal CostUsd);
 
-    /// <summary>The V2 traces' spend sum (V2LlmTraceWriter in production); <c>null</c> rows = a failing database.</summary>
+    /// <summary>The V2 traces' spend sum (LlmTraceWriter in production); <c>null</c> rows = a failing database.</summary>
     private sealed class FakeSpendSource(List<TraceRow>? traces) : ILlmSpendSource
     {
         private int _calls;

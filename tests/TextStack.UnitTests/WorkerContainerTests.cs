@@ -9,7 +9,7 @@ using Worker.Services;
 namespace TextStack.UnitTests;
 
 /// <summary>
-/// The Worker's container as its <c>Program</c> builds it, what <c>V2GateTests</c> is for the Api: every
+/// The Worker's container as its <c>Program</c> builds it, what <c>SyncGateTests</c> is for the Api: every
 /// identity port is its V2 repository, and no auth service resolves (the Worker signs nobody in).
 /// </summary>
 public class WorkerContainerTests
@@ -33,7 +33,7 @@ public class WorkerContainerTests
         using var scope = WorkerServices().CreateScope();
 
         // The Worker signs nobody in (it binds no JwtSettings): it must not even know the V2 services.
-        foreach (var type in new[] { typeof(V2AuthService), typeof(V2AdminAuthService) })
+        foreach (var type in new[] { typeof(AuthService), typeof(AdminAuthService) })
             Assert.Null(scope.ServiceProvider.GetService(type));
     }
 

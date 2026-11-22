@@ -7,7 +7,7 @@ namespace Api.Extensions;
 /// The `migrator` compose service owns the schema (ADR-021, ADR-026); the Api never migrates, it
 /// only checks. A schema behind this build — after <c>migrate.sh down</c>, or a migrator that did
 /// not run — is reported (Critical log at start, <c>/health/ready</c> 503), never fatal.
-/// The ledger is <c>textstack_v2</c>'s (<see cref="V2Known"/>); <see cref="V2.V2Readiness"/> gates sync on it (#1053).
+/// The ledger is <c>textstack_v2</c>'s (<see cref="Known"/>); <see cref="Sync.SyncReadiness"/> gates sync on it (#1053).
 /// </summary>
 internal static class SchemaVersion
 {
@@ -15,7 +15,7 @@ internal static class SchemaVersion
 
     /// <summary>The <c>textstack_v2</c> migrations this build was written against, oldest first: "0000_baseline", …
     /// Embedded from <c>database/migrations/</c> at build time (Api.csproj).</summary>
-    public static readonly IReadOnlyList<string> V2Known = Embedded("v2migrations/");
+    public static readonly IReadOnlyList<string> Known = Embedded("v2migrations/");
 
     private static List<string> Embedded(string prefix) => typeof(SchemaVersion).Assembly.GetManifestResourceNames()
         .Where(n => n.StartsWith(prefix, StringComparison.Ordinal) && n.EndsWith(Suffix, StringComparison.Ordinal))

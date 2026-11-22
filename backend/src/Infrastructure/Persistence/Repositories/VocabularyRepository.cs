@@ -14,7 +14,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// every row on its own user's card, book and file. Split by concern: this file writes (cards,
 /// examples, reviews); <c>VocabularyRepository.Reads.cs</c> reads one card or a page of them.
 /// </summary>
-public sealed partial class VocabularyRepository(V2DataSource dataSource) : IVocabularyRepository
+public sealed partial class VocabularyRepository(AppDataSource dataSource) : IVocabularyRepository
 {
     private const string WordColumns =
         "id, user_id, language, word, word_key, translation, definition, stage, interval_days, consecutive_correct, next_review_at, last_reviewed_at, created_at, updated_at, deleted_at, retired_at, revision";

@@ -6,7 +6,7 @@ using Npgsql;
 
 namespace TextStack.Persistence.Tests.Reading;
 
-public class ReadingSessionRepositoryTests(V2PostgresFixture db)
+public class ReadingSessionRepositoryTests(PostgresFixture db)
 {
     private readonly ReadingSessionRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

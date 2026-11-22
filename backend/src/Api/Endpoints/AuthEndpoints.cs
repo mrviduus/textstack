@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Api.Extensions;
 using Api.Mapping;
-using Api.V2;
+using Api.Sync;
 using Application.Auth;
 using Domain.Identity;
 using Infrastructure.Persistence;

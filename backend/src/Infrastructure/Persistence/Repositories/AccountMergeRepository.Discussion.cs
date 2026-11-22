@@ -1,7 +1,7 @@
 using System.Text.Json.Nodes;
 using Application.Common;
 using Application.Discussion;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Discussion;
 
 namespace Infrastructure.Persistence.Repositories;

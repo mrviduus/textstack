@@ -9,7 +9,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// on <c>textstack_v2</c>. A job can only name a file of the user's own book
 /// (<c>fk_ingestion_jobs_book_files_user_id_book_id_file_id</c>) and goes with that file.
 /// </summary>
-public sealed class IngestionJobRepository(V2DataSource dataSource) : IIngestionJobRepository
+public sealed class IngestionJobRepository(AppDataSource dataSource) : IIngestionJobRepository
 {
     private const string Columns = "id, user_id, book_id, file_id, status, attempt_count, error, source_format, created_at, started_at, finished_at";
 

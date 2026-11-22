@@ -11,7 +11,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// <c>(user_id, client_session_id)</c> (<c>ak_reading_sessions_user_id_client_session_id</c>); the book
 /// must be the user's (<c>fk_reading_sessions_books_user_id_book_id</c>, immediate).
 /// </summary>
-public sealed class ReadingSessionRepository(V2DataSource dataSource) : IReadingSessionRepository
+public sealed class ReadingSessionRepository(AppDataSource dataSource) : IReadingSessionRepository
 {
     private const string Columns =
         "id, user_id, client_session_id, book_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at";

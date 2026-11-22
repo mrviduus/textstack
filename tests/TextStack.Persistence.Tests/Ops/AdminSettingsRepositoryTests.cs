@@ -3,7 +3,7 @@ using Infrastructure.Persistence.Repositories;
 namespace TextStack.Persistence.Tests.Ops;
 
 // Not user-owned: each test works under its own setting key.
-public class AdminSettingsRepositoryTests(V2PostgresFixture db)
+public class AdminSettingsRepositoryTests(PostgresFixture db)
 {
     private readonly AdminSettingsRepository _settings = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

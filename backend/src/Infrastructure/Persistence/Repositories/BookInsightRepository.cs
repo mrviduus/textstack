@@ -10,7 +10,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// single unique index <c>ix_book_insight_user_id_book_id_chapter_slug</c>, NULLS NOT DISTINCT so the
 /// book-level row is one row too; the upserts use it as their conflict target.
 /// </summary>
-public sealed class BookInsightRepository(V2DataSource dataSource) : IBookInsightRepository
+public sealed class BookInsightRepository(AppDataSource dataSource) : IBookInsightRepository
 {
     private const string Columns =
         "id, user_id, book_id, chapter_slug, text, question, source, review_json, created_at, updated_at";

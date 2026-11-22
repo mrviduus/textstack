@@ -11,7 +11,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// empty (<c>ck_discussion_checkpoints_not_empty</c>). Its share FK checks owner and book only; that
 /// the share is of the same chapter and file version is checked by the insert itself (table comment).
 /// </summary>
-public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointRepository
+public sealed class CheckpointRepository(AppDataSource dataSource) : ICheckpointRepository
 {
     private const string Columns =
         "id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, operation_id, payload_sha256, created_at";

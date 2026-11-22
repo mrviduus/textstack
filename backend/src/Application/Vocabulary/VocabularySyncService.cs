@@ -2,11 +2,11 @@ using System.Text;
 using Application.Common;
 using Application.Library;
 using Application.Sync;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Vocabulary;
 using TextStack.Vocabulary;
 using static Application.Sync.SyncValidation;
-using static Contracts.V2.SyncLimits;
+using static Contracts.Sync.SyncLimits;
 
 namespace Application.Vocabulary;
 

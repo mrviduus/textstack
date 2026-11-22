@@ -12,7 +12,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// A user code shows at most one pending login (<c>ix_device_authorizations_user_code</c>, unique
 /// and partial): decided logins may show it again.
 /// </summary>
-public sealed class DeviceLoginRepository(V2DataSource dataSource) : IDeviceLoginRepository
+public sealed class DeviceLoginRepository(AppDataSource dataSource) : IDeviceLoginRepository
 {
     private const string Columns = "id, device_code_hash, user_code, user_id, status, expires_at, interval_seconds, consumed_at, created_at";
 

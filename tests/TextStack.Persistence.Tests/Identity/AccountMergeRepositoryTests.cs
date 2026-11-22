@@ -9,7 +9,7 @@ using Domain.Reading;
 using Domain.Vocabulary;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
@@ -20,7 +20,7 @@ namespace TextStack.Persistence.Tests.Identity;
 /// everything story, the same-entry theory and the library story seed every table; the rest seed the
 /// aggregate they are about. Feed cutoffs come from the database's clock, which stamps the rows.
 /// </summary>
-public class AccountMergeRepositoryTests(V2PostgresFixture db)
+public class AccountMergeRepositoryTests(PostgresFixture db)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

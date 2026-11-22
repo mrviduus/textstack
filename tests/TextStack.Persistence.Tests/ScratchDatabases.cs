@@ -12,14 +12,14 @@ namespace TextStack.Persistence.Tests;
 /// </summary>
 public sealed class ScratchDatabases(PostgreSqlContainer container)
 {
-    private const string V2Template = "scratch_tpl_v2";
+    private const string TemplateDb = "scratch_tpl_v2";
 
     private readonly ConcurrentDictionary<string, Lazy<Task>> _templates = new();
 
     /// <summary>Creates <paramref name="database"/> when missing (ICU, template0), then migrates it, as the migrator does.</summary>
     public Task MigrateV2Async(string database) => ShellAsync($"PGUSER=postgres PGDATABASE={database} sh /database/run.sh up");
 
-    public Task<string> NewV2Async(string name) => CopyAsync(V2Template, name);
+    public Task<string> NewV2Async(string name) => CopyAsync(TemplateDb, name);
 
     /// <summary>The container's superuser connection string, on <paramref name="database"/>.</summary>
     public string ConnectionString(string database) =>

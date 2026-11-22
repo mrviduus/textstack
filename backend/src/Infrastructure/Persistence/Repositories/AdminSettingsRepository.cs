@@ -4,7 +4,7 @@ using Dapper;
 namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>Dapper implementation of <see cref="IAdminSettingsRepository"/> on <c>textstack_v2</c>.</summary>
-public sealed class AdminSettingsRepository(V2DataSource dataSource) : IAdminSettingsRepository
+public sealed class AdminSettingsRepository(AppDataSource dataSource) : IAdminSettingsRepository
 {
     private const string SelectValue = "SELECT value FROM admin_settings WHERE key = @key";
 

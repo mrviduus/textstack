@@ -11,7 +11,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// per <c>(user_id, operation_id)</c>, and a share can only name a book of its own user and a file of
 /// that book (the latter FK deferred, so it is checked when the statement's transaction commits).
 /// </summary>
-public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedChapterRepository
+public sealed class SharedChapterRepository(AppDataSource dataSource) : ISharedChapterRepository
 {
     private const string Columns =
         "id, user_id, book_id, file_id, chapter_key, chapter_title, chapter_text, notes_snapshot, language, operation_id, payload_sha256, created_at";

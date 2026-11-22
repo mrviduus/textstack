@@ -31,7 +31,7 @@ public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddlewa
             context.Response.StatusCode = bad.StatusCode;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync(JsonSerializer.Serialize(
-                new Contracts.V2.V2Error(Application.Sync.SyncCodes.InvalidPayload, bad.Message), JsonOptions));
+                new Contracts.Sync.SyncError(Application.Sync.SyncCodes.InvalidPayload, bad.Message), JsonOptions));
             return;
         }
 

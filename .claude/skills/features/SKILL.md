@@ -13,7 +13,7 @@ Rewritten for one database at M6 (2026-11-17): the catalog (works, editions, aut
 
 **Upload flow**: the client hashes the file (sha256) → `GET /me/v2/books/by-sha256/{sha256}` (same bytes = same book) → `PUT /me/v2/books/{id}` → parts → `POST …/content` (quota checked inside the attach). Bytes land under `data/library` (`LibraryFileStore.cs`). The browser extension clips a page through `POST /me/books/clip`.
 
-**Transitional chapters** (`book_chapters`, `ingestion_jobs`, kept by M6 D8): `V2IngestionWorker` extracts an uploaded EPUB/PDF into chapters for the MCP chapter tools and shares. The reader does not read them.
+**Transitional chapters** (`book_chapters`, `ingestion_jobs`, kept by M6 D8): `IngestionWorker` extracts an uploaded EPUB/PDF into chapters for the MCP chapter tools and shares. The reader does not read them.
 
 **`chapter_number` is an ordering key, not a display ordinal.** Some books start at 0, some at 1 or 2. Show a chapter's **title** and use the number only to sort.
 
@@ -21,7 +21,7 @@ Rewritten for one database at M6 (2026-11-17): the catalog (works, editions, aut
 
 **Translation**: `POST /translate` (and `/api/translate`) via OpenAI. Config: `OpenAI:ApiKey`, `OpenAI:Model`, `OpenAI:Translate:MaxTextLength`.
 
-**Explain (contextual)**: `POST /explain` — LLM 2–3 sentence explanation of a word in its sentence (`OpenAI:Explain:Model`). SHA256-keyed file cache at `data/explain-cache`. Rate limited per IP. Impl: `backend/src/Api/Endpoints/ExplainEndpoints.cs`, mapped by `V2CompatEndpoints.cs`. In **definition mode** (native = book language) the web word popup fetches Explain (`apps/web/src/lib/wordBubbleFetch.ts`).
+**Explain (contextual)**: `POST /explain` — LLM 2–3 sentence explanation of a word in its sentence (`OpenAI:Explain:Model`). SHA256-keyed file cache at `data/explain-cache`. Rate limited per IP. Impl: `backend/src/Api/Endpoints/ExplainEndpoints.cs`, mapped by `CompatEndpoints.cs`. In **definition mode** (native = book language) the web word popup fetches Explain (`apps/web/src/lib/wordBubbleFetch.ts`).
 
 **TTS**: Edge TTS via direct WebSocket. `backend/src/Tts/TextStack.Tts/` (`EdgeTtsClient`, `EdgeTtsService`: disk cache + startup cleanup). `GET /tts?text=&lang=&voice=&speed=` → `audio/mpeg`, `GET /tts/voices`, `GET /tts/timestamps`. No auth. Cache `data/tts-cache/` (env `Tts__CachePath`); config `Tts:MaxTextLength`, `Tts:TimeoutSeconds`. Without a writable cache TTS still works. Web hook: `useTts()`.
 
@@ -30,7 +30,7 @@ Rewritten for one database at M6 (2026-11-17): the catalog (works, editions, aut
 **Guest users**: anonymous use on a **real server-side user row**, minted on demand ([ADR-014](../../../docs/architecture/adr/ADR-014-guest-sessions.md)).
 - `POST /auth/guest` mints a user with `is_guest`, a synthesized email and a normal token pair; every `/me/*` write works for it.
 - **Triggers differ per client.** Web: an upload from the landing (`HeroSection.tsx`) and saving a word in the reader (`useV2ReaderVocabulary.ts`) — **not reader mount** (a crawler that runs JS minted 7,147 of 7,263 guest rows that way until 2026-09-28). Mobile: `SessionGate` (`apps/mobile/src/components/SessionGate.tsx`; used by `app/my-books/upload.tsx` and the tabs layout); every failure opens signed out rather than blocking.
-- Registering **promotes the same row in place**; signing in to an existing account **merges** the guest per aggregate (`IAccountMergeRepository`, `V2AuthService`). OAuth grants and MCP keys die with the guest. Auth responses carry `guestMergeSkipped`; the web shows it (`GuestMergeSkippedToast` in `App.tsx`).
+- Registering **promotes the same row in place**; signing in to an existing account **merges** the guest per aggregate (`IAccountMergeRepository`, `AuthService`). OAuth grants and MCP keys die with the guest. Auth responses carry `guestMergeSkipped`; the web shows it (`GuestMergeSkippedToast` in `App.tsx`).
 - Clients send `Authorization` on the merge entry points (`/auth/register`, `/auth/login`, `/auth/google`, `/auth/apple`) and **refresh an expiring token first** (`packages/shared/src/api/tokenExpiry.ts`): an expired bearer merges nothing and still answers 200.
 - `capabilitiesFor(user)` (`packages/shared/src/lib/capabilities.ts`) is the single source of guest policy. `isAuthenticated` stays `user !== null`; never inline `user?.isGuest`.
 - Entitlements: `Entitlements:Tiers:Guest` = `{ StorageLimitBytes: 50MB, MaxBooks: 1, DailyEnrichmentCap: 50, AiEnabled: false }` (`backend/src/Api/appsettings.json`, `EntitlementOptions.cs`). Unset / `<=0` = unlimited/allowed.

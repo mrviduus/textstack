@@ -23,7 +23,7 @@ public sealed class WriteFreezeMiddleware(RequestDelegate next, IConfiguration c
             context.Response.Headers.CacheControl = "no-store";
             if (context.Request.Path.StartsWithSegments("/me/v2"))
                 // Keep the sync protocol's existing retryable 503 envelope; no new client error code.
-                await context.Response.WriteAsJsonAsync(SyncResult.V2Unavailable.Body, context.RequestAborted);
+                await context.Response.WriteAsJsonAsync(SyncResult.Unavailable.Body, context.RequestAborted);
             else
                 await context.Response.WriteAsJsonAsync(new { error = "write_frozen" }, context.RequestAborted);
             return;

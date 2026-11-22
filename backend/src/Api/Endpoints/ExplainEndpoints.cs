@@ -25,7 +25,7 @@ public static class ExplainEndpoints
     private const int RetryOutputTokens = 1000;
 
     /// <summary>
-    /// The explanation, with the book's genre from <paramref name="resolveGenre"/> (V2CompatEndpoints). No tools.
+    /// The explanation, with the book's genre from <paramref name="resolveGenre"/> (CompatEndpoints). No tools.
     /// </summary>
     internal static async Task<IResult> ExplainAsync(
         ExplainRequest request,

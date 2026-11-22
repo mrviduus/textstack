@@ -1,12 +1,12 @@
 using Application.Library;
 using Domain.Library;
 using Infrastructure.Persistence.Repositories;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Library;
 
 /// <summary>The stored-bytes half of <see cref="LibraryRepository"/>: attach under the quota, stop syncing, cover, the keys released and listed.</summary>
-public class LibraryContentRepositoryTests(V2PostgresFixture db)
+public class LibraryContentRepositoryTests(PostgresFixture db)
 {
     private readonly LibraryRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

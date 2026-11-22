@@ -6,7 +6,7 @@ using static TextStack.Persistence.Tests.TestJson;
 
 namespace TextStack.Persistence.Tests.Reading;
 
-public class ReadingStateRepositoryTests(V2PostgresFixture db)
+public class ReadingStateRepositoryTests(PostgresFixture db)
 {
     private readonly ReadingStateRepository _repo = new(db.DataSource);
     private readonly LibraryRepository _library = new(db.DataSource);
@@ -31,7 +31,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     {
         var user = await db.NewReaderAsync();
         var imported = new Domain.Library.Book { Id = Guid.NewGuid(), Title = "A " + format };
-        var book = (await _library.ImportAsync(user, imported, V2PostgresFixture.NewFile(user, imported.Id, format: format), Ct)).Book!;
+        var book = (await _library.ImportAsync(user, imported, PostgresFixture.NewFile(user, imported.Id, format: format), Ct)).Book!;
         return (user, book.Id, book.CurrentFile!.Id);
     }
 
@@ -232,7 +232,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     public async Task AdvanceAsync_ReaderReplacesTheBooksFile_OldFileLosesAndOnlyTheRemovedFilesStateIsDeleted()
     {
         var (user, book, oldFile) = await ReaderWithBookAsync();
-        var newFile = (await _library.ReplaceFileAsync(user, book, V2PostgresFixture.NewFile(user, book), oldFile, null, Ct)).Current!.Id;
+        var newFile = (await _library.ReplaceFileAsync(user, book, PostgresFixture.NewFile(user, book), oldFile, null, Ct)).Current!.Id;
 
         Assert.False((await _repo.AdvanceAsync(user, book, At(oldFile, 3), null, default, Ct)).Accepted);
         Assert.True((await _repo.AdvanceAsync(user, book, At(newFile, 3), null, default, Ct)).Accepted);

@@ -3,10 +3,10 @@ using System.Text.Json;
 using Application.Common;
 using Application.Library;
 using Application.Sync;
-using Contracts.V2;
+using Contracts.Sync;
 using Domain.Discussion;
 using static Application.Sync.SyncValidation;
-using static Contracts.V2.SyncLimits;
+using static Contracts.Sync.SyncLimits;
 
 namespace Application.Discussion;
 

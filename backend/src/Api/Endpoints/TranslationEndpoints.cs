@@ -14,7 +14,7 @@ public static class TranslationEndpoints
         app.MapGet("/api/translate/languages", GetLanguages).WithTags("Translation").WithName("GetTranslationLanguages");
     }
 
-    /// <summary>The translation, with the book's genre from <paramref name="resolveGenre"/>: the caller's V2 book (V2CompatEndpoints).</summary>
+    /// <summary>The translation, with the book's genre from <paramref name="resolveGenre"/>: the caller's V2 book (CompatEndpoints).</summary>
     internal static async Task<IResult> TranslateAsync(
         TranslateRequest request,
         Func<CancellationToken, Task<string?>> resolveGenre,

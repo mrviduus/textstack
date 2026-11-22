@@ -6,7 +6,7 @@ namespace TextStack.Persistence.Tests.Identity;
 /// <summary>
 /// A test's own SQL (setup and read-back, never input), each statement on its own connection in
 /// autocommit. Over a connection opener, so the legacy <see cref="NpgsqlDataSource"/> and the
-/// <c>V2DataSource</c> share it: both fixtures forward here.
+/// <c>AppDataSource</c> share it: both fixtures forward here.
 /// </summary>
 public static class TestSql
 {

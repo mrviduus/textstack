@@ -1,6 +1,6 @@
 /**
  * The V2 sync API (`/me/v2/*`) for both clients: one typed
- * function per route, the wire shapes of `backend/src/Contracts/V2/V2Dtos.cs` field by field.
+ * function per route, the wire shapes of `backend/src/Contracts/Sync/SyncDtos.cs` field by field.
  * The contract is docs/internal/v2/v2-sync-protocol.md. Platform-free: the caller's `initApi`
  * decides cookies (web) or Bearer (mobile); `authFetch` retries a 401 once and nothing else.
  *

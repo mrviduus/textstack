@@ -1,12 +1,12 @@
 using Dapper;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Identity;
 
 /// <summary>The device-code login on V2: a TV shows a code, the reader decides it on the web, the TV redeems it once.</summary>
-public class DeviceLoginRepositoryTests(V2PostgresFixture db) : DeviceLoginRepositoryContract(db, new DeviceLoginRepository(db.DataSource))
+public class DeviceLoginRepositoryTests(PostgresFixture db) : DeviceLoginRepositoryContract(db, new DeviceLoginRepository(db.DataSource))
 {
     private readonly DeviceLoginRepository _repo = new(db.DataSource);
 

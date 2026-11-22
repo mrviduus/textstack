@@ -9,7 +9,7 @@ namespace TextStack.Persistence.Tests.Transitional;
 // The claim, the sweep and the count are cross-user: the claim tests first drain every earlier
 // test's eligible jobs, and the count is compared before and after. No other class leaves a job
 // queued or processing (the seed's is finished).
-public class IngestionJobRepositoryTests(V2PostgresFixture db)
+public class IngestionJobRepositoryTests(PostgresFixture db)
 {
     private readonly IngestionJobRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

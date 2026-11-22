@@ -15,15 +15,15 @@ public static class IdentityRegistration
     /// <summary>Shared by Api and Worker: the identity ports and the AI trace writers on V2.</summary>
     public static IServiceCollection AddIdentityPorts(this IServiceCollection services) =>
         services
-            .AddSingleton<V2AccountDeletion>()
+            .AddSingleton<AccountDeletion>()
             .AddSingleton<ISessionTokenRepository, SessionTokenRepository>()
             .AddSingleton<IOAuthRepository, OAuthRepository>()
             .AddSingleton<IDeviceLoginRepository, DeviceLoginRepository>()
             .AddSingleton<IMcpKeyRepository, McpKeyRepository>()
-            .AddSingleton<ILlmTraceWriter>(sp => sp.GetRequiredService<V2LlmTraceWriter>())
+            .AddSingleton<ILlmTraceWriter>(sp => sp.GetRequiredService<LlmTraceWriter>())
             // The daily AI budgets seed from the traces where they are written (RollingSpendTracker).
-            .AddSingleton<Application.Ai.ILlmSpendSource>(sp => sp.GetRequiredService<V2LlmTraceWriter>())
-            .AddSingleton<IAgentRunWriter>(sp => sp.GetRequiredService<V2AgentRunWriter>());
+            .AddSingleton<Application.Ai.ILlmSpendSource>(sp => sp.GetRequiredService<LlmTraceWriter>())
+            .AddSingleton<IAgentRunWriter>(sp => sp.GetRequiredService<AgentRunWriter>());
 
     /// <summary>The Api's auth services.</summary>
     public static IServiceCollection AddTextStackAuthentication(this IServiceCollection services)
@@ -32,8 +32,8 @@ public static class IdentityRegistration
             sp.GetRequiredService<TimeProvider>(), sp.GetService<ILogger<JwtTokens>>()));
         services.TryAddSingleton(sp => new ProviderTokens(sp.GetRequiredService<IOptions<GoogleSettings>>().Value,
             sp.GetRequiredService<IOptions<AppleSettings>>().Value, logger: sp.GetService<ILogger<ProviderTokens>>()));
-        services.AddScoped<IAuthService, V2AuthService>();
-        services.AddScoped<IAdminAuthService, V2AdminAuthService>();
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IAdminAuthService, AdminAuthService>();
         return services;
     }
 }

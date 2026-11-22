@@ -9,7 +9,7 @@ namespace Infrastructure.Persistence.Repositories;
 /// is matched across re-saves by <c>ix_review_question_user_id_book_insight_id_prompt_hash</c>, and can only
 /// belong to an insight of its own user (<c>fk_review_question_book_insight_user_id_book_insight_id</c>).
 /// </summary>
-public sealed class ReviewQuestionRepository(V2DataSource dataSource) : IReviewQuestionRepository
+public sealed class ReviewQuestionRepository(AppDataSource dataSource) : IReviewQuestionRepository
 {
     private const string Columns =
         "id, user_id, book_insight_id, block_index, prompt, answer, prompt_hash, stage, interval_days, consecutive_correct, next_review_at, last_reviewed_at, total_reviews, correct_reviews, is_retired, created_at, updated_at";

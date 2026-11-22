@@ -59,8 +59,8 @@ public static class DataSource
     /// </summary>
     public static IServiceCollection AddTextStackDataAccess(this IServiceCollection services, string? v2ConnectionString) =>
         services
-            .AddSingleton(_ => new V2DataSource(v2ConnectionString))
-            .AddSingleton<IV2UnitOfWork>(sp => sp.GetRequiredService<V2DataSource>())
+            .AddSingleton(_ => new AppDataSource(v2ConnectionString))
+            .AddSingleton<IUnitOfWork>(sp => sp.GetRequiredService<AppDataSource>())
             .AddSingleton<ILibraryRepository, LibraryRepository>()
             .AddSingleton<IReadingStateRepository, ReadingStateRepository>()
             .AddSingleton<IReadingSessionRepository, ReadingSessionRepository>()
@@ -73,8 +73,8 @@ public static class DataSource
             .AddSingleton<UserRepository>()
             .AddSingleton<IUserRepository>(sp => sp.GetRequiredService<UserRepository>())
             .AddSingleton<IAccountMergeRepository, AccountMergeRepository>()
-            .AddSingleton<V2LlmTraceWriter>()
-            .AddSingleton<V2AgentRunWriter>()
+            .AddSingleton<LlmTraceWriter>()
+            .AddSingleton<AgentRunWriter>()
             .AddSingleton<IAdminSettingsRepository, AdminSettingsRepository>()
             .AddSingleton<IBookChapterRepository, BookChapterRepository>()
             .AddSingleton<IIngestionJobRepository, IngestionJobRepository>();

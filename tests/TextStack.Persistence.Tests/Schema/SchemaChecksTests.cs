@@ -5,7 +5,7 @@ using Npgsql;
 namespace TextStack.Persistence.Tests.Schema;
 
 /// <summary>The CHECKs migration 0001 added, each refusing the row it exists for, by name.</summary>
-public class SchemaChecksTests(V2PostgresFixture db)
+public class SchemaChecksTests(PostgresFixture db)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -62,7 +62,7 @@ public class SchemaChecksTests(V2PostgresFixture db)
     {
         // Fail closed: the down never rewrites or deletes a real book to fit the old list.
         var book = await db.NewReaderWithBookAsync();
-        var down = await File.ReadAllTextAsync(Path.Combine(V2PostgresFixture.RepoRoot(), "database/migrations/0005_book_formats.down.sql"), Ct);
+        var down = await File.ReadAllTextAsync(Path.Combine(PostgresFixture.RepoRoot(), "database/migrations/0005_book_formats.down.sql"), Ct);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await conn.BeginTransactionAsync(Ct);
         await conn.ExecuteAsync(new CommandDefinition("UPDATE book_files SET format = 'fb2' WHERE book_id = @bookId", new { bookId = book.Id }, tx, cancellationToken: Ct));
@@ -82,7 +82,7 @@ public class SchemaChecksTests(V2PostgresFixture db)
     public async Task Down0006_PageNameStateStored_RefusesAndChangesNothing()
     {
         var book = await db.NewReaderWithBookAsync();
-        var down = await File.ReadAllTextAsync(Path.Combine(V2PostgresFixture.RepoRoot(), "database/migrations/0006_page_name_scheme.down.sql"), Ct);
+        var down = await File.ReadAllTextAsync(Path.Combine(PostgresFixture.RepoRoot(), "database/migrations/0006_page_name_scheme.down.sql"), Ct);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await conn.BeginTransactionAsync(Ct);
         await conn.ExecuteAsync(new CommandDefinition("UPDATE book_files SET format = 'cbz' WHERE book_id = @bookId", new { bookId = book.Id }, tx, cancellationToken: Ct));

@@ -2,8 +2,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Contracts.V2;
-using static Contracts.V2.SyncLimits;
+using Contracts.Sync;
+using static Contracts.Sync.SyncLimits;
 
 namespace Application.Sync;
 
