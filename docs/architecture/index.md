@@ -80,7 +80,7 @@ Api ──► Application ──► Domain ◄── Infrastructure
                         Worker
 ```
 
-- Domain: no framework dependencies (except Npgsql types — see smell list in the review notes).
+- Domain: no framework or package dependencies.
 - Infrastructure implements Application interfaces.
 - Api/Worker compose everything via DI.
 

@@ -1,4 +1,4 @@
-namespace Domain.Enums;
+namespace Domain.Identity;
 
 public enum AdminRole
 {

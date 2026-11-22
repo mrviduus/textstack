@@ -1,4 +1,4 @@
-using Domain.Exceptions;
+using Domain.Common;
 using Sentry;
 using TextStack.Observability;
 

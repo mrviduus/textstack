@@ -1,5 +1,5 @@
 using Application.Entitlements;
-using Domain.Enums;
+using Domain.Identity;
 
 namespace TextStack.UnitTests;
 

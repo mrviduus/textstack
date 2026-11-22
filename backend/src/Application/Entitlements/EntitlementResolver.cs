@@ -1,4 +1,4 @@
-using Domain.Enums;
+using Domain.Identity;
 
 namespace Application.Entitlements;
 

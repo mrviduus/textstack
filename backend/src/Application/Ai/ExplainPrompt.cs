@@ -1,4 +1,4 @@
-using Domain.Utilities;
+using Domain.LLM;
 
 namespace Application.Ai;
 
