@@ -5,7 +5,7 @@
 TextStack is one API, one background worker and one PostgreSQL, with three clients: a web app, an
 Android app and an MCP server for AI assistants. It is a modular monolith
 ([ADR-006](adr/006-modular-monolith.md)): one deployable backend, split into projects with strict
-dependency rules.
+dependency rules, checked by architecture tests ([ADR-034](adr/ADR-034-architecture-tests.md)).
 
 Production runs V2 only since 2026-11-17: one database (`textstack_v2`), one reader (our foliate-js
 fork). The plan that got here, kept as history: [v2.md](v2.md),
