@@ -10,6 +10,7 @@ using Application.Transitional;
 using Application.Vocabulary;
 using Infrastructure.Persistence;
 using Infrastructure.Persistence.Repositories;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace TextStack.UnitTests;
@@ -34,7 +35,7 @@ public class DataAccessRegistrationTests
             Assert.NotNull(services.GetRequiredService(port));
         var open = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             services.GetRequiredService<AppDataSource>().OpenConnectionAsync(TestContext.Current.CancellationToken).AsTask());
-        Assert.Contains("ConnectionStrings:V2", open.Message);
+        Assert.Contains("ConnectionStrings:Default", open.Message);
     }
 
     [Fact]
@@ -62,5 +63,18 @@ public class DataAccessRegistrationTests
         Assert.NotNull(services.GetService<IAdminSettingsRepository>());
         Assert.NotNull(services.GetService<IBookChapterRepository>());
         Assert.NotNull(services.GetService<IIngestionJobRepository>());
+    }
+
+    [Theory]
+    [InlineData("new", "old", "new")]
+    [InlineData(null, "old", "old")] // fallback: drop after #1440 2b
+    [InlineData(null, null, null)]
+    public void AppConnectionString_DefaultThenOldKey_ReadsNewFirst(string? fresh, string? old, string? expected)
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = fresh, ["ConnectionStrings:V2"] = old })
+            .Build();
+
+        Assert.Equal(expected, config.AppConnectionString());
     }
 }

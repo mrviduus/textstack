@@ -24,7 +24,7 @@ make backup-verify FILE=<path>    # verify specific backup
 make restore FILE=~/backups/textstack/textstack_v2-db_2026-11-18_030012.sql.gz   # into an absent V2 db
 ```
 
-Since the cutover (2026-11-17) every backup is of the V2 database (`V2_POSTGRES_DB`, default `textstack_v2`); the
+Since the cutover (2026-11-17) every backup is of the database (`TEXTSTACK_DB`, default `textstack_v2`); the
 legacy one was archived and dropped ([below](#the-legacy-archive-pre-v2)). `make backup` runs `infra/scripts/pg-dump-checked.sh`:
 a missing database or a dump without pg_dump's trailer exits 1. `make restore` refuses when the V2 database exists
 (`make migrate-drop CONFIRM=<db>` first); see [database/README.md § Backups](../../../database/README.md#backups-1043).
@@ -95,11 +95,11 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
 3. **Start only the database** and load the V2 dump (prod user from `.env`), into an empty database
    created the way the migrator creates it (ICU, `template0`):
    ```bash
-   set -a; . ./.env; set +a   # POSTGRES_USER, V2_POSTGRES_DB
+   set -a; . ./.env; set +a   # POSTGRES_USER, TEXTSTACK_DB
    docker compose up -d db
    docker compose run --rm migrator create
    $R dump --path /db_v2.sql latest /db_v2.sql \
-     | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d "${V2_POSTGRES_DB:-textstack_v2}" -v ON_ERROR_STOP=1
+     | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d "${TEXTSTACK_DB:-textstack_v2}" -v ON_ERROR_STOP=1
    ```
    `/db.sql` is the last legacy dump (frozen since the cutover): nothing reads that database any more.
 4. **Start the rest:** `docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d`

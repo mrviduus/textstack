@@ -36,7 +36,7 @@ public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposabl
         {
             b.UseEnvironment("Test");
             b.UseSetting("Maintenance:WriteFreeze", "false");
-            b.UseSetting("ConnectionStrings:V2", target);
+            b.UseSetting("ConnectionStrings:Default", target);
             b.UseSetting("Jwt:SecretKey", TestTokens.Secret);
             b.UseSetting("Jwt:Issuer", TestTokens.Issuer);
             b.UseSetting("App:BaseUrl", "https://textstack.app");

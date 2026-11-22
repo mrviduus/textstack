@@ -753,9 +753,9 @@ jobs:
         env:
           API_URL: http://localhost:8080
           # The V2 classes fail (not skip) if /me/v2 does not answer.
-          V2_API_TESTS: "1"
+          SYNC_API_TESTS: "1"
           # DB-backed tests skip without it: textstack_v2 (DeviceAuth, HealthReadyLibrary).
-          TEST_V2_DB_CONNECTION: "Host=localhost;Port=5432;Database=textstack_v2;Username=app;Password=changeme"
+          TEST_DB_CONNECTION: "Host=localhost;Port=5432;Database=textstack_v2;Username=app;Password=changeme"
 
       # Restarting the API drops the in-memory limiter partitions, so this starts from a full
       # bucket and cannot be starved by the run above.
@@ -906,14 +906,14 @@ jobs:
       - name: Build web app
         run: pnpm -C apps/web build
 
-      # One pass (what production runs). V2_E2E=1: a /me/v2 404 fails the V2 specs
+      # One pass (what production runs). SYNC_E2E=1: a /me/v2 404 fails the V2 specs
       # instead of skipping them.
       - name: E2E — gates the PR
         working-directory: apps/web
         run: pnpm test:e2e
         env:
           CI: true
-          V2_E2E: "1"
+          SYNC_E2E: "1"
           API_URL: http://localhost:8080
           BASE_URL: http://localhost:5173
           ADMIN_URL: http://localhost:81

@@ -6,7 +6,7 @@ import { testLogin } from '../helpers/api'
 // @v2 — the web app on the V2 sync API (#1025 M2.7): an upload, the library
 // feed and a delete go through /me/v2. Reading on V2 (position, highlights, words) is v2-reader.spec.ts:
 // /read opens the V2 reader, so the transitional reader is not reachable here. Skips when the probe
-// answers 404 (a server without /me/v2) unless V2_E2E=1, which CI sets. Every wait is a poll on a real signal.
+// answers 404 (a server without /me/v2) unless SYNC_E2E=1, which CI sets. Every wait is a poll on a real signal.
 //
 // Content: a 3-chapter EPUB fixture (50 paragraphs each), uploaded by a fresh user each run, so the
 // sha256 lookup never finds an earlier copy. The worker extracts its chapters (the transitional reader).
@@ -31,8 +31,8 @@ test.describe('V2 sync @v2', () => {
     const email = `e2e-v2-${Date.now()}-${test.info().repeatEachIndex}@textstack.app`
     await testLogin(request, email)
     const status = await request.get(`${API_URL}/me/v2/status`, { headers: API_HEADERS })
-    // V2_E2E=1 (CI): a 404 fails instead of skipping, so CI cannot go green untested.
-    test.skip(status.status() === 404 && process.env.V2_E2E !== '1', '/me/v2 is not mapped on this server')
+    // SYNC_E2E=1 (CI): a 404 fails instead of skipping, so CI cannot go green untested.
+    test.skip(status.status() === 404 && process.env.SYNC_E2E !== '1', '/me/v2 is not mapped on this server')
     expect(status.ok(), `GET /me/v2/status: ${status.status()}`).toBeTruthy()
     await context.addInitScript(() => {
       localStorage.setItem('textstack_native_language', 'en')

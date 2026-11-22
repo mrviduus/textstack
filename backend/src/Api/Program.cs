@@ -42,8 +42,8 @@ builder.Services.AddHttpClient<Api.Services.ClientMetadataFetcher>(http => http.
 // Validate required config at startup
 if (!builder.Environment.IsEnvironment("Test"))
 {
-    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("V2")))
-        throw new InvalidOperationException("ConnectionStrings:V2 is required (the textstack_v2 database).");
+    if (string.IsNullOrWhiteSpace(builder.Configuration.AppConnectionString()))
+        throw new InvalidOperationException("ConnectionStrings:Default is required (the textstack_v2 database).");
 
     var jwtSecret = builder.Configuration["Jwt:SecretKey"];
     if (string.IsNullOrEmpty(jwtSecret))

@@ -6,7 +6,7 @@ import { test, expect, type APIRequestContext } from '@playwright/test'
 // @v2 — the Expo app on the V2 sync API (#1025 M2.7), driven as its web build: the library, the
 // book, its resume place and the vocabulary list all go
 // through /me/v2. Skips when /me/v2/status answers 404 (a server without the route) unless
-// V2_E2E=1. Not run by CI (README §State): run it against a live stack.
+// SYNC_E2E=1. Not run by CI (README §State): run it against a live stack.
 //
 // What this lane cannot do, and where it is covered instead:
 // - the upload's bytes: the web build has no expo-file-system FileHandle, so the book is uploaded
@@ -43,7 +43,7 @@ test.describe('V2 sync @v2', () => {
     const v2 = (route: string) => `${API_URL}/me/v2${route}`
 
     const status = await api.get(v2('/status'))
-    test.skip(status.status() === 404 && process.env.V2_E2E !== '1', '/me/v2 is not mapped on this server')
+    test.skip(status.status() === 404 && process.env.SYNC_E2E !== '1', '/me/v2 is not mapped on this server')
     expect(status.ok(), `GET /me/v2/status: ${status.status()}`).toBeTruthy()
     // Past the first-run native-language screen.
     const profile = await api.put(`${API_URL}/me/profile`, { data: { name: null, nativeLanguage: 'uk' } })

@@ -54,7 +54,7 @@ make fix-permissions          # Fix volume permissions
 
 # Deploy: merge to main (deploy.yml). Break-glass: gh workflow run deploy.yml [-f rollback_commit=<sha>]
 
-# Database (textstack_v2; V2_POSTGRES_DB in .env)
+# Database (textstack_v2; TEXTSTACK_DB in .env)
 make backup                   # Checked dump to ~/backups/textstack/
 make backup-list              # List all backups
 make restore FILE=path.gz     # Restore into an absent database (make migrate-drop first)
@@ -89,7 +89,7 @@ dotnet format textstack.sln                  # Backend
 
 # Local dev (no Docker)
 # From the repo root; the defaults /storage and /library are container paths. Two siblings, never nested.
-# ConnectionStrings__V2 must point at a textstack_v2 built by `make migrate`.
+# ConnectionStrings__Default must point at a textstack_v2 built by `make migrate`.
 export Storage__RootPath=data/storage Storage__LibraryRoot=data/library
 dotnet run --project backend/src/Api
 dotnet run --project backend/src/Worker
@@ -199,10 +199,10 @@ make migrate                  # once: the database the suite reads
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
   USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 MCP_KEYS_PERMIT_LIMIT=100 \
   docker compose up -d --no-deps --force-recreate api
-V2_API_TESTS=1 dotnet test tests/TextStack.IntegrationTests   # without V2_API_TESTS the /me/v2 classes skip
+SYNC_API_TESTS=1 dotnet test tests/TextStack.IntegrationTests   # without SYNC_API_TESTS the /me/v2 classes skip
 # DB-backed tests (DeviceAuth, HealthReadyLibrary, …) skip unless Postgres is reachable: start the
 # stack with `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
-# TEST_V2_DB_CONNECTION="Host=localhost;Port=5432;Database=textstack_v2;Username=<user>;Password=<pw>"
+# TEST_DB_CONNECTION="Host=localhost;Port=5432;Database=textstack_v2;Username=<user>;Password=<pw>"
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```
 
@@ -211,7 +211,7 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 **Test env vars**:
 - `ENABLE_TEST_AUTH=true` — enables test auth endpoints (needed for integration + E2E)
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` — the admin login tests
-- `V2_API_TESTS=1`, `TEST_V2_DB_CONNECTION` — see above
+- `SYNC_API_TESTS=1`, `TEST_DB_CONNECTION` — see above
 
 ## Extraction Pipeline
 

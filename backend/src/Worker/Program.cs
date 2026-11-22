@@ -17,7 +17,7 @@ builder.Logging.AddTelemetryLogging(builder.Configuration, "textstack-worker");
 builder.Logging.AddTextStackSentry(builder.Configuration, builder.Environment.EnvironmentName, "worker");
 
 // Database
-builder.Services.AddTextStackDataAccess(builder.Configuration.GetConnectionString("V2"));
+builder.Services.AddTextStackDataAccess(builder.Configuration.AppConnectionString());
 
 builder.Services.AddTextStackFileStores(builder.Configuration);
 

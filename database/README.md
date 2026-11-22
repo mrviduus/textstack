@@ -29,7 +29,7 @@ database/
 | | |
 |---|---|
 | Compose service | `migrator` (entrypoint `run.sh`); `api` and `worker` wait for it to exit 0 (ADR-021) |
-| Database | `V2_POSTGRES_DB`, default `textstack_v2` — not `POSTGRES_DB`, which is only the postgres image's init database |
+| Database | `TEXTSTACK_DB` (old name `V2_POSTGRES_DB` still read), default `textstack_v2` — not `POSTGRES_DB`, which is only the postgres image's init database |
 | Make | `migrate`, `migrate-down V=`, `migrate-status`, `migrate-drop CONFIRM=` |
 | Created by | `run.sh up`/`down`, if missing (`CREATE DATABASE` via `\gexec`); `status` and `verify` never create it |
 | Text ordering | **ICU**, locale `und` — see below |

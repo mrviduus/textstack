@@ -81,7 +81,7 @@ public class WorkerContainerTests
             {
                 $"--environment={environment}", $"--applicationName={ApplicationName}", $"--Storage:RootPath={StorageRoot}",
                 // Port 1: should the host ever run, nothing it opens reaches a real database.
-                "--ConnectionStrings:V2=Host=127.0.0.1;Port=1;Database=none;Timeout=1",
+                "--ConnectionStrings:Default=Host=127.0.0.1;Port=1;Database=none;Timeout=1",
             }]);
         }
         catch (TargetInvocationException e) when (e.InnerException is HostCaught)
