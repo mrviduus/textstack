@@ -52,7 +52,7 @@ public static class DependencyInjection
             var tiers = new Dictionary<string, Entitlements.TierEntitlements>(StringComparer.OrdinalIgnoreCase);
             foreach (var section in c.GetSection("Entitlements:Tiers").GetChildren())
             {
-                if (Enum.TryParse<global::Domain.Enums.UserTier>(section.Key, ignoreCase: true, out var tier))
+                if (Enum.TryParse<global::Domain.Identity.UserTier>(section.Key, ignoreCase: true, out var tier))
                     tiers[tier.ToString()] = ReadTier(section);
             }
 

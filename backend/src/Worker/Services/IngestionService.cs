@@ -2,7 +2,6 @@ using Application.Ingestion;
 using Application.Library;
 using Application.Transitional;
 using Domain.Transitional;
-using Domain.Utilities;
 using Infrastructure.Telemetry;
 using Microsoft.Extensions.Logging;
 using TextStack.Extraction.Contracts;

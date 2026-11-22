@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Domain.Exceptions;
+using Domain.Common;
 using TextStack.Ai.Core;
 
 namespace Api.Middleware;

@@ -4,7 +4,7 @@ using Application.Identity;
 using Application.Sync;
 using Application.Transitional;
 using Contracts.Sync;
-using Domain.Enums;
+using Domain.Identity;
 using Domain.Library;
 using Microsoft.Extensions.Logging;
 using static Contracts.Sync.SyncLimits;

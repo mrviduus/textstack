@@ -1,6 +1,5 @@
 using Api.Middleware;
 using Application.Identity;
-using Domain.Enums;
 using Domain.Identity;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;

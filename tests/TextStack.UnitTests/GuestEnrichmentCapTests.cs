@@ -1,6 +1,6 @@
 using Application.Entitlements;
 using Application.Vocabulary;
-using Domain.Enums;
+using Domain.Identity;
 
 namespace TextStack.UnitTests;
 

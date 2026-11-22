@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Application.Identity;
 using Application.AdminSettings;
-using Domain.Enums;
 using Domain.Identity;
 using Microsoft.Extensions.Caching.Memory;
 

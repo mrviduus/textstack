@@ -1,4 +1,4 @@
-namespace Domain.Enums;
+namespace Domain.Identity;
 
 /// <summary>
 /// What a reader is entitled to. Persisted as a STRING (<c>users.tier</c>), so the member

@@ -1,4 +1,4 @@
-namespace Domain.Utilities;
+namespace Domain.LLM;
 
 /// <summary>
 /// Language code → English language name, for LLM prompts. A prompt that says "in uk"

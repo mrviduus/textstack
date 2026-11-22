@@ -1,6 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
 using Application.Identity;
-using Domain.Enums;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
 using Infrastructure.Services;

@@ -1,5 +1,5 @@
 using Application.Identity;
-using Domain.Enums;
+using Domain.Identity;
 
 namespace Api.Middleware;
 

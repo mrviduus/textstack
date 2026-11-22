@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 using Application.Ai;
-using Domain.Utilities;
+using Domain.LLM;
 using TextStack.Ai.Llm;
 
 namespace TextStack.UnitTests;

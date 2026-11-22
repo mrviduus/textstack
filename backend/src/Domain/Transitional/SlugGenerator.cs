@@ -1,4 +1,4 @@
-namespace Domain.Utilities;
+namespace Domain.Transitional;
 
 public static class SlugGenerator
 {
