@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Domain.Identity;
 
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>
 /// A reader's sign-in, as the auth, device and account endpoints use it (<see cref="Identity.AuthService"/>).

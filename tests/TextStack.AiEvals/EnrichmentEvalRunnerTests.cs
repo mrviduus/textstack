@@ -1,4 +1,4 @@
-using Application.Agents;
+using Application.Ai;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextStack.Ai.Agents;

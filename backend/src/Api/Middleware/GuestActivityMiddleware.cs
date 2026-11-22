@@ -1,4 +1,3 @@
-using Application.Auth;
 using Application.Identity;
 using Api.Extensions;
 using Microsoft.Extensions.Caching.Memory;

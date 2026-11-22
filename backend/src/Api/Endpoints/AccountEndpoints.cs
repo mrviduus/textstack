@@ -1,6 +1,6 @@
 using Api.Extensions;
 using Api.Sync;
-using Application.Auth;
+using Application.Identity;
 
 namespace Api.Endpoints;
 

@@ -2,7 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Api.Services;
-using Application.Auth;
+using Application.Identity;
 
 namespace TextStack.UnitTests;
 

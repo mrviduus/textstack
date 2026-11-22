@@ -1,7 +1,7 @@
 using Api.Extensions;
 using Api.Sync;
 using Application.Annotations;
-using Application.Auth;
+using Application.Identity;
 using Application.Discussion;
 using Application.Library;
 using Application.Reading;

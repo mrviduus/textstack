@@ -1,6 +1,4 @@
 using Api.Extensions;
-using Application.AdminAuth;
-using Application.Auth;
 using Application.Identity;
 using Application.Sync;
 using Domain.Identity;

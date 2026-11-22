@@ -1,5 +1,4 @@
 using System.IdentityModel.Tokens.Jwt;
-using Application.Auth;
 using Application.Identity;
 using Domain.Enums;
 using Domain.Identity;

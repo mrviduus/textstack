@@ -14,7 +14,7 @@
  * defers to the server, whose own last-write-wins has already arbitrated other devices.
  *
  * The server stores a client stamp CLAMPED to its own now + {@link MAX_CLIENT_SKEW_MS}
- * (`Application.ReadingTracking.ProgressClock`). A device running fast had its acknowledged write
+ * (`Application.Reading.ProgressClock`). A device running fast had its acknowledged write
  * stored clamped, so its raw local stamp read as newer than that very write. An acknowledged
  * (`synced`) local stamp is therefore clamped the same way before the comparison, with the row's
  * server-clock `updatedAt` as the server's now — used only as that ceiling, never compared. An

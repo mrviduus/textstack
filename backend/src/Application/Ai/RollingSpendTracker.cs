@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Application.Auth;
+using Application.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TextStack.Ai.Core;

@@ -1,6 +1,6 @@
 using Domain.LLM;
 
-namespace Application.LLM;
+namespace Application.Ai;
 
 /// <summary>
 /// Resolves an <see cref="ILlmService"/> per job. As of AI-005 every job is

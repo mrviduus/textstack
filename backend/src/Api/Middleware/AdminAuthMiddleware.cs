@@ -1,4 +1,4 @@
-using Application.AdminAuth;
+using Application.Identity;
 using Domain.Enums;
 
 namespace Api.Middleware;

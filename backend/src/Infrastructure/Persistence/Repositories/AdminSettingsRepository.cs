@@ -1,4 +1,4 @@
-using Application.Ops;
+using Application.AdminSettings;
 using Dapper;
 
 namespace Infrastructure.Persistence.Repositories;

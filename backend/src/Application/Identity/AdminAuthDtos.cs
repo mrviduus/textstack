@@ -1,6 +1,6 @@
 using Domain.Enums;
 
-namespace Application.AdminAuth;
+namespace Application.Identity;
 
 public record AdminLoginRequest(string Email, string Password);
 

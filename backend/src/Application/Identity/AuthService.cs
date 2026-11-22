@@ -1,4 +1,4 @@
-using Application.Auth;
+using Application.Identity;
 using Application.Common;
 using Application.Common.Interfaces;
 using Domain.Identity;

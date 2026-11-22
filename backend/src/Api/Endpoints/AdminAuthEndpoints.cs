@@ -1,4 +1,4 @@
-using Application.AdminAuth;
+using Application.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Application.Agents;
+namespace Application.Ai;
 
 /// <summary>What the enrichment agent was asked to produce metadata for.</summary>
 public record EnrichmentInput(string Title, string? Author, string? Excerpt, bool NeedsDescription);

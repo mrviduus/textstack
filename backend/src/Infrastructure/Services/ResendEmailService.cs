@@ -1,5 +1,5 @@
 using System.Net.Http.Json;
-using Application.Auth;
+using Application.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 

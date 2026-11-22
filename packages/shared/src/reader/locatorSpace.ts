@@ -14,7 +14,7 @@
  * knows spaces exist", which is not derivable and is the only thing missing.
  *
  * Mirrored in C# by `LocatorSpace.Derive` in
- * `backend/src/Application/ReadingTracking/LocatorSpace.cs`. Change one, change
+ * `backend/src/Application/Reading/LocatorSpace.cs`. Change one, change
  * both — the two are a contract, and the tests on each side quote the same
  * locator strings on purpose.
  */

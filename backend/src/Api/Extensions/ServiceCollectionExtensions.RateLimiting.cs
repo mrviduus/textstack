@@ -164,7 +164,7 @@ public static partial class ServiceCollectionExtensions
             // shared by every MCP user in the deployment.
             options.AddPolicy("insights", httpContext =>
             {
-                var auth = httpContext.RequestServices.GetRequiredService<Application.Auth.IAuthService>();
+                var auth = httpContext.RequestServices.GetRequiredService<Application.Identity.IAuthService>();
                 var key = httpContext.GetUserId(auth)?.ToString()
                     ?? IpPartitionKey(httpContext.Connection.RemoteIpAddress)
                     ?? "unknown";

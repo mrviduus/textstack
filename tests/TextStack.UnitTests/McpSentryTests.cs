@@ -48,7 +48,7 @@ public class McpSentryTests
     [Fact]
     public void RedactSecrets_EveryIssuedTokenPrefix_IsRemoved()
     {
-        var prefixes = typeof(Application.Auth.OAuth).Assembly.GetTypes()
+        var prefixes = typeof(Application.Identity.OAuth).Assembly.GetTypes()
             .SelectMany(t => t.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
             .Where(f => f.IsLiteral && f.FieldType == typeof(string))
             .Select(f => (string)f.GetRawConstantValue()!)

@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
-using Application.LLM;
+using Application.Ai;
 using TextStack.Ai.Core;
 
 namespace TextStack.UnitTests;

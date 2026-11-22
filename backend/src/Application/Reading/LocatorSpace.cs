@@ -1,4 +1,4 @@
-namespace Application.ReadingTracking;
+namespace Application.Reading;
 
 /// <summary>
 /// Which coordinate space a reading position is expressed in, and which write is

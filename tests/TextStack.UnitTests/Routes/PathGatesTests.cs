@@ -3,7 +3,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text;
 using Api.Middleware;
-using Application.Auth;
+using Application.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;

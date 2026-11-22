@@ -1,5 +1,5 @@
 using Application.Ai;
-using Application.Auth;
+using Application.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;

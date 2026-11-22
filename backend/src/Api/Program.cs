@@ -2,7 +2,7 @@ using Api.Endpoints;
 using Api.Extensions;
 using Api.Middleware;
 using Application;
-using Application.AdminAuth;
+using Application.Identity;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
@@ -50,9 +50,9 @@ if (!builder.Environment.IsEnvironment("Test"))
         throw new InvalidOperationException("Jwt:SecretKey is required. Set JWT_SECRET env var.");
     // A short key is fatal everywhere but Production, where refusing to start would be an outage;
     // there it is logged as Critical (reaches Sentry) once the app is built, below.
-    if (Application.Auth.JwtSettings.IsWeakSecret(jwtSecret) && !builder.Environment.IsProduction())
+    if (Application.Identity.JwtSettings.IsWeakSecret(jwtSecret) && !builder.Environment.IsProduction())
         throw new InvalidOperationException(
-            $"Jwt:SecretKey must be at least {Application.Auth.JwtSettings.MinSecretKeyBytes} bytes.");
+            $"Jwt:SecretKey must be at least {Application.Identity.JwtSettings.MinSecretKeyBytes} bytes.");
 
     var googleClientId = builder.Configuration["Google:ClientId"];
     if (string.IsNullOrEmpty(googleClientId))
@@ -61,10 +61,10 @@ if (!builder.Environment.IsEnvironment("Test"))
 
 var app = builder.Build();
 
-if (app.Environment.IsProduction() && Application.Auth.JwtSettings.IsWeakSecret(builder.Configuration["Jwt:SecretKey"]))
+if (app.Environment.IsProduction() && Application.Identity.JwtSettings.IsWeakSecret(builder.Configuration["Jwt:SecretKey"]))
     app.Logger.LogCritical(
         "Jwt:SecretKey is shorter than {MinBytes} bytes; rotate JWT_SECRET to a longer random value",
-        Application.Auth.JwtSettings.MinSecretKeyBytes);
+        Application.Identity.JwtSettings.MinSecretKeyBytes);
 
 // Apple sign-in is refused without the bundle id its tokens must name: loud, not fatal.
 if (string.IsNullOrWhiteSpace(builder.Configuration["Apple:BundleId"]))

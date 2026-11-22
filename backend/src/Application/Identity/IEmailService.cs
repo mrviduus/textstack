@@ -1,4 +1,4 @@
-namespace Application.Auth;
+namespace Application.Identity;
 
 public interface IEmailService
 {

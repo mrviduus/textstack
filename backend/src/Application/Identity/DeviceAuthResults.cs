@@ -1,4 +1,4 @@
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>Result of <see cref="AuthService.CreateDeviceAuthorizationAsync"/>.</summary>
 /// <param name="DeviceCode">Plaintext device_code (returned once, stored hashed).</param>

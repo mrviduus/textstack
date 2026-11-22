@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using Application.Agents;
+using Application.Ai;
 using Microsoft.Extensions.DependencyInjection;
 using TextStack.Ai.Agents;
 using TextStack.Ai.Core;

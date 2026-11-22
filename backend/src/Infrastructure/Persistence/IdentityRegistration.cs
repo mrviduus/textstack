@@ -1,6 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Application.AdminAuth;
-using Application.Auth;
 using Application.Identity;
 using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;

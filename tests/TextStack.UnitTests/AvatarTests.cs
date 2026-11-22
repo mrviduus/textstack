@@ -1,8 +1,7 @@
 using Api.Endpoints;
 using Api.Middleware;
-using Application.Auth;
-using Application.Common.Interfaces;
 using Application.Identity;
+using Application.Common.Interfaces;
 using Domain.Identity;
 using Infrastructure.Services;
 using Microsoft.AspNetCore.Http;

@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>
 /// Pure helpers for the device-grant flow (AI-050a): user_code generation +

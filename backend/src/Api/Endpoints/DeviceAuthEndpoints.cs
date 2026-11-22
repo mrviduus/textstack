@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using Api.Extensions;
 using Api.Mapping;
-using Application.Auth;
+using Application.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Endpoints;

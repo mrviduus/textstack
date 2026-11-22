@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace Application.Auth;
+namespace Application.Identity;
 
 /// <summary>
 /// Pure helpers for the MCP connect key — generation, shape, and the recogniser the request pipeline

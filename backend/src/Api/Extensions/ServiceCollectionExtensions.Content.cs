@@ -1,4 +1,4 @@
-using Application.Auth;
+using Application.Identity;
 using Application.Common.Interfaces;
 using Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
