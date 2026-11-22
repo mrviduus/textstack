@@ -496,6 +496,7 @@ public class AuthServiceTests(PostgresFixture db)
         }
 
         public Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<string?>> DeleteIdleEmptyGuestsAsync(DateTimeOffset idleSince, int limit, CancellationToken ct) => throw new NotSupportedException();
     }
 
     /// <summary>The real users, with a hook that runs once right after the first email lookup.</summary>

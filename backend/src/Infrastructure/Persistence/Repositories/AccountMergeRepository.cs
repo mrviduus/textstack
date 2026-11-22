@@ -234,19 +234,53 @@ public sealed partial class AccountMergeRepository(AppDataSource dataSource) : I
         }
     }
 
-    private const string HoldsNothingDurable = """
-        SELECT NOT EXISTS (SELECT FROM books WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM annotations WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM vocabulary_words WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM reading_state WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM shared_chapters WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM discussion_checkpoints WHERE user_id = @userId)
-           AND NOT EXISTS (SELECT FROM book_insight WHERE user_id = @userId)
+    // The one definition of "durable" (what a reader made), for the user whose id is `user`: a parameter
+    // or a users column. HoldsNothingDurableAsync asks it of one user, the guest reaper of every candidate.
+    private static string NothingDurableOf(string user) => $"""
+        NOT EXISTS (SELECT FROM books WHERE user_id = {user})
+           AND NOT EXISTS (SELECT FROM annotations WHERE user_id = {user})
+           AND NOT EXISTS (SELECT FROM vocabulary_words WHERE user_id = {user})
+           AND NOT EXISTS (SELECT FROM reading_state WHERE user_id = {user})
+           AND NOT EXISTS (SELECT FROM shared_chapters WHERE user_id = {user})
+           AND NOT EXISTS (SELECT FROM discussion_checkpoints WHERE user_id = {user})
+           AND NOT EXISTS (SELECT FROM book_insight WHERE user_id = {user})
         """;
+
+    private static readonly string HoldsNothingDurable = $"SELECT {NothingDurableOf("@userId")}";
 
     public async Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.ExecuteScalarAsync<bool>(new CommandDefinition(HoldsNothingDurable, new { userId }, cancellationToken: ct));
+    }
+
+    // Candidates, locked: FOR UPDATE conflicts with the key share every FK insert takes on its user, so
+    // from here no book, word or annotation can be added to them. SKIP LOCKED: a guest in use right now
+    // (a merge, an insert in flight) is the next run's. Null last_active_at is never idle (legacy's rule).
+    private static readonly string LockIdleEmptyGuests = $"""
+        SELECT u.id FROM users u
+        WHERE u.is_guest AND u.last_active_at < @idleSince AND {NothingDurableOf("u.id")}
+        ORDER BY u.last_active_at LIMIT @limit
+        FOR UPDATE SKIP LOCKED
+        """;
+
+    // The recheck, a statement of its own so its snapshot is taken once the locks are held: a promotion,
+    // activity stamp or child row committed before them is seen, and that guest stays.
+    private static readonly string DeleteLockedIfStillIdleAndEmpty = $"""
+        DELETE FROM users u
+        WHERE u.id = ANY(@ids) AND u.is_guest AND u.last_active_at < @idleSince AND {NothingDurableOf("u.id")}
+        RETURNING u.picture
+        """;
+
+    public async Task<IReadOnlyList<string?>> DeleteIdleEmptyGuestsAsync(DateTimeOffset idleSince, int limit, CancellationToken ct)
+    {
+        await using var unit = await dataSource.BeginAsync(ct);
+        var ids = (await unit.Connection.QueryAsync<Guid>(new CommandDefinition(
+            LockIdleEmptyGuests, new { idleSince, limit }, unit.Transaction, cancellationToken: ct))).AsList();
+        if (ids.Count == 0) return [];
+        var pictures = (await unit.Connection.QueryAsync<string?>(new CommandDefinition(
+            DeleteLockedIfStillIdleAndEmpty, new { ids, idleSince }, unit.Transaction, cancellationToken: ct))).AsList();
+        await unit.CommitAsync(ct);
+        return pictures;
     }
 }
