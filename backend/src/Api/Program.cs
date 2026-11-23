@@ -270,7 +270,7 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     // SyncReadiness's cached answer, the one /me/v2 is gated on (#1053); db and schema above are the critical checks.
     components["v2"] = await v2.GetAsync();
 
-    // Write probes, in parallel (FileStoreRegistration.ProbeWriteAsync: a file of its own per call).
+    // Write probes (FileStoreRegistration.ProbeWriteAsync: one fixed file per root, one probe per root at a time).
     var storageRoot = Infrastructure.Services.FileStoreRegistration.StorageRoot(cfg);
     var libraryRoot = Infrastructure.Services.FileStoreRegistration.LibraryRoot(cfg);
     var probes = await Task.WhenAll(
