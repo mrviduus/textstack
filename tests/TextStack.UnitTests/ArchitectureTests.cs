@@ -53,9 +53,6 @@ public class ArchitectureTests
         AssertPasses(result, "Infrastructure must not depend on Api or Worker");
     }
 
-    // Ports every feature may use: book ownership and the transitional chapter text.
-    private static readonly string[] SharedPorts = ["ILibraryRepository", "IBookChapterRepository"];
-
     // Shrinks to zero: #1498
     private static readonly string[] AllowedCrossFeatureUses =
     [
@@ -66,12 +63,11 @@ public class ArchitectureTests
     ];
 
     [Fact]
-    public void RepositoryPorts_UsedByAnotherFeature_OnlySharedOrAllowListed()
+    public void RepositoryPorts_UsedByAnotherFeature_OnlyAllowListed()
     {
         var assemblies = OurAssemblies().Where(a => !a.GetName().Name!.EndsWith("Tests", StringComparison.Ordinal)).ToArray();
         var ports = Assembly.Load("Application").GetTypes()
-            .Where(t => t.IsInterface && t.Name.StartsWith('I') && t.Name.EndsWith("Repository", StringComparison.Ordinal)
-                && !SharedPorts.Contains(t.Name));
+            .Where(t => t.IsInterface && t.Name.StartsWith('I') && t.Name.EndsWith("Repository", StringComparison.Ordinal));
 
         var offenders = ports
             .SelectMany(port => Types.InAssemblies(assemblies)
@@ -86,7 +82,7 @@ public class ArchitectureTests
             .ToList();
 
         Assert.True(offenders.Count == 0,
-            "A feature may use only its own repository ports (or a shared one). Offending uses:\n  " + string.Join("\n  ", offenders));
+            "A feature may use only its own repository ports; another feature's goes through that feature's public port (IBookAccess, IChapterLookup). Offending uses:\n  " + string.Join("\n  ", offenders));
     }
 
     [Fact]

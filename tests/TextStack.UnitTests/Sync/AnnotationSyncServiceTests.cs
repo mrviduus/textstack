@@ -31,7 +31,7 @@ public class AnnotationSyncServiceTests
     // The reader's one book, its file an epub with chapter ch-1; Bob has none of it.
     private readonly ILibraryRepository _library = SyncFakes.Library(User, BookId, FileId);
     private readonly IAnnotationRepository _annotations = Substitute.For<IAnnotationRepository>();
-    private readonly IBookChapterRepository _chapters = Substitute.For<IBookChapterRepository>();
+    private readonly IChapterLookup _chapters = Substitute.For<IChapterLookup>();
 
     public AnnotationSyncServiceTests()
     {
@@ -39,7 +39,7 @@ public class AnnotationSyncServiceTests
         _chapters.ClearReceivedCalls();
     }
 
-    private AnnotationSyncService Service => new(_library, _annotations, _chapters);
+    private AnnotationSyncService Service => new(new BookAccess(_library), _annotations, _chapters);
 
     private static string TextAnchor(string chapterKey) =>
         $$$"""{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"{{{chapterKey}}}","prefix":"It was a ","exact":"bright","suffix":" cold day","startOffset":9,"endOffset":15}}""";

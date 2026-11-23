@@ -67,6 +67,7 @@ public static class DataSource
             .AddSingleton(_ => new AppDataSource(connectionString))
             .AddSingleton<IUnitOfWork>(sp => sp.GetRequiredService<AppDataSource>())
             .AddSingleton<ILibraryRepository, LibraryRepository>()
+            .AddSingleton<IBookAccess, BookAccess>()
             .AddSingleton<IReadingStateRepository, ReadingStateRepository>()
             .AddSingleton<IReadingSessionRepository, ReadingSessionRepository>()
             .AddSingleton<IAnnotationRepository, AnnotationRepository>()

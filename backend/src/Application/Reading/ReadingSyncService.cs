@@ -16,7 +16,7 @@ namespace Application.Reading;
 /// A removed book still accepts state and sessions (owner decision 11).
 /// </summary>
 public sealed class ReadingSyncService(
-    ILibraryRepository library, IReadingStateRepository states, IReadingSessionRepository sessions, IBookChapterRepository chapters,
+    IBookAccess library, IReadingStateRepository states, IReadingSessionRepository sessions, IChapterLookup chapters,
     TimeProvider clock)
 {
     public async Task<SyncResult> GetAsync(Guid userId, Guid bookId, CancellationToken ct)

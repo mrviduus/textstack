@@ -1,4 +1,5 @@
 using Application.Discussion;
+using Application.Library;
 using Application.Sync;
 using Contracts.Sync;
 using NSubstitute;
@@ -21,7 +22,7 @@ public class DiscussionValidationTests
     private readonly ICheckpointRepository _checkpoints = Checkpoints();
     private readonly DiscussionSyncService _service;
 
-    public DiscussionValidationTests() => _service = new(Library(User, BookId, (Guid?)null), _shares, _checkpoints);
+    public DiscussionValidationTests() => _service = new(new BookAccess(Library(User, BookId, (Guid?)null)), _shares, _checkpoints);
 
     private static string Text(int length) => new('x', length);
 

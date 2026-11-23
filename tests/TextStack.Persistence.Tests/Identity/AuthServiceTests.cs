@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using Application.Identity;
+using Application.Library;
 using Domain.Identity;
 using Infrastructure.Persistence.Repositories;
 using Infrastructure.Services;
@@ -49,7 +50,7 @@ public class AuthServiceTests(PostgresFixture db)
         new(users ?? _users, sessions ?? _sessions, _devices, merges ?? new AccountMergeRepository(db.DataSource), Deletion,
             _tokens, _providers, _clock, _legacyStorage, NullLogger<AuthService>.Instance);
 
-    private AccountDeletion Deletion => new(_users, new AccountMergeRepository(db.DataSource), new LibraryRepository(db.DataSource), _files, NullLogger<AccountDeletion>.Instance);
+    private AccountDeletion Deletion => new(_users, new AccountMergeRepository(db.DataSource), new BookAccess(new LibraryRepository(db.DataSource)), _files, NullLogger<AccountDeletion>.Instance);
 
     private AdminAuthService Admin => AdminWith();
 
