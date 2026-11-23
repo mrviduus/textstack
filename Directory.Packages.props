@@ -53,18 +53,15 @@
     <!-- Hosting -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="11.0.0" />
     <!-- Image Optimization -->
-    <!-- Images: SkiaSharp, the same version PDFtoImage brings in. ImageSharp was removed
-         2026-10-07 (advisories fixed only in v4, which requires a licence key). -->
+    <!-- Images: SkiaSharp. ImageSharp was removed 2026-10-07 (advisories fixed only in v4,
+         which requires a licence key). -->
     <PackageVersion Include="SkiaSharp" Version="4.150.1" />
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.150.1" />
     <!-- Worker -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="11.0.1" />
-    <PackageVersion Include="VersOne.Epub" Version="3.3.6" />
     <PackageVersion Include="HtmlAgilityPack" Version="1.13.0" />
-    <PackageVersion Include="PdfPig" Version="0.1.14" />
-    <PackageVersion Include="PDFtoImage" Version="5.4.0" />
     <!-- OpenTelemetry. Bumped 1.11.x → 1.15.x to clear GHSA-4625-4j76-fww9
          (OTLP Exporter) and GHSA-g94r-2vxg-569j (Api). Stable channel. -->
     <PackageVersion Include="OpenTelemetry.Api" Version="1.15.3" />

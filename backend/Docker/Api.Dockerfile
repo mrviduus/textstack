@@ -13,7 +13,6 @@ COPY backend/src/Infrastructure/Infrastructure.csproj backend/src/Infrastructure
 COPY backend/src/Domain/Domain.csproj backend/src/Domain/
 COPY backend/src/Contracts/Contracts.csproj backend/src/Contracts/
 COPY backend/src/Application/Application.csproj backend/src/Application/
-COPY backend/src/Extraction/TextStack.Extraction/TextStack.Extraction.csproj backend/src/Extraction/TextStack.Extraction/
 COPY backend/src/Tts/TextStack.Tts/TextStack.Tts.csproj backend/src/Tts/TextStack.Tts/
 RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH") \
     && dotnet restore backend/src/Api/Api.csproj -r "$RID"

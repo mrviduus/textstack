@@ -72,7 +72,7 @@ Compressed size (what CI pushes and the server pulls), after #748:
 | Image | Base | Size | Notes |
 |---|---|---|---|
 | api | `aspnet:11.0-alpine` | ~93 MB | single-RID publish (`linux-musl-<arch>`) |
-| worker | `aspnet:11.0-alpine` | ~110 MB | no Node/browser; ICU on (`HtmlCleaner` normalises), PDFium + Skia musl natives, `font-dejavu` |
+| worker | `aspnet:11.0-alpine` | ~110 MB | no Node/browser, no book parsers (ADR-033); ICU on |
 | admin | `nginx-unprivileged:stable-alpine` | ~26 MB | static `dist` on :81, SPA fallback |
 | migrator | `alpine:3.24` | ~22 MB | `postgresql16-client` + `database/` (`migrate.sh` and the SQL files, [ADR-026](adr/ADR-026-sql-first-migrations.md)); was an EF Core migrations bundle (~89 MB) until 2026-10-26, and the full SDK (~1.4 GB) before 2026-10-07 |
 | mcp-server | `aspnet:11.0-alpine` | ~53 MB | Sentry added +0.35 MB |

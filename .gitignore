@@ -173,9 +173,5 @@ packages/*/pnpm-workspace.yaml
 docs/qa/screens/
 docs/internal/qa/screens/
 
-# Real books used as local-only extraction fixtures (copyrighted — never commit; tests skip without them)
-tests/TextStack.Extraction.Tests/Fixtures/KMK Optometry OSCE E-Workbook.pdf
-tests/TextStack.Extraction.Tests/Fixtures/Inspired - Marty Cagan.pdf
-
 # Local Python cache for import helpers
 tools/import/__pycache__/

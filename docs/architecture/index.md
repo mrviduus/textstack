@@ -37,7 +37,7 @@ Docker services (docker-compose.yml, all bound to 127.0.0.1):
   db          pgvector/pgvector:pg16 — Postgres 16, database textstack_v2
   migrator    one-shot: applies the plain-SQL migrations in database/ (ADR-026); api waits for it
   api         HTTP API + the TTS cache sweep
-  worker      chapter extraction + retention cleanup (polls DB)
+  worker      retention cleanup + the library's file sweeps
   admin       nginx serving the admin SPA
   ollama      local LLM (gemma4:e2b) for local tasks
   mcp-server  MCP↔HTTP bridge (profile `mcp`; prod deploy enables it)
@@ -52,11 +52,10 @@ Docker services (docker-compose.yml, all bound to 127.0.0.1):
 |---------|------|
 | `Domain` | Entities, enums, value objects |
 | `Contracts` | Request/response DTOs, MCP manifest. No references |
-| `Application` | Services + repository interfaces, `IFileStorageService`. References Domain, Contracts, Extraction, Vocabulary, Ai.Core, Ai.Llm, Ai.Agents |
+| `Application` | Services + repository interfaces, `IFileStorageService`. References Domain, Contracts, Vocabulary, Ai.Core, Ai.Llm, Ai.Agents |
 | `Infrastructure` | Dapper repositories over one `AppDataSource` (`Persistence/`, [ADR-028](adr/ADR-028-dapper-and-repositories.md)), `LibraryFileStore`, `LocalFileStorageService`, `ResendEmailService`, `ImageOptimizer` |
 | `Api` | Minimal API endpoints (`Api/Endpoints/`), middleware |
-| `Worker` | Background host: chapter extraction, retention cleanup |
-| `Extraction/TextStack.Extraction` | EPUB (VersOne.Epub) / PDF (PdfPig) / HTML extractors, text pipeline, quality scorer |
+| `Worker` | Background host: retention cleanup, file sweeps. Parses no books (ADR-033) |
 | `Tts/TextStack.Tts` | Edge TTS WebSocket client + disk cache |
 | `Vocabulary/TextStack.Vocabulary` | SRS engine, review cards, distractor generator |
 | `Ai/TextStack.Ai.Core` | AI abstractions (`ILlmService` etc.) |
@@ -75,7 +74,7 @@ Empty `bin/obj` folders of those may still exist in local checkouts.
 ```
 Api ──► Application ──► Domain ◄── Infrastructure
  │           │             ▲
- │           └─► Ai.*, Extraction, Vocabulary
+ │           └─► Ai.*, Vocabulary
  └─► Tts                   │
                         Worker
 ```
@@ -99,7 +98,7 @@ bearer token themselves (`GetUserId`).
 
 | Host | Hosted services |
 |------|-----------------|
-| Worker | `SingleInstanceLock`, `IngestionWorker` (uploaded files → `book_chapters`), `RetentionCleanupWorker` (daily: expired tokens, AI traces > 30 d), `HeartbeatWorker`, `AiProviderReadinessCheck` |
+| Worker | `SingleInstanceLock`, `RetentionCleanupWorker` (daily: expired tokens, AI traces > 30 d; stale upload parts every minute, orphan bytes daily), `HeartbeatWorker`, `AiProviderReadinessCheck` |
 | Api | `EdgeTtsService` (cache cleanup) |
 
 All queues are Postgres tables polled by the consumer; there is no message broker.

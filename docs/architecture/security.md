@@ -37,9 +37,7 @@ Origins come from `Cors:AllowedOrigins` (`appsettings.json`), with a fallback li
 
 - Uploads: file type and size checked; the storage quota is checked inside the attach.
 - SQL: parameterized queries only (Dapper, inline SQL).
-- HTML from books: `HtmlCleaner` (`backend/src/Extraction/TextStack.Extraction/Utilities/`) drops `script`/`style`,
-  embedding tags (`iframe`, `object`, `form`, `base`, `meta`, …), every `on*` handler and script-capable URL schemes
-  (`javascript:`, `vbscript:`, `file:`, `blob:`, `data:text/html`). The reader page itself runs in a sandboxed frame
+- HTML from books: the server parses and serves none (ADR-033). The reader page renders it in a sandboxed frame
   under a nonce CSP ([ADR-029](adr/ADR-029-foliate-for-v2-epub.md)).
 
 ## Secrets

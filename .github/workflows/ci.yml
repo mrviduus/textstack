@@ -332,9 +332,6 @@ jobs:
       - name: Unit tests
         run: dotnet test tests/TextStack.UnitTests --no-build
 
-      - name: Extraction tests
-        run: dotnet test tests/TextStack.Extraction.Tests --no-build
-
       # Deterministic eval-runner paths on fake LLMs. The live MEAI evals skip
       # themselves without OPENAI_API_KEY (not set in CI) / a reachable Ollama.
       - name: AI eval tests

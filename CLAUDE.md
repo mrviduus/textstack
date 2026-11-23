@@ -72,7 +72,6 @@ make migrate-drop CONFIRM=textstack_v2   # drop the whole database (the baseline
 dotnet test                                 # All tests (.runsettings excludes Category=Load)
 dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
-dotnet test tests/TextStack.Extraction.Tests
 dotnet test tests/TextStack.Persistence.Tests   # Dapper repositories on real Postgres (Testcontainers; needs Docker)
 dotnet test --filter "Name~TestMethodName"  # Single test
 pnpm -C apps/web test                       # Frontend unit tests (Vitest)
@@ -134,9 +133,9 @@ API → Application → Domain ← Infrastructure
 - **Application**: Business logic, repository interfaces
 - **Contracts**: Shared DTOs (request/response models) used by API and Application
 - **Infrastructure**: Dapper repositories over one `AppDataSource` (`Infrastructure/Persistence/`, ADR-028), file stores. No EF Core.
-- **API/Worker**: Orchestration, DI. The Worker runs `IngestionWorker` (server-side chapter extraction into the transitional `book_chapters`, kept by M6 D8 for MCP chapter tools and clips) and `RetentionCleanupWorker`.
+- **API/Worker**: Orchestration, DI. The Worker runs `RetentionCleanupWorker` (retention rules + the library's byte sweeps). It parses no books: the reader is the only parser (ADR-033).
 
-**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server).
+**Backend class libraries** (`backend/src/`, beyond the layers above): `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server).
 
 ### Shared Frontend Package (`packages/`)
 
@@ -182,7 +181,6 @@ Context files: `apps/web/src/context/{Auth,GuestLimits,NativeLanguage,Language}C
 tests/
 ├── TextStack.UnitTests/           # Pure logic, no DB
 ├── TextStack.IntegrationTests/    # API tests against running server (LiveApiFixture → localhost:8080, override via API_URL env)
-├── TextStack.Extraction.Tests/    # Book parsing (EPUB/PDF)
 ├── TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres built by database/migrate.sh (ADR-028)
 ├── TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
 ├── TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)
@@ -213,10 +211,6 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` — the admin login tests
 - `SYNC_API_TESTS=1`, `TEST_DB_CONNECTION` — see above
 
-## Extraction Pipeline
-
-Server-side, for the transitional `book_chapters` (MCP chapter tools, clips). Formats: EPUB, PDF. Processing order: Spelling → Hyphenation → Typography → Semantic. Details in `backend/src/Extraction/TextStack.Extraction/RULES.md`. ARM64 caveat: uses compiled `Regex` not `[GeneratedRegex]` (SIGILL bug).
-
 ## Package Management
 
 Central versioning via `Directory.Packages.props` — don't add `<Version>` in individual csproj files. Target: `net11.0` (set in `Directory.Build.props`).
@@ -228,6 +222,7 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 - **A `.web.ts` twin mirrors every export** of its native module (`apps/mobile/src/lib/offlineDb.web.ts`, `reader/deviceLibrary.web.ts`), or the web bundle (which mobile e2e runs against) fails to resolve.
 - **Guest = a real session.** `isAuthenticated` is `user !== null`; account-only questions go through `capabilitiesFor(user)` (`packages/shared/src/lib/capabilities.ts`, re-exported by mobile `capabilities.ts`), never inline `user?.isGuest` (ADR-014).
 - **MCP has 17 tools; the count is asserted in four tests** (`McpManifestDriftTests`, `McpStdioSmokeTests`, `McpOverTheWireTests`, `McpManifestEndpointTests`) and descriptions live once in `backend/src/Contracts/Mcp/McpManifest.cs` — change all together.
+- **ARM64: compiled `Regex`, never `[GeneratedRegex]`** (SIGILL bug).
 - **Docs, comments, ADRs, commits, PRs: English only.** Cyrillic is allowed only as real input data (tests, fixtures, seed migrations, translation examples).
 - **Never deploy by SSH.** Deploy = merge to `main`; break-glass `gh workflow run deploy.yml`.
 

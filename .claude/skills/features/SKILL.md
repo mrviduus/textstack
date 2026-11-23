@@ -13,7 +13,7 @@ Rewritten for one database at M6 (2026-11-17): the catalog (works, editions, aut
 
 **Upload flow**: the client hashes the file (sha256) → `GET /me/v2/books/by-sha256/{sha256}` (same bytes = same book) → `PUT /me/v2/books/{id}` → parts → `POST …/content` (quota checked inside the attach). Bytes land under `data/library` (`LibraryFileStore.cs`). The browser extension clips a page through `POST /me/books/clip`.
 
-**Transitional chapters** (`book_chapters`, `ingestion_jobs`, kept by M6 D8): `IngestionWorker` extracts an uploaded EPUB/PDF into chapters for the MCP chapter tools and shares. The reader does not read them.
+**Chapters = the reader's TOC** (ADR-033): the reader parses the file and syncs its TOC (`PUT …/files/{fileId}/toc`, `book_files.toc`); `GET …/chapters` serves it, empty until a reader opens the book. The server parses nothing.
 
 **`chapter_number` is an ordering key, not a display ordinal.** Some books start at 0, some at 1 or 2. Show a chapter's **title** and use the number only to sort.
 
