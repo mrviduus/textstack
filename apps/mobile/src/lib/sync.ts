@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
 import {
   syncApi, ApiError, isOfflineError, SYNC_OFF, placeToLocator, createSha256, parsePdfPageLocator,
-  ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, createBooks, uploadFile, FileUploadError,
+  shelfFileSummary, isShelfBook, resumeChapterOf, createBooks, uploadFile, FileUploadError,
   type Book, type FileChapters, type Annotation, type Word, type ReadingState, type ReadingStateWrite, type SyncSwitch,
   type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookDetailResponse, type ClientFormat, type FileDetails,
 } from '@textstack/shared'
@@ -249,7 +249,7 @@ const totalWords = (toc: FileChapters) =>
 
 /**
  * The uploads list: live books only, each with its status and the reader's place — two feed pulls,
- * no per-book call: the feed's file carries the extraction summary (#1118); `/chapters` is the reader's.
+ * no per-book call: the feed's file carries its status and chapter count; `/chapters` is the reader's.
  * The cover is the authed V2 route; `useCoverSource` sends the Bearer an <Image> needs.
  */
 export async function getUserBooks(): Promise<UserBookDto[]> {
@@ -300,7 +300,7 @@ export async function getUserBook(id: string): Promise<UserBookDetailResponse> {
     genre: b.genre,
     publishedYear: b.publishedYear,
     totalWordCount: totalWords(toc),
-    status: ingestionStatus(toc.ingestion, !!b.currentFile?.hasContent),
+    status: shelfFileSummary(b.currentFile).status,
     errorMessage: null,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.
     chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: c.wordCount })),

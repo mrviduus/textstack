@@ -18,7 +18,7 @@ public class ReadingSyncServiceTests(PostgresFixture db)
         var book = await db.NewReaderWithBookAsync();
         var library = new BookAccess(new LibraryRepository(db.DataSource));
         var service = new ReadingSyncService(library, new ReadingStateRepository(db.DataSource), new ReadingSessionRepository(db.DataSource),
-            new ChapterReadService(library, new BookChapterRepository(db.DataSource), new IngestionJobRepository(db.DataSource)), TimeProvider.System);
+            new ChapterReadService(library), TimeProvider.System);
         var now = DateTimeOffset.UtcNow;
 
         var result = await service.WriteAsync(book.UserId, book.Id, new ReadingStateRequest(null, book.CurrentFile!.Id,

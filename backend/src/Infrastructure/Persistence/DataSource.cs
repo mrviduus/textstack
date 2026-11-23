@@ -84,7 +84,5 @@ public static class DataSource
             .AddSingleton<LlmTraceWriter>()
             .AddSingleton<AgentRunWriter>()
             .AddSingleton<IAdminSettingsRepository, AdminSettingsRepository>()
-            .AddSingleton<IAdminSessionLifetimes, AdminSessionLifetimes>()
-            .AddSingleton<IBookChapterRepository, BookChapterRepository>()
-            .AddSingleton<IIngestionJobRepository, IngestionJobRepository>();
+            .AddSingleton<IAdminSessionLifetimes, AdminSessionLifetimes>();
 }

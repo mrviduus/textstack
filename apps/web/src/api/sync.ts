@@ -135,7 +135,7 @@ function baseBook(b: Book) {
 
 /**
  * The uploads shelf: live books only, each with its status and the reader's place — two feed pulls,
- * no per-book call: the feed's file carries the extraction summary (#1118); `/chapters` is the reader's.
+ * no per-book call: the feed's file carries its status and chapter count; `/chapters` is the reader's.
  */
 export async function getShelfBooks(): Promise<UserBook[]> {
   const [list, reading] = await Promise.all([pullBooks(), pullFeed<ReadingState>('reading')])

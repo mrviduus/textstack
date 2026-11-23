@@ -16,7 +16,7 @@ public class InsightSyncServiceTests(PostgresFixture db)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private InsightSyncService Service => new(new BookAccess(_library), _insights,
-        new ChapterReadService(new BookAccess(_library), new BookChapterRepository(db.DataSource), new IngestionJobRepository(db.DataSource)));
+        new ChapterReadService(new BookAccess(_library)));
 
     [Fact]
     public async Task SaveAsync_AssistantOnABooksChapters_OnlyTocKeysLandAndOldKeysStayListedUnplaced()

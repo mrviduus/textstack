@@ -145,7 +145,6 @@ public sealed partial class AccountMergeRepository
         WHERE user_id = @guestId AND book_id = ANY(@guestBooks) AND server_storage_key IS NOT NULL
         """;
 
-    // Its chapters and jobs go with it; the account's file has its own.
     private const string DeleteSameBytesFiles = "DELETE FROM book_files WHERE user_id = @guestId AND id = ANY(@guestFiles)";
 
     // 3c. The guest book's other versions become non-current versions of the account's book,
@@ -180,7 +179,7 @@ public sealed partial class AccountMergeRepository
     // Bumps the account's own rows of a matched book too: extra feed entries, nothing wrong.
     private const string TouchAccountBooks = "UPDATE books SET updated_at = clock_timestamp() WHERE user_id = @accountId AND id = ANY(@accountBooks)";
 
-    // 4. Ids kept (decision 12); files, state, annotations, sessions, appends, insights, chapters and jobs follow.
+    // 4. Ids kept (decision 12); files, state, annotations, sessions, appends, and insights follow.
     private const string MoveUnmatchedBooks = "UPDATE books SET user_id = @accountId, updated_at = clock_timestamp() WHERE user_id = @guestId";
 
     // 5. A session of a deleted book has no (user_id, book_id) for the cascade to follow.

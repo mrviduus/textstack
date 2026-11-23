@@ -63,21 +63,19 @@ describe('the V2 library', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it("reads the shelf from the two feeds alone: a book is ready when its file's bytes are in, whatever the server's extraction (ADR-033)", async () => {
+  it("reads the shelf from the two feeds alone: a book is ready when its file's bytes are in (ADR-033)", async () => {
     const calls = fakeApi({
       'GET /me/v2/library/changes': feed(
-        book('ready', 'f1', { currentFile: file('f1', { ingestion: 'succeeded', chapterCount: 3, wordCount: 1200 }) }),
-        book('running', 'f2', { currentFile: file('f2', { ingestion: 'processing' }) }),
-        book('failed', 'f6', { currentFile: file('f6', { ingestion: 'failed' }) }),
+        book('ready', 'f1', { currentFile: file('f1', { chapterCount: 3 }) }),
+        book('no-toc', 'f2'),
         book('no-bytes', 'f3', { currentFile: file('f3', { hasContent: false }) }),
         book('mobi', 'f5', { currentFile: file('f5', { format: 'mobi' }) }),
-        book('no-words', 'f4', { currentFile: file('f4', { ingestion: 'succeeded', chapterCount: 2 }) }),
       ),
       'GET /me/v2/reading/changes': feed(),
     })
     const shelf = await getShelfBooks()
     expect(shelf.map((b) => [b.id, b.status, b.chapterCount, b.totalWordCount])).toEqual([
-      ['ready', 'Ready', 3, 1200], ['running', 'Ready', 0, null], ['failed', 'Ready', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null], ['no-words', 'Ready', 2, null],
+      ['ready', 'Ready', 3, null], ['no-toc', 'Ready', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null],
     ])
     expect(calls.map((c) => c.path.split('?')[0])).toEqual(['/me/v2/library/changes', '/me/v2/reading/changes'])
   })
@@ -89,7 +87,7 @@ describe('the V2 library', () => {
       'GET /me/v2/reading/changes': [...feed(state('b1', 1, { currentLocator: cfi })), ...feed(state('b1', 1, { currentLocator: cfi }))],
     })
     expect((await getShelfBooks())[0].progressChapterSlug).toBeNull()
-    syncStore.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 100 }, { chapterKey: 'two', chapterNumber: 2, title: 'Two', wordCount: 100 }], ingestion: 'succeeded' })
+    syncStore.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 100 }, { chapterKey: 'two', chapterNumber: 2, title: 'Two', wordCount: 100 }] })
     expect((await getShelfBooks())[0].progressChapterSlug).toBe('two')
     expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
   })
@@ -105,7 +103,7 @@ describe('the V2 library', () => {
   it('takes a user-book read to V2, with its cover as the API route', async () => {
     fakeApi({
       'GET /me/v2/library/changes': feed(book('b1', 'f1', { hasCover: true })),
-      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [], ingestion: 'succeeded' } }],
+      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [] } }],
       'GET /me/v2/books/b1/reading-state': [{ status: 200, body: state('b1', 2, { completedAt: '2026-11-02T00:00:00Z', fileId: 'f1' }) }],
     })
     const detail = await getUserBook('b1')
@@ -114,7 +112,7 @@ describe('the V2 library', () => {
   })
 
   it("never serves the previous account's book after a reset (sign-out)", async () => {
-    fakeApi({ 'GET /me/v2/library/changes': feed(book('a-book', 'fa')), 'GET /me/v2/books/a-book/files/fa/chapters': [{ status: 200, body: { items: [], ingestion: 'succeeded' } }] })
+    fakeApi({ 'GET /me/v2/library/changes': feed(book('a-book', 'fa')), 'GET /me/v2/books/a-book/files/fa/chapters': [{ status: 200, body: { items: [] } }] })
     await pullBooks()
     syncStore.reset()
     fakeApi({ 'GET /me/v2/library/changes': feed() })
@@ -271,7 +269,7 @@ describe('the V2 reading state', () => {
         { status: 200, body: state('b1', 1, { currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 12 } } }) },
         { status: 200, body: state('b1', 1, { currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' } }) },
       ],
-      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one', wordCount: 100 }, { chapterKey: 'two', wordCount: 100 }], ingestion: 'succeeded' } }],
+      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one', wordCount: 100 }, { chapterKey: 'two', wordCount: 100 }] } }],
     })
     expect(await readBookProgress('b1')).toMatchObject({ chapterSlug: null, locator: 'page:12' })
     expect(await readBookProgress('b1')).toMatchObject({ chapterSlug: 'two', positionJson: null, percent: 0.7 })
@@ -280,7 +278,7 @@ describe('the V2 reading state', () => {
   it('marks a book read with completedAt on its place, and unread by a reset', async () => {
     const calls = fakeApi({
       ...library,
-      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one', wordCount: 1 }], ingestion: 'succeeded' } }],
+      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one', wordCount: 1 }] } }],
       'GET /me/v2/books/b1/reading-state': [{ status: 200, body: state('b1', 4) }],
       [put]: [{ status: 200, body: state('b1', 5) }],
       'POST /me/v2/books/b1/reading-state/reset': [{ status: 200, body: state('b1', 6) }],
@@ -299,7 +297,7 @@ describe('an answer that outlives a sign-out (syncStore.reset, #1155)', () => {
   })
 
   const library = { 'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0] }
-  const chapters = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } } }
+  const chapters = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [{ chapterKey: 'one', chapterNumber: 0, title: 'One', wordCount: null }] } } }
   const put = { 'PUT /me/v2/books/b1/reading-state': { status: 200, body: state('b1', 1) } }
   const write = { chapterSlug: 'two', percent: 0.5, positionJson: JSON.stringify(position) }
   const underReset = <T>(routes: Record<string, Answer>, op: () => Promise<T>, hold?: string) =>
@@ -307,7 +305,7 @@ describe('an answer that outlives a sign-out (syncStore.reset, #1155)', () => {
   /** Every request answers an empty chapter list, and the one to `path` resets the store first: a sign-out mid-call. */
   const resetOn = (path: string) => vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.includes(path)) syncStore.reset()
-    return { ok: true, status: 200, text: async () => JSON.stringify({ items: [], ingestion: null }) }
+    return { ok: true, status: 200, text: async () => JSON.stringify({ items: [] }) }
   }))
 
   it('keeps no books from a library pull answered after the reset', async () => {

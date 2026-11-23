@@ -1,7 +1,6 @@
 using Application.Library;
 using Dapper;
 using Domain.Library;
-using Domain.Transitional;
 using Infrastructure.Persistence.Repositories;
 using static TextStack.Persistence.Tests.PostgresFixture;
 
@@ -13,17 +12,6 @@ public class LibraryRepositoryTests(PostgresFixture db)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static BookMetadata Metadata(string title) => new(title, "An author", "en", "About it", "fiction", 1999, ["classic"]);
-
-    private static BookChapter Chapter(string key, int number, int? words) => new()
-    {
-        Id = Guid.NewGuid(),
-        ChapterKey = key,
-        ChapterNumber = number,
-        Title = key,
-        Html = "<p>x</p>",
-        PlainText = "x",
-        WordCount = words,
-    };
 
     [Fact]
     public async Task ImportAsync_ReaderImportsABookThenSendsTheImportAgain_GetsTheSameBookBack()
@@ -207,40 +195,21 @@ public class LibraryRepositoryTests(PostgresFixture db)
     }
 
     [Fact]
-    public async Task ListChangedAsync_BookIsExtracted_FeedCarriesTheLatestJobStatusChapterCountAndWordSum()
+    public async Task ListChangedAsync_ReaderSyncsTheToc_FeedCarriesItsEntryCount()
     {
         var book = await db.NewReaderWithBookAsync();
         var (user, file) = (book.UserId, book.CurrentFile!.Id);
-        var chapters = new BookChapterRepository(db.DataSource);
-        var jobs = new IngestionJobRepository(db.DataSource);
 
         var fresh = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
-        Assert.Equal(((string?)null, (int?)null, (int?)null), (fresh.Ingestion, fresh.ChapterCount, fresh.WordCount));
+        Assert.Null(fresh.ChapterCount);
 
-        var failed = await jobs.EnqueueAsync(user, book.Id, file, Ct);
-        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'failed', created_at = now() - interval '1 hour' WHERE id = @id", new { id = failed.Id });
-        var latest = await jobs.EnqueueAsync(user, book.Id, file, Ct);
-        await db.ExecAsync("UPDATE ingestion_jobs SET status = 'processing', attempt_count = 1 WHERE id = @id", new { id = latest.Id });
-        var before = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
-        Assert.Equal("processing", before.CurrentFile!.Ingestion); // the newest job, not the older failed one
-
-        Assert.True(await jobs.SucceedAsync(latest.Id, 1, "epub", Ct));
-
-        // The finished job re-enters the pull after the cursor, without a new revision.
-        var after = Assert.Single(await _repo.ListChangedAsync(user, before.UpdatedAt, before.Id, 10, Ct));
-        Assert.Equal(("succeeded", before.Revision), (after.CurrentFile!.Ingestion, after.Revision));
-
-        await chapters.ReplaceForFileAsync(user, book.Id, file, [Chapter("one", 1, null)], Ct);
-        var uncounted = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
-        Assert.Equal(((int?)1, (int?)null), (uncounted.ChapterCount, uncounted.WordCount));
-
-        await chapters.ReplaceForFileAsync(user, book.Id, file, [Chapter("one", 1, 120), Chapter("two", 2, null), Chapter("three", 3, 80)], Ct);
+        Assert.True(await _repo.SetTocAsync(user, book.Id, file,
+            """[{"key":"a","title":"A","depth":0,"fraction":0},{"key":"b","title":"B","depth":1,"fraction":0.5}]""", Ct));
         var read = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
-        Assert.Equal(("succeeded", (int?)3, (int?)200), (read.Ingestion, read.ChapterCount, read.WordCount));
+        Assert.Equal(2, read.ChapterCount);
 
-        // Only the feed reads the summary.
-        var got = (await _repo.GetAsync(user, book.Id, Ct))!.CurrentFile!;
-        Assert.Equal(((int?)null, (int?)null), (got.ChapterCount, got.WordCount));
+        // Only the feed reads the count.
+        Assert.Null((await _repo.GetAsync(user, book.Id, Ct))!.CurrentFile!.ChapterCount);
     }
 
     [Fact]

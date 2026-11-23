@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 using System.Reflection;
 
 namespace Infrastructure.Telemetry;
@@ -9,16 +8,8 @@ public static class TelemetryConstants
     public static readonly string ServiceVersion =
         Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
 
-    public const string IngestionActivitySourceName = "TextStack.Ingestion";
     public const string ApiActivitySourceName = "TextStack.Api";
     public const string MeterName = TextStack.Extraction.ExtractionTelemetry.MeterName;
-}
-
-public static class IngestionActivitySource
-{
-    public static readonly ActivitySource Source = new(
-        TelemetryConstants.IngestionActivitySourceName,
-        TelemetryConstants.ServiceVersion);
 }
 
 public static class ApiActivitySource
@@ -26,82 +17,4 @@ public static class ApiActivitySource
     public static readonly ActivitySource Source = new(
         TelemetryConstants.ApiActivitySourceName,
         TelemetryConstants.ServiceVersion);
-}
-
-public static class IngestionMetrics
-{
-    private static readonly Meter Meter = new(
-        TelemetryConstants.MeterName,
-        TelemetryConstants.ServiceVersion);
-
-    // Counters
-    public static readonly Counter<long> JobsStarted = Meter.CreateCounter<long>(
-        "ingestion_jobs_started_total",
-        description: "Total ingestion jobs started");
-
-    public static readonly Counter<long> JobsSucceeded = Meter.CreateCounter<long>(
-        "ingestion_jobs_succeeded_total",
-        description: "Total ingestion jobs succeeded");
-
-    public static readonly Counter<long> JobsFailed = Meter.CreateCounter<long>(
-        "ingestion_jobs_failed_total",
-        description: "Total ingestion jobs failed");
-
-    public static readonly Counter<long> OcrUsed = Meter.CreateCounter<long>(
-        "extraction_ocr_used_total",
-        description: "Total OCR extractions performed");
-
-    // Histograms
-    public static readonly Histogram<double> JobDuration = Meter.CreateHistogram<double>(
-        "ingestion_job_duration_ms",
-        unit: "ms",
-        description: "Ingestion job duration in milliseconds");
-
-    // Wall time of one user-upload job attempt (any outcome). Source for sizing the 2-minute lease.
-    public static readonly Histogram<double> UserJobDuration = Meter.CreateHistogram<double>(
-        "user_ingestion_job_duration_ms",
-        unit: "ms",
-        description: "User-upload ingestion job duration in milliseconds");
-
-    public static readonly Histogram<double> ExtractionDuration = Meter.CreateHistogram<double>(
-        "extraction_duration_ms",
-        unit: "ms",
-        description: "Extraction duration in milliseconds");
-
-    // Gauges (via ObservableGauge - values set via callbacks)
-    private static int _jobsInProgress;
-    private static int _jobsPending;
-    private static double _oldestPendingJobAgeMs;
-
-    public static void SetJobsInProgress(int count) => _jobsInProgress = count;
-    public static void SetJobsPending(int count) => _jobsPending = count;
-    public static void SetOldestPendingJobAge(double ageMs) => _oldestPendingJobAgeMs = ageMs;
-
-    // Rows still Running/Processing past their queue's stale window, per queue (a long legit job counts too).
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _stuckJobs = new();
-    public static void SetStuckJobs(string queue, int count) => _stuckJobs[queue] = count;
-
-    static IngestionMetrics()
-    {
-        Meter.CreateObservableGauge(
-            "ingestion_jobs_in_progress",
-            () => _jobsInProgress,
-            description: "Number of jobs currently being processed");
-
-        Meter.CreateObservableGauge(
-            "ingestion_jobs_pending",
-            () => _jobsPending,
-            description: "Number of jobs waiting in queue");
-
-        Meter.CreateObservableGauge(
-            "queue_stuck_jobs",
-            () => _stuckJobs.Select(kv => new Measurement<int>(kv.Value, new KeyValuePair<string, object?>("queue", kv.Key))),
-            description: "Jobs Running/Processing past their stale window, by queue (sustained nonzero = likely stuck)");
-
-        Meter.CreateObservableGauge(
-            "ingestion_queue_lag_ms",
-            () => _oldestPendingJobAgeMs,
-            unit: "ms",
-            description: "Age of oldest pending job in milliseconds");
-    }
 }

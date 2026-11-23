@@ -114,7 +114,7 @@ describe('the shared V2 book client', () => {
     const outcome = await resetMidCall(reset, {
       'PUT /me/v2/books/b1/reading-state': conflict('stale_revision', { current }),
       'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0],
-      'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } },
+      'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [] } },
     }, () => client({ keepAdopted }).saveProgress('b1', { chapterSlug: null, locator: 'page:2' }), '/chapters')
     expect(outcome).toBe('dropped')
     expect(keepAdopted).not.toHaveBeenCalled()

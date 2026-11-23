@@ -9,7 +9,7 @@ import { testLogin } from '../helpers/api'
 // answers 404 (a server without /me/v2) unless SYNC_E2E=1, which CI sets. Every wait is a poll on a real signal.
 //
 // Content: a 3-chapter EPUB fixture (50 paragraphs each), uploaded by a fresh user each run, so the
-// sha256 lookup never finds an earlier copy. The worker extracts its chapters (the transitional reader).
+// sha256 lookup never finds an earlier copy. The reader syncs its TOC on import (ADR-033).
 
 const API_URL = process.env.API_URL ?? 'http://localhost:8080'
 const API_HEADERS = { Host: 'general.localhost' }
@@ -40,7 +40,7 @@ test.describe('Sync @sync', () => {
     })
     const page = await context.newPage()
 
-    // Upload: sha256, import, parts, complete — then the reader; the worker still extracts the chapters (until ADR-033 P5).
+    // Upload: sha256, import, parts, complete — then the reader; the import carries the reader's TOC.
     await page.goto('/en/library')
     await page.locator('.site-header__upload-btn').click()
     const imported = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/me\/v2\/books\/[0-9a-f-]{36}$/.test(r.url()))

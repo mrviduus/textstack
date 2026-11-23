@@ -123,8 +123,8 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
-            // "Send to TextStack" web clip receiver — per-IP cap. Each clip queues an
-            // ingestion job + stores HTML, so this blocks scripted bulk-clipping while
+            // "Send to TextStack" web clip receiver — per-IP cap. Each clip stores a
+            // book + its HTML, so this blocks scripted bulk-clipping while
             // staying generous for a human saving a handful of articles in a session.
             // Permit limit is a knob for the same reason as the guest one: a dozen integration test
             // classes seed a user book by clipping one, so a single suite run exceeds 20 from one

@@ -30,7 +30,7 @@ public class DataAccessRegistrationTests
             typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
             typeof(IBookInsightRepository), typeof(IReviewQuestionRepository),
             typeof(UserRepository), typeof(IAccountMergeRepository), typeof(LlmTraceWriter), typeof(AgentRunWriter),
-            typeof(IAdminSettingsRepository), typeof(IBookChapterRepository), typeof(IIngestionJobRepository),
+            typeof(IAdminSettingsRepository),
             typeof(IAccountLookup), typeof(IReadingPositionReset), typeof(IAdminSessionLifetimes)];
         foreach (var port in v2Ports)
             Assert.NotNull(services.GetRequiredService(port));
@@ -62,8 +62,6 @@ public class DataAccessRegistrationTests
         Assert.NotNull(services.GetService<LlmTraceWriter>());
         Assert.NotNull(services.GetService<AgentRunWriter>());
         Assert.NotNull(services.GetService<IAdminSettingsRepository>());
-        Assert.NotNull(services.GetService<IBookChapterRepository>());
-        Assert.NotNull(services.GetService<IIngestionJobRepository>());
     }
 
     [Theory]

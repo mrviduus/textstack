@@ -2,12 +2,10 @@ using Application.Library;
 using Application.Sync;
 using Application.Transitional;
 using Contracts.Sync;
-using Domain.Transitional;
-using NSubstitute;
 
 namespace TextStack.UnitTests.Sync;
 
-/// <summary>The transitional chapter reads (dropped at M6.4) on fakes.</summary>
+/// <summary>A file's chapters are the TOC the reader synced (ADR-033), on fakes.</summary>
 public class ChapterReadServiceTests
 {
     private static readonly Guid User = Guid.NewGuid();
@@ -16,22 +14,21 @@ public class ChapterReadServiceTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private readonly ILibraryRepository _library = SyncFakes.Library(User, BookId, FileId);
-    private readonly IBookChapterRepository _chapters = Substitute.For<IBookChapterRepository>();
-    private readonly IIngestionJobRepository _jobs = Substitute.For<IIngestionJobRepository>();
-    private ChapterReadService Service => new(new BookAccess(_library), _chapters, _jobs);
+    private ChapterReadService Service => new(new BookAccess(_library));
 
-    [Fact]
-    public async Task ListAsync_PreP3TocAndJobStillRunning_EmptyItemsAndItsStatus()
+    // The server extracts nothing (ADR-033 P5): a book no reader has opened yet lists no chapters, and a free-form
+    // TOC from before P3 is not the reader's.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("""[{"title":"One","children":[]}]""")]
+    public async Task ListAsync_NoReaderToc_EmptyList(string? toc)
     {
-        // A free-form TOC from before ADR-033 P3 is not the reader's: the extraction answers.
-        (await _library.GetFileAsync(User, BookId, FileId, Ct))!.Toc = """[{"title":"One","children":[]}]""";
-        _chapters.ListTocAsync(User, BookId, FileId, Arg.Any<CancellationToken>()).Returns([]);
-        _jobs.GetLatestForFileAsync(User, BookId, FileId, Arg.Any<CancellationToken>())
-            .Returns(new FileIngestionJob { Status = FileIngestionJob.Processing });
+        (await _library.GetFileAsync(User, BookId, FileId, Ct))!.Toc = toc;
 
-        var toc = Assert.IsType<FileChaptersDto>((await Service.ListAsync(User, BookId, FileId, Ct)).Body);
+        var result = await Service.ListAsync(User, BookId, FileId, Ct);
 
-        Assert.Equal((0, "processing"), (toc.Items.Count, toc.Ingestion));
+        Assert.Equal(200, result.Status);
+        Assert.Empty(Assert.IsType<FileChaptersDto>(result.Body).Items);
     }
 
     // ADR-033: an assistant's chapter key is checked against the TOC the reader synced; with none synced the
@@ -49,7 +46,6 @@ public class ChapterReadServiceTests
 
         if (refusal is null) Assert.Null(result);
         else Assert.Equal((409, SyncCodes.ChapterNotFound, refusal), (result!.Status, SyncFakes.Error(result).Code, SyncFakes.Error(result).Message));
-        Assert.Empty(_chapters.ReceivedCalls());
     }
 
     [Fact]
@@ -58,6 +54,5 @@ public class ChapterReadServiceTests
         var result = await Service.ListAsync(User, BookId, Guid.NewGuid(), Ct);
 
         Assert.Equal(SyncCodes.UnknownFile, SyncFakes.Error(result).Code);
-        Assert.Empty(_chapters.ReceivedCalls());
     }
 }
