@@ -52,11 +52,11 @@ public sealed partial class TextStackApiClient
     public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, Guid operationId, CancellationToken ct)
     {
         var id = WordId(operationId, word);
-        // ponytail: the example goes without bookId (and fileId, chapterKey); bookTitle stays as the snapshot.
-        // Link it to the book when an assistant needs words traced back to their upload.
+        // The book the model named; the server checks it is the user's (an unknown id refuses the word).
+        // ponytail: no fileId or chapterKey; add them when an assistant needs a word's chapter.
         var example = string.IsNullOrWhiteSpace(word.Sentence)
             ? null
-            : new VocabularyExampleRequest(id, word.Sentence, null, null, null, null, word.BookTitle);
+            : new VocabularyExampleRequest(id, word.Sentence, null, word.UserBookId, null, null, word.BookTitle);
         var result = await SendAsync(HttpMethod.Put, "/me/v2/vocabulary/words",
             new SaveVocabularyWordRequest(id, word.Language, word.Word, word.Translation, word.Definition, example), ct);
         if (result.Error is not null) return result;

@@ -360,7 +360,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         Dictionary<string, object?> ArgsOf(string words) =>
             Args(("words", JsonDocument.Parse(words).RootElement), ("bookId", StubBackend.UserBookId), ("bookTitle", "Dracula"), ("operationId", operationId));
 
-        // A retry in another order sends each word its own id again, and no bookId.
+        // A retry in another order sends each word its own id again; an example carries the book.
         var added = await CallAsync(client, "add_vocabulary_words", ArgsOf($"[{crepuscular},{quiver}]"));
         var retried = await CallAsync(client, "add_vocabulary_words", ArgsOf($"[{quiver},{crepuscular}]"));
 
@@ -373,7 +373,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         Assert.NotEqual(IdOf(saves[0]), IdOf(saves[1]));
         var example = saves[0].GetProperty("example");
         Assert.Equal(IdOf(saves[0]), example.GetProperty("operationId").GetString());
-        Assert.Equal(("The crepuscular light.", "Dracula", false), (example.GetProperty("sentence").GetString(), example.GetProperty("bookTitle").GetString(), example.TryGetProperty("bookId", out _)));
+        Assert.Equal(("The crepuscular light.", "Dracula", StubBackend.UserBookId), (example.GetProperty("sentence").GetString(), example.GetProperty("bookTitle").GetString(), example.GetProperty("bookId").GetString()));
         var line = Json(added).GetProperty("results")[0];
         Assert.Equal(("srs", IdOf(saves[0])), (line.GetProperty("status").GetString(), line.GetProperty("id").GetString()));
 
