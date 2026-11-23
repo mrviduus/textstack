@@ -1,4 +1,16 @@
+using System.Text.Json.Serialization;
+
 namespace Contracts.Mcp;
+
+/// <summary>Where a consent request stands, derived from its row (no status column). The JSON names are the wire contract.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OAuthRequestStatus>))]
+public enum OAuthRequestStatus
+{
+    [JsonStringEnumMemberName("pending")] Pending,
+    [JsonStringEnumMemberName("approved")] Approved,
+    [JsonStringEnumMemberName("denied")] Denied,
+    [JsonStringEnumMemberName("expired")] Expired,
+}
 
 /// <summary>
 /// What the consent page shows: <c>GET /oauth/requests/{id}</c>. <see cref="Status"/> is
@@ -11,7 +23,7 @@ public record OAuthConsentRequestDto(
     string RedirectHost,
     string Scope,
     string ScopeDescription,
-    string Status,
+    OAuthRequestStatus Status,
     DateTimeOffset ExpiresAt);
 
 /// <summary>Body of <c>POST /oauth/authorize/approve</c> and <c>/deny</c>.</summary>

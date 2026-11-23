@@ -1,8 +1,10 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Api.Services;
 using Application.Identity;
+using Contracts.Mcp;
 
 namespace TextStack.UnitTests;
 
@@ -15,6 +17,19 @@ public class OAuthTests
 {
     private static readonly string[] Hosts = ["claude.ai", "chatgpt.com"];
     private const string Url = "https://client.example/metadata.json";
+
+    /// <summary>The consent page reads these exact strings; the enum must not change them.</summary>
+    [Theory]
+    [InlineData(OAuthRequestStatus.Pending, "pending")]
+    [InlineData(OAuthRequestStatus.Approved, "approved")]
+    [InlineData(OAuthRequestStatus.Denied, "denied")]
+    [InlineData(OAuthRequestStatus.Expired, "expired")]
+    public void ConsentPage_ReadsTheRequestStatus_AsTheSameLowercaseString(OAuthRequestStatus status, string wire)
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        Assert.Equal($"\"{wire}\"", JsonSerializer.Serialize(status, web));
+        Assert.Equal(status, JsonSerializer.Deserialize<OAuthRequestStatus>($"\"{wire}\"", web));
+    }
 
     private static string ChallengeFor(string verifier) =>
         System.Buffers.Text.Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));

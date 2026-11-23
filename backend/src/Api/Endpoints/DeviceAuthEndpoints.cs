@@ -35,7 +35,7 @@ public static class DeviceAuthEndpoints
     {
         var result = await authService.CreateDeviceAuthorizationAsync(ct);
 
-        var baseUrl = (config["App:BaseUrl"] ?? "https://textstack.app").TrimEnd('/');
+        var baseUrl = PublicSite.BaseUrl(config);
         var verificationUri = $"{baseUrl}/device";
         var verificationUriComplete = $"{verificationUri}?code={Uri.EscapeDataString(result.UserCode)}";
 

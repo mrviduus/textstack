@@ -9,7 +9,7 @@ public class EmailSettings
 {
     public string ResendApiKey { get; set; } = "";
     public string FromEmail { get; set; } = "noreply@textstack.app";
-    public string BaseUrl { get; set; } = "https://textstack.app";
+    public string BaseUrl { get; set; } = "";
     /// <summary>Destination for operational alerts (failed jobs, etc.). If empty, alerts are skipped.</summary>
     public string AdminAlertEmail { get; set; } = "";
 }
