@@ -41,6 +41,10 @@ public sealed record SyncResult(int Status, object? Body)
     public static readonly SyncResult IdConflict = Fail(SyncCodes.IdConflict);
     public static readonly SyncResult UnknownFile = Fail(SyncCodes.UnknownFile);
     public static readonly SyncResult ChapterNotFound = Fail(SyncCodes.ChapterNotFound);
+
+    /// <summary><c>chapter_not_found</c> for a file whose TOC no reader has synced yet (ADR-033): no key can be right, the user opens the book.</summary>
+    public static readonly SyncResult TocNotSynced = new(SyncCodes.StatusOf(SyncCodes.ChapterNotFound),
+        new SyncError(SyncCodes.ChapterNotFound, "This book's chapters are not known yet: open the book once in the reader."));
     public static readonly SyncResult Unavailable = Fail(SyncCodes.Unavailable);
 
     public static SyncResult BookRemoved(Book book) => Fail(SyncCodes.BookRemoved, book.Revision, book.ToDto());

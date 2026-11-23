@@ -35,13 +35,16 @@ public class ReadingStateRepositoryTests(PostgresFixture db)
         return (user, book.Id, book.CurrentFile!.Id);
     }
 
+    /// <summary>A reader's book whose file's synced TOC (ADR-033) has the one entry <paramref name="key"/>.</summary>
     private async Task<(Guid User, Guid Book, Guid File)> ReaderWithChapterAsync(string key = "ch-1")
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(user, book, file,
-            [new() { Id = Guid.NewGuid(), ChapterKey = key, ChapterNumber = 1, Title = key, Html = "<p/>", PlainText = "", WordCount = 0 }], Ct);
+        await SyncTocAsync(user, book, file, key);
         return (user, book, file);
     }
+
+    private Task SyncTocAsync(Guid user, Guid book, Guid file, string key) =>
+        _library.SetTocAsync(user, book, file, $$$"""[{"key":"{{{key}}}","title":"{{{key}}}","depth":0,"fraction":0}]""", Ct);
 
     private static readonly TransitionalChapterKeys OnChapter = new("ch-1", "ch-1");
 
@@ -207,11 +210,16 @@ public class ReadingStateRepositoryTests(PostgresFixture db)
         }
     }
 
-    // Transitional (M2.7a): the chapter guard of a textstack-* write, in the statement itself.
+    // ADR-033: a textstack-* write (the assistant's) names a key of the file's synced TOC, checked in the statement itself.
     [Fact]
-    public async Task AdvanceAsync_LegacyReaderOnAChapter_WritesOnlyWhileTheChapterExists()
+    public async Task AdvanceAsync_AssistantOnAChapter_WritesOnlyWhileTheTocHasIt()
     {
-        var (user, book, file) = await ReaderWithChapterAsync();
+        var (user, book, file) = await ReaderWithBookAsync();
+        // No TOC synced yet: no key is known. A free-form one from before P3 is no match either, never an error.
+        Assert.False((await _repo.AdvanceAsync(user, book, At(file, 6), null, OnChapter, Ct)).Accepted);
+        await _library.SetTocAsync(user, book, file, """{"title":"ch-1","key":"ch-1"}""", Ct);
+        Assert.False((await _repo.AdvanceAsync(user, book, At(file, 6), null, OnChapter, Ct)).Accepted);
+        await SyncTocAsync(user, book, file, "ch-1");
 
         Assert.False((await _repo.AdvanceAsync(user, book, At(file, 6), null, new("gone", "gone"), Ct)).Accepted);
         Assert.True((await _repo.AdvanceAsync(user, book, At(file, 6), null, OnChapter, Ct)).Accepted);
@@ -221,11 +229,15 @@ public class ReadingStateRepositoryTests(PostgresFixture db)
         Assert.Equal((true, 0.6m), (echo.Accepted, echo.Current!.FrontierFraction));
         Assert.False((await _repo.AdvanceAsync(user, book, WithFrontier(file, 3, 8), 2, new("ch-1", "gone"), Ct)).Accepted);
 
-        // A re-extraction drops the chapter.
-        await new BookChapterRepository(db.DataSource).ReplaceForFileAsync(user, book, file,
-            [new() { Id = Guid.NewGuid(), ChapterKey = "renamed", ChapterNumber = 1, Title = "t", Html = "<p/>", PlainText = "", WordCount = 0 }], Ct);
+        // The reader rewrites the TOC without the key.
+        await SyncTocAsync(user, book, file, "renamed");
         var dropped = await _repo.AdvanceAsync(user, book, At(file, 4), 2, OnChapter, Ct);
         Assert.Equal((false, 2L), (dropped.Accepted, dropped.Current!.Revision));
+        // The stored position echoed back unchanged (mark-read on an old server key) still lands, also after a reset
+        // (mark unread) cleared the frontier the echo now offers.
+        Assert.True((await _repo.AdvanceAsync(user, book, At(file, 3), 2, OnChapter, Ct)).Accepted);
+        Assert.True((await _repo.ResetAsync(user, book, 3, Ct)).Accepted);
+        Assert.True((await _repo.AdvanceAsync(user, book, At(file, 3), 4, OnChapter, Ct)).Accepted);
     }
 
     [Fact]

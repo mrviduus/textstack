@@ -32,8 +32,8 @@ public sealed class AnnotationRepository(AppDataSource dataSource) : IAnnotation
         return (await conn.QueryAsync<Annotation>(new CommandDefinition(SelectLiveOfBook, new { userId, bookId }, cancellationToken: ct))).AsList();
     }
 
-    // Two fixed statements (newest/oldest), every value a parameter. The chapter is the current file's row for the
-    // locator's chapterKey; a PDF anchor gets kind: pdf as the legacy anchor had it; an epub-cfi one (the V2 reader's)
+    // Two fixed statements (newest/oldest), every value a parameter. The chapter is the current file's TOC entry
+    // (ADR-033) for the locator's chapterKey, none for a key the TOC lacks (the server's old slug or ch-N); it has no id; a PDF anchor gets kind: pdf as the legacy anchor had it; an epub-cfi one (the V2 reader's)
     // its quote context. A removed book's highlights stay listed, under the title it had (legacy's #982).
     private const string ListAllFrom = """
         FROM annotations a
@@ -56,12 +56,12 @@ public sealed class AnnotationRepository(AppDataSource dataSource) : IAnnotation
                   ELSE a.locator->'value' END)::text AS AnchorJson,
             a.color AS Color, a.note_text AS NoteText, a.created_at AS CreatedAt, a.book_id AS BookId, b.title AS BookTitle,
             b.removed_at IS NOT NULL AS BookRemoved,
-            c.id AS ChapterId, c.title AS ChapterTitle, c.chapter_key AS ChapterKey
+            NULL::uuid AS ChapterId, c.title AS ChapterTitle, c.chapter_key AS ChapterKey
         {ListAllFrom}
         LEFT JOIN LATERAL (
-            SELECT bc.id, bc.title, bc.chapter_key FROM book_files f
-            JOIN book_chapters bc ON bc.user_id = f.user_id AND bc.file_id = f.id AND bc.chapter_key = a.locator->'value'->>'chapterKey'
-            WHERE f.user_id = a.user_id AND f.book_id = a.book_id AND f.is_current
+            SELECT e->>'title' AS title, e->>'key' AS chapter_key FROM book_files f
+            CROSS JOIN LATERAL jsonb_array_elements(CASE jsonb_typeof(f.toc) WHEN 'array' THEN f.toc END) e
+            WHERE f.user_id = a.user_id AND f.book_id = a.book_id AND f.is_current AND e->>'key' = a.locator->'value'->>'chapterKey'
             LIMIT 1
         ) c ON true
         {ListAllWhere}

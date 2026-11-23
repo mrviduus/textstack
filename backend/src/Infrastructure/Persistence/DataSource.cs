@@ -86,6 +86,5 @@ public static class DataSource
             .AddSingleton<IAdminSettingsRepository, AdminSettingsRepository>()
             .AddSingleton<IAdminSessionLifetimes, AdminSessionLifetimes>()
             .AddSingleton<IBookChapterRepository, BookChapterRepository>()
-            .AddSingleton<IIngestionJobRepository, IngestionJobRepository>()
-            .AddSingleton<IExtractionQueue, ExtractionQueue>();
+            .AddSingleton<IIngestionJobRepository, IngestionJobRepository>();
 }

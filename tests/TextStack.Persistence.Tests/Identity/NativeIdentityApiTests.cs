@@ -314,8 +314,9 @@ public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposabl
             var (user, book, file) = (UserId(account), Guid.NewGuid(), Guid.NewGuid());
             await ExecAsync(target, """
                 INSERT INTO books (id,user_id,title,author,origin) VALUES (@book,@user,'Cosmos','Sagan','{"kind":"upload"}');
-                INSERT INTO book_files (id,user_id,book_id,sha256,byte_size,original_name,format)
-                    VALUES (@file,@user,@book,repeat('a',64),10,'cosmos.epub','epub');
+                INSERT INTO book_files (id,user_id,book_id,sha256,byte_size,original_name,format,toc)
+                    VALUES (@file,@user,@book,repeat('a',64),10,'cosmos.epub','epub',
+                        '[{"key":"c1","title":"Shores","depth":0,"fraction":0},{"key":"c2","title":"Harmony","depth":0,"fraction":0.5}]');
                 INSERT INTO book_chapters (id,user_id,book_id,file_id,chapter_key,chapter_number,title,html,plain_text,created_at) VALUES
                     (gen_random_uuid(),@user,@book,@file,'c1',1,'Shores','<p>The cosmos is all that is.</p>','The cosmos is all that is.',now()),
                     (gen_random_uuid(),@user,@book,@file,'c2',2,'Harmony','<p>Worlds.</p>','Worlds.',now());

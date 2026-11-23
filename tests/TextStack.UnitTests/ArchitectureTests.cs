@@ -72,7 +72,7 @@ public class ArchitectureTests
             .ToList();
 
         Assert.True(offenders.Count == 0,
-            "A feature may use only its own repository ports; another feature's goes through that feature's public port (IBookAccess, IChapterLookup, IExtractionQueue, IAccountLookup, IReadingPositionReset, IAdminSessionLifetimes). Offending uses:\n  " + string.Join("\n  ", offenders));
+            "A feature may use only its own repository ports; another feature's goes through that feature's public port (IBookAccess, IChapterLookup, IAccountLookup, IReadingPositionReset, IAdminSessionLifetimes). Offending uses:\n  " + string.Join("\n  ", offenders));
     }
 
     [Fact]

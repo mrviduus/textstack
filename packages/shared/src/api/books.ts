@@ -7,8 +7,8 @@
 import * as syncApi from './sync'
 import { ApiError } from './client'
 import { resumeChapterOf } from './sync'
-import type { Book, FileChapters, ReadingState, ReadingStateWrite, WriteOutcome, UserBookProgressDto } from './sync'
-import { placeToLocator, locatorToPlace, type LegacyPlace } from '../reader/locators'
+import type { Book, FileChapters, Locator, ReadingState, ReadingStateWrite, WriteOutcome, UserBookProgressDto } from './sync'
+import { locatorToPlace, type LegacyPlace } from '../reader/locators'
 
 export interface ProgressWrite extends LegacyPlace {
   percent?: number
@@ -197,18 +197,22 @@ export function createBooks({ books, chapters, epoch, keepState, forgetState, pr
     }
   }
 
-  /** Mark read on V2: the state as it stands (or the book's start), at the end, with `completedAt`. */
+  /**
+   * Mark read on V2: the state as it stands (or the book's start), with `completedAt`. The start names no chapter
+   * (ADR-033: a chapter key needs the file's synced TOC): page 1 of a PDF, else a bare CFI resumed by fraction.
+   */
   async function completeBook(bookId: string): Promise<MarkOutcome> {
     const reset = resetSince()
     const b = await liveBook(bookId)
     const state = await syncApi.getReadingState(bookId)
     const sameFile = state && state.fileId === b.currentFile?.id
-    // The book's start only when there is no place on this file: a TOC fetch never fails a mark-read that needs none.
-    const first = sameFile ? null : (await bookChapters(b)).items[0]?.chapterKey
     // Signed out meanwhile: no write under the next account, and no 'nothing to mark' from its empty store.
     if (reset()) return 'dropped'
-    const currentLocator = sameFile ? state.currentLocator : placeToLocator({ chapterSlug: first ?? null })
-    if (!b.currentFile || !currentLocator) throw new ApiError(409, 'Nothing to mark read yet')
+    if (!b.currentFile) throw new ApiError(409, 'Nothing to mark read yet')
+    const start: Locator = b.currentFile.format === 'pdf'
+      ? { version: 1, scheme: 'pdf-page', value: { page: 1 } }
+      : { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' }
+    const currentLocator = sameFile ? state.currentLocator : start
     const now = new Date().toISOString()
     const written = await rememberState(syncApi.putReadingState(bookId, {
       expectedRevision: sameFile ? state.revision : null,

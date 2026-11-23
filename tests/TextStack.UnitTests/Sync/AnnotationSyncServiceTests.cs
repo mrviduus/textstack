@@ -35,7 +35,9 @@ public class AnnotationSyncServiceTests
 
     public AnnotationSyncServiceTests()
     {
-        _chapters.ExistsAsync(User, FileId, OnChapter, Arg.Any<CancellationToken>()).Returns(true);
+        // The file's synced TOC has ch-1 and no other key.
+        _chapters.CheckKeyAsync(default, default, default, default!, default).ReturnsForAnyArgs(SyncResult.ChapterNotFound);
+        _chapters.CheckKeyAsync(User, BookId, FileId, OnChapter, Arg.Any<CancellationToken>()).Returns((SyncResult?)null);
         _chapters.ClearReceivedCalls();
     }
 
@@ -163,7 +165,7 @@ public class AnnotationSyncServiceTests
         var result = await Service.SaveAsync(User, Id, Highlight(locator ?? TextAnchor(OnChapter)), Ct);
 
         Assert.Equal(200, result.Status);
-        if (asksChapter) _ = _chapters.Received(1).ExistsAsync(User, FileId, OnChapter, Arg.Any<CancellationToken>());
+        if (asksChapter) _ = _chapters.Received(1).CheckKeyAsync(User, BookId, FileId, OnChapter, Arg.Any<CancellationToken>());
         else Assert.Empty(_chapters.ReceivedCalls());
     }
 

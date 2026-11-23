@@ -31,7 +31,7 @@ public class DataAccessRegistrationTests
             typeof(IBookInsightRepository), typeof(IReviewQuestionRepository),
             typeof(UserRepository), typeof(IAccountMergeRepository), typeof(LlmTraceWriter), typeof(AgentRunWriter),
             typeof(IAdminSettingsRepository), typeof(IBookChapterRepository), typeof(IIngestionJobRepository),
-            typeof(IAccountLookup), typeof(IExtractionQueue), typeof(IReadingPositionReset), typeof(IAdminSessionLifetimes)];
+            typeof(IAccountLookup), typeof(IReadingPositionReset), typeof(IAdminSessionLifetimes)];
         foreach (var port in v2Ports)
             Assert.NotNull(services.GetRequiredService(port));
         var open = await Assert.ThrowsAsync<InvalidOperationException>(() =>

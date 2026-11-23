@@ -34,6 +34,24 @@ public class ChapterReadServiceTests
         Assert.Equal((0, "processing"), (toc.Items.Count, toc.Ingestion));
     }
 
+    // ADR-033: an assistant's chapter key is checked against the TOC the reader synced; with none synced the
+    // message tells the assistant what the user can do, since no key could be right.
+    [Theory]
+    [InlineData("""[{"key":"toc-1","title":"One","depth":0,"fraction":0}]""", "toc-1", null)]
+    [InlineData("""[{"key":"toc-1","title":"One","depth":0,"fraction":0}]""", "ch-1", "The file has no such chapter.")]
+    [InlineData(null, "toc-1", "This book's chapters are not known yet: open the book once in the reader.")]
+    [InlineData("""[{"title":"One","children":[]}]""", "toc-1", "This book's chapters are not known yet: open the book once in the reader.")] // pre-P3 free-form
+    public async Task CheckKeyAsync_KeyAgainstTheSyncedToc_AcceptedOnlyWhenTheTocHasIt(string? toc, string key, string? refusal)
+    {
+        (await _library.GetFileAsync(User, BookId, FileId, Ct))!.Toc = toc;
+
+        var result = await Service.CheckKeyAsync(User, BookId, FileId, key, Ct);
+
+        if (refusal is null) Assert.Null(result);
+        else Assert.Equal((409, SyncCodes.ChapterNotFound, refusal), (result!.Status, SyncFakes.Error(result).Code, SyncFakes.Error(result).Message));
+        Assert.Empty(_chapters.ReceivedCalls());
+    }
+
     [Fact]
     public async Task ListAsync_FileNotAVersion_IsUnknownFile()
     {

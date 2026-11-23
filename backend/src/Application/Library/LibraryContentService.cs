@@ -2,7 +2,6 @@ using System.Buffers;
 using Application.Entitlements;
 using Application.Identity;
 using Application.Sync;
-using Application.Transitional;
 using Contracts.Sync;
 using Domain.Identity;
 using Domain.Library;
@@ -18,7 +17,7 @@ namespace Application.Library;
 /// a part checks it cheaply before a byte lands; the complete decides, inside the attach's transaction.
 /// </summary>
 public sealed class LibraryContentService(
-    ILibraryRepository library, IExtractionQueue jobs, IAccountLookup users, ILibraryFileStore files,
+    ILibraryRepository library, IAccountLookup users, ILibraryFileStore files,
     EntitlementOptions entitlements, ILogger<LibraryContentService> logger)
 {
     private readonly EntitlementResolver _resolver = new(entitlements);
@@ -55,7 +54,11 @@ public sealed class LibraryContentService(
         var (missing, book, file) = await TargetAsync(userId, bookId, fileId, ct);
         if (missing is not null) return missing;
         // A replay first: the complete it repeats landed, so it answers 200 even after a removal.
-        if (file!.IsCurrent && file.ServerStorageKey is not null) return await ReplayAsync(file, ct);
+        if (file!.IsCurrent && file.ServerStorageKey is not null)
+        {
+            files.DeleteParts(file.UserId, file.Id);
+            return SyncResult.Ok(file.ToDto());
+        }
         if (NotUploadable(book!, file) is { } refused) return refused;
 
         var limit = await LimitAsync(userId, ct);
@@ -78,7 +81,6 @@ public sealed class LibraryContentService(
             // Removed (a restore may follow) or gone while they were joined: they stay.
             if (attach.Outcome is not (AttachOutcome.BookRemoved or AttachOutcome.NotFound))
                 files.DeleteParts(userId, fileId);
-            if (attach.Outcome == AttachOutcome.Attached) await EnqueueExtractionAsync(attach.File!, ct);
             return attach.Outcome switch
             {
                 AttachOutcome.Attached or AttachOutcome.AlreadyStored => SyncResult.Ok(attach.File!.ToDto()),
@@ -92,21 +94,6 @@ public sealed class LibraryContentService(
         {
             files.Discard(staged);
         }
-    }
-
-    // The enqueue runs after the attach commits; if it failed, the client's retry lands here and makes up for it.
-    private async Task<SyncResult> ReplayAsync(BookFile file, CancellationToken ct)
-    {
-        files.DeleteParts(file.UserId, file.Id);
-        if (await jobs.GetLatestForFileAsync(file.UserId, file.BookId, file.Id, ct) is null) await EnqueueExtractionAsync(file, ct);
-        return SyncResult.Ok(file.ToDto());
-    }
-
-    // Transitional (dropped at M6.4): the server extracts chapters for the readers that still need them.
-    private async Task EnqueueExtractionAsync(BookFile file, CancellationToken ct)
-    {
-        // html: a clip (ClipService), so assistants (MCP) see its chapters as they did legacy's.
-        if (file.Format is "epub" or "pdf" or "html") await jobs.EnqueueAsync(file.UserId, file.BookId, file.Id, ct);
     }
 
     /// <summary>The bytes of any version, with range support; <c>no_content</c> when the server holds none.</summary>

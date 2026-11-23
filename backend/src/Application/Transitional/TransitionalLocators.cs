@@ -10,10 +10,10 @@ namespace Application.Transitional;
 public readonly record struct TransitionalChapterKeys(string? Current, string? Frontier);
 
 /// <summary>
-/// Transitional. Dropped with <c>book_chapters</c> at R8 (#1040, M6.4); see ADR-031 "Locator schemes".
-/// <para>The legacy reader's <c>textstack-*</c> locators (owner decision 2026-11-02, #1112) are accepted
-/// only on a file version whose extracted chapters include the one they name. Never converted to
-/// anything: the locator is stored as sent.</para>
+/// The chapter keys of <c>textstack-*</c> locators (ADR-031 "Locator schemes"; owner decision 2026-11-02, #1112):
+/// written by the assistant and the library's mark-read, never by the reader (it writes <c>epub-cfi</c>,
+/// <c>pdf-page</c>, <c>page-name</c>). Accepted only on a file version whose synced TOC has the key they name
+/// (ADR-033). Never converted to anything: the locator is stored as sent.
 /// </summary>
 public static class TransitionalLocators
 {
