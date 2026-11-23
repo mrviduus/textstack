@@ -352,6 +352,7 @@ jobs:
           make fix-permissions
 
       - name: Deploy containers
+        id: deploy
         # docker-compose.gpu.yml is a prod-only overlay that adds
         # `runtime: nvidia` + GPU device reservation to the ollama service.
         # CI runners don't have nvidia-container-toolkit, so it's NOT in
@@ -421,6 +422,14 @@ jobs:
               docker tag "$IMAGE_REGISTRY-$s:$IMAGE_TAG" "textstack-$s:latest"
             done
           fi
+
+      # A one-shot service that fails (the migrator) leaves only compose's verdict here; its own
+      # stderr names the cause (postmortem 2026-10-30). Bounded, and silent on a healthy deploy.
+      - name: Show container logs on a failed deploy
+        if: failure() && steps.deploy.outcome == 'failure'
+        run: |
+          cd $PROJECT_DIR
+          docker compose --profile mcp logs --no-color --tail=100 migrator api worker mcp-server || true
 
       # Keep the local model current. A no-op when the manifest hasn't changed (seconds); the model
       # was otherwise pulled once by hand and never again. Non-fatal: a failed pull keeps the model
