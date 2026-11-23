@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { useTheme } from '../../context/ThemeContext'
-import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { formatBytes } from '../../lib/formatBytes'
 import { clearTtsCache, measureDeviceStorage, type DeviceStorageReport } from '../../lib/deviceStorage'
@@ -14,14 +13,11 @@ import { clearTtsCache, measureDeviceStorage, type DeviceStorageReport } from '.
  * existed. Downloaded books now take real space on the device, so the device
  * figure needs saying out loud. Kindle and Play Books both show it.
  *
- * Only speech gets a button. Removing a downloaded book is per-book and belongs
- * on the book, where the reader can see which one they are giving up; a single
- * "delete everything" here would be one tap away from throwing out a library
- * somebody is halfway through.
+ * Only speech gets a button: a single "delete everything" for books would be one
+ * tap away from throwing out a library somebody is halfway through.
  */
 export function DeviceStorageRow() {
   const { colors } = useTheme()
-  const { t } = useLanguage()
   const [report, setReport] = useState<DeviceStorageReport | null>(null)
   const [clearing, setClearing] = useState(false)
 
@@ -53,9 +49,8 @@ export function DeviceStorageRow() {
       </View>
 
       <Text style={[styles.detail, { color: colors.textSecondary }]}>
-        {`Books ${formatBytes(report.originalsBytes)}`}
+        {`Books ${formatBytes(report.originalsBytes + report.libraryBytes)}`}
         {report.ttsBytes > 0 ? ` · Speech ${formatBytes(report.ttsBytes)}` : ''}
-        {report.libraryBytes > 0 ? ` · ${t('profile.deviceStorageV2').replace('{{size}}', formatBytes(report.libraryBytes))}` : ''}
       </Text>
 
       {report.ttsBytes > 0 && (
@@ -71,10 +66,6 @@ export function DeviceStorageRow() {
           </Text>
         </TouchableOpacity>
       )}
-
-      <Text style={[styles.hint, { color: colors.textSecondary }]}>
-        Remove a downloaded book from the book itself.
-      </Text>
     </View>
   )
 }
@@ -87,5 +78,4 @@ const styles = StyleSheet.create({
   detail: { fontSize: 13, fontFamily: fonts.sans, marginTop: 6 },
   action: { marginTop: 12 },
   actionText: { fontSize: 14, fontFamily: fonts.sansMedium },
-  hint: { fontSize: 12, fontFamily: fonts.sans, marginTop: 10 },
 })
