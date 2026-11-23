@@ -60,26 +60,16 @@ GROUP BY 1
 ORDER BY 1 DESC;
 
 \echo
-\echo '=== 7. CONTENT ==='
-SELECT
-  (SELECT COUNT(*) FROM works)                                       AS works,
-  (SELECT COUNT(*) FROM editions)                                    AS editions_total,
-  (SELECT COUNT(*) FROM editions WHERE status = 0)                   AS editions_draft,
-  (SELECT COUNT(*) FROM editions WHERE status = 1)                   AS editions_published,
-  (SELECT COUNT(*) FROM editions WHERE status = 2)                   AS editions_hidden,
-  (SELECT COUNT(*) FROM chapters)                                    AS chapters,
-  (SELECT COUNT(*) FROM authors)                                     AS authors;
-
-\echo
-\echo '=== 8. USER-UPLOADED BOOKS ==='
+\echo '=== 7. USER-UPLOADED BOOKS ==='
 SELECT
   COUNT(*)                                        AS total_user_books,
   COUNT(DISTINCT user_id)                         AS uploaders,
   COUNT(*) FILTER (WHERE created_at > now() - interval '30 days') AS last_30d
-FROM user_books;
+FROM books
+WHERE removed_at IS NULL;
 
 \echo
-\echo '=== 9. VOCABULARY (total) ==='
+\echo '=== 8. VOCABULARY (total) ==='
 SELECT
   COUNT(*)                                  AS words_saved,
   COUNT(DISTINCT user_id)                   AS vocab_learners,
@@ -88,11 +78,12 @@ SELECT
   COUNT(*) FILTER (WHERE stage = 2)         AS stage_recall,
   COUNT(*) FILTER (WHERE stage = 3)         AS stage_context,
   COUNT(*) FILTER (WHERE stage = 4)         AS stage_mastered,
-  COUNT(*) FILTER (WHERE is_retired = true) AS retired
-FROM vocabulary_words;
+  COUNT(*) FILTER (WHERE retired_at IS NOT NULL) AS retired
+FROM vocabulary_words
+WHERE deleted_at IS NULL;
 
 \echo
-\echo '=== 10. VOCABULARY REVIEWS (last 30 days) ==='
+\echo '=== 9. VOCABULARY REVIEWS (last 30 days) ==='
 SELECT
   COUNT(*)                               AS reviews_30d,
   COUNT(DISTINCT user_id)                AS reviewers_30d,
@@ -102,13 +93,13 @@ FROM vocabulary_reviews
 WHERE created_at > now() - interval '30 days';
 
 \echo
-\echo '=== 11. ANNOTATIONS ==='
-SELECT
-  (SELECT COUNT(*) FROM highlights) AS highlights,
-  (SELECT COUNT(*) FROM bookmarks)  AS bookmarks;
+\echo '=== 10. ANNOTATIONS ==='
+SELECT COUNT(*) AS annotations
+FROM annotations
+WHERE deleted_at IS NULL;
 
 \echo
-\echo '=== 12. RETENTION (weekly cohorts, registered users) ==='
+\echo '=== 11. RETENTION (weekly cohorts, registered users) ==='
 WITH cohorts AS (
   SELECT id, date_trunc('week', created_at) AS cohort_week
   FROM users WHERE is_guest = false

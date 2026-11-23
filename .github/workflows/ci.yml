@@ -737,7 +737,7 @@ jobs:
 
       # The admin tests log in as this account (AuthenticatedApiFixture); without it they fail in
       # CI rather than skip, since a skip is a green run with the admin endpoints untested (#990).
-      # Idempotent, as in the e2e job.
+      # Idempotent: the CLI catches "already exists" and exits 0.
       - name: Create admin user for integration tests
         run: docker compose exec -T api dotnet Api.dll create-admin admin@textstack.app admin Admin
 
@@ -808,8 +808,6 @@ jobs:
           USER_LOGIN_PERMIT_LIMIT=100
           CLIP_PERMIT_LIMIT=200
           ACCOUNT_DELETE_PERMIT_LIMIT=50
-          ADMIN_EMAIL=admin@textstack.app
-          ADMIN_PASSWORD=admin
           EOF
 
       - name: Create volume dirs for non-root containers
@@ -831,17 +829,6 @@ jobs:
       - name: Wait for API health
         run: |
           timeout 120 bash -c 'until curl -s http://localhost:8080/health; do sleep 5; done'
-
-      # CI wrote ADMIN_EMAIL/ADMIN_PASSWORD into .env but nothing ever created the
-      # account, so admin login 401'd and reader-images.spec.ts skipped both of its
-      # tests on every run — silently, since a skip still reports green. The spec's
-      # own comment ("skip all tests if admin not available (e.g. CI)") shows the hole
-      # was known and accepted. Creating the admin closes it.
-      #
-      # Idempotent: the CLI catches "already exists" and exits 0, so a warm volume
-      # does not fail the job. Credentials match helpers/api.ts defaults.
-      - name: Create admin user for E2E
-        run: docker compose exec -T api dotnet Api.dll create-admin admin@textstack.app admin Admin
 
       # No version here — pnpm/action-setup reads `packageManager` from the
       # root package.json, so CI, Docker and developers use the same one.
@@ -916,7 +903,6 @@ jobs:
           SYNC_E2E: "1"
           API_URL: http://localhost:8080
           BASE_URL: http://localhost:5173
-          ADMIN_URL: http://localhost:81
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
