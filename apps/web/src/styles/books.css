@@ -217,113 +217,6 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* --- Post-upload status (Processing / Ready / Failed) --- */
-.upload-status {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 24px 8px 8px;
-  gap: 12px;
-}
-
-.upload-status__spinner {
-  color: var(--color-accent, #ff7a30);
-  width: 48px;
-  height: 48px;
-}
-
-.upload-status__check {
-  color: #22c55e;
-  width: 56px;
-  height: 56px;
-  animation: upload-status-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.upload-status__error-icon {
-  color: #ef4444;
-  width: 48px;
-  height: 48px;
-}
-
-.upload-status__title {
-  margin: 4px 0 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text, #fff);
-  /* Long titles wrap rather than overflow the modal */
-  max-width: 100%;
-  word-wrap: break-word;
-}
-
-.upload-status__hint {
-  margin: 0;
-  font-size: 14px;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
-  line-height: 1.5;
-  max-width: 380px;
-}
-
-.upload-status__actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.upload-status__primary {
-  height: 40px;
-  padding: 0 22px;
-  border: 1px solid rgba(255, 152, 0, 0.6);
-  border-radius: 8px;
-  background: rgba(255, 152, 0, 0.12);
-  color: var(--color-accent, #ff7a30);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.upload-status__primary:hover,
-.upload-status__primary:focus-visible {
-  background: rgba(255, 152, 0, 0.2);
-  border-color: rgba(255, 152, 0, 0.8);
-  outline: none;
-}
-
-.upload-status__secondary {
-  height: 40px;
-  padding: 0 18px;
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.15));
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.7));
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.upload-status__secondary:hover,
-.upload-status__secondary:focus-visible {
-  background: var(--color-bg-hover, rgba(255, 255, 255, 0.06));
-  color: var(--color-text, #fff);
-  outline: none;
-}
-
-@keyframes upload-status-pop {
-  from { opacity: 0; transform: scale(0.6); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .upload-status__check,
-  .upload-status__spinner svg circle {
-    animation: none !important;
-  }
-}
-
 .user-book-card--highlighted,
 .library-list-item--highlighted {
   animation: user-book-card-pulse 2s ease-out;
@@ -1337,15 +1230,6 @@
   transition: width 0.3s ease;
 }
 
-.user-book-card__error {
-  color: #dc2626;
-  font-size: 11px;
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* =============================================
    User Book Detail Page
    ============================================= */
@@ -1424,44 +1308,6 @@
   font-size: 14px;
   color: var(--color-text-secondary, #555);
   margin-bottom: 24px;
-}
-
-.user-book-detail__status {
-  padding: 16px;
-  border-radius: 8px;
-  margin-bottom: 24px;
-}
-
-.user-book-detail__status--processing {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: #1e40af;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.user-book-detail__status--failed {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #dc2626;
-}
-
-/* Quiet indexing hint — the PDF already reads in Original layout. */
-.user-book-detail__status--indexing {
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  color: #475569;
-  font-size: 14px;
-}
-
-.user-book-detail__spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(30, 64, 175, 0.3);
-  border-top-color: #1e40af;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
 }
 
 /* Subtle, non-alarming inline metadata-enrichment status near the title. */
@@ -1655,23 +1501,6 @@ html.dark .user-book-detail__read-btn {
 html.dark .user-book-detail__back {
   background: #fff;
   color: #0a0a0a;
-}
-
-html.dark .user-book-detail__status--processing {
-  background: rgba(30, 64, 175, 0.15);
-  border-color: rgba(30, 64, 175, 0.3);
-  color: #93b4fd;
-}
-
-html.dark .user-book-detail__status--failed {
-  background: rgba(220, 38, 38, 0.15);
-  border-color: rgba(220, 38, 38, 0.3);
-  color: #fca5a5;
-}
-
-html.dark .user-book-detail__spinner {
-  border-color: rgba(147, 180, 253, 0.3);
-  border-top-color: #93b4fd;
 }
 
 /* Mobile adjustments */
@@ -2329,14 +2158,6 @@ html.dark .user-book-detail__spinner {
 
 .library-list-item__info-item .material-icons-outlined {
   font-size: 16px;
-}
-
-.library-list-item__info-item--processing {
-  color: var(--color-primary, #3b82f6);
-}
-
-.library-list-item__info-item--processing .material-icons-outlined {
-  animation: spin 1s linear infinite;
 }
 
 .library-list-item__info-item--error {
@@ -3154,18 +2975,6 @@ html.dark .book-hero__read-btn--secondary {
   font-family: inherit;
 }
 
-.book-status-badge--processing {
-  background: hsl(35, 95%, 50%);
-  animation: badge-pulse 1.6s ease-in-out infinite;
-}
-
-/* Quiet "Indexing…" — the PDF already reads in Original layout, so this is a
-   background hint (muted, no pulse), not a blocking status. */
-.book-status-badge--indexing {
-  background: rgba(30, 41, 59, 0.72);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-}
-
 .book-status-badge--failed {
   background: #dc2626;
   cursor: pointer;
@@ -3178,20 +2987,6 @@ html.dark .book-hero__read-btn--secondary {
 
 .book-status-badge--finished {
   background: hsl(140, 55%, 38%);
-}
-
-.book-status-badge__spinner {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid rgba(255, 255, 255, 0.4);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes badge-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
 }
 
 .user-book-card__cover-wrap {

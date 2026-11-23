@@ -85,16 +85,6 @@ export function LibraryPage() {
   // here. See lib/dataEvents.ts for the bus.
   useDataChange('user-books', fetchUserBooks)
 
-
-  // Auto-refresh processing books
-  useEffect(() => {
-    const processingBooks = userBooks.filter(b => b.status === 'Processing')
-    if (processingBooks.length === 0) return
-
-    const interval = setInterval(fetchUserBooks, 5000)
-    return () => clearInterval(interval)
-  }, [userBooks, fetchUserBooks])
-
   // Shared semantics (packages/shared library/entries) — same as mobile.
   const sourceEntries = buildLibraryEntries(NO_SAVED, userBooks, 'uploads')
   const combinedCounts = countEntries(sourceEntries, NO_PROGRESS)
@@ -182,7 +172,7 @@ export function LibraryPage() {
         <LibrarySidebar
           source={librarySource.source}
           tag={librarySource.tag}
-          counts={{ all: userBooks.length, uploads: userBooks.length }}
+          counts={{ all: userBooks.length }}
           onSourceChange={(s) => {
             librarySource.setSource(s)
             setSidebarOpen(false)

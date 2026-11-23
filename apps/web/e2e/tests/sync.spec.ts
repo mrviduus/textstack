@@ -40,7 +40,7 @@ test.describe('Sync @sync', () => {
     })
     const page = await context.newPage()
 
-    // Upload: sha256, import, parts, complete — then Processing until the worker has the chapters.
+    // Upload: sha256, import, parts, complete — then the reader; the worker still extracts the chapters (until ADR-033 P5).
     await page.goto('/en/library')
     await page.locator('.site-header__upload-btn').click()
     const imported = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/me\/v2\/books\/[0-9a-f-]{36}$/.test(r.url()))
@@ -49,11 +49,10 @@ test.describe('Sync @sync', () => {
     expect(importResp.status(), `import: ${await importResp.text()}`).toBe(201)
     expect(importResp.request().postDataJSON()).toMatchObject({ title: TITLE, language: 'en' })
     const { id: bookId, currentFile } = (await importResp.json()) as { id: string; currentFile: { id: string } }
-    await expect(page.getByRole('button', { name: 'Read now' })).toBeVisible({ timeout: 120_000 })
+    // Readable once its file is in (ADR-033): the modal drops straight into the reader.
+    await expect(page).toHaveURL(new RegExp(`/en/library/my/${bookId}/read`), { timeout: 30_000 })
 
-    const toc = await syncGet<{ items: { chapterKey: string }[] }>(request, `/books/${bookId}/files/${currentFile.id}/chapters`)
-    const keys = toc!.items.map((c) => c.chapterKey)
-    expect(keys).toHaveLength(3)
+    await expect.poll(async () => (await syncGet<{ items: unknown[] }>(request, `/books/${bookId}/files/${currentFile.id}/chapters`))?.items.length, { timeout: 120_000 }).toBe(3)
 
     // The library is the V2 feed.
     await page.goto('/en/library')

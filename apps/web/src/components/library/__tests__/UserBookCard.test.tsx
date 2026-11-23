@@ -29,7 +29,7 @@ function makeBook(over: Partial<UserBook>): UserBook {
     description: null,
     coverPath: null,
     genre: null,
-    status: 'Processing',
+    status: 'Ready',
     errorMessage: null,
     chapterCount: 0,
     totalWordCount: null,
@@ -59,8 +59,8 @@ function renderCard(book: UserBook) {
 }
 
 describe('UserBookCard PDF progress', () => {
-  it('shows page-% for a readable PDF even while Processing (not Ready)', () => {
-    const { container } = renderCard(makeBook({ status: 'Processing', hasOriginalPdf: true }))
+  it('shows page-% for a PDF with its file', () => {
+    const { container } = renderCard(makeBook({ hasOriginalPdf: true }))
     expect(screen.getByText('42% read')).toBeInTheDocument()
     const fill = container.querySelector('.user-book-card__progress-fill') as HTMLElement
     expect(fill).toBeTruthy()
@@ -69,15 +69,15 @@ describe('UserBookCard PDF progress', () => {
 
   it('opens the book page from the title, and Continue goes to the chapterless Original reader', () => {
     // The card is the way into the BOOK (cover, chapters, notes); Continue is the way into the text.
-    renderCard(makeBook({ status: 'Processing', hasOriginalPdf: true }))
+    renderCard(makeBook({ hasOriginalPdf: true }))
     const title = screen.getByText('My PDF').closest('a') as HTMLAnchorElement
     expect(title.getAttribute('href')).toBe('/en/library/my/pdf-1')
     const cont = screen.getByText('library.continue').closest('a') as HTMLAnchorElement
     expect(cont.getAttribute('href')).toBe('/en/library/my/pdf-1/read')
   })
 
-  it('does NOT show progress for a non-PDF book still Processing', () => {
-    renderCard(makeBook({ status: 'Processing', hasOriginalPdf: false }))
+  it('a book whose file bytes are gone shows no progress and opens nothing', () => {
+    renderCard(makeBook({ status: 'Failed' }))
     expect(screen.queryByText('42% read')).toBeNull()
   })
 })

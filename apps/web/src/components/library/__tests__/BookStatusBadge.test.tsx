@@ -10,12 +10,6 @@ import { BookStatusBadge } from '../BookStatusBadge'
 afterEach(() => cleanup())
 
 describe('BookStatusBadge', () => {
-  it('renders processing variant with spinner', () => {
-    const { container } = render(<BookStatusBadge variant="processing" />)
-    expect(screen.getByText('library.badge.processing')).toBeInTheDocument()
-    expect(container.querySelector('.book-status-badge__spinner')).toBeTruthy()
-  })
-
   it('renders failed variant as button when onClick passed', () => {
     const onClick = vi.fn()
     render(<BookStatusBadge variant="failed" onClick={onClick} />)

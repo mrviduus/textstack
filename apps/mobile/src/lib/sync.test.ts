@@ -167,7 +167,7 @@ describe('mobile v2', () => {
     })
     const shelf = await getUserBooks()
     expect(shelf.map((b) => [b.id, b.status, b.chapterCount, b.totalWordCount])).toEqual([
-      ['ready', 'Ready', 3, 1200], ['running', 'Processing', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null], ['no-words', 'Ready', 2, null],
+      ['ready', 'Ready', 3, 1200], ['running', 'Ready', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null], ['no-words', 'Ready', 2, null],
     ])
     expect(calls.map((c) => c.path.split('?')[0]).sort()).toEqual(['/library/changes', '/reading/changes'])
   })

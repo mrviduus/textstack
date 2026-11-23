@@ -63,11 +63,12 @@ describe('the V2 library', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it("reads the shelf from the two feeds alone: each book's status and counts are its file's (#1118)", async () => {
+  it("reads the shelf from the two feeds alone: a book is ready when its file's bytes are in, whatever the server's extraction (ADR-033)", async () => {
     const calls = fakeApi({
       'GET /me/v2/library/changes': feed(
         book('ready', 'f1', { currentFile: file('f1', { ingestion: 'succeeded', chapterCount: 3, wordCount: 1200 }) }),
         book('running', 'f2', { currentFile: file('f2', { ingestion: 'processing' }) }),
+        book('failed', 'f6', { currentFile: file('f6', { ingestion: 'failed' }) }),
         book('no-bytes', 'f3', { currentFile: file('f3', { hasContent: false }) }),
         book('mobi', 'f5', { currentFile: file('f5', { format: 'mobi' }) }),
         book('no-words', 'f4', { currentFile: file('f4', { ingestion: 'succeeded', chapterCount: 2 }) }),
@@ -76,7 +77,7 @@ describe('the V2 library', () => {
     })
     const shelf = await getShelfBooks()
     expect(shelf.map((b) => [b.id, b.status, b.chapterCount, b.totalWordCount])).toEqual([
-      ['ready', 'Ready', 3, 1200], ['running', 'Processing', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null], ['no-words', 'Ready', 2, null],
+      ['ready', 'Ready', 3, 1200], ['running', 'Ready', 0, null], ['failed', 'Ready', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null], ['no-words', 'Ready', 2, null],
     ])
     expect(calls.map((c) => c.path.split('?')[0])).toEqual(['/me/v2/library/changes', '/me/v2/reading/changes'])
   })

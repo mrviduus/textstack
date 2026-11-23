@@ -6,7 +6,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { uploadErrorMessage } from '../../api/sync'
 
 interface UploadFormProps {
-  onUploadComplete: (newBookId?: string, hasOriginalPdf?: boolean) => void
+  onUploadComplete: (newBookId?: string) => void
   initialFile?: File
   queueLabel?: string
 }
@@ -23,7 +23,7 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
     setError(null)
 
     // Pre-upload sanity check: a PDF picked mid-download is truncated and would
-    // fail ingestion. Block before spending the upload (server also 400s it).
+    // not open. Block before spending the upload (server also 400s it).
     if (!(await pdfFilePassesSanityCheck(file))) {
       emit('upload.failed', { reason: 'truncated_pdf_client' })
       setError(t('upload.dropzone.truncatedPdf'))
@@ -40,7 +40,7 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
       })
       const newBookId = result?.userBookId
       emit('upload.completed', { durationMs: Date.now() - startedAt, sizeBytes: file.size })
-      onUploadComplete(newBookId, result?.hasOriginalPdf)
+      onUploadComplete(newBookId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       emit('upload.failed', { reason: msg })

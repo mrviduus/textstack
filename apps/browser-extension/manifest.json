@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "TextStack — Save to read later",
+  "name": "TextStack — Save to library",
   "version": "0.1.0",
-  "description": "Clip web articles to your private TextStack library to read later — with TTS, highlights, and vocabulary.",
+  "description": "Clip web articles to your private TextStack library — with TTS, highlights, and vocabulary.",
   "permissions": [
     "activeTab",
     "scripting",

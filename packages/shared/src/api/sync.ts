@@ -353,15 +353,12 @@ export interface FileChapter extends ChapterHeading {
 
 // ---- The uploads shelf (transitional, #1118) ----------------------------------------------------
 
-/** An extraction's status as the legacy book status: queued and processing are one state to a reader. */
 /**
- * A file's status. No extraction job (MOBI, AZW3, FB2, CBZ: the server never extracts them, ADR-033) is
- * not a failure: the reader parses the file itself, so a file with its bytes is ready.
+ * A file's status: ready when its bytes are in. The reader parses the file itself (ADR-033), so the
+ * server's extraction says nothing about it; `_ingestion` is ignored, kept only for callers until P5.
  */
-export function ingestionStatus(ingestion: Ingestion | null | undefined, hasContent: boolean): 'Processing' | 'Ready' | 'Failed' {
-  if (ingestion === 'queued' || ingestion === 'processing') return 'Processing'
-  if (ingestion == null) return hasContent ? 'Ready' : 'Failed'
-  return ingestion === 'succeeded' ? 'Ready' : 'Failed'
+export function ingestionStatus(_ingestion: Ingestion | null | undefined, hasContent: boolean): 'Processing' | 'Ready' | 'Failed' {
+  return hasContent ? 'Ready' : 'Failed'
 }
 
 /**
