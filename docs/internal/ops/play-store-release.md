@@ -314,5 +314,8 @@ points at hosted `ingest.us.sentry.io` rather than a self-hosted instance. Keep 
    check that exists on the PDF.js Original viewer, which shipped without device
    verification (see `docs/internal/changelog-archive/2026-H2.md`, ADR-012 S4).
 7. Production only: hold at 10%, watch vitals for 48h, then widen by hand.
+7a. At 100%: a one-line PR sets the `MOBILE_LATEST_BUILD` default in `docker-compose.yml` to
+    the build's versionCode. Older installs then see a "new version" bar: an OTA reaches only
+    installs of its own runtime, so without the bar they stay on old code silently (#914).
 8. If Sentry is enabled: confirm a test event arrives **with a readable stack trace**.
    Source maps are the part that silently does not work.
