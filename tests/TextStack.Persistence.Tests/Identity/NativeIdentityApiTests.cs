@@ -317,9 +317,6 @@ public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposabl
                 INSERT INTO book_files (id,user_id,book_id,sha256,byte_size,original_name,format,toc)
                     VALUES (@file,@user,@book,repeat('a',64),10,'cosmos.epub','epub',
                         '[{"key":"c1","title":"Shores","depth":0,"fraction":0},{"key":"c2","title":"Harmony","depth":0,"fraction":0.5}]');
-                INSERT INTO book_chapters (id,user_id,book_id,file_id,chapter_key,chapter_number,title,html,plain_text,created_at) VALUES
-                    (gen_random_uuid(),@user,@book,@file,'c1',1,'Shores','<p>The cosmos is all that is.</p>','The cosmos is all that is.',now()),
-                    (gen_random_uuid(),@user,@book,@file,'c2',2,'Harmony','<p>Worlds.</p>','Worlds.',now());
                 """, new { user, book, file });
 
             using var http = _apps[^1].CreateClient();
@@ -337,7 +334,6 @@ public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposabl
             Assert.Contains("Cosmos", (await Call("search_my_library", new { query = "sagan" })).GetRawText());
             var chapters = (await Call("get_my_book", new { bookId = book })).GetProperty("chapters");
             var shores = chapters[0].GetProperty("chapterId").GetGuid();
-            Assert.Contains("all that is", (await Call("get_my_chapter", new { bookId = book, chapterSlug = "c1" })).GetProperty("text").GetString());
 
             await Call("save_my_highlight", new { bookId = book, chapterId = shores, selectedText = "all that is", noteText = "the opening line" });
             var marked = (await Call("list_my_book_highlights", new { bookId = book })).GetProperty("highlights");

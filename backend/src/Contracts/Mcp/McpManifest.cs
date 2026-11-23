@@ -43,17 +43,15 @@ public static class McpManifestCatalog
             "Search the books the signed-in user has UPLOADED to TextStack by title or author "
             + "(requires authentication); tags (comma-separated) must all be on the book. "
             + "Returns one hit per book with its bookId, title and author. "
-            + "Pass the bookId to get_my_book or get_my_chapter."),
+            + "Pass the bookId to get_my_book."),
         new("get_my_book",
             "Fetch one of the signed-in user's UPLOADED books by bookId (from search_my_library): "
-            + "its metadata and its full chapter list (requires authentication). Each chapter "
-            + "carries a chapterId and a slug — the slug goes to get_my_chapter, the chapterId to "
-            + "save_my_highlight."),
-        new("get_my_chapter",
-            "Fetch one chapter of a book the signed-in user UPLOADED: its plain text "
-            + "(HTML stripped, length-capped) plus its chapterId, number, title and prev/next "
-            + "slugs (requires authentication). The chapterId it returns is what save_my_highlight "
-            + "needs."),
+            + "its metadata and its table of contents, in reading order (requires authentication). Each "
+            + "chapter carries a chapterId (for save_my_highlight) and a slug (for save_insight and "
+            + "set_book_progress). It has no chapter text: to discuss a chapter's text, ask the user to "
+            + "share it from the TextStack reader (\"Discuss this chapter\"), then read it with "
+            + "get_shared_chapter. A book with no chapters has not been opened in the reader yet: ask the "
+            + "user to open it once."),
         new("list_my_vocabulary",
             "List the signed-in user's saved vocabulary words, optionally filtered by SRS stage or search (requires authentication). "
             + "Each word carries its id, which is what update_vocabulary_word and delete_vocabulary_word take."),
@@ -78,9 +76,9 @@ public static class McpManifestCatalog
         new("save_my_highlight",
             "Highlight a passage in one of the books the user UPLOADED (WRITE on their own account — "
             + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "
-            + "in (from get_my_book or get_my_chapter), and the exact text as it appears in that "
-            + "chapter — it is matched against the chapter text to place the highlight, so quote it "
-            + "verbatim. Optionally a color and a note. The highlight is listed by "
+            + "in (from get_my_book), and the exact text as it appears in that chapter (from a "
+            + "chapter the reader shared) — it is matched against the chapter text to place the "
+            + "highlight, so quote it verbatim. Optionally a color and a note. The highlight is listed by "
             + "list_my_book_highlights and appears in the reader — EXCEPT on a book get_my_book "
             + "reports as rendersAsOriginalPdf, where it is saved and listed but not drawn over the "
             + "page, because a PDF highlight is placed by page geometry this tool cannot produce. "
@@ -116,8 +114,8 @@ public static class McpManifestCatalog
             "Record that the reader has FINISHED a chapter, including one they read or listened to "
             + "somewhere else — an audiobook, paper, another app (requires authentication). Pass the "
             + "bookId and the chapterSlug they finished; get_my_reading and get_my_book list the slugs. "
-            + "The app then resumes them at the START of the next chapter and its progress becomes "
-            + "chapters-finished over chapters-total; finishing the last chapter marks the book complete. "
+            + "The app then resumes them at the START of the next chapter, and its progress becomes where "
+            + "that chapter starts in the book; finishing the last chapter marks the book complete. "
             + "Only call this when the reader says they finished something — it overwrites the exact "
             + "position their reader had stored, and it cannot be undone from here."),
         new("share_chapter",

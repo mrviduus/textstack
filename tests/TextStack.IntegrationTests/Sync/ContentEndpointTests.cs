@@ -186,7 +186,6 @@ public class ContentEndpointTests(SyncApiFixture v2) : IClassFixture<SyncApiFixt
             await v2.SendAsync(v2.Bob, HttpMethod.Delete, $"{Files(book, file)}/content"),
             await v2.SendAsync(v2.Bob, HttpMethod.Get, $"/me/v2/books/{book}/cover"),
             await v2.SendAsync(v2.Bob, HttpMethod.Get, $"{Files(book, file)}/chapters"),
-            await v2.SendAsync(v2.Bob, HttpMethod.Get, $"{Files(book, file)}/chapters/1-one"),
         ];
 
         Assert.Equal((HttpStatusCode.NotFound, HttpStatusCode.NotFound), (part.StatusCode, cover.StatusCode));

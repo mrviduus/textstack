@@ -79,7 +79,7 @@ public class McpReadToolsTests
         var names = catalog.ListTools().Select(t => t.Name).OrderBy(n => n).ToArray();
 
         Assert.Equal(
-            ["add_vocabulary_words", "delete_vocabulary_word", "get_book_progress", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_vocabulary", "save_checkpoint", "save_insight", "save_my_highlight", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
+            ["add_vocabulary_words", "delete_vocabulary_word", "get_book_progress", "get_my_book", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_vocabulary", "save_checkpoint", "save_insight", "save_my_highlight", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
             names);
     }
 
@@ -108,7 +108,6 @@ public class McpReadToolsTests
         Assert.Empty(Required(byName["list_my_vocabulary"]));
         Assert.Equal(["query"], Required(byName["search_my_library"]));
         Assert.Equal(["bookId"], Required(byName["get_my_book"]));
-        Assert.Equal(["bookId", "chapterSlug"], Required(byName["get_my_chapter"]));
     }
 
     [Fact]
@@ -174,7 +173,6 @@ public class McpReadToolsTests
     [InlineData("list_my_vocabulary", """{"search":123}""")]     // wrong type
     [InlineData("search_my_library", """{"query":"a"}""")]       // query too short
     [InlineData("get_my_book", """{"bookId":"not-a-uuid"}""")]
-    [InlineData("get_my_chapter", $$"""{"bookId":"{{Book}}"}""")] // no chapterSlug
     [InlineData("save_my_highlight", $$"""{"bookId":"{{Book}}","chapterId":"{{Book}}","selectedText":"x","color":"orange"}""")]
     [InlineData("list_my_book_highlights", "{}")]
     [InlineData("save_insight", $$"""{"editionId":"{{Book}}","text":"x"}""")] // no bookId (editionId is not an argument)

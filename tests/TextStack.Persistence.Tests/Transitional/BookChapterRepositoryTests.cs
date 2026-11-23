@@ -119,44 +119,6 @@ public class BookChapterRepositoryTests(PostgresFixture db)
     }
 
     [Fact]
-    public async Task GetWithNeighboursAsync_Key_ReturnsTheWholeChapterAndSkipsTheGap()
-    {
-        var book = await BookWithChaptersAsync();
-
-        var (chapter, previous, next) = await _repo.GetWithNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "four", Ct);
-
-        Assert.Equal((4, "<p>four</p>", "text of four", book.Id), (chapter!.ChapterNumber, chapter.Html, chapter.PlainText, chapter.BookId));
-        Assert.Equal(("two", (string?)null), (previous?.ChapterKey, next?.ChapterKey));
-    }
-
-    [Fact]
-    public async Task GetWithNeighboursAsync_FirstChapter_HasOnlyANext()
-    {
-        var book = await BookWithChaptersAsync();
-
-        var (_, previous, next) = await _repo.GetWithNeighboursAsync(book.UserId, book.Id, book.CurrentFile!.Id, "one", Ct);
-
-        Assert.Equal(((string?)null, "two"), (previous?.ChapterKey, next?.ChapterKey));
-    }
-
-    [Fact]
-    public async Task GetWithNeighboursAsync_Bob_FindsNothing()
-    {
-        var book = await BookWithChaptersAsync();
-
-        Assert.Equal((null, null, null), await _repo.GetWithNeighboursAsync(await db.NewReaderAsync(), book.Id, book.CurrentFile!.Id, "two", Ct));
-    }
-
-    [Fact]
-    public async Task GetWithNeighboursAsync_FileOfAnotherBook_FindsNothing()
-    {
-        var book = await BookWithChaptersAsync();
-        var other = await db.NewBookAsync(book.UserId);
-
-        Assert.Equal((null, null, null), await _repo.GetWithNeighboursAsync(book.UserId, other.Id, book.CurrentFile!.Id, "two", Ct));
-    }
-
-    [Fact]
     public async Task GetPlainTextAsync_Key_ReturnsTheText()
     {
         var book = await BookWithChaptersAsync();

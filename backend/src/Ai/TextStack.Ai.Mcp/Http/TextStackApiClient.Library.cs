@@ -7,9 +7,10 @@ using Contracts.Sync;
 namespace TextStack.Ai.Mcp.Http;
 
 /// <summary>
-/// The my-library tools on the V2 sync API (#1346): uploads, chapters, highlights, insights and reading state
-/// under <c>/me/v2</c>, answered in the shapes the tool catalog maps. A V2 chapter's key is its slug; its id is
-/// minted here from the file and the key (<see cref="ChapterId"/>), so listing and saving agree.
+/// The my-library tools on the V2 sync API (#1346): uploads, their tables of contents, highlights, insights and
+/// reading state under <c>/me/v2</c>, answered in the shapes the tool catalog maps. No chapter text (ADR-033 P4): the
+/// assistant reads what the reader shares. A V2 chapter's key is its slug; its id is minted here from the file and
+/// the key (<see cref="ChapterId"/>), so listing and saving agree.
 /// </summary>
 public sealed partial class TextStackApiClient
 {
@@ -75,23 +76,8 @@ public sealed partial class TextStackApiClient
         var file = book.CurrentFile;
         var chapters = file is null ? [] : await ChaptersAsync(bookId, file.Id, ct);
         return new UserBookDetailJson(book.Id, book.Title, book.Id.ToString(), book.Language ?? "", book.Author, book.Description,
-            book.Genre, book.PublishedYear, file?.WordCount,
-            // An ingestion job queued or running is Processing; none (an imported file) is Ready.
-            file?.Ingestion switch { "queued" or "processing" => "Processing", "failed" => "Failed", _ => "Ready" },
-            file?.Format == "pdf",
-            chapters.Select(c => new UserChapterSummaryJson(ChapterId(file!.Id, c.ChapterKey), c.ChapterNumber, c.ChapterKey, c.Title, c.WordCount)).ToList());
-    }
-
-    public async Task<UserChapterJson?> GetMyChapterAsync(Guid bookId, string chapterKey, CancellationToken ct)
-    {
-        if ((await BookAsync(bookId, ct))?.CurrentFile is not { } file) return null;
-        var read = await SendAsync<object>(HttpMethod.Get,
-            $"/me/v2/books/{bookId}/files/{file.Id}/chapters/{Uri.EscapeDataString(chapterKey)}", null, ct);
-        if (read.Error is not null) { ThrowUnlessNotFound(read); return null; }
-        var c = read.Value.Deserialize<ChapterDto>(JsonOptions)!;
-        static UserChapterNavJson? Nav(ChapterHeadingDto? h) => h is null ? null : new(h.ChapterNumber, h.ChapterKey, h.Title);
-        return new UserChapterJson(ChapterId(file.Id, c.ChapterKey), c.ChapterNumber, c.ChapterKey, c.Title, c.Html, c.WordCount,
-            Nav(c.Previous), Nav(c.Next));
+            book.Genre, book.PublishedYear, file?.Format == "pdf",
+            chapters.Select(c => new UserChapterSummaryJson(ChapterId(file!.Id, c.ChapterKey), c.ChapterNumber, c.ChapterKey, c.Title, c.Depth, c.Fraction)).ToList());
     }
 
     /// <summary>
@@ -196,12 +182,20 @@ public sealed partial class TextStackApiClient
 
     public async Task<UserBookProgressJson?> GetUserBookProgressAsync(Guid bookId, CancellationToken ct) =>
         await ReadingStateAsync(bookId, ct) is { } s
-            ? new(PositionChapterOf(s.CurrentLocator), null, (double)s.BookFraction, s.UpdatedAt)
+            ? new(await ChapterOfAsync(s, ct), null, (double)s.BookFraction, s.UpdatedAt)
             : null;
 
     /// <summary>
+    /// The chapter a reading state is in: a <c>textstack-position-v1</c>'s key, else the last entry of its file's
+    /// TOC that starts at or before the state's fraction; null when the TOC has no fractions (not synced yet).
+    /// </summary>
+    private async Task<string?> ChapterOfAsync(ReadingStateDto s, CancellationToken ct) =>
+        PositionChapterOf(s.CurrentLocator)
+        ?? (await ChaptersAsync(s.BookId, s.FileId, ct)).LastOrDefault(c => c.Fraction <= s.BookFraction)?.ChapterKey;
+
+    /// <summary>
     /// <c>PUT /me/v2/books/{id}/reading-state</c> at the start of <paramref name="chapterSlug"/> (a <c>textstack-position-v1</c>,
-    /// as the transitional reader writes), on the revision just read; a finished book is completed now.
+    /// which the reader opens by <paramref name="percent"/>), on the revision just read; a finished book is completed now.
     /// </summary>
     public async Task<bool> SetUserBookProgressAsync(Guid bookId, string? chapterSlug, double? percent, CancellationToken ct)
     {
@@ -237,11 +231,15 @@ public sealed partial class TextStackApiClient
         var feed = await PullAllAsync<ReadingStateDto>("/me/v2/reading/changes", ct);
         if (feed.Error is { } e) throw new HttpRequestException(e, null, feed.Status);
         var states = feed.Value!.ToDictionary(s => s.BookId);
+        // ponytail: one TOC read per opened book without a position-v1 key, in turn; batch it if a shelf grows large.
+        var chapterOf = new Dictionary<Guid, string?>();
+        foreach (var b in books)
+            if (states.TryGetValue(b.Id, out var state)) chapterOf[b.Id] = await ChapterOfAsync(state, ct);
 
         var now = DateTimeOffset.UtcNow;
         var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
         ShelfItemJson Shelf(BookDto b, ReadingStateDto s) =>
-            new(b.Id, "userbook", b.Title, b.Author, null, (double)s.BookFraction, s.UpdatedAt, PositionChapterOf(s.CurrentLocator));
+            new(b.Id, "userbook", b.Title, b.Author, null, (double)s.BookFraction, s.UpdatedAt, chapterOf[b.Id]);
         var read = books.Where(b => states.ContainsKey(b.Id)).Select(b => (Book: b, State: states[b.Id])).ToList();
         var shelves = new ShelvesJson(
             read.Where(r => r.State.CompletedAt is null).OrderByDescending(r => r.State.UpdatedAt).Select(r => Shelf(r.Book, r.State)).ToList(),
@@ -251,7 +249,7 @@ public sealed partial class TextStackApiClient
         {
             var s = states.GetValueOrDefault(b.Id);
             return new MyBookJson(b.Id, b.Title, b.Id.ToString(), b.Author, "Ready", b.CurrentFile?.ChapterCount ?? 0,
-                s is null ? null : (double)s.BookFraction, s is null ? null : PositionChapterOf(s.CurrentLocator), s?.CompletedAt);
+                s is null ? null : (double)s.BookFraction, s is null ? null : chapterOf[b.Id], s?.CompletedAt);
         }).ToList();
         return (shelves, all);
     }

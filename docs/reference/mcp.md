@@ -2,23 +2,22 @@
 
 TextStack is a **Model Context Protocol (MCP)** server. Connect it to Claude
 Desktop, Cursor, ChatGPT, or any MCP client, and the assistant can search the
-books in your TextStack library, read chapters, save conclusions back into the book,
-and manage your own highlights and vocabulary —
-all from the chat. There is no server-side Q&A; the assistant reads the chapter itself.
+books in your TextStack library, discuss the chapters you share from the reader, save
+conclusions back into the book, and manage your own highlights and vocabulary —
+all from the chat. There is no server-side Q&A; the assistant reads the chapter you shared.
 
 This is the canonical reference. The [package README](https://www.nuget.org/packages/TextStack.Mcp)
 and the [landing page](https://textstack.app/en/mcp) point here.
 
 ## The tools
 
-The server exposes 18 tools, every one on your own account: sign in first (see
+The server exposes 17 tools, every one on your own account: sign in first (see
 [Authentication](#authentication)). A book is addressed by its `bookId`.
 
 | Tool | What it does | Auth |
 |------|--------------|------|
 | `search_my_library` | Search your books by title or author (and tags). Returns one hit per book with its `bookId`. | User |
-| `get_my_book` | Fetch one of your books by `bookId`: metadata + full chapter list, each chapter carrying its `chapterId`. | User |
-| `get_my_chapter` | Fetch one chapter as plain text, plus its `chapterId` and prev/next slugs. | User |
+| `get_my_book` | Fetch one of your books by `bookId`: metadata + its table of contents, each chapter carrying its `chapterId` and slug. No chapter text. | User |
 | `save_my_highlight` | Highlight a passage in one of your books. Matched against the chapter text, so the quote must be verbatim. | User |
 | `list_my_book_highlights` | List the highlights already in one of your books. | User |
 | `save_insight` | Write a conclusion back into a book — against a `chapterSlug`, or against the whole book when omitted. Saving again for the same chapter replaces it. | User |
@@ -44,18 +43,23 @@ it answers "what am I reading" with titles, the chapter you stopped in, and the
 `bookId` each other tool takes. `get_book_progress` answers the same for one book, which is what lets an
 assistant avoid spoiling what you have not reached. `set_book_progress` closes the
 loop the other way: tell it you finished a chapter in an audiobook or on paper and
-the app resumes you at the next one, with progress recorded as chapters-finished
-over chapters-total. It is the only tool here that changes where your reader opens,
+the app resumes you at the next one, with progress recorded as where that chapter
+starts in the book (the reader's table of contents). It is the only tool here that changes where your reader opens,
 so it acts only when you say you finished something.
 
 A typical chain is `search_my_library → get_my_book` (to get the chapter ids)
-`→ get_my_chapter` / `save_my_highlight`.
+`→ save_my_highlight`.
+
+**The server keeps no book text** (ADR-033): your device parses the book, and the server
+holds its table of contents, which the reader sends the first time you open the book. So
+`get_my_book` lists chapters but cannot read them; to discuss one, share it from the reader
+("Discuss this chapter") and the assistant reads it with `get_shared_chapter`. A book you
+have not opened in the reader yet has no chapters listed.
 
 **There is no question-answering tool.** There used to be — `ask_book`, a
 retrieval-augmented answer over an index we built and paid for. It is gone,
-because your assistant reads `get_my_chapter` as plain text and reasons over it
-better than our retrieval did, at no cost to us and none to you beyond the
-subscription you already have. Ask it about the chapter; it has the chapter.
+because your assistant reasons over a shared chapter better than our retrieval did,
+at no cost to us and none to you beyond the subscription you already have.
 
 ## Limits on what an assistant may write
 
@@ -100,7 +104,7 @@ the next conversation repeating the last one.
 Both transports send `instructions` at `initialize` (`McpBridgeCore.Instructions`,
 wired as `McpServerOptions.ServerInstructions` in both hosts). They tell the model:
 find the book (from the id line, else `search_my_library` / `get_my_reading`),
-check `get_my_insights` first, read with `get_my_book`/`get_my_chapter`, save
+check `get_my_insights` first, list chapters with `get_my_book` (and ask the reader to share one to read it), save
 conclusions with `save_insight`, read a shared chapter with `get_shared_chapter` and
 save the discussion with `save_checkpoint`, never run ahead of the reader's position, and — since #687 — remember words it explained, offer them once
 when the topic winds down, and call `add_vocabulary_words` only on a yes.
@@ -316,7 +320,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 18 tools.
+result containing all 17 tools.
 
 ## Troubleshooting
 

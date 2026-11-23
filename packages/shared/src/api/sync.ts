@@ -346,12 +346,6 @@ export interface FileChapters {
   ingestion: Ingestion
 }
 
-export interface FileChapter extends ChapterHeading {
-  html: string
-  previous: ChapterHeading | null
-  next: ChapterHeading | null
-}
-
 // ---- The uploads shelf (transitional, #1118) ----------------------------------------------------
 
 /**
@@ -547,8 +541,6 @@ export const getChapters = (bookId: string, fileId: string) => authFetch<FileCha
 /** ADR-033 P3: the file's TOC (shared `tocForServer`'s entries), overwritten; 204. */
 export const putFileToc = (bookId: string, fileId: string, toc: { key: string; title: string; depth: number; fraction: number }[]) =>
   authFetch<void>(`${file(bookId, fileId)}/toc`, jsonBody('PUT', toc))
-export const getChapter = (bookId: string, fileId: string, chapterKey: string) =>
-  authFetch<FileChapter>(`${file(bookId, fileId)}/chapters/${encodeURIComponent(chapterKey)}`)
 
 /** null: the book has no reading state yet (the next write is a first write). */
 export const getReadingState = (bookId: string, signal?: AbortSignal) =>

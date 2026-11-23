@@ -7,13 +7,13 @@
  */
 import {
   syncApi, ApiError, SYNC_OFF, shelfFileSummary, isShelfBook, resumeChapterOf, placeToLocator, createBooks, uploadFile, FileUploadError, mb,
-  type Book, type FileChapters, type FileChapter, type ReadingState, type Annotation, type Word,
+  type Book, type FileChapters, type ReadingState, type Annotation, type Word,
   type ReadingStateWrite, type SyncSwitch, type ProgressWrite,
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import { settleSyncSession, syncSessionSettled, rearmSyncSession } from '../lib/syncSession'
 import { describeBook } from '../lib/describeBook'
-import type { UserBook, UserBookDetail, UserChapter, UploadResponse, UserBookProgress } from './userBooks'
+import type { UserBook, UserBookDetail, UploadResponse, UserBookProgress } from './userBooks'
 
 // ---- The switch ---------------------------------------------------------------------------------
 
@@ -172,18 +172,6 @@ export async function getBookDetail(id: string): Promise<UserBookDetail> {
     completedAt: state?.completedAt ?? null,
     pageCount: b.currentFile?.pageCount ?? null,
     hasFile: !!b.currentFile?.hasContent,
-  }
-}
-
-const heading = (h: FileChapter['previous']) => h && { chapterNumber: h.chapterNumber, slug: h.chapterKey, title: h.title }
-
-export async function getBookChapter(bookId: string, chapterKey: string): Promise<UserChapter> {
-  const b = await liveBook(bookId)
-  if (!b.currentFile) throw new ApiError(404, 'Chapter not found')
-  const ch = await syncApi.getChapter(bookId, b.currentFile.id, chapterKey)
-  return {
-    id: ch.chapterKey, chapterNumber: ch.chapterNumber, slug: ch.chapterKey, title: ch.title, html: ch.html,
-    wordCount: ch.wordCount, previous: heading(ch.previous), next: heading(ch.next),
   }
 }
 

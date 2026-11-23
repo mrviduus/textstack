@@ -31,7 +31,6 @@ public sealed partial class McpToolCatalog
         {
             BuildSearchMyLibrary(api),
             BuildGetMyBook(api),
-            BuildGetMyChapter(api),
             BuildListMyVocabulary(api),
             BuildAddVocabularyWords(api),
             BuildUpdateVocabularyWord(api),
@@ -129,7 +128,7 @@ public sealed partial class McpToolCatalog
         }
     }
 
-    // ── my library: search_my_library / get_my_book / get_my_chapter ────────────
+    // ── my library: search_my_library / get_my_book ─────────────────────────────
     //
     // The user's own books, identified by `bookId`. Bearer-scoped: the endpoints filter by user, so the
     // bridge inherits the app's isolation rather than reimplementing it.
@@ -223,10 +222,6 @@ public sealed partial class McpToolCatalog
                     description = book.Description ?? "",
                     genre = book.Genre,
                     publishedYear = book.PublishedYear,
-                    totalWordCount = book.TotalWordCount,
-                    // Ready / Processing / Failed — a book still processing has no
-                    // chapters yet, and saying so beats an unexplained empty list.
-                    status = book.Status,
                     // Half the uploaded library is PDF, and a PDF is read as the
                     // original document (ADR-012), where a highlight is painted from
                     // page geometry. A highlight written from here carries a text
@@ -234,71 +229,27 @@ public sealed partial class McpToolCatalog
                     // does not appear over the page. Say so where the model can act
                     // on it rather than letting it discover the gap by not seeing one.
                     rendersAsOriginalPdf = book.HasOriginalPdf,
+                    // The table of contents only (ADR-033): no chapter text here, and an empty list says why.
                     chapters = (book.Chapters ?? []).Select(c => new
                     {
                         chapterId = c.Id,
                         chapterNumber = c.ChapterNumber,
                         slug = c.Slug,
                         title = c.Title,
-                        wordCount = c.WordCount,
                     }),
+                    note = book.Chapters is { Count: > 0 } ? ShareToRead : NoTocYet,
                 };
                 return Text(JsonSerializer.Serialize(mapped));
             });
         },
     };
 
-    private static readonly JsonElement GetMyChapterSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "bookId": { "type": "string", "format": "uuid" },
-            "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 }
-          },
-          "required": ["bookId", "chapterSlug"],
-          "additionalProperties": false
-        }
-        """).RootElement;
+    private const string ShareToRead =
+        "Chapter text is not available here. To discuss a chapter's text, ask the user to share it from the TextStack "
+        + "reader (\"Discuss this chapter\"), then read it with get_shared_chapter.";
 
-    private McpToolDescriptor BuildGetMyChapter(TextStackApiClient api) => new()
-    {
-        Name = "get_my_chapter",
-        Title = "Read a chapter of my uploaded book",
-        ReadOnly = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_my_chapter"),
-        InputSchema = GetMyChapterSchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "chapterSlug")
-                || !ArgReader.TryRequiredGuid(obj, "bookId", out var bookId, out err)
-                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err))
-                return Task.FromResult(Error(err));
-
-            return InvokeAsync("get_my_chapter", ct, async () =>
-            {
-                var chapter = await api.GetMyChapterAsync(bookId, chapterSlug, ct);
-                if (chapter is null)
-                    return Error($"get_my_chapter: no chapter '{chapterSlug}' in uploaded book '{bookId}'");
-
-                var text = HtmlText.StripAndCap(chapter.Html, HtmlText.DefaultMaxChars, out var truncated);
-                var mapped = new
-                {
-                    source = "userbook",
-                    bookId,
-                    chapterId = chapter.Id,
-                    chapterNumber = chapter.ChapterNumber,
-                    slug = chapter.Slug,
-                    title = chapter.Title,
-                    prevSlug = chapter.Previous?.Slug,
-                    nextSlug = chapter.Next?.Slug,
-                    truncated,
-                    text,
-                };
-                return Text(JsonSerializer.Serialize(mapped));
-            });
-        },
-    };
+    private const string NoTocYet =
+        "No chapters yet: ask the user to open the book once in the TextStack reader, which lists its chapters.";
 
     // ── list_my_vocabulary ──────────────────────────────────────────────────────
 
@@ -1015,9 +966,11 @@ public sealed partial class McpToolCatalog
                 var chapters = book.Chapters ?? [];
                 var at = IndexOfChapter(chapters.Select(c => c.Slug), chapterSlug);
                 if (at < 0)
-                    return Error($"set_book_progress failed: no chapter '{chapterSlug}' in '{book.Title}'");
+                    return Error($"set_book_progress failed: no chapter '{chapterSlug}' in '{book.Title}'; get_my_book lists its chapter slugs");
+                if (chapters[at].Fraction is null)
+                    return Error($"set_book_progress failed: '{book.Title}' has no table of contents from the reader yet; {NoTocYet}");
 
-                var (resumeAt, percent, finished) = AfterFinishing(at, chapters.Count);
+                var (resumeAt, percent, finished) = AfterFinishing(chapters, at);
                 var resumeSlug = chapters[resumeAt].Slug;
                 var ok = await api.SetUserBookProgressAsync(id, resumeSlug, percent, ct);
 
@@ -1050,17 +1003,19 @@ public sealed partial class McpToolCatalog
     /// <summary>
     /// Where the reader is once they have finished chapter <paramref name="at"/>: the START of the
     /// next one, because "I finished chapter 2" means the app should open chapter 3 — not drop them
-    /// back into what they just finished. On the last chapter there is nowhere forward to go, so the
-    /// position stays and the book is simply complete.
+    /// back into what they just finished. The next one is the next TOC entry no deeper than this one,
+    /// so finishing a part skips that part's own chapters. With none left there is nowhere forward to
+    /// go, so the position stays and the book is simply complete.
     ///
-    /// <para>The percentage is chapters-done over chapters-total. It is a book-wide fraction, which
-    /// is the only unit the server stores.</para>
+    /// <para>The percentage is that entry's TOC fraction (ADR-033): where it starts in the book, as the
+    /// reader measures it, so the app and the assistant agree on how far in the reader is (#1515).</para>
     /// </summary>
-    private static (int ResumeIndex, double Percent, bool Finished) AfterFinishing(int at, int total)
+    private static (int ResumeIndex, double Percent, bool Finished) AfterFinishing(IReadOnlyList<UserChapterSummaryJson> chapters, int at)
     {
-        var done = at + 1;
-        var finished = done >= total;
-        return (finished ? at : done, total > 0 ? (double)done / total : 0, finished);
+        for (var next = at + 1; next < chapters.Count; next++)
+            if (chapters[next].Depth <= chapters[at].Depth)
+                return (next, (double)chapters[next].Fraction!.Value, false);
+        return (at, 1, true);
     }
 
     // ── MCP result helpers ──────────────────────────────────────────────────────

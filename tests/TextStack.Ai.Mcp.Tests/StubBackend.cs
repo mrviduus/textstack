@@ -39,6 +39,13 @@ public sealed class StubBackend : IAsyncDisposable
     /// <summary>Word counts of the front-matter book's chapters, in order.</summary>
     public static readonly int[] FrontMatterWordCounts = [14, 333, 125, 232, 1184, 43310];
 
+    /// <summary>Where each front-matter chapter starts, word-weighted as the reader measures it (its TOC fractions).</summary>
+    public static decimal FrontMatterStart(int index) =>
+        Math.Round((decimal)FrontMatterWordCounts.Take(index).Sum() / FrontMatterWordCounts.Sum(), 6);
+
+    // A book whose reader has not synced a TOC: no chapters at all.
+    public const string NoTocBookId = "0c000000-0000-4000-8000-000000000001";
+
     // OAuth access tokens the stub's /oauth/token-status knows: live → 204, anything else → 401.
     public const string LiveOAuthToken = "tso_live";
     public const string RejectedOAuthToken = "tso_expired";
@@ -108,7 +115,7 @@ public sealed class StubBackend : IAsyncDisposable
                 : StatusCodes.Status401Unauthorized;
         });
 
-        // The V2 library routes: the library feed, a file's chapters, one chapter, annotations, insights and
+        // The V2 library routes: the library feed, a file's TOC, annotations, insights and
         // reading state, as the bridge's my-library tools read and write them.
         _app.MapGet("/me/v2/library/changes", async ctx =>
         {
@@ -120,14 +127,11 @@ public sealed class StubBackend : IAsyncDisposable
         {
             await RecordAsync("v2_chapters", ctx);
             var book = Books.Single(b => b.Id == (string)ctx.Request.RouteValues["bookId"]!);
-            var items = book.Chapters.Select((c, i) => $$"""{ "chapterKey": "{{c.Key}}", "chapterNumber": {{i + 1}}, "title": "{{c.Title}}", "wordCount": {{c.Words}} }""");
+            // The reader's TOC (depth, fraction, no word count), or a transitional extraction's (a word count only).
+            var items = book.Chapters.Select((c, i) => c.Fraction is { } f
+                ? $$"""{ "chapterKey": "{{c.Key}}", "chapterNumber": {{i}}, "title": "{{c.Title}}", "wordCount": null, "depth": {{c.Depth}}, "fraction": {{f.ToString(System.Globalization.CultureInfo.InvariantCulture)}} }"""
+                : $$"""{ "chapterKey": "{{c.Key}}", "chapterNumber": {{i + 1}}, "title": "{{c.Title}}", "wordCount": 3000 }""");
             await WriteJsonAsync(ctx, $$"""{ "items": [{{string.Join(",", items)}}], "ingestion": "succeeded" }""");
-        });
-        _app.MapGet("/me/v2/books/{bookId}/files/{fileId}/chapters/{key}", async ctx =>
-        {
-            await RecordAsync("v2_chapter", ctx);
-            if ((string)ctx.Request.RouteValues["key"]! != "replication") { await WriteJsonAsync(ctx, SyncError("not_found", "The server has no such item."), StatusCodes.Status404NotFound); return; }
-            await WriteJsonAsync(ctx, ReplicationChapterBody);
         });
         _app.MapGet("/me/v2/annotations/changes", async ctx =>
         {
@@ -160,7 +164,7 @@ public sealed class StubBackend : IAsyncDisposable
         {
             await RecordAsync("v2_reading_state", ctx);
             if ((string)ctx.Request.RouteValues["bookId"]! == UnopenedBookId) { await WriteJsonAsync(ctx, SyncError("not_found", "The server has no such item."), StatusCodes.Status404NotFound); return; }
-            await WriteJsonAsync(ctx, ReadingStateBody);
+            await WriteJsonAsync(ctx, (string)ctx.Request.RouteValues["bookId"]! == FrontMatterBookId ? FrontMatterReadingStateBody : ReadingStateBody);
         });
         _app.MapPut("/me/v2/books/{bookId}/reading-state", async ctx =>
         {
@@ -342,7 +346,8 @@ public sealed class StubBackend : IAsyncDisposable
 
     // ── canned camelCase bodies (Contracts.Sync DTOs) ──────────────────────────────
 
-    private sealed record StubChapter(string Key, string Title, int Words);
+    // Fraction null: a transitional extraction's entry, which the reader's TOC has not replaced yet.
+    private sealed record StubChapter(string Key, string Title, decimal? Fraction, int Depth = 0);
 
     private sealed record StubBook(string Id, string FileId, string Title, string Author, string Tags, StubChapter[] Chapters)
     {
@@ -355,35 +360,28 @@ public sealed class StubBackend : IAsyncDisposable
               "currentFile": { "id": "{{FileId}}", "sha256": "{{new string('a', 64)}}", "byteSize": 1000, "originalName": "book.epub",
                                "format": "epub", "pageCount": null, "toc": null, "isCurrent": true, "hasContent": true,
                                "createdAt": "2026-08-01T10:00:00Z", "contentRemovedAt": null, "ingestion": "succeeded",
-                               "chapterCount": {{Chapters.Length}}, "wordCount": {{Chapters.Sum(c => c.Words)}} }
+                               "chapterCount": {{Chapters.Length}} }
             }
             """;
     }
 
-    private static readonly StubChapter[] DdiaChapters = [new("replication", "Replication", 14200), new("partitioning", "Partitioning", 12000)];
+    private static readonly StubChapter[] DdiaChapters = [new("replication", "Replication", 0m), new("partitioning", "Partitioning", 0.55m)];
 
     private static readonly StubBook[] Books =
     [
         new(UserBookId, UserFileId, "Designing Data-Intensive Applications", "Martin Kleppmann", """["systems"]""", DdiaChapters),
-        new(UnopenedBookId, "f0000000-0000-4000-8000-000000000002", "The Mom Test", "Rob Fitzpatrick", "[]", [new("one", "One", 3000)]),
+        new(UnopenedBookId, "f0000000-0000-4000-8000-000000000002", "The Mom Test", "Rob Fitzpatrick", "[]", [new("one", "One", null)]),
         new(RefusingBookId, "f0000000-0000-4000-8000-000000000003", "A Book Whose Position Is Refused", "A. Writer", "[]", DdiaChapters),
         new(FrontMatterBookId, "f0000000-0000-4000-8000-000000000004", "A Book With Front Matter", "A. N. Other", "[]",
         [
-            new("title-page", "Title Page", FrontMatterWordCounts[0]), new("copyright", "Copyright", FrontMatterWordCounts[1]),
-            new("dedication", "Dedication", FrontMatterWordCounts[2]), new("contents", "Contents", FrontMatterWordCounts[3]),
-            new("preface", "Preface", FrontMatterWordCounts[4]), new("the-book-itself", "The Book Itself", FrontMatterWordCounts[5]),
+            new("title-page", "Title Page", FrontMatterStart(0)), new("copyright", "Copyright", FrontMatterStart(1)),
+            new("dedication", "Dedication", FrontMatterStart(2)), new("contents", "Contents", FrontMatterStart(3)),
+            new("preface", "Preface", FrontMatterStart(4)), new("the-book-itself", "The Book Itself", FrontMatterStart(5)),
+            // A section inside the last chapter: finishing that chapter must not resume here.
+            new("part-two", "Part Two", 0.6m, Depth: 1),
         ]),
+        new(NoTocBookId, "f0000000-0000-4000-8000-000000000005", "A Book Never Opened In The Reader", "B. Writer", "[]", []),
     ];
-
-    private const string ReplicationChapterBody =
-        """
-        {
-          "chapterKey": "replication", "chapterNumber": 1, "title": "Replication",
-          "html": "<p>Replication means keeping a <b>copy</b> of the same data.</p>", "wordCount": 10,
-          "previous": null,
-          "next": { "chapterKey": "partitioning", "chapterNumber": 2, "title": "Partitioning", "wordCount": 12000 }
-        }
-        """;
 
     private static string Annotation(string id, string text) =>
         $$"""
@@ -402,6 +400,17 @@ public sealed class StubBackend : IAsyncDisposable
           "chapterTitle": {{(chapterKey is null ? "null" : "\"Replication\"")}},
           "text": "{{text}}", "question": "why w + r > n?", "source": "mcp",
           "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z"
+        }
+        """;
+
+    // Halfway through the front-matter book, on a reader locator that names no chapter: the TOC says which.
+    private static readonly string FrontMatterReadingStateBody =
+        $$"""
+        {
+          "bookId": "{{FrontMatterBookId}}", "fileId": "f0000000-0000-4000-8000-000000000004",
+          "currentLocator": { "version": 1, "scheme": "epub-cfi", "value": "epubcfi(/6/14!/4/2/1:0)" },
+          "bookFraction": 0.5, "frontierLocator": null, "frontierFraction": null, "completedAt": null,
+          "clientRecordedAt": "2026-09-01T10:00:00Z", "updatedAt": "2026-09-01T10:00:00Z", "revision": 3, "resetRevision": null
         }
         """;
 

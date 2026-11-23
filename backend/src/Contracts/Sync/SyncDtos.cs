@@ -56,18 +56,21 @@ public sealed record ContentMismatchDto(string ExpectedSha256, string ActualSha2
 /// <summary><c>current</c> of a 413 <c>quota_exceeded</c>: the bytes the server holds for the user, and the limit.</summary>
 public sealed record StorageQuotaDto(long Used, long Limit);
 
-/// <summary>Transitional (dropped at M6.4): a server-extracted chapter in a table of contents. <see cref="ChapterNumber"/> orders, never displays.</summary>
-public sealed record ChapterHeadingDto(string ChapterKey, int ChapterNumber, string Title, int? WordCount);
+/// <summary>
+/// An entry of a file's table of contents. <see cref="ChapterNumber"/> orders, never displays. From the reader's TOC
+/// (ADR-033): <see cref="Depth"/> and <see cref="Fraction"/> (where the entry starts in the book, 0–1), no word count;
+/// from the transitional server extraction: a word count, no depth or fraction (absent when null).
+/// </summary>
+public sealed record ChapterHeadingDto(
+    string ChapterKey, int ChapterNumber, string Title, int? WordCount,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Depth = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? Fraction = null);
 
 /// <summary>
 /// Transitional (dropped at M6.4): a file version's chapters, and its latest extraction job's status
 /// (<c>queued</c>, <c>processing</c>, <c>succeeded</c>, <c>failed</c>; null: none). Empty while it runs.
 /// </summary>
 public sealed record FileChaptersDto(IReadOnlyList<ChapterHeadingDto> Items, string? Ingestion);
-
-/// <summary>Transitional (dropped at M6.4): one chapter and its neighbours in reading order (null at an end).</summary>
-public sealed record ChapterDto(
-    string ChapterKey, int ChapterNumber, string Title, string Html, int? WordCount, ChapterHeadingDto? Previous, ChapterHeadingDto? Next);
 
 /// <summary>A file version as a client sends it: on import (with <see cref="Id"/>) and on replace (the path's id wins).</summary>
 public sealed record BookFileRequest(

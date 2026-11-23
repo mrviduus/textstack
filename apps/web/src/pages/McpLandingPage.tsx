@@ -70,7 +70,6 @@ export function McpLandingPage() {
   const tools: Array<{ name: string; desc: string }> = [
     { name: 'search_my_library', desc: t('mcp.tools.searchMyLibrary') },
     { name: 'get_my_book', desc: t('mcp.tools.getMyBook') },
-    { name: 'get_my_chapter', desc: t('mcp.tools.getMyChapter') },
     { name: 'save_my_highlight', desc: t('mcp.tools.saveMyHighlight') },
     { name: 'list_my_book_highlights', desc: t('mcp.tools.listMyBookHighlights') },
     { name: 'list_my_vocabulary', desc: t('mcp.tools.listMyVocabulary') },

@@ -90,17 +90,20 @@ public sealed partial class McpToolCatalog
         }
         """).RootElement;
 
+    /// <summary>The most characters of a shared chapter one <c>get_shared_chapter</c> result holds.</summary>
+    internal const int SharePartChars = 40_000;
+
     /// <summary>
     /// Part <paramref name="part"/> (from 1) of <paramref name="text"/> in pieces of the bridge's chapter cap
-    /// (<see cref="HtmlText.DefaultMaxChars"/>, what <c>get_my_chapter</c> returns at most), never through a
+    /// (<see cref="SharePartChars"/>), never through a
     /// surrogate pair; null when there is no such part. A share is at most 200 KB, so a handful of parts.
     /// </summary>
     public static (string Text, int PartCount)? PartOf(string text, int part)
     {
         var starts = new List<int> { 0 };
-        while (text.Length - starts[^1] > HtmlText.DefaultMaxChars)
+        while (text.Length - starts[^1] > SharePartChars)
         {
-            var next = starts[^1] + HtmlText.DefaultMaxChars;
+            var next = starts[^1] + SharePartChars;
             starts.Add(char.IsLowSurrogate(text[next]) ? next - 1 : next);
         }
         if (part < 1 || part > starts.Count) return null;
@@ -142,7 +145,7 @@ public sealed partial class McpToolCatalog
                     createdAt = share.GetProperty("createdAt"),
                     part = part ?? 1,
                     partCount,
-                    // The marker get_my_chapter uses: more of this text exists than this result holds.
+                    // More of this text exists than this result holds.
                     truncated = (part ?? 1) < partCount,
                     text,
                 }, UnescapedJson));

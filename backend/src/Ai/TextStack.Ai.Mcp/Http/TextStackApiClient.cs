@@ -226,27 +226,14 @@ public sealed record UserBookDetailJson(
     string? Description,
     string? Genre,
     int? PublishedYear,
-    int? TotalWordCount,
-    string Status,
     // True when the upload is a PDF, read as the original document (ADR-012): a highlight written from
     // here is saved and listed but not drawn over the page (BuildGetMyBook says so).
     bool HasOriginalPdf,
     IReadOnlyList<UserChapterSummaryJson>? Chapters);
 
+// A TOC entry; Depth and Fraction (where it starts, 0-1) come only from the reader's TOC (ADR-033).
 public sealed record UserChapterSummaryJson(
-    Guid Id, int ChapterNumber, string? Slug, string Title, int? WordCount);
-
-public sealed record UserChapterJson(
-    Guid Id,
-    int ChapterNumber,
-    string? Slug,
-    string Title,
-    string Html,
-    int? WordCount,
-    UserChapterNavJson? Previous,
-    UserChapterNavJson? Next);
-
-public sealed record UserChapterNavJson(int ChapterNumber, string? Slug, string Title);
+    Guid Id, int ChapterNumber, string? Slug, string Title, int? Depth, decimal? Fraction);
 
 public sealed record BookInsightJson(
     Guid Id,

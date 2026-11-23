@@ -57,7 +57,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     // ── connecting: who the server is, what it offers, who may open a session ──────
 
     [Fact]
-    public async Task Connect_WithAToken_IntroducesTextstackAndListsExactlyTheEighteenToolsWithHonestHints()
+    public async Task Connect_WithAToken_IntroducesTextstackAndListsExactlyTheSeventeenToolsWithHonestHints()
     {
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
@@ -72,7 +72,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
 
         // The tool count is asserted here and in three other tests (CLAUDE.md): change all together.
         Assert.Equal(
-            ["add_vocabulary_words", "delete_vocabulary_word", "get_book_progress", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_vocabulary", "save_checkpoint", "save_insight", "save_my_highlight", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
+            ["add_vocabulary_words", "delete_vocabulary_word", "get_book_progress", "get_my_book", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_vocabulary", "save_checkpoint", "save_insight", "save_my_highlight", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
             listed.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
         Assert.Equal(Contracts.Mcp.McpManifestCatalog.Tools.Count, listed.Count);
 
@@ -193,7 +193,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     // ── the reader's books ───────────────────────────────────────────────────────
 
     [Fact]
-    public async Task MyLibrary_AssistantFindsWhereTheReaderIs_OpensTheBook_AndReadsAChapter()
+    public async Task MyLibrary_AssistantFindsWhereTheReaderIs_OpensTheBook_AndIsToldHowToReadAChapter()
     {
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
@@ -214,20 +214,20 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         var bookId = hit.GetProperty("bookId").GetString()!;
         Assert.Equal(StubBackend.UserBookId, bookId);
 
+        // The table of contents, never the text: a chapter is read when the reader shares it.
         var book = await CallAsync(client, "get_my_book", Args(("bookId", bookId)));
         AssertOk(book);
-        var chapter = Json(book).GetProperty("chapters").EnumerateArray().First();
-        Assert.Equal("replication", chapter.GetProperty("slug").GetString());
-
-        var read = await CallAsync(client, "get_my_chapter", Args(("bookId", bookId), ("chapterSlug", "replication")));
-        AssertOk(read);
-        Assert.Contains("Replication means keeping a copy", Json(read).GetProperty("text").GetString());
-        // The chapter's id is the same whether listed or read: it is what save_my_highlight takes.
-        Assert.Equal(chapter.GetProperty("chapterId").GetString(), Json(read).GetProperty("chapterId").GetString());
-        Assert.Equal("partitioning", Json(read).GetProperty("nextSlug").GetString());
-
+        Assert.Equal(["replication", "partitioning"], Json(book).GetProperty("chapters").EnumerateArray().Select(c => c.GetProperty("slug").GetString()));
+        Assert.False(Json(book).GetProperty("chapters")[0].TryGetProperty("wordCount", out _));
+        Assert.Contains("get_shared_chapter", Json(book).GetProperty("note").GetString());
         Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("v2_library")!.Authorization);
-        Assert.Equal($"/me/v2/books/{bookId}/files/{StubBackend.UserFileId}/chapters/replication", _harness.Stub.Last("v2_chapter")!.PathAndQuery);
+        Assert.Equal($"/me/v2/books/{bookId}/files/{StubBackend.UserFileId}/chapters", _harness.Stub.Last("v2_chapters")!.PathAndQuery);
+
+        // A book the reader has not opened yet has no TOC, and the answer says what to do about it.
+        var noToc = await CallAsync(client, "get_my_book", Args(("bookId", StubBackend.NoTocBookId)));
+        AssertOk(noToc);
+        Assert.Empty(Json(noToc).GetProperty("chapters").EnumerateArray());
+        Assert.Contains("open the book once", Json(noToc).GetProperty("note").GetString());
 
         var progress = await CallAsync(client, "get_book_progress", Args(("bookId", StubBackend.UserBookId)));
         AssertOk(progress);
@@ -248,11 +248,11 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         // An invented slug used to be stored verbatim and resolve to nothing later: refused before the write.
         var invented = await CallAsync(client, "set_book_progress", Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "ch-99")));
         Assert.True(invented.IsError);
-        Assert.Equal("set_book_progress failed: no chapter 'ch-99' in 'Designing Data-Intensive Applications'", TextOf(invented));
+        Assert.Equal("set_book_progress failed: no chapter 'ch-99' in 'Designing Data-Intensive Applications'; get_my_book lists its chapter slugs", TextOf(invented));
         Assert.Null(_harness.Stub.Last("v2_put_reading_state"));
 
         // "I finished chapter 1" must not drop the reader back into chapter 1: the stored position is the
-        // START of the next chapter, on the revision just read; the fraction is chapters-done over total.
+        // START of the next chapter, on the revision just read; the fraction is where it starts in the TOC.
         var mid = await CallAsync(client, "set_book_progress", Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "replication")));
         AssertOk(mid);
         Assert.Equal(("partitioning", false), (Json(mid).GetProperty("resumeChapterSlug").GetString(), Json(mid).GetProperty("bookFinished").GetBoolean()));
@@ -263,7 +263,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         var locator = body.GetProperty("currentLocator");
         Assert.Equal(("textstack-position-v1", "partitioning"),
             (locator.GetProperty("scheme").GetString(), locator.GetProperty("value").GetProperty("chapterSlug").GetString()));
-        Assert.Equal(0.5m, body.GetProperty("bookFraction").GetDecimal());
+        Assert.Equal(0.55m, body.GetProperty("bookFraction").GetDecimal());
         Assert.False(body.TryGetProperty("completedAt", out _));
 
         var last = await CallAsync(client, "set_book_progress", Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "partitioning")));

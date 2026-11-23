@@ -2,16 +2,15 @@
 
 The **TextStack MCP server** — connect your [TextStack](https://textstack.app) reading
 library to Claude Desktop, Cursor, or any [Model Context Protocol](https://modelcontextprotocol.io)
-client. Search and read your books, and manage your highlights and
+client. Search your books, discuss the chapters you share, and manage your highlights and
 vocabulary straight from your AI assistant.
 
-It exposes **18 tools**:
+It exposes **17 tools**:
 
 | Tool | What it does |
 |------|--------------|
 | `search_my_library` | Search your books by title or author (requires sign-in) |
 | `get_my_book` | Fetch one of your uploads: metadata + chapter list (requires sign-in) |
-| `get_my_chapter` | Fetch the full text of one chapter of your upload (requires sign-in) |
 | `save_my_highlight` | Highlight a passage in a book you uploaded (requires sign-in) |
 | `list_my_book_highlights` | List the highlights in a book you uploaded (requires sign-in) |
 | `save_insight` | Write a conclusion back into a book, against a chapter or the whole book (requires sign-in) |
