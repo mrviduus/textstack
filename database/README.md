@@ -20,6 +20,9 @@ database/
     0005_book_formats           book_files.format + fb2, mobi, azw3, cbz (ADR-031 "Amended 2026-11-07")
     0006_page_name_scheme       is_locator() takes page-name, a page-based position (ADR-031 "Amended 2026-11-13")
     0007_drop_migration_runs    the ETL ledger goes with the ETL (ADR-031: "dropped at M6.5")
+    0008_transitional_table_comments  book_chapters / ingestion_jobs comments: kept at M6 (D8)
+    0009_bare_cfi_position      a reading position may be a bare epub-cfi (mark-read's book start, ADR-033 P4)
+    0010_drop_book_chapters_and_ingestion_jobs  both transitional tables dropped; book_files.toc commented (ADR-033 P5)
   tests/invariants.sql          ADR-031's schema rules, checked against a migrated database
   tests/roundtrip.sh            CI check of the runner and every migration
 ```

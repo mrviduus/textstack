@@ -39,8 +39,6 @@ The Origin column names the legacy table each one came from (the legacy database
 | | `agent_run` | one agent run | same (− `edition_id`) |
 | | `eval_runs` | one eval score | same |
 | | `admin_settings` | one runtime knob | same |
-| Transitional | `book_chapters` | a server-extracted chapter of one file version | `user_chapters` — kept by M6 D8 for the MCP chapter tools and clips |
-| | `ingestion_jobs` | an extraction job for one uploaded file | `user_ingestion_jobs` — kept by M6 D8 |
 
 ## Core relationships
 
@@ -61,8 +59,6 @@ erDiagram
     books ||--o{ discussion_checkpoints : discusses
     books ||--o{ book_insight : concludes
     book_insight ||--o{ review_question : asks
-    book_files ||--o{ book_chapters : "split into"
-    book_files ||--o{ ingestion_jobs : "queued as"
 ```
 
 ## PII / GDPR map
@@ -76,7 +72,7 @@ erDiagram
 | `annotations`, `shared_chapters`, `discussion_checkpoints`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
 | `llm_traces`, `agent_run` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d. Agent runs are deleted with the account |
-| `books`, `book_files`, `book_chapters`, `ingestion_jobs` | user_id | Uploaded content + library |
+| `books`, `book_files` | user_id | Uploaded content + library |
 
 **Guest users**: `users.is_guest = true` ([ADR-014](adr/ADR-014-guest-sessions.md)). Nothing sweeps
 abandoned guests today (see [STATUS.md](../STATUS.md)). **Account deletion**: `DELETE /me/account`
