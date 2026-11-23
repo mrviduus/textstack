@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { noteTtsStatus } from '@textstack/shared'
 import { ReaderHost, type HostBook } from './ReaderHost'
 
 // #1272: Listen on the web: the host fetches and plays the word or selection in the book's language, at the chosen
@@ -247,6 +248,22 @@ describe('ReaderHost Listen', () => {
     await settle()
     expect(document.querySelector('.selection-toolbar')).toBeNull()
     expect(spoken()).toEqual([[SEL_CFI, 2], [null]])
+  })
+
+  it('noVoiceForTheLanguage_422_ListenGoesForTheSession_NoToast', async () => {
+    // #1347: the api module records the 422 (noteTtsStatus) before it throws.
+    fetchTtsAudio.mockImplementationOnce(async (_t: string, lang: string) => { noteTtsStatus(lang, 422); throw new Error('TTS error: 422') })
+    opened('fr')
+    fromPage(word('étang'))
+    await settle()
+    fireEvent.click(popupButton()!)
+    await settle()
+    expect(popupButton()).toBeNull()
+    expect(screen.queryByText('Could not play the speech. Try again.')).toBeNull()
+    fromPage(selection('au bord'))
+    await settle()
+    expect(toolbarButton()).toBeNull()
+    expect(fetchTtsAudio).toHaveBeenCalledTimes(1)
   })
 
   it('aPdfWord_NoCfi_SpokenWithNoMark', async () => {

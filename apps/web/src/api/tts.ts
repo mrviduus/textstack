@@ -1,3 +1,4 @@
+import { noteTtsStatus } from '@textstack/shared'
 import { API_BASE } from './client'
 
 export function getTtsAudioUrl(text: string, lang: string, voice?: string, speed?: number): string {
@@ -32,6 +33,7 @@ export async function fetchTtsAudio(
     const seconds = header ? parseInt(header, 10) : NaN
     throw new TtsRateLimitError(Number.isFinite(seconds) && seconds > 0 ? seconds : 60)
   }
+  noteTtsStatus(lang, res.status) // #1347: a 422 hides Listen for lang
   if (!res.ok) throw new Error(`TTS error: ${res.status}`)
   return res.arrayBuffer()
 }
