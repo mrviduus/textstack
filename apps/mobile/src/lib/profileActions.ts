@@ -3,6 +3,7 @@ import { capabilitiesFor } from './capabilities'
 import { createSingleFlight } from './singleFlight'
 import { withDeadline } from './deadline'
 import type { SignOutLoss } from './reader/localLibrary'
+import { endOpenSession } from './reader/openSession'
 
 /**
  * What leaving the session means for this viewer.
@@ -77,7 +78,8 @@ export interface LibrarySignOutDeps {
 export const LOSS_CHECK_MS = 3000
 
 /**
- * An account's sign-out with the V2 library on the device (#1070: sign-out wipes it): one push first,
+ * An account's sign-out with the V2 library on the device (#1070: sign-out wipes it): a reader's open session
+ * ended and stored first (#1322; bounded like the loss check), then one push,
  * so a write only waiting for its timer is neither reported nor lost; then, if anything would be
  * lost, the confirm with the counts. A check that fails or outlives `lossMs` fails closed: a generic
  * confirm, never straight to the wipe. Resolves to whether it signed out. A second tap joins the call
@@ -88,6 +90,7 @@ export function createAccountSignOut(lossMs = LOSS_CHECK_MS): (deps: LibrarySign
   return (deps) => flight.run(async () => {
     deps.onBusy?.(true)
     try {
+      await withDeadline(endOpenSession(), lossMs).catch(() => {})
       await deps.syncFirst().catch(() => {})
       const loss = await withDeadline(deps.loss(), lossMs).catch(() => null)
       if (!loss || loss.books || loss.writes) {
