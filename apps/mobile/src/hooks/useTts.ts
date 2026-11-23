@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { noteTtsStatus } from '@textstack/shared'
 import { API_URL } from '../lib/api'
 import { ttsRequestDecision, ttsLang, TtsPhase } from '../lib/ttsRequest'
 
@@ -96,6 +97,7 @@ async function getOrFetchAudio(fs: FileSystemModule, text: string, lang: string,
   try {
     const res = await fs.downloadAsync(url, file)
     if (res.status >= 200 && res.status < 300) return file
+    noteTtsStatus(lang, res.status) // #1347: a 422 hides Listen for lang
     // Non-2xx: clean the bogus file so the next call retries fresh.
     await fs.deleteAsync(file, { idempotent: true }).catch(() => {})
     return null

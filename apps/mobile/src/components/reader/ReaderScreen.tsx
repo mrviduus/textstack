@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
+import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, ttsHasVoice, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -763,7 +763,11 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   const router = useRouter()
   const haptics = useHaptics()
   const { show: showToast } = useToast()
-  ttsRef.current.fail = () => showToast({ variant: 'error', message: t('reader.listenFailed') })
+  // #1347: no voice for the language is no failure to report: Listen just goes.
+  ttsRef.current.fail = () => {
+    const l = ttsRef.current.lang
+    if (!l || ttsHasVoice(l)) showToast({ variant: 'error', message: t('reader.listenFailed') })
+  }
   const { nativeLanguage } = useNativeLanguage()
   const bookTitle = useRef<string | null>(null)
   /** The words (vocabMapKey) whose save is in flight: a second press of the same word waits, another word saves. */
@@ -1787,7 +1791,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
               highlightColor={highlightColor}
               onHighlight={popup.kind === 'selection' && annotatable ? (c) => { call(`window.__fol.highlightSelection(${JSON.stringify(colorOf(c))})`); setPopup(null) } : undefined}
               tooLong={popup.kind === 'selection' && popup.tooLong}
-              onSpeak={ttsLanguage ? () => listener.press(spokenOf(popup)) : undefined}
+              onSpeak={ttsLanguage && ttsHasVoice(ttsLanguage) ? () => listener.press(spokenOf(popup)) : undefined}
               isSpeaking={listener.state(spokenOf(popup)) === 'playing'}
               isTtsLoading={listener.state(spokenOf(popup)) === 'loading'}
               isAuthenticated={!!user}

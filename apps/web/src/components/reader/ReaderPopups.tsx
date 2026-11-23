@@ -23,6 +23,7 @@ import type { MarkWord } from '../../../../../packages/reader/src/wordMarks.mjs'
 import { markWordsOf } from '../../../../../packages/reader/src/vocabWords.mjs'
 import { createListener, spokenOf } from '../../../../../packages/reader/src/listen.mjs'
 import { useTts } from '../../hooks/useTts'
+import { ttsHasVoice } from '@textstack/shared'
 
 /** #1312: the highlight a tap opened (`popup.kind === 'highlight'`), as the host knows it, and what its editor does. */
 export interface HighlightEditor {
@@ -182,8 +183,10 @@ export function ReaderPopups({ popup, frame, bookLanguage, marksLanguage = bookL
     stop: () => ttsRef.current.tts.stop(),
     mark: (at) => ttsRef.current.onSpoken?.(at?.cfi ? { cfi: at.cfi, index: at.index } : null),
     changed: rerender,
-    failed: () => setToast(t('reader.listenFailed')),
+    // #1347: no voice for the language is no failure to report: Listen just goes.
+    failed: () => { const l = ttsRef.current.lang; if (!l || ttsHasVoice(l)) setToast(t('reader.listenFailed')) },
   }))
+  const canListen = !!lang && ttsHasVoice(lang)
   useEffect(() => () => listener.stop(), [])
   // The word popup or toolbar that started a Listen closed (or another opened): its speech stops, its mark goes.
   useEffect(() => {
@@ -227,7 +230,7 @@ export function ReaderPopups({ popup, frame, bookLanguage, marksLanguage = bookL
           onChangeNativeLanguage={setNativeLanguage}
           hasConfirmedLanguage={hasConfirmedLanguage}
           bookLanguage={bookLanguage}
-          onSpeak={lang ? () => listener.press(spoken) : undefined}
+          onSpeak={canListen ? () => listener.press(spoken) : undefined}
           speakState={listener.state(spoken)}
           t={t}
         />
@@ -242,7 +245,7 @@ export function ReaderPopups({ popup, frame, bookLanguage, marksLanguage = bookL
           onTranslate={() => translationPopup.open(selection.text, rect, { sentence: selection.sentence })}
           onExplain={() => explainPopup.openFromSelection(selection.text, rect, selection.sentence)}
           onCopy={() => onClose(true)}
-          onSpeak={lang ? () => listener.press(spoken) : undefined}
+          onSpeak={canListen ? () => listener.press(spoken) : undefined}
           speakState={listener.state(spoken)}
           tooLong={selection.tooLong}
         />
