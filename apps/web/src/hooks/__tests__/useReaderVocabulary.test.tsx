@@ -178,6 +178,19 @@ describe('useReaderVocabulary', () => {
     expect(translate).not.toHaveBeenCalled()
   })
 
+  // #1341: the backfill translates with no sentence; the tapped word's translate (the popup's) carries one. A word
+  // saved untranslated after the load is the save's to fill (TR-2), never a second, sentence-less request here.
+  it('backfill_AWordSavedAfterTheLoad_NotTranslatedAgain', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+    api.saveWord.mockImplementation(async (req: { word: string; language: string }) => saved(req.word, req.language))
+    const { result } = renderHook(() => useReaderVocabulary('en', 'uk'))
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    await act(async () => { await result.current.addWord({ word: 'woods', language: 'en' } as never) })
+    await flush()
+    expect(result.current.vocabMap.get('woods')?.translation).toBeUndefined()
+    expect(translate).not.toHaveBeenCalled()
+  })
+
   it('aSaveAnsweredWhileAReloadWasInFlight_KeptWhenTheReloadCommits', async () => {
     api.getReaderVocab.mockResolvedValueOnce([])
     const { result } = renderHook(() => useReaderVocabulary('en', null))
