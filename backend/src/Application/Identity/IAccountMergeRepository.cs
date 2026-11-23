@@ -46,4 +46,18 @@ public interface IAccountMergeRepository
     /// credentials. Returns each deleted guest's <c>picture</c> (null when none): its only bytes.
     /// </summary>
     Task<IReadOnlyList<string?>> DeleteIdleEmptyGuestsAsync(DateTimeOffset idleSince, int limit, CancellationToken ct);
+
+    /// <summary>
+    /// Up to <paramref name="limit"/> guests idle since before <paramref name="idleSince"/>
+    /// (<c>last_active_at</c>; null is never idle), longest idle first, whatever they hold. Unlocked:
+    /// <see cref="DeleteGuestIfIdleAsync"/> rechecks each.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> ListIdleGuestsAsync(DateTimeOffset idleSince, int limit, CancellationToken ct);
+
+    /// <summary>
+    /// Deletes <paramref name="guestId"/> with every row it owns (the cascade) if it is still a guest
+    /// idle since before <paramref name="idleSince"/> and nobody holds it locked (a merge, an insert in
+    /// flight): such a guest stays, for the next run. False when nothing was deleted.
+    /// </summary>
+    Task<bool> DeleteGuestIfIdleAsync(Guid guestId, DateTimeOffset idleSince, CancellationToken ct);
 }

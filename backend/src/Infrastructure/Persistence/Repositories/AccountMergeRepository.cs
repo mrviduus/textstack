@@ -283,4 +283,31 @@ public sealed partial class AccountMergeRepository(AppDataSource dataSource) : I
         await unit.CommitAsync(ct);
         return pictures;
     }
+
+    private const string ListIdleGuests = """
+        SELECT id FROM users
+        WHERE is_guest AND last_active_at < @idleSince
+        ORDER BY last_active_at LIMIT @limit
+        """;
+
+    public async Task<IReadOnlyList<Guid>> ListIdleGuestsAsync(DateTimeOffset idleSince, int limit, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return (await conn.QueryAsync<Guid>(new CommandDefinition(ListIdleGuests, new { idleSince, limit }, cancellationToken: ct))).AsList();
+    }
+
+    // One statement: the subquery locks the row (FOR UPDATE conflicts with the key share every FK insert
+    // and a merge take on it; SKIP LOCKED leaves such a guest to the next run) and rechecks it on its
+    // latest version, so a promotion or an activity stamp committed meanwhile keeps the guest.
+    private const string DeleteGuestIfIdle = """
+        DELETE FROM users WHERE id = (
+            SELECT id FROM users WHERE id = @guestId AND is_guest AND last_active_at < @idleSince
+            FOR UPDATE SKIP LOCKED)
+        """;
+
+    public async Task<bool> DeleteGuestIfIdleAsync(Guid guestId, DateTimeOffset idleSince, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition(DeleteGuestIfIdle, new { guestId, idleSince }, cancellationToken: ct)) > 0;
+    }
 }

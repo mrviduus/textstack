@@ -49,9 +49,9 @@ public class AuthServiceTests(PostgresFixture db)
 
     private AuthService AuthWith(IUserRepository? users = null, ISessionTokenRepository? sessions = null, IAccountMergeRepository? merges = null) =>
         new(users ?? _users, sessions ?? _sessions, _devices, merges ?? new AccountMergeRepository(db.DataSource), Deletion,
-            _tokens, _providers, _clock, _legacyStorage, NullLogger<AuthService>.Instance);
+            _tokens, _providers, _clock, NullLogger<AuthService>.Instance);
 
-    private AccountDeletion Deletion => new(_users, new AccountMergeRepository(db.DataSource), new BookAccess(new LibraryRepository(db.DataSource)), _files, NullLogger<AccountDeletion>.Instance);
+    private AccountDeletion Deletion => new(_users, new AccountMergeRepository(db.DataSource), new BookAccess(new LibraryRepository(db.DataSource)), _files, _legacyStorage, NullLogger<AccountDeletion>.Instance);
 
     private AdminAuthService Admin => AdminWith();
 
@@ -308,6 +308,36 @@ public class AuthServiceTests(PostgresFixture db)
         Assert.False(await Auth.DeleteAccountAsync(account.Id, Ct));
     }
 
+    [Fact]
+    public async Task DeleteIdleGuestsAsync_TheDailySweep_GuestIdle90DaysGoesWithItsBookAndFiles()
+    {
+        var (gone, recent, account) = (await db.NewReaderAsync(isGuest: true), await db.NewReaderAsync(isGuest: true), await db.NewReaderAsync());
+        var covers = new Dictionary<Guid, string>();
+        foreach (var reader in new[] { gone, recent, account })
+        {
+            await db.NewBookAsync(reader);
+            covers[reader] = _files.CoverKey(reader, Guid.NewGuid(), "png");
+            _files.Place(await _files.StageAsync(covers[reader], new byte[] { 1 }, Ct));
+        }
+        await db.ExecAsync("UPDATE users SET last_active_at = now() - interval '91 days' WHERE id = @gone", new { gone });
+        await db.ExecAsync("UPDATE users SET last_active_at = now() - interval '89 days' WHERE id = @recent", new { recent });
+        await db.ExecAsync("UPDATE users SET last_active_at = now() - interval '1 year' WHERE id = @account", new { account });
+        var idleSince = await db.ScalarAsync<DateTimeOffset>("SELECT now() - interval '90 days'", new { });
+
+        await Deletion.DeleteIdleGuestsAsync(idleSince, 1000, Ct);
+
+        // The 91-day guest goes with its book and bytes; a guest a day short of it and a registered reader stay.
+        Assert.Null(await _users.GetAsync(gone, Ct));
+        Assert.Equal(0L, await db.CountAsync("books", gone));
+        Assert.False(File.Exists(Path.Combine(FilesRoot, covers[gone])));
+        foreach (var kept in new[] { recent, account })
+        {
+            Assert.NotNull(await _users.GetAsync(kept, Ct));
+            Assert.Equal(1L, await db.CountAsync("books", kept));
+            Assert.True(File.Exists(Path.Combine(FilesRoot, covers[kept])));
+        }
+    }
+
     // Device flow.
 
     [Fact]
@@ -499,6 +529,8 @@ public class AuthServiceTests(PostgresFixture db)
 
         public Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<string?>> DeleteIdleEmptyGuestsAsync(DateTimeOffset idleSince, int limit, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Guid>> ListIdleGuestsAsync(DateTimeOffset idleSince, int limit, CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool> DeleteGuestIfIdleAsync(Guid guestId, DateTimeOffset idleSince, CancellationToken ct) => throw new NotSupportedException();
     }
 
     /// <summary>The real users, with a hook that runs once right after the first email lookup.</summary>

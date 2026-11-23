@@ -40,6 +40,15 @@ public class RetentionCleanupWorker(
     // this drains over days. Loop like the trace scrub if guest sign-ups ever outrun it.
     private const int GuestBatch = 500;
 
+    /// <summary>A guest idle this long goes with everything it holds, books and files included, through
+    /// the account delete's path (owner decision 2026-11-23, #1417).</summary>
+    public static readonly TimeSpan GuestWithDataRetention = TimeSpan.FromDays(90);
+
+    // ponytail: one batch per daily run, each guest its own delete and file cleanup; a backlog (174 on
+    // prod at the switch) drains over days. A guest skipped as locked or active would be listed again
+    // at once, so no loop within a run.
+    private const int GuestWithDataBatch = 100;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Retention cleanup worker started (interval: {Interval})", Interval);
@@ -93,6 +102,8 @@ public class RetentionCleanupWorker(
             }
             return pictures.Count;
         }, ct);
+        await DeleteAsync("inactive guests with data",
+            () => services.GetRequiredService<AccountDeletion>().DeleteIdleGuestsAsync(now - GuestWithDataRetention, GuestWithDataBatch, ct), ct);
         // Traces keep their cost, tokens and latency for spend history; only the text goes. Batches:
         // one statement over months of text would be one huge transaction (#941).
         var aiCutoff = now - AiTextRetention;
