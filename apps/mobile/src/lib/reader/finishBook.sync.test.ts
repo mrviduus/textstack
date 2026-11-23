@@ -12,8 +12,6 @@ import { syncLibrary, type SyncHost } from './sync'
 import { fakeApi as fakeV2, conflict, feed, type Answer, type Call } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }))
-vi.mock('../offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
-vi.mock('../originalFileCache', () => ({ deleteOriginal: async () => {} }))
 
 const V2 = 'http://api/me/v2'
 const SHA = 'ab'.repeat(32)

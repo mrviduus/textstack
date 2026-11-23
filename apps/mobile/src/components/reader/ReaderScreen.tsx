@@ -12,8 +12,8 @@ import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, 
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
-import { APP_HEADERS, freshAccessToken } from '../../lib/api'
-import { deviceUploadIo, resetSince, sha256Of, uploadBook } from '../../lib/sync'
+import { deviceUploadIo, resetSince, uploadBook } from '../../lib/sync'
+import { downloadIo, hostFile } from '../../lib/reader/deviceDownload'
 import { bookFile, createHostStorage, nonceFromUuid, sha256Key, type LibraryBook, type HostFiles, type HostStorage } from '../../lib/reader/hostStorage'
 import { deviceLocalLibrary, makeFileDirs, filesRoot } from '../../lib/reader/deviceLibrary'
 import { capabilitiesFor } from '../../lib/capabilities'
@@ -90,9 +90,6 @@ import { createListener, speakingJs, spokenOf, ttsLang } from '../../../../../pa
  * ready → openUrl → opened → restore → restored, then store / relocate / word / openLink.
  */
 
-/** `name` under <documents>/v2/ (`filesRoot`, shared with the wipe and the measure), e.g. `books/<sha256>.epub`. */
-const hostFile = (name: string) => new File(filesRoot(), ...name.split('/'))
-
 function deviceFiles(): HostFiles {
   // Anything still staged belongs to an open that never finished in an earlier process.
   const staging = new Directory(filesRoot(), 'staging')
@@ -130,29 +127,6 @@ const uploadRetained: SyncHost['upload'] = async (b: BookRow, maxPartBytes, canc
     undefined,
     { bookId: b.id, fileId: b.server_file_id!, sha256: b.sha256! },
   )
-}
-
-/** Download on demand: into staging, checked against the sha256, then the retained copy (`staging/` is cleared on start). */
-const downloadIo = {
-  async fetch(url: string, sha256: string) {
-    const token = await freshAccessToken()
-    const staged = `staging/dl-${Date.now()}.epub`
-    const dest = hostFile(staged)
-    const file = await File.downloadFileAsync(url, dest, { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, idempotent: true })
-      .catch((e) => {
-        // A failed download (a full disk) leaves no partial file, like a failed pick.
-        try { if (dest.exists) dest.delete() } catch { /* staging/ is cleared on start */ }
-        throw e
-      })
-    const source = deviceUploadIo(() => false).open(file.uri)
-    const actual = await sha256Of(source, () => new Promise((r) => setTimeout(r, 0))).finally(() => source.close())
-    if (actual !== sha256) {
-      file.delete()
-      throw new Error('downloaded bytes do not match the book')
-    }
-    return staged
-  },
-  retain: async (staged: string, sha256: string) => hostFile(staged).move(hostFile(bookFile(sha256)), { overwrite: true }),
 }
 
 /** A sync pass is asked for this long after the last save (the reading path never waits for it). */

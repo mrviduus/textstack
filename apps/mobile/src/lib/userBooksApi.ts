@@ -3,14 +3,13 @@
  * shared shapes. Open, read, progress, finish and delete.
  */
 import {
-  getUserBooks, getUserBook, getUserBookChapter, removeBook, originalFileUrl,
+  getUserBooks, getUserBook, removeBook, originalFileUrl,
   readProgress, saveProgress, completeBook, uncompleteBook,
 } from './sync'
 
 export const userBooksApi = {
   getUserBooks,
   getUserBook,
-  getUserBookChapter,
   deleteUserBook: removeBook,
   getUserBookProgress: readProgress,
   /** The revision rule decides (`WriteOutcome`). */

@@ -9,10 +9,6 @@ import { vocabularyApi } from './vocabularyApi'
 import { getUserBookLocalProgress, setUserBookSyncState, getUserBookSyncState } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, feed, book, file, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
-const dropReplaced = vi.hoisted(() => ({ runs: 0 }))
-vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => { dropReplaced.runs++; return [] } }))
-vi.mock('./originalFileCache', () => ({ deleteOriginal: async () => {} }))
-
 const V2 = 'http://api/me/v2'
 const fakeApi = (routes: Record<string, Answer[]>) => fakeV2(routes, V2)
 const resetMidCall = <T>(routes: Record<string, Answer>, op: () => Promise<T>, hold?: string) => midCall(() => syncStore.reset(), routes, op, hold)
@@ -82,15 +78,11 @@ describe('mobile v2', () => {
     expect(calls.map((c) => c.path)).toEqual(['/status'])
   })
 
-  // #1140: the feed pull is shared, and so is its cleanup — one transaction per pull, not one per caller.
-  it('concurrent library pulls run the replaced-file cleanup once', async () => {
-    dropReplaced.runs = 0
+  // #1140: the feed pull is shared — one request per pull, not one per caller.
+  it('concurrent library pulls share one request', async () => {
     const calls = fakeApi({ 'GET /library/changes': [{ status: 200, body: { items: [], cursor: null, hasMore: false } }] })
     await Promise.all([pullBooks(), pullBooks(), pullBooks()])
     expect(calls).toHaveLength(1)
-    expect(dropReplaced.runs).toBe(1)
-    await pullBooks() // the next pull is a new one
-    expect(dropReplaced.runs).toBe(2)
   })
 
   // #1140: a failed pull must not be handed to every later caller.

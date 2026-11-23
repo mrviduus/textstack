@@ -143,8 +143,8 @@ describe('kept deleted books — wiring (source guards; the file system cannot r
 
   it('offlineStorageBytes_GatesOnBudgetedBytes_ProfileKeepsRealTotal', () => {
     const src = read('deviceStorage.ts')
-    expect(src).toContain('userBookRowBytes([...keptDeleted])')
-    expect(src).toContain('return budgetedBytes({ dbBytes, keptRowBytes, originals, keptDeleted })')
+    expect(src).toContain('const dbBytes = deviceLibraryBytes()')
+    expect(src).toContain('return budgetedBytes({ dbBytes, keptRowBytes: 0, originals, keptDeleted })')
     const measure = src.slice(src.indexOf('export async function measureDeviceStorage'), src.indexOf('export async function sweepTtsCache'))
     expect(measure).toContain('originalsTotalBytes()')
     expect(measure).not.toContain('keptDeleted')

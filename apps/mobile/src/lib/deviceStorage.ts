@@ -2,7 +2,6 @@ import { Platform } from 'react-native'
 import { budgetedBytes, chooseEvictions, type CacheEntry } from './originalFilePolicy'
 import { listOriginalSizes, originalsTotalBytes } from './originalFileCache'
 import { listDeletedOnServer } from './deletedOnServer'
-import { userBookRowBytes } from './offlineDb'
 import { deviceLibraryBytes } from './reader/deviceLibrary'
 
 /**
@@ -143,37 +142,23 @@ export async function clearTtsCache(): Promise<number> {
   }
 }
 
-/** The SQLite database holding cached chapter HTML, as `expo-sqlite` names it. */
-const OFFLINE_DB = 'textstack-offline'
-
 /**
- * Everything the offline library occupies: stored originals **and** the chapter
- * database.
+ * Everything the offline library occupies: the V2 reader's retained book files **and** stored originals.
  *
- * `originalsTotalBytes()` alone was the wrong number to budget against. It
- * counts PDF originals, and nothing else — so for a reader whose uploads are
- * all EPUB it reads zero forever, and an automatic sweep measuring against it
- * is effectively unbounded: it would fetch every book until a write failed with
- * the device full. Chapter HTML is the bulk of that library and lives in
- * SQLite, so it has to be on the scale too.
+ * `originalsTotalBytes()` alone was the wrong number to budget against. It counts PDF originals, and
+ * nothing else — so an automatic sweep measuring against it would fetch every book until a write failed
+ * with the device full. The book files are the bulk of that library, so they are on the scale too.
  */
 export async function offlineStorageBytes(): Promise<number> {
   if (Platform.OS === 'web') return 0
-  let dbBytes = 0
-  try {
-    const { File, Paths } = fs()
-    const db = new File(Paths.document, 'SQLite', OFFLINE_DB)
-    if (db.exists) dbBytes = db.size ?? 0
-  } catch {
-    // An unreadable database is not a reason to refuse to measure the rest;
-    // under-reporting here only makes the budget more generous, never less.
-  }
-  // A server-deleted book's kept bytes are off the budget (owner 2026-11-11); Profile's
+  // Never throws; an unreadable directory under-reports, which only makes the budget more generous.
+  const dbBytes = deviceLibraryBytes()
+  // A server-deleted book's kept original is off the budget (owner 2026-11-11); Profile's
   // `measureDeviceStorage` still reports the real total.
   try {
     const keptDeleted = await listDeletedOnServer()
-    const [originals, keptRowBytes] = await Promise.all([listOriginalSizes(), userBookRowBytes([...keptDeleted])])
-    return budgetedBytes({ dbBytes, keptRowBytes, originals, keptDeleted })
+    const originals = await listOriginalSizes()
+    return budgetedBytes({ dbBytes, keptRowBytes: 0, originals, keptDeleted })
   } catch {
     // Same stance as above: an unreadable part under-reports, never blocks.
     return (await originalsTotalBytes()) + dbBytes

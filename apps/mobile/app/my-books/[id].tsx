@@ -19,11 +19,10 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { shareOriginalFile } from '../../src/lib/shareOriginal'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
-import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
 import { hasLocalLeftovers } from '../../src/lib/localLeftovers'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
-import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached, onCachedUserBooksChanged } from '../../src/lib/offlineDb'
+import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
 import { markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, failedLoadView } from '../../src/lib/deletedOnServer'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
@@ -35,36 +34,19 @@ import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
 import { useCoverSource } from '../../src/hooks/useCoverSource'
 
 /**
- * Everything this screen needs, read off the device: the book payload rebuilt
- * from the download, and the last position the reader wrote locally.
- *
- * Returns null when there is no usable copy — no meta row, or a meta row with
- * no chapters behind it (a download cancelled on its first chapter). The caller
- * then falls through to the real error state, because in that case there is
- * genuinely nothing to show.
+ * Everything this screen needs, read off the device: the book whose file is here (the V2 local library),
+ * and the last position the reader wrote locally. Null when the file is not on this device (or on web).
  */
-async function rehydrateFromCache(bookId: string): Promise<{
+async function rehydrateFromDevice(bookId: string): Promise<{
   book: UserBookDetailResponse
   progress: { chapterSlug: string | null; percent: number | null; locator: string | null } | null
-  /** The upload was a PDF, so what is about to be rendered is its extracted
-   *  text rather than the pages. The screen says so rather than letting the
-   *  reader discover it. */
-  isPdf: boolean
 } | null> {
   try {
-    const meta = await getCachedUserBookMeta(bookId)
-    if (!meta) return null
-    const [chapters, local] = await Promise.all([
-      listCachedUserChapters(bookId),
-      getUserBookLocalProgress(bookId),
-    ])
-    if (chapters.length === 0) return null
-    // Whether the Original layout is available offline is a question about the
-    // filesystem, which the pure rebuilder cannot ask.
-    const storedOriginal = meta.isPdf ? await getCachedOriginalUri(bookId, 'pdf') : null
+    const here = (await deviceLocalLibrary().books()).find(b => b.id === bookId && b.local)
+    if (!here) return null
+    const local = await getUserBookLocalProgress(bookId)
     return {
-      book: cachedUserBookDetail(meta, chapters, storedOriginal !== null),
-      isPdf: meta.isPdf,
+      book: cachedUserBookDetail(here),
       progress: local
         ? {
             chapterSlug: local.chapterSlug ?? null,
@@ -136,19 +118,15 @@ export default function UserBookDetailScreen() {
   const reconnects = useReconnectCount()
   const [savedProgress, setSavedProgress] = useState<{ chapterSlug: string | null; percent: number | null; locator: string | null } | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const { downloads, startUserBookDownload, cancelDownload, removeUserBookDownload, retryFailed } = useDownload()
-  // Is the whole book on the device? Answered from SQLite rather than from the
-  // download map, which is in-memory and empty after an app restart.
-  const [cached, setCached] = useState(false)
+  const { onDevice, downloading, download, refreshOnDevice, removeUserBookDownload } = useDownload()
+  // Its file is on the device (the V2 local library): what "Downloaded" means.
+  const cached = !!id && onDevice.has(id)
   /** Any local rows at all, partial download included: what "Remove download"
    *  on a server-deleted book offers to free (#1174). */
   const [anyLocalCopy, setAnyLocalCopy] = useState(false)
-  /** Rendering the cached copy because the server could not be reached. */
+  /** Rendering the device's copy because the server could not be reached. */
   const [offlineMode, setOfflineMode] = useState(false)
-  /** …and that cached copy is a PDF's extracted text. */
-  const [cachedIsPdf, setCachedIsPdf] = useState(false)
   const [fileBusy, setFileBusy] = useState(false)
-  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const unmountedRef = useRef(false)
 
   useEffect(() => {
@@ -180,12 +158,6 @@ export default function UserBookDetailScreen() {
         setOfflineMode(false)
         // The server has it, so an earlier 404 no longer holds (#1174).
         clearDeletedOnServer([id]).catch(() => {})
-        try {
-          const c = await isUserBookFullyCached(id)
-          if (live()) setCached(c)
-        } catch (err) {
-          console.warn('isUserBookFullyCached failed:', err)
-        }
       } catch (e) {
         // Confirmed 404: the upload was deleted on the server (#1164). Say so
         // instead of presenting the cached copy as live. The local bytes stay.
@@ -204,7 +176,7 @@ export default function UserBookDetailScreen() {
         // Unreachable server, but the book may be on the device. Render the
         // downloaded copy rather than the "couldn't load" screen — this is the
         // whole point of having downloaded it.
-        const rehydrated = notFound || tombstoned ? null : await rehydrateFromCache(id)
+        const rehydrated = notFound || tombstoned ? null : await rehydrateFromDevice(id)
         if (!live()) return
         const view = failedLoadView({ notFound, tombstoned, hasCopy: rehydrated !== null, offline: isOfflineError(e) })
         switch (view) {
@@ -220,9 +192,7 @@ export default function UserBookDetailScreen() {
           case 'cached':
             setBook(rehydrated!.book)
             setSavedProgress(rehydrated!.progress)
-            setCached(true)
             setOfflineMode(true)
-            setCachedIsPdf(rehydrated!.isPdf)
             setLoadError(null)
             break
           case 'offline':
@@ -237,13 +207,6 @@ export default function UserBookDetailScreen() {
     // `reconnects` so the screen recovers on its own — until now a failed load
     // left it showing a spinner until the reader backed out and came in again.
   }, [id, reconnects, attempt])
-
-  // A V2 file replacement dropped this book's rows behind the screen (#1142): ask SQLite again.
-  useEffect(() => onCachedUserBooksChanged(ids => {
-    if (!id || !ids.includes(id)) return
-    isUserBookFullyCached(id).then(c => { if (!unmountedRef.current) setCached(c) }).catch(() => {})
-    hasLocalLeftovers(id).then(c => { if (!unmountedRef.current) setAnyLocalCopy(c) })
-  }), [id])
 
   // Re-read the progress when this screen comes back into view.
   //
@@ -263,6 +226,8 @@ export default function UserBookDetailScreen() {
   // asking again here was a second GET on every open.
   useRefocusEffect(() => {
     if (!id) return
+    // Back from the reader, which fetches the book it opens: "Downloaded" reads the device again.
+    refreshOnDevice().catch(() => {})
     let cancelled = false
     userBooksApi.getUserBookProgress(id)
       .then(p => {
@@ -275,87 +240,7 @@ export default function UserBookDetailScreen() {
     return () => { cancelled = true }
   })
 
-  // Auto-refresh while processing.
-  //
-  // Recursive setTimeout (not setInterval) for exponential backoff on repeated
-  // failures, so an outage isn't hammered (P1-2). Guards against `id` going
-  // undefined mid-flight (P0-1).
-  const pollProcessing = book?.status.toLowerCase() === 'processing'
-  useEffect(() => {
-    if (pollTimeoutRef.current) {
-      clearTimeout(pollTimeoutRef.current)
-      pollTimeoutRef.current = null
-    }
-    if (!id) return
-    if (!pollProcessing) return
-
-    let cancelled = false
-    let consecutiveFailures = 0
-    let delayMs = 5000
-    const MAX_DELAY_MS = 60_000
-    const FAILURE_TOAST_THRESHOLD = 3
-
-    const scheduleNext = () => {
-      if (cancelled || unmountedRef.current) return
-      pollTimeoutRef.current = setTimeout(tick, delayMs)
-    }
-
-    const tick = async () => {
-      if (cancelled || unmountedRef.current) return
-      // Re-check id every iteration — route params can change under us
-      // (user backs out + taps another book) before a prior in-flight call resolves.
-      if (!id) return
-      try {
-        const b = await userBooksApi.getUserBook(id)
-        if (cancelled || unmountedRef.current) return
-        consecutiveFailures = 0
-        delayMs = 5000
-        setBook(b)
-        // A phase change (processing → ready) re-runs this effect via its deps, which tears down the loop.
-        if (b.status.toLowerCase() === 'processing') scheduleNext()
-      } catch (err) {
-        if (cancelled || unmountedRef.current) return
-        // Deleted on the server mid-poll (#1164): stop polling a book that is gone.
-        if (err instanceof ApiError && err.status === 404) {
-          const onDevice = await hasLocalLeftovers(id)
-          if (onDevice) await markDeletedOnServer(id)
-          if (cancelled || unmountedRef.current) return
-          setBook(null)
-          setAnyLocalCopy(onDevice)
-          setLoadError('notfound')
-          return
-        }
-        consecutiveFailures += 1
-        console.warn(`Poll ${consecutiveFailures} failed for user book ${id}:`, err)
-        if (pollProcessing && consecutiveFailures === FAILURE_TOAST_THRESHOLD) {
-          showToast({
-            message: 'Still trying to check processing status…',
-            variant: 'info',
-            duration: 2600,
-          })
-        }
-        // Exponential backoff: 5s → 10 → 20 → 40 → 60 (capped).
-        delayMs = Math.min(delayMs * 2, MAX_DELAY_MS)
-        scheduleNext()
-      }
-    }
-
-    scheduleNext()
-    return () => {
-      cancelled = true
-      if (pollTimeoutRef.current) {
-        clearTimeout(pollTimeoutRef.current)
-        pollTimeoutRef.current = null
-      }
-    }
-  }, [pollProcessing, id, showToast])
-
-  // Download state for this book, if one has been started this session.
-  const dl = book ? downloads.get(book.id) : undefined
-  /** What the button is about to spend, when the server said — and only for a
-   *  book whose original is actually fetched. The server reports the size of
-   *  the newest stored file of ANY format, so an EPUB upload or an HTML clip
-   *  has one too, while the download takes only their chapter text. */
+  /** What the button is about to spend, when the server said (a PDF's file size). */
   const downloadSize = book?.hasOriginalPdf === true
     ? formatBytes(typeof book.originalFileBytes === 'number' ? book.originalFileBytes : null)
     : null
@@ -363,7 +248,6 @@ export default function UserBookDetailScreen() {
   const isReady = book?.status.toLowerCase() === 'ready'
   const { insights, reviews } = useBookReviews(isReady && book ? book.id : null)
   const isFailed = book?.status.toLowerCase() === 'failed'
-  const isProcessing = book && !isReady && !isFailed
 
   // A PDF read in Original layout is chapterless: its position is a `page:<N>`
   // locator with chapterSlug null. Looking only at the slug meant every
@@ -498,8 +382,7 @@ export default function UserBookDetailScreen() {
             // The book page is gone, so this is the only way left to free its bytes.
             secondaryLabel={loadError === 'notfound' && anyLocalCopy ? t('myBooks.deleted.removeDownload') : undefined}
             onSecondaryPress={() => {
-              // No decline: the book is gone, and a false mark must not block its auto-download later.
-              removeUserBookDownload(id!, { decline: false })
+              removeUserBookDownload(id!)
                 .then(() => { setAnyLocalCopy(false); router.back() })
                 .catch(err => {
                   console.warn('Removing the local copy of a deleted book failed:', err)
@@ -577,14 +460,7 @@ export default function UserBookDetailScreen() {
 
         {offlineMode && (
           <OfflineBanner
-            message={
-              // A PDF whose original is stored offline opens as itself, so the
-              // old wording ("the downloaded text") now contradicts the reader
-              // one tap away. Only a PDF WITHOUT its file still reads as text.
-              cachedIsPdf && book?.hasOriginalPdf !== true
-                ? "You're offline — reading the downloaded text of this PDF."
-                : "You're offline — reading the downloaded copy."
-            }
+            message="You're offline — reading the downloaded copy."
           />
         )}
 
@@ -622,16 +498,6 @@ export default function UserBookDetailScreen() {
           <View style={[styles.errorBox, { backgroundColor: colors.error + '18', borderColor: colors.error + '40' }]}>
             <Ionicons name="alert-circle" size={18} color={colors.error} />
             <Text style={{ flex: 1, fontSize: 13, color: colors.error, fontFamily: fonts.sans }}>{book.errorMessage}</Text>
-          </View>
-        )}
-
-        {/* Processing message */}
-        {isProcessing && (
-          <View style={[styles.processingBox, { backgroundColor: colors.primaryLight }]}>
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={{ fontSize: 13, color: colors.primary, fontFamily: fonts.sans }}>
-              Processing... This may take a few minutes.
-            </Text>
           </View>
         )}
 
@@ -690,32 +556,19 @@ export default function UserBookDetailScreen() {
                 {book.completedAt ? 'Mark as unread' : 'Mark as read'}
               </Text>
             </TouchableOpacity>
-            {/* Offline download (DownloadContext). */}
+            {/* Offline download: the book's file to this device (DownloadContext). */}
             <DownloadButton
-              dl={dl}
               cached={cached}
-              onRemove={() => removeUserBookDownload(book.id).then(() => setCached(false))}
-              onCancel={() => cancelDownload(book.id)}
-              onRetry={() => retryFailed(book.id)}
+              downloading={downloading.has(book.id)}
               onStart={async () => {
                 if (!(await confirmDownloadOnCellular(book))) return
-                await startUserBookDownload(book)
-                setCached(await isUserBookFullyCached(book.id).catch(() => false))
+                const here = await download(book.id).catch(() => false)
+                if (!here) showToast({ message: "Couldn't download this book. Try again.", variant: 'error', duration: 2600 })
               }}
               startLabel={downloadSize ? `Download for Offline · ${downloadSize}` : 'Download for Offline'}
               buttonStyle={styles.secondaryBtn}
               textStyle={styles.secondaryBtnText}
             />
-
-            {/* Said before the download, not discovered after it. It used to
-                warn that an offline PDF opens as text; the download now takes
-                the original file too, so the promise is the opposite one — and
-                the honest part to state up front is the size. */}
-            {book.hasOriginalPdf === true && !offlineMode && (
-              <Text style={[styles.offlineNote, { color: colors.textSecondary }]}>
-                Downloads the original pages, so this book looks the same offline.
-              </Text>
-            )}
 
             {/* Enabled offline when the book is on the device: the file is right
                 there, and asking the server for a copy of it would be the exact
@@ -775,7 +628,7 @@ function StatusText({ status, colors }: { status: string; colors: any }) {
   const s = status.toLowerCase()
   if (s === 'ready') return null
   if (s === 'failed') return <Text style={[styles.statusFail, { color: colors.error }]}>Failed</Text>
-  return <Text style={[styles.statusPending, { color: colors.primary }]}>Processing...</Text>
+  return null
 }
 
 const styles = StyleSheet.create({
@@ -793,7 +646,6 @@ const styles = StyleSheet.create({
   progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 3 },
   errorBox: { marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 8, borderWidth: 1, flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  processingBox: { marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   actions: { paddingHorizontal: 16, marginTop: 4, gap: 8 },
   readBtn: {
     paddingVertical: 14,
@@ -814,10 +666,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
-  offlineNote: { fontFamily: fonts.sans, fontSize: 12, lineHeight: 17, paddingHorizontal: 2, marginTop: -2 },
   secondaryBtnText: { fontSize: 14, fontFamily: fonts.sansMedium },
   statusFail: { fontSize: 12, marginTop: 6, fontFamily: fonts.sansMedium },
-  statusPending: { fontSize: 12, marginTop: 6, fontFamily: fonts.sansMedium },
   dangerSection: { paddingHorizontal: 16, marginTop: 24 },
   deleteBtn: {
     paddingVertical: 12,

@@ -17,7 +17,7 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
-import { getAllCachedUserBooks } from '../../src/lib/offlineDb'
+import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
 import { getAllUserBookLocalProgress, type UserBookProgressWithPercent } from '../../src/lib/progressStorage'
 import { clearDeletedOnServer, listDeletedOnServer } from '../../src/lib/deletedOnServer'
 import { markUnlistedLeftovers } from '../../src/lib/localLeftovers'
@@ -109,13 +109,13 @@ export default function LibraryScreen() {
       logLoadError('Library load error:', e)
       const offline = isOfflineError(e)
       setLoadError(offline ? 'offline' : 'failed')
-      // Offline: fall back to what is genuinely on the device. A downloaded book carries its title and
-      // cover in SQLite; books never downloaded are not on the device at all, so the banner still says
+      // Offline: fall back to what is genuinely on the device — the books whose file is here (the V2
+      // local library); books never downloaded are not on the device at all, so the banner still says
       // the list is partial rather than pretending it is whole.
       if (offline) {
         try {
-          const [cachedUploads, localProgress, deleted] = await Promise.all([
-            getAllCachedUserBooks(),
+          const [onDevice, localProgress, deleted] = await Promise.all([
+            deviceLocalLibrary().books().then(bs => bs.filter(b => b.local)),
             getAllUserBookLocalProgress().catch(() => new Map<string, UserBookProgressWithPercent>()),
             listDeletedOnServer(),
           ])
@@ -124,26 +124,25 @@ export default function LibraryScreen() {
           // list or from `prev` (a book marked during this session), so it has no
           // Continue pill either. Its bytes stay until the reader removes them:
           // DeletedDownloadsRow below the list, or the book's not-found screen (#1193).
-          setUserBooks(prev => (prev.length > 0 ? prev : cachedUploads.map(c => ({
-            id: c.bookId,
+          setUserBooks(prev => (prev.length > 0 ? prev : onDevice.map(c => ({
+            id: c.id,
             title: c.title,
-            author: c.author,
-            language: c.language ?? 'en',
-            coverPath: c.coverPath,
+            author: c.author || null,
+            language: 'en',
+            coverPath: null,
             genre: null,
-            totalWordCount: c.totalWordCount,
-            // A cached copy only ever exists for a book that finished processing.
+            totalWordCount: null,
+            // Its file is here: readable.
             status: 'Ready',
-            chapterCount: c.totalChapters,
-            createdAt: new Date(c.cachedAt).toISOString(),
+            chapterCount: 0,
+            createdAt: new Date(c.importedAt).toISOString(),
             completedAt: null,
             errorMessage: null,
-            progressPercent: localProgress.get(c.bookId)?.bookPercent ?? null,
-            progressUpdatedAt: localProgress.get(c.bookId)
-              ? new Date(localProgress.get(c.bookId)!.updatedAt).toISOString()
+            progressPercent: localProgress.get(c.id)?.bookPercent ?? null,
+            progressUpdatedAt: localProgress.get(c.id)
+              ? new Date(localProgress.get(c.id)!.updatedAt).toISOString()
               : null,
-            progressChapterSlug: localProgress.get(c.bookId)?.chapterSlug ?? null,
-            // False whatever the upload was: offline it reads as text (ADR-012).
+            progressChapterSlug: localProgress.get(c.id)?.chapterSlug ?? null,
             hasOriginalPdf: false,
           }))).filter(b => !deleted.has(b.id)))
         } catch { /* cache unavailable — the banner still explains the empty list */ }
