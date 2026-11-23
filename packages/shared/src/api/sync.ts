@@ -458,7 +458,9 @@ const inFlight = new Map<FeedName, Promise<{ items: unknown[]; cursor: string | 
 export function pullFeed<T>(feed: FeedName): Promise<{ items: T[]; cursor: string | null }> {
   let pull = inFlight.get(feed)
   if (!pull) {
-    pull = pullAll(feed).finally(() => inFlight.delete(feed))
+    // Only its own entry: after forgetPulls() the next account's pull may sit under this key.
+    const mine: Promise<{ items: unknown[]; cursor: string | null }> = pullAll(feed).finally(() => { if (inFlight.get(feed) === mine) inFlight.delete(feed) })
+    pull = mine
     inFlight.set(feed, pull)
   }
   return pull as Promise<{ items: T[]; cursor: string | null }>
