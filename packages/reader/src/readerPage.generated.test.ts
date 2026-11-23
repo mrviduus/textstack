@@ -10,8 +10,8 @@ describe('readerPageHtml', () => {
   it('generatedSource_CarriesOnlyThePlaceholder_NoLiteralNonce', () => {
     const src = readFileSync(resolve(__dirname, 'readerPage.generated.ts'), 'utf8')
     // The page's CSP, and the web and Android CSP literals the Android page swaps: every one the placeholder.
-    expect(new Set(src.match(/'nonce-[^']*'/g))).toEqual(new Set(["'nonce-__V2_READER_NONCE__'"]))
-    expect(src.match(/nonce=\\"[^\\]*\\"/g)).toEqual(['nonce=\\"__V2_READER_NONCE__\\"'])
+    expect(new Set(src.match(/'nonce-[^']*'/g))).toEqual(new Set(["'nonce-__READER_NONCE__'"]))
+    expect(src.match(/nonce=\\"[^\\]*\\"/g)).toEqual(['nonce=\\"__READER_NONCE__\\"'])
   })
 
   it('validNonce_FillsTheCspAndTheScriptTag_ExactlyTwice', () => {
@@ -19,11 +19,11 @@ describe('readerPageHtml', () => {
     expect(html.split(NONCE)).toHaveLength(3)
     expect(html).toContain(`script-src 'nonce-${NONCE}'`)
     expect(html).toContain(`<script nonce="${NONCE}">`)
-    expect(html).not.toContain('__V2_READER_NONCE__')
+    expect(html).not.toContain('__READER_NONCE__')
   })
 
   it('weakOrUnsafeNonce_Throws', () => {
-    for (const bad of ['', 'tsfoliate', '__V2_READER_NONCE__', 'x__V2_READER_NONCE__', 'a'.repeat(15), `${'a'.repeat(16)}"><script>`, `${'a'.repeat(16)}'`])
+    for (const bad of ['', 'tsfoliate', '__READER_NONCE__', 'x__READER_NONCE__', 'a'.repeat(15), `${'a'.repeat(16)}"><script>`, `${'a'.repeat(16)}'`])
       expect(() => readerPageHtml(bad), bad).toThrow()
   })
 
@@ -58,7 +58,7 @@ describe('readerPageHtml', () => {
       `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'`,
     )
     expect(android.replace(/connect-src [^;]*/, '')).toBe(web.replace(/connect-src [^;]*/, ''))
-    expect(() => readerAndroidPageHtml('__V2_READER_NONCE__')).toThrow()
+    expect(() => readerAndroidPageHtml('__READER_NONCE__')).toThrow()
   })
 
   it('bundle_PatchedPaginatorGuardAndPaginatedDefault_NoTestOnlyCode', () => {

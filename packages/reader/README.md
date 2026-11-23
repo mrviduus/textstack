@@ -296,7 +296,7 @@ The section iframes are `sandbox="allow-same-origin allow-scripts"`, so the page
 (ADR-029 Decision 4; changing a directive is a change to that ADR):
 
 ```
-default-src 'none'; script-src 'nonce-__V2_READER_NONCE__'; style-src blob: 'unsafe-inline'; img-src blob: data:;
+default-src 'none'; script-src 'nonce-__READER_NONCE__'; style-src blob: 'unsafe-inline'; img-src blob: data:;
 font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'
 ```
 
@@ -349,7 +349,7 @@ node --experimental-strip-types packages/reader/src/sandbox.check.mjs --mutate=b
 - **`link-prefetch`** escapes whenever *any* directive gains `http:` or `*`, even with `default-src 'none'`. A
   widened `connect-src` is caught only through it, because no book script runs to use `connect-src`.
 
-The artifact carries only the placeholder `__V2_READER_NONCE__` (a fixed nonce in a public repo is one a book
+The artifact carries only the placeholder `__READER_NONCE__` (a fixed nonce in a public repo is one a book
 can carry); `readerPageHtml(nonce)` fills the CSP and the script tag and rejects anything but base64/hex of
 16+ chars, and the placeholder itself (it fits that rule, so a page "filled" with it would run any script
 carrying it). The host supplies a fresh random nonce per load; on the web, whoever serves the frame document fills
