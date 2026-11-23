@@ -37,4 +37,13 @@ public interface IAccountMergeRepository
     /// nothing a reader made. Here because it names every aggregate a user owns, as the merge does.
     /// </summary>
     Task<bool> HoldsNothingDurableAsync(Guid userId, CancellationToken ct);
+
+    /// <summary>
+    /// Deletes up to <paramref name="limit"/> guests idle since before <paramref name="idleSince"/>
+    /// (<c>last_active_at</c>) that hold nothing durable (<see cref="HoldsNothingDurableAsync"/>'s
+    /// definition), in one transaction: locked, then rechecked, so a guest promoted, active again, or
+    /// given a book, word or annotation by a concurrent request stays. The cascade takes its
+    /// credentials. Returns each deleted guest's <c>picture</c> (null when none): its only bytes.
+    /// </summary>
+    Task<IReadOnlyList<string?>> DeleteIdleEmptyGuestsAsync(DateTimeOffset idleSince, int limit, CancellationToken ct);
 }

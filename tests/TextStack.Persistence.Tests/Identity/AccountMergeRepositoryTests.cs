@@ -585,4 +585,26 @@ public class AccountMergeRepositoryTests(PostgresFixture db)
 
         Assert.Equal(expected, await _repo.HoldsNothingDurableAsync(guest, Ct));
     }
+
+    [Fact]
+    public async Task DeleteIdleEmptyGuestsAsync_TheDailySweep_OnlyIdleGuestsHoldingNothingGo()
+    {
+        // A month and a day idle on the database's clock; the sweep's cutoff is a month back on it too.
+        var (empty, withBook, withWord, account, active) = (await db.NewReaderAsync(isGuest: true), await db.NewReaderAsync(isGuest: true),
+            await db.NewReaderAsync(isGuest: true), await db.NewReaderAsync(), await db.NewReaderAsync(isGuest: true));
+        await db.NewBookAsync(withBook);
+        await new VocabularyRepository(db.DataSource).SaveWordAsync(withWord, NewWord(withWord), Ct);
+        await db.ExecAsync("UPDATE users SET last_active_at = now() - interval '31 days' WHERE id = ANY(@idle)",
+            new { idle = new[] { empty, withBook, withWord, account } });
+        await db.ExecAsync("UPDATE users SET last_active_at = now() - interval '1 day', picture = 'ab/x/avatar.jpg' WHERE id = @active", new { active });
+        await db.ExecAsync("UPDATE users SET picture = 'ab/x/avatar-old.jpg' WHERE id = @empty", new { empty });
+        var idleSince = await ScalarAsync<DateTimeOffset>("SELECT now() - interval '30 days'", new { });
+
+        var pictures = await _repo.DeleteIdleEmptyGuestsAsync(idleSince, 500, Ct);
+
+        // Its avatar comes back for the worker to delete: the only bytes an empty guest has.
+        Assert.Contains("ab/x/avatar-old.jpg", pictures);
+        var left = await RowsAsync<Guid>("SELECT id FROM users WHERE id = ANY(@ids)", new { ids = new[] { empty, withBook, withWord, account, active } });
+        Assert.Equal(new[] { withBook, withWord, account, active }.Order(), left.Order());
+    }
 }

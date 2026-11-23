@@ -1,4 +1,6 @@
+using Application.Common.Interfaces;
 using Application.Identity;
+using Domain.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -28,6 +30,15 @@ public class RetentionCleanupWorker(
     public static readonly TimeSpan AiTextRetention = TimeSpan.FromDays(30);
 
     private const int ScrubBatch = 500;
+
+    /// <summary>A guest idle this long that holds nothing durable goes; one that holds anything stays
+    /// until it signs up (the deleted legacy GuestCleanupWorker's 30 days, paired with the guest
+    /// refresh-token lifetime).</summary>
+    public static readonly TimeSpan GuestRetention = TimeSpan.FromDays(30);
+
+    // ponytail: one batch of guests per daily run keeps the transaction small; a backlog larger than
+    // this drains over days. Loop like the trace scrub if guest sign-ups ever outrun it.
+    private const int GuestBatch = 500;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -70,6 +81,18 @@ public class RetentionCleanupWorker(
             () => services.GetRequiredService<IDeviceLoginRepository>().DeleteExpiredAsync(tokenCutoff, ct), ct);
         await DeleteAsync("OAuth grants",
             () => services.GetRequiredService<IOAuthRepository>().DeleteDeadGrantsAsync(tokenCutoff, ct), ct);
+        await DeleteAsync("inactive empty guests", async () =>
+        {
+            var pictures = await services.GetRequiredService<IAccountMergeRepository>().DeleteIdleEmptyGuestsAsync(now - GuestRetention, GuestBatch, ct);
+            // An empty guest's only bytes: an uploaded avatar (book bytes need a book row, which keeps the guest).
+            var storage = services.GetRequiredService<IFileStorageService>();
+            foreach (var picture in pictures.Where(UserAccount.IsStoredPicture))
+            {
+                try { await storage.DeleteFileAsync(picture!, ct); }
+                catch (Exception ex) when (!ct.IsCancellationRequested) { logger.LogWarning(ex, "Retention: could not delete avatar {Path}; it is left as an orphan", picture); }
+            }
+            return pictures.Count;
+        }, ct);
         // Traces keep their cost, tokens and latency for spend history; only the text goes. Batches:
         // one statement over months of text would be one huge transaction (#941).
         var aiCutoff = now - AiTextRetention;
