@@ -11,7 +11,7 @@
 // readerPageHtml(nonce) fills it per load.
 import { BOOK_CONNECT_SRC } from './bookOrigin.mjs'
 
-export const NONCE = '__V2_READER_NONCE__'
+export const NONCE = '__READER_NONCE__'
 const policy = (connect) => [`default-src 'none'`, `script-src 'nonce-${NONCE}'`, `style-src blob: 'unsafe-inline'`, `img-src blob: data:`,
   `font-src blob: data:`, `media-src blob: data:`, `frame-src blob:`, `connect-src ${connect}`, `form-action 'none'`, `base-uri 'none'`].join('; ')
 /** The page's CSP as built (the web frame serves it): no host but its own blob:/data:. */

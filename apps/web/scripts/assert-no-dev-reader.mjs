@@ -11,7 +11,7 @@ import { READER_DIR, READER_FRAME_PATH, READER_SCRIPT_PATH } from '../../../pack
 
 const PLACEHOLDER = '%READER_FRAME_NONCE%' // frame.mjs FRAME_NONCE_PLACEHOLDER (not imported: it loads the page)
 // The page's own nonce placeholder and its format readers (page code); the dev page (its file input, its route).
-const LEAK = /__V2_READER_NONCE__|__TS_FORMATS|ReaderDevPage|Pick EPUB|\\?\/dev\\?\/reader\b/
+const LEAK = /__READER_NONCE__|__TS_FORMATS|ReaderDevPage|Pick EPUB|\\?\/dev\\?\/reader\b/
 const dist = new URL('../dist', import.meta.url).pathname
 const readerDir = READER_DIR.slice(1, -1) // 'reader'
 const problems = []

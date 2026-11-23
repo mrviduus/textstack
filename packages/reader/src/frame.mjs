@@ -19,7 +19,7 @@ export { READER_DIR, READER_FRAME_PATH, READER_SCRIPT_PATH }
 /**
  * The shell's nonce placeholder. Fails closed: `%` is outside the CSP nonce grammar, so a shell served unfilled
  * has no valid script source (every script refused, the page script too), and no book script can carry a nonce
- * that matches it. Not the page's own placeholder (`__V2_READER_NONCE__`), which is a valid nonce-source.
+ * that matches it. Not the page's own placeholder (`__READER_NONCE__`), which is a valid nonce-source.
  * Whoever serves the file replaces it per response (nginx: `sub_filter` with `$request_id`).
  */
 export const FRAME_NONCE_PLACEHOLDER = '%READER_FRAME_NONCE%'

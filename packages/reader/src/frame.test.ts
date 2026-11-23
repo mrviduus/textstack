@@ -29,7 +29,7 @@ describe('readerFrameFiles (frame.mjs)', () => {
   it('shell_CarriesOnlyThePlaceholder_InItsCspAndBothScripts_AndNoPageCode', () => {
     expect(count(shell, FRAME_NONCE_PLACEHOLDER)).toBe(3)
     expect(shell).toContain(`script-src 'nonce-${FRAME_NONCE_PLACEHOLDER}'`)
-    expect(shell).not.toContain('__V2_READER_NONCE__')
+    expect(shell).not.toContain('__READER_NONCE__')
     expect(shell).not.toContain('__TS_FORMATS')
     expect(shell.length).toBeLessThan(4096)
   })
@@ -51,7 +51,7 @@ describe('readerFrameFiles (frame.mjs)', () => {
 
 describe('fillNonce (frame.mjs)', () => {
   it('fillNonce_NotNginxRequestIdForm_Throws', () => {
-    for (const bad of ['', NONCE.toUpperCase(), NONCE.slice(1), `${NONCE}0`, 'q7Rk2mW9xLpA4vBn8cZt0g==', FRAME_NONCE_PLACEHOLDER, '__V2_READER_NONCE__'])
+    for (const bad of ['', NONCE.toUpperCase(), NONCE.slice(1), `${NONCE}0`, 'q7Rk2mW9xLpA4vBn8cZt0g==', FRAME_NONCE_PLACEHOLDER, '__READER_NONCE__'])
       expect(() => fillNonce(shell, bad), bad).toThrow()
   })
 

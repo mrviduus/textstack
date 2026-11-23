@@ -136,8 +136,7 @@ A conclusion or a summary of a book or a chapter. It can be edited: a better one
 one. An insight about one chapter is a **chapter insight**.
 
 Not: checkpoint, chapter review.
-In code: `book_insight`, and the assistant tools `save_insight` and `save_chapter_review`. Tool
-names stay as they are.
+In code: `book_insight`, and the assistant tool `save_insight`.
 
 ### Checkpoint
 
