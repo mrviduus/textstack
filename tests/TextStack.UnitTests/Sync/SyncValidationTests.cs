@@ -145,6 +145,8 @@ public class SyncValidationTests
         { LocatorUse.Position, Cfi(""","quote":"It was" """) },
         { LocatorUse.Position, Cfi($$""","quote":"{{Emoji64}}" """) },
         { LocatorUse.Position, LocatorJson("pdf-page", """{"page":3}""") },
+        // Mark-read's book start (ADR-033): a bare CFI, resumed by bookFraction.
+        { LocatorUse.Position, Cfi("") },
         // #1188: a page by its stable key (a CBZ entry name), its 0-based section beside it.
         { LocatorUse.Position, PageName("""{"page":"p01.png","index":0}""") },
         { LocatorUse.Position, PageName("""{"index":41,"page":"Vol 1/Ch 3/042.jpg"}""") },
@@ -202,8 +204,8 @@ public class SyncValidationTests
         { LocatorUse.Annotation, """{"version":1,"value":"x","quote":"q"}""", UnknownScheme },
         { LocatorUse.Annotation, """{"version":1,"scheme":"cfi","value":"x","quote":"q"}""", UnknownScheme },
         // epub-cfi: a position needs its quote (a page member does not stand in), 1-64 code points; context 32.
-        { LocatorUse.Position, Cfi(""), NeedsQuote },
         { LocatorUse.Position, Cfi(""","page":"p01.png" """), NeedsQuote },
+        { LocatorUse.Position, Cfi(""","prefix":"before " """), NeedsQuote },
         { LocatorUse.Position, Cfi($$""","quote":"{{Emoji64}}a" """), QuoteLength },
         { LocatorUse.Position, """{"version":1,"scheme":"epub-cfi","value":" ","quote":"x"}""", CfiValue },
         { LocatorUse.Annotation, Cfi($$""","prefix":"{{new string('p', 33)}}" """), ContextLength },

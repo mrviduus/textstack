@@ -51,10 +51,11 @@ public sealed class AnnotationSyncService(IBookAccess library, IAnnotationReposi
         if (sent.Locator is not null && FitsFile(SchemeOf(sent.Locator), format!, "locator") is { } misfit
             && !(await annotations.GetAsync(userId, id, ct) is { } before && SameAnchor(before, sent)))
             return misfit;
+        // A textstack-anchor-v1 (assistant or legacy reader) names a chapter of the file's synced TOC (ADR-033); the reader's own schemes never do.
         if (TransitionalLocators.ChapterKeyOf(sent.Locator) is { } chapterKey
-            && !await chapters.ExistsAsync(userId, r.FileId!.Value, chapterKey, ct)
+            && await chapters.CheckKeyAsync(userId, bookId, r.FileId!.Value, chapterKey, ct) is { } noChapter
             && !(await annotations.GetAsync(userId, id, ct) is { } kept && SameAnchor(kept, sent)))
-            return SyncResult.ChapterNotFound;
+            return noChapter;
         var result = await annotations.SaveAsync(userId, sent, r.ExpectedRevision, ct);
         if (result.Accepted) return SyncResult.Written(r.ExpectedRevision is null, result.Current!.ToDto());
 

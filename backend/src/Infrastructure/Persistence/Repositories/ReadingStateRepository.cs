@@ -28,13 +28,14 @@ public sealed class ReadingStateRepository(AppDataSource dataSource) : IReadingS
             new CommandDefinition(SelectState, new { userId, bookId }, cancellationToken: ct));
     }
 
-    // Transitional (M2.7a, dropped at R8): a textstack-* locator lands only on a chapter of its file, checked
-    // in the write itself so a re-extraction cannot slip between a check and the write.
+    // A textstack-* locator lands only on an entry of its file's synced TOC (ADR-033; none synced: refused), checked
+    // in the write itself so a TOC rewrite cannot slip between a check and the write. Containment, not
+    // jsonb_array_elements: a non-array toc (free-form, before P3) is simply no match, never an error.
     private const string CurrentChapterExists =
-        "(CAST(@CurrentKey AS text) IS NULL OR EXISTS (SELECT FROM book_chapters c WHERE c.user_id = @userId AND c.file_id = @FileId AND c.chapter_key = @CurrentKey))";
+        "(CAST(@CurrentKey AS text) IS NULL OR EXISTS (SELECT FROM book_files t WHERE t.user_id = @userId AND t.id = @FileId AND t.toc @> jsonb_build_array(jsonb_build_object('key', CAST(@CurrentKey AS text)))))";
 
     private const string FrontierChapterExists =
-        "(CAST(@FrontierKey AS text) IS NULL OR EXISTS (SELECT FROM book_chapters c WHERE c.user_id = @userId AND c.file_id = @FileId AND c.chapter_key = @FrontierKey))";
+        "(CAST(@FrontierKey AS text) IS NULL OR EXISTS (SELECT FROM book_files t WHERE t.user_id = @userId AND t.id = @FileId AND t.toc @> jsonb_build_array(jsonb_build_object('key', CAST(@FrontierKey AS text)))))";
 
     // A locator's scheme fits its file (#1122): pdf-page only on a PDF, epub-cfi on any other format, page-name only on a CBZ (#1188) or an EPUB (#1196);
     // textstack-* on any (its guard is the chapter check). SyncValidation.FitsFile names a loss to these.
@@ -76,9 +77,11 @@ public sealed class ReadingStateRepository(AppDataSource dataSource) : IReadingS
             -- The file's format, read by key in the same statement; the frontier's scheme only when this write stores it.
             AND EXISTS (SELECT FROM book_files f WHERE f.user_id = @userId AND f.id = @FileId
                 AND {CurrentFitsFile} AND (frontier_fraction IS NOT NULL AND @FrontierFraction <= frontier_fraction OR {FrontierFitsFile}))
-            -- The frontier's chapter only when this write stores it: an unchanged one echoed back is not refused.
-            AND {CurrentChapterExists}
-            AND (frontier_fraction IS NOT NULL AND @FrontierFraction <= frontier_fraction OR {FrontierChapterExists})
+            -- A chapter only for a locator this write changes: one already stored echoed back (mark-read on an old
+            -- server key, also after a reset cleared the frontier) is not refused. The frontier's only when stored.
+            AND (current_locator = CAST(@CurrentLocator AS jsonb) OR {CurrentChapterExists})
+            AND (frontier_fraction IS NOT NULL AND @FrontierFraction <= frontier_fraction
+                 OR CAST(@FrontierLocator AS jsonb) IN (current_locator, frontier_locator) OR {FrontierChapterExists})
         RETURNING {Columns}
         """;
 

@@ -148,7 +148,9 @@ lost write's alike). On an `epub` it is a pre-paginated EPUB's page ([#1196](htt
 owner rule 2026-11-13: any `epub`). The server cannot tell a pre-paginated EPUB from a reflowable one
 (it never parses the OPF), so it takes `page-name` on any `epub`; a reflowable EPUB's position always
 has text and a quote, so its clients write `epub-cfi` and never `page-name`. An `epub-cfi` position
-without a quote is still refused on every format.
+without a quote is still refused on every format, except a bare one (only `version`, `scheme`, `value`;
+migration 0009): "Mark as read" writes it as the start of a book with no reading state and no synced TOC
+(ADR-033 P4; a PDF gets `pdf-page` 1), and clients resume it by `bookFraction`.
 
 Clients (`packages/shared` `positionWrite` / `statePosition`): the page saves a CBZ or pre-paginated
 EPUB position as `{cfi, page, index, fraction, at}` (no `quote`); it is written as `page-name` `{page, index}`
@@ -174,10 +176,11 @@ of the offsets) but never between the halves of a surrogate pair (`notInSurrogat
 like a NUL.
 
 A scheme in the other use, or a value breaking a rule, is 400 `invalid_payload`. Each such write is
-accepted only on a file version of the user's whose extracted chapters (`book_chapters`,
-`(user_id, file_id, chapter_key)`) include the one it names — otherwise 409 `chapter_not_found`,
-also for a file that has no chapters (never uploaded, or its extraction not finished). On reading
-state the check is part of the write statement (a re-extraction cannot slip between a check and the
+accepted only on a file version of the user's whose synced TOC (`book_files.toc`, ADR-033 P4) has an
+entry with the `key` it names — otherwise 409 `chapter_not_found`; for a file whose TOC no reader has
+synced yet, with the message "This book's chapters are not known yet: open the book once in the reader."
+The reader itself never writes these schemes. On reading
+state the check is part of the write statement (a TOC rewrite cannot slip between a check and the
 write) and covers what the write stores: the position's chapter always, the frontier's only when that
 frontier is stored (none stored yet, or the offered one is further) — a client echoing back a stored
 frontier whose chapter was renamed is not refused. The file's own codes come first: a loss on a file
@@ -522,7 +525,7 @@ annotations, the M2.2 endpoint (M1.3 delta 1); a word id held by another user, t
 | `reset` | 409 | reading-state PUT | `current` with `resetRevision` | drop local frontier/completion; resend position with new revision |
 | `file_replaced` | 409 | reading-state PUT; file PUT whose `replacesFileId` is not current, or naming a superseded version; parts/content for a non-current file | `fileId`, `currentFile` | drop queued state writes and uploads for the old file; offer fetch/import |
 | `unknown_file` | 409 | every write naming a `fileId` (reading state, annotation, example, share, checkpoint, parts, content) | — | push the file version first; keep the write queued |
-| `chapter_not_found` | 409 | reading-state PUT, annotation PUT with a `textstack-*` locator (transitional, until R8) | — | while the file's extraction is `queued`/`processing` (`GET …/chapters`), keep the write queued; otherwise drop it — the chapter keys changed (resume from `bookFraction`) |
+| `chapter_not_found` | 409 | reading-state PUT, annotation PUT with a `textstack-*` locator, insight POST: the key is not in the file's synced TOC, or no TOC is synced (ADR-033) | — | drop the write — the chapter keys changed (resume from `bookFraction`) |
 | `deleted` | 409 | annotation PUT, word save/PATCH, example add, review | `current` = tombstone | drop the edit, delete locally; word: offer restore |
 | `operation_conflict` | 409 | example, review, share, checkpoint | `current` = stored row | log, drop the operation |
 | `duplicate_file` | 409 | book PUT | `current` = the existing book with those bytes | re-key as for a merge map (local entry, local store, outbox: book id and file id); drop the import |

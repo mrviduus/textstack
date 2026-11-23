@@ -194,31 +194,19 @@ public sealed class SyncApiFixture : IAsyncLifetime
         return await SendAsync(who, HttpMethod.Post, $"/me/v2/books/{book}/files/{file}/content", new { partCount = 2 });
     }
 
-    /// <summary>Imports an EPUB with one chapter per title and has it extracted (<see cref="UploadAndExtractAsync"/>); its ids and chapter keys.</summary>
-    public async Task<(Guid Book, Guid File, IReadOnlyList<string> Keys)> ImportWithChaptersAsync(SyncSession who, params string[] titles)
+    /// <summary>Imports a book whose reader synced a TOC of one entry per title (ADR-033); its ids and chapter keys.</summary>
+    public async Task<(Guid Book, Guid File, IReadOnlyList<string> Keys)> ImportWithTocAsync(SyncSession who, params string[] titles)
     {
-        var bytes = Epub(titles);
-        var (book, file) = await ImportBytesAsync(who, bytes);
-        return (book, file, await UploadAndExtractAsync(who, book, file, bytes));
+        var (book, file, _) = await ImportAsync(who);
+        return (book, file, await SyncTocAsync(who, book, file, titles));
     }
 
-    /// <summary>
-    /// Uploads a file's bytes and waits for the transitional extraction (the worker must run against this api's
-    /// storage root and V2 database); returns the file's chapter keys in order.
-    /// </summary>
-    public async Task<IReadOnlyList<string>> UploadAndExtractAsync(SyncSession who, Guid book, Guid file, byte[] bytes)
+    /// <summary>PUTs a TOC of one entry per title, as the reader does on open; returns its keys in order.</summary>
+    public async Task<IReadOnlyList<string>> SyncTocAsync(SyncSession who, Guid book, Guid file, params string[] titles)
     {
-        var chapters = $"/me/v2/books/{book}/files/{file}/chapters";
-        Assert.Equal(HttpStatusCode.OK, (await UploadAsync(who, book, file, bytes)).Status);
-
-        var toc = await SendAsync(who, HttpMethod.Get, chapters);
-        for (var waited = 0; waited < 60_000 && toc.Body.GetProperty("ingestion").GetString() is "queued" or "processing"; waited += 500)
-        {
-            await Task.Delay(500, TestContext.Current.CancellationToken);
-            toc = await SendAsync(who, HttpMethod.Get, chapters);
-        }
-        Assert.Equal("succeeded", toc.Body.GetProperty("ingestion").GetString());
-        return toc.Body.GetProperty("items").EnumerateArray().Select(c => c.GetProperty("chapterKey").GetString()!).ToList();
+        var entries = titles.Select((title, i) => new { key = $"toc-{i}", title, depth = 0, fraction = (decimal)i / titles.Length }).ToList();
+        Assert.Equal(HttpStatusCode.NoContent, (await SendAsync(who, HttpMethod.Put, $"/me/v2/books/{book}/files/{file}/toc", entries)).Status);
+        return entries.Select(e => e.key).ToList();
     }
 
     /// <summary>A valid EPUB 3 with one chapter per title, its bytes unique to this call.</summary>

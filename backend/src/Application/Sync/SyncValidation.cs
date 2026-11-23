@@ -287,7 +287,8 @@ public static class SyncValidation
         if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
             return SyncResult.Invalid(field, "An epub-cfi value is the CFI string.");
         var hasQuote = locator.TryGetProperty("quote", out var quote);
-        if (use == LocatorUse.Position && !hasQuote)
+        // A bare CFI (no quote, no context: mark-read's book start, ADR-033) is a position clients resume by bookFraction.
+        if (use == LocatorUse.Position && !hasQuote && locator.EnumerateObject().Count() != 3)
             return SyncResult.Invalid(field, "A reading position needs the quote at its CFI.");
         if (hasQuote && !IsText(quote, 1, MaxQuoteCodePoints))
             return SyncResult.Invalid(field, "quote is 1-64 characters.");

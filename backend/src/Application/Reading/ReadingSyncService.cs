@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Application.Common;
 using Application.Library;
 using Application.Sync;
@@ -58,7 +59,7 @@ public sealed class ReadingSyncService(
                 ? SyncResult.UnknownFile
                 : SyncResult.FileReplaced(current, stored?.Revision, stored?.ToDto());
         if (MisfitsTheFile(sent, stored, current!.Format) is { } misfit) return misfit;
-        if (await NamesAMissingChapterAsync(userId, sent, keys, stored, ct)) return SyncResult.ChapterNotFound;
+        if (await NamesAMissingChapterAsync(userId, bookId, sent, keys, stored, ct) is { } noChapter) return noChapter;
         // A first writer had no frontier to lose, so a reset is news only to a writer that read an older revision.
         return expectedRevision is not null && stored?.ResetRevision > expectedRevision
             ? SyncResult.Fail(SyncCodes.Reset, stored!.Revision, stored.ToDto(), current?.Id, current?.ToDto())
@@ -78,17 +79,22 @@ public sealed class ReadingSyncService(
     }
 
     /// <summary>
-    /// The write SQL's chapter guard asked again, to name the loss: the position's chapter, and the offered
-    /// frontier's when the write would have stored it (no stored frontier, or the offered one is further).
+    /// The write SQL's chapter guard asked again, to name the loss: the position's chapter, and the offered frontier's
+    /// when the write would have stored it (no stored frontier, or the offered one is further); neither for a locator
+    /// already stored (the position's against the stored position, the frontier's against either). Null: none is missing.
     /// </summary>
-    private async Task<bool> NamesAMissingChapterAsync(Guid userId, ReadingState sent, TransitionalChapterKeys keys, ReadingState? stored, CancellationToken ct)
+    private async Task<SyncResult?> NamesAMissingChapterAsync(Guid userId, Guid bookId, ReadingState sent, TransitionalChapterKeys keys, ReadingState? stored, CancellationToken ct)
     {
-        var (_, offered) = ReadingState.Furthest((sent.FrontierLocator, sent.FrontierFraction), (sent.CurrentLocator, sent.BookFraction));
+        var (frontier, offered) = ReadingState.Furthest((sent.FrontierLocator, sent.FrontierFraction), (sent.CurrentLocator, sent.BookFraction));
         var frontierStored = stored?.FrontierFraction is not { } kept || offered > kept;
-        foreach (var key in new[] { keys.Current, frontierStored ? keys.Frontier : null }.OfType<string>().Distinct())
-            if (!await chapters.ExistsAsync(userId, sent.FileId, key, ct))
-                return true;
-        return false;
+        bool Stored(string? locator, params string?[] storedOnes) =>
+            stored?.FileId == sent.FileId && storedOnes.Any(s => s is not null && JsonNode.DeepEquals(JsonNode.Parse(s), JsonNode.Parse(locator!)));
+        var current = Stored(sent.CurrentLocator, stored?.CurrentLocator) ? null : keys.Current;
+        var offeredKey = frontierStored && !Stored(frontier, stored?.CurrentLocator, stored?.FrontierLocator) ? keys.Frontier : null;
+        foreach (var key in new[] { current, offeredKey }.OfType<string>().Distinct())
+            if (await chapters.CheckKeyAsync(userId, bookId, sent.FileId, key, ct) is { } missing)
+                return missing;
+        return null;
     }
 
     private static SyncResult? Validate(ReadingStateRequest r) =>

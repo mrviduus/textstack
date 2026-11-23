@@ -130,4 +130,21 @@ describe('the shared V2 book client', () => {
     expect(await client().completeBook('b1')).toBe('done')
     expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
   })
+
+  // ADR-033: a never-opened book has no TOC on the server, so mark-read's start names no chapter key.
+  it.each([
+    ['epub', { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' }],
+    ['mobi', { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' }],
+    ['pdf', { version: 1, scheme: 'pdf-page', value: { page: 1 } }],
+  ])('completeV2Book_NoStateNoToc_%s_WritesTheStartWithoutAChapter', async (format, start) => {
+    const calls = fakeApi({
+      'GET /me/v2/library/changes': feed(book('b1', 'f1', { currentFile: { id: 'f1', sha256: 'x', byteSize: 3, originalName: 'b', format, hasContent: true } })),
+      'GET /me/v2/books/b1/reading-state': [conflict('not_found', {}, 404)],
+      'PUT /me/v2/books/b1/reading-state': [{ status: 200, body: state('b1', 1) }],
+    }, API)
+    expect(await client().completeBook('b1')).toBe('done')
+    const put = calls.find((c) => c.method === 'PUT')!
+    expect(put.body).toMatchObject({ expectedRevision: null, fileId: 'f1', currentLocator: start, bookFraction: 0, completedAt: expect.any(String) })
+    expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
+  })
 })

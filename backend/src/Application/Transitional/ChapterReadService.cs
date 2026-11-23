@@ -2,6 +2,7 @@ using System.Text.Json;
 using Application.Library;
 using Application.Sync;
 using Contracts.Sync;
+using Domain.Library;
 using Domain.Transitional;
 using static Application.Sync.SyncValidation;
 
@@ -23,14 +24,7 @@ public sealed class ChapterReadService(IBookAccess library, IBookChapterReposito
     {
         var file = await library.GetFileAsync(userId, bookId, fileId, ct);
         if (file is null) return await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) ?? SyncResult.NotFound;
-        // A TOC not in the reader's shape (a free-form row from before P3) reads as none.
-        if (file.Toc is not null && Toc(file.Toc, "toc") is null)
-        {
-            using var written = JsonDocument.Parse(file.Toc);
-            return SyncResult.Ok(new FileChaptersDto(written.RootElement.EnumerateArray()
-                .Select((e, i) => new ChapterHeadingDto(e.GetProperty("key").GetString()!, i, e.GetProperty("title").GetString()!, null))
-                .ToList(), FileIngestionJob.Succeeded));
-        }
+        if (ReaderToc(file) is { } written) return SyncResult.Ok(new FileChaptersDto(written, FileIngestionJob.Succeeded));
         var toc = await chapters.ListTocAsync(userId, bookId, fileId, ct);
         var job = await jobs.GetLatestForFileAsync(userId, bookId, fileId, ct);
         return SyncResult.Ok(new FileChaptersDto(toc.Select(ToDto).ToList(), job?.Status));
@@ -47,11 +41,26 @@ public sealed class ChapterReadService(IBookAccess library, IBookChapterReposito
             previous is null ? null : ToDto(previous), next is null ? null : ToDto(next)));
     }
 
-    public Task<IReadOnlyList<BookChapterHeading>> ListTocAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct) =>
-        chapters.ListTocAsync(userId, bookId, fileId, ct);
+    public async Task<IReadOnlyList<ChapterHeadingDto>?> ListTocAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct) =>
+        await library.GetFileAsync(userId, bookId, fileId, ct) is { } file ? ReaderToc(file) : null;
 
-    public Task<bool> ExistsAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct) =>
-        chapters.ExistsAsync(userId, fileId, chapterKey, ct);
+    public async Task<SyncResult?> CheckKeyAsync(Guid userId, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct) =>
+        await ListTocAsync(userId, bookId, fileId, ct) switch
+        {
+            null => SyncResult.TocNotSynced,
+            var toc when toc.Any(c => c.ChapterKey == chapterKey) => null,
+            _ => SyncResult.ChapterNotFound,
+        };
+
+    /// <summary>The reader's TOC, entry index as the order; null when none is written, or one not in its shape (a free-form row from before P3).</summary>
+    private static List<ChapterHeadingDto>? ReaderToc(BookFile file)
+    {
+        if (file.Toc is null || Toc(file.Toc, "toc") is not null) return null;
+        using var written = JsonDocument.Parse(file.Toc);
+        return written.RootElement.EnumerateArray()
+            .Select((e, i) => new ChapterHeadingDto(e.GetProperty("key").GetString()!, i, e.GetProperty("title").GetString()!, null))
+            .ToList();
+    }
 
     private static ChapterHeadingDto ToDto(BookChapterHeading h) => new(h.ChapterKey, h.ChapterNumber, h.Title, h.WordCount);
 }

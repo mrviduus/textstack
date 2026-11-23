@@ -73,8 +73,12 @@ public class ReadingSyncServiceTests
     // The fake reads the row live: the book, the file and its format all answer with this one.
     private void CurrentFileIs(string format) => _current.Format = format;
 
-    private void FileHasChapter(string chapterKey) =>
-        _chapters.ExistsAsync(User, CurrentFile, chapterKey, Arg.Any<CancellationToken>()).Returns(true);
+    // The file's synced TOC has this key and no other.
+    private void FileHasChapter(string chapterKey)
+    {
+        _chapters.CheckKeyAsync(default, default, default, default!, default).ReturnsForAnyArgs(SyncResult.ChapterNotFound);
+        _chapters.CheckKeyAsync(User, BookId, CurrentFile, chapterKey, Arg.Any<CancellationToken>()).Returns((SyncResult?)null);
+    }
 
     [Fact]
     public async Task WriteAsync_ReaderMovesOn_IsOkAndHandsTheChapterKeysToTheWrite()
@@ -89,7 +93,7 @@ public class ReadingSyncServiceTests
         Assert.Equal(200, onText.Status);
         // The write's SQL guards the chapter; an accepted write never asks again.
         await _states.Received(1).AdvanceAsync(User, BookId, Arg.Any<ReadingState>(), null, new TransitionalChapterKeys("ch-1", "ch-1"), Arg.Any<CancellationToken>());
-        await _chapters.DidNotReceiveWithAnyArgs().ExistsAsync(default, default, default!, Ct);
+        await _chapters.DidNotReceiveWithAnyArgs().CheckKeyAsync(default, default, default, default!, Ct);
     }
 
     [Fact]
@@ -163,11 +167,25 @@ public class ReadingSyncServiceTests
         var result = await Service.WriteAsync(User, BookId, request, Ct);
 
         Assert.Equal((409, code), (result.Status, SyncFakes.Error(result).Code));
-        await _chapters.ReceivedWithAnyArgs(chapterQuestions).ExistsAsync(default, default, default!, Ct);
+        await _chapters.ReceivedWithAnyArgs(chapterQuestions).CheckKeyAsync(default, default, default, default!, Ct);
         // Asked of this user, on the file the write named, by the chapter it named.
-        if (positionChapter is not null) await _chapters.Received(1).ExistsAsync(User, CurrentFile, positionChapter, Arg.Any<CancellationToken>());
+        if (positionChapter is not null) await _chapters.Received(1).CheckKeyAsync(User, BookId, CurrentFile, positionChapter, Arg.Any<CancellationToken>());
         if (frontierChapter is not null && frontierChapter != positionChapter && chapterQuestions == 2)
-            await _chapters.Received(1).ExistsAsync(User, CurrentFile, frontierChapter, Arg.Any<CancellationToken>());
+            await _chapters.Received(1).CheckKeyAsync(User, BookId, CurrentFile, frontierChapter, Arg.Any<CancellationToken>());
+    }
+
+    // The SQL takes an unchanged position without its chapter (an old server key echoed by mark-read): a loss is not blamed on it.
+    [Fact]
+    public async Task WriteAsync_LostWithTheStoredPositionUnchanged_IsStaleRevisionNotChapterNotFound()
+    {
+        FileHasChapter("ch-1");
+        var stored = Stored(3);
+        stored.CurrentLocator = TextPosition("old-slug");
+        Loses(stored);
+
+        var result = await Service.WriteAsync(User, BookId, Write(CurrentFile, 2, TextPosition("old-slug")), Ct);
+
+        Assert.Equal(SyncCodes.StaleRevision, SyncFakes.Error(result).Code);
     }
 
     // #1122: the write's SQL refuses a scheme that does not fit the file; the loss is named here, from the book's current file.

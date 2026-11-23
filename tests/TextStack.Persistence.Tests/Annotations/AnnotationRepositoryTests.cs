@@ -242,14 +242,12 @@ public class AnnotationRepositoryTests(PostgresFixture db)
 
     private const string AnchorC1 = """{"version":1,"scheme":"textstack-anchor-v1","value":{"chapterKey":"c1","prefix":"before ","exact":"Quoted","suffix":" after","startOffset":7,"endOffset":13}}""";
 
-    /// <summary>A reader's book whose current file has chapter <c>c1</c>, "Chapter One".</summary>
+    /// <summary>A reader's book whose current file's synced TOC (ADR-033) has chapter <c>c1</c>, "Chapter One".</summary>
     private async Task<Book> BookWithChapterAsync()
     {
         var book = await db.NewReaderWithBookAsync();
-        await db.ExecAsync("""
-            INSERT INTO book_chapters (id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, created_at)
-            VALUES (gen_random_uuid(), @UserId, @Id, @fileId, 'c1', 1, 'Chapter One', '<p>x</p>', 'x', now())
-            """, new { book.UserId, book.Id, fileId = book.CurrentFile!.Id });
+        await new LibraryRepository(db.DataSource).SetTocAsync(book.UserId, book.Id, book.CurrentFile!.Id,
+            """[{"key":"c0","title":"Cover","depth":0,"fraction":0},{"key":"c1","title":"Chapter One","depth":0,"fraction":0.1}]""", Ct);
         return book;
     }
 
@@ -300,5 +298,21 @@ public class AnnotationRepositoryTests(PostgresFixture db)
         // A reader with no highlights gets an empty first page with a total of 0.
         var empty = await _repo.ListAllAsync(await db.NewReaderAsync(), null, null, false, 10, 0, Ct);
         Assert.Equal((0, 0), (empty.TotalCount, empty.Items.Count));
+    }
+
+    // ADR-033: a highlight under a key the TOC lacks (the server's old slug or ch-N), or on a book whose TOC has not
+    // synced, stays listed, only without its chapter.
+    [Fact]
+    public async Task ListAllAsync_HighlightUnderAKeyNotInTheToc_ListedWithoutAChapter()
+    {
+        var synced = await BookWithChapterAsync();
+        var oldKey = await SaveAsync(synced, "Old key", locator: AnchorC1.Replace("\"c1\"", "\"ch-7\""));
+        var unsynced = await db.NewBookAsync(synced.UserId, "Never opened");
+        var noToc = await SaveAsync(unsynced, "No TOC");
+
+        var page = await _repo.ListAllAsync(synced.UserId, null, null, true, 10, 0, Ct);
+
+        Assert.Equal([oldKey.Id, noToc.Id], page.Items.Select(i => i.Id));
+        Assert.All(page.Items, i => Assert.Null(i.ChapterTitle ?? i.ChapterKey));
     }
 }

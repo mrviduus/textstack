@@ -378,9 +378,8 @@ describe('an answer that outlives a sign-out (syncStore.reset, #1155)', () => {
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
   })
 
-  it("answers a mark-read whose chapters land after the reset as dropped, not as 'nothing to mark'", async () => {
-    const empty = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [], ingestion: null } } }
-    expect(await underReset({ ...library, ...empty, ...readState({ status: 404 }) }, () => completeBook('b1'), '/chapters')).toBe('dropped')
+  it("answers a mark-read whose state read lands after the reset as dropped, not as 'nothing to mark'", async () => {
+    expect(await underReset({ ...library, ...readState({ status: 404 }) }, () => completeBook('b1'), '/reading-state')).toBe('dropped')
   })
 
   it('marks a book read with no reset', async () => {

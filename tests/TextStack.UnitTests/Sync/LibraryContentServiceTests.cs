@@ -1,11 +1,9 @@
 using Application.Identity;
 using Application.Library;
 using Application.Sync;
-using Application.Transitional;
 using Contracts.Sync;
 using Domain.Identity;
 using Domain.Library;
-using Domain.Transitional;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
@@ -24,7 +22,6 @@ public class LibraryContentServiceTests
     private const string Key = "library/key.epub";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly IIngestionJobRepository _jobs = Substitute.For<IIngestionJobRepository>();
     private readonly IUserRepository _users = Substitute.For<IUserRepository>();
     private readonly ILibraryFileStore _files = Substitute.For<ILibraryFileStore>();
 
@@ -47,7 +44,7 @@ public class LibraryContentServiceTests
         _files.SavePartAsync(User, FileId, Arg.Any<int>(), Arg.Any<Stream>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(500L);
     }
 
-    private LibraryContentService Service => new(_library, new ExtractionQueue(_jobs), new AccountLookup(_users), _files, TestEntitlements.Options, NullLogger<LibraryContentService>.Instance);
+    private LibraryContentService Service => new(_library, new AccountLookup(_users), _files, TestEntitlements.Options, NullLogger<LibraryContentService>.Instance);
 
     private Task<SyncResult> PartAsync(int index = 0, long length = 500, Guid? bookId = null, Guid? fileId = null) =>
         Service.SavePartAsync(User, bookId ?? BookId, fileId ?? FileId, index, length, Stream.Null, maxPartBytes: 800, Ct);
@@ -85,20 +82,11 @@ public class LibraryContentServiceTests
         Assert.Empty(_files.ReceivedCalls());
     }
 
-    // html: a clip, extracted for the assistant tools' chapter reads (ADR-032 decided 5, amended wave 18).
-    // #1128: the new formats are read on the device, never extracted.
-    [Theory]
-    [InlineData("epub", true)]
-    [InlineData("pdf", true)]
-    [InlineData("html", true)]
-    [InlineData("mobi", false)]
-    [InlineData("azw3", false)]
-    [InlineData("fb2", false)]
-    [InlineData("cbz", false)]
-    public async Task UploadInParts_ReaderSendsTwoPartsAndCompletes_BytesPlacedInTheAttachAndExtractionQueuedForItsFormat(string format, bool extracted)
+    // ADR-033: the server never opens a book, so a stored file queues nothing whatever its format.
+    [Fact]
+    public async Task UploadInParts_ReaderSendsTwoPartsAndCompletes_BytesPlacedInTheAttach()
     {
-        _file.Format = format;
-        Attaches(new ContentAttachment(AttachOutcome.Attached, new BookFile { Id = FileId, UserId = User, BookId = BookId, Format = format, ServerStorageKey = Key }));
+        Attaches(new ContentAttachment(AttachOutcome.Attached, new BookFile { Id = FileId, UserId = User, BookId = BookId, Format = "epub", ServerStorageKey = Key }));
         // The first try of part 0 is cut short (the store keeps nothing); the client resends it.
         _files.SavePartAsync(User, FileId, 0, Arg.Any<Stream>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns((long?)null, 500L);
 
@@ -118,8 +106,6 @@ public class LibraryContentServiceTests
         _files.Received(1).Place(_staged);
         _files.Received().DeleteParts(User, FileId);
         _files.Received().Discard(_staged);
-        if (extracted) await _jobs.Received(1).EnqueueAsync(User, BookId, FileId, Arg.Any<CancellationToken>());
-        else await _jobs.DidNotReceiveWithAnyArgs().EnqueueAsync(default, default, default, Ct);
     }
 
     [Theory]
@@ -164,7 +150,7 @@ public class LibraryContentServiceTests
         Assert.Equal(new StorageQuotaDto(9_001, Limit), SyncFakes.Error(refusedPart).Current);
         await _files.DidNotReceive().SavePartAsync(User, FileId, 1, Arg.Any<Stream>(), Arg.Any<long>(), Arg.Any<CancellationToken>());
 
-        // The complete decides inside the attach's transaction: the parts go, nothing is placed or queued.
+        // The complete decides inside the attach's transaction: the parts go, nothing is placed.
         Attaches(new ContentAttachment(AttachOutcome.QuotaExceeded, Used: 9_500));
         var refusedComplete = await CompleteAsync();
 
@@ -173,23 +159,17 @@ public class LibraryContentServiceTests
         _files.Received().DeleteParts(User, FileId);
         _files.DidNotReceiveWithAnyArgs().Place(default!);
         _files.Received().Discard(_staged);
-        Assert.Empty(_jobs.ReceivedCalls());
     }
 
     [Theory]
-    [InlineData("a replay, no extraction job yet", 200, false, true, true)]
-    [InlineData("a replay, its job exists", 200, false, true, false)]
-    [InlineData("parts taken by a concurrent complete that stored them", 200, true, false, false)]
-    [InlineData("a part missing", 400, true, false, false)] // the other parts stay for the retry
-    public async Task CompleteAsync_RepeatedOrRacing_AnswersWhatTheServerHolds(string situation, int status, bool joins, bool partsGo, bool enqueues)
+    [InlineData("a replay", 200, false, true)]
+    [InlineData("parts taken by a concurrent complete that stored them", 200, true, false)]
+    [InlineData("a part missing", 400, true, false)] // the other parts stay for the retry
+    public async Task CompleteAsync_RepeatedOrRacing_AnswersWhatTheServerHolds(string situation, int status, bool joins, bool partsGo)
     {
         switch (situation)
         {
-            case "a replay, no extraction job yet": _file.ServerStorageKey = Key; break;
-            case "a replay, its job exists":
-                _file.ServerStorageKey = Key;
-                _jobs.GetLatestForFileAsync(User, BookId, FileId, Arg.Any<CancellationToken>()).Returns(new FileIngestionJob());
-                break;
+            case "a replay": _file.ServerStorageKey = Key; break;
             case "parts taken by a concurrent complete that stored them":
                 _files.AssembleAsync(User, FileId, 2, Key, Arg.Any<CancellationToken>()).Returns(_ => { _file.ServerStorageKey = Key; return (StagedContent?)null; });
                 break;
@@ -203,14 +183,12 @@ public class LibraryContentServiceTests
         Assert.Equal(status, result.Status);
         if (status == 200) Assert.True(((BookFileDto)result.Body!).HasContent);
         else Assert.Equal(SyncCodes.IncompleteUpload, SyncFakes.Error(result).Code);
-        // Nothing attaches twice; a replay never joins again and makes up for an enqueue that failed after the attach.
+        // Nothing attaches twice; a replay never joins again.
         await _library.DidNotReceiveWithAnyArgs().AttachContentAsync(default, default, default, default!, default, default!, Ct);
         if (joins) await _files.Received(1).AssembleAsync(User, FileId, 2, Key, Arg.Any<CancellationToken>());
         else await _files.DidNotReceiveWithAnyArgs().AssembleAsync(default, default, default, default!, Ct);
         if (partsGo) _files.Received(1).DeleteParts(User, FileId);
         else _files.DidNotReceiveWithAnyArgs().DeleteParts(default, default);
-        if (enqueues) await _jobs.Received(1).EnqueueAsync(User, BookId, FileId, Arg.Any<CancellationToken>());
-        else await _jobs.DidNotReceiveWithAnyArgs().EnqueueAsync(default, default, default, Ct);
     }
 
     [Theory]
@@ -253,7 +231,6 @@ public class LibraryContentServiceTests
         if (partsGo) _files.Received(1).DeleteParts(User, FileId);
         else _files.DidNotReceiveWithAnyArgs().DeleteParts(default, default);
         _files.Received().Discard(_staged);
-        Assert.Empty(_jobs.ReceivedCalls());
     }
 
     [Theory]
