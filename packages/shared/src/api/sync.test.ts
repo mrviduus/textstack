@@ -193,4 +193,26 @@ describe('v2 api', () => {
       expect((e as ApiError).isNetworkError).toBeFalsy()
     })
   })
+
+  it('pullFeed_OldAccountPullSettlesAfterSignOut_NewAccountPullStaysShared', async () => {
+    const answers: Array<() => void> = []
+    const fetchMock = vi.fn(() => new Promise((resolve) => answers.push(() =>
+      resolve({ ok: true, status: 200, text: async () => JSON.stringify({ items: [], cursor: null, hasMore: false }) }))))
+    vi.stubGlobal('fetch', fetchMock)
+    const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
+
+    const alices = v2.pullFeed('library')
+    await flush()
+    v2.forgetPulls() // Alice signs out, Bob signs in
+    const bobs = v2.pullFeed('library')
+    await flush()
+    answers[0]() // Alice's pull settles late
+    await alices
+
+    expect(v2.pullFeed('library')).toBe(bobs) // Bob's second caller joins his pull
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    answers[1]()
+    await bobs
+    v2.forgetPulls()
+  })
 })
