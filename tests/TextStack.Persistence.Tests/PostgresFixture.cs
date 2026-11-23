@@ -171,11 +171,7 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
             INSERT INTO reading_sessions (id, user_id, book_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
             VALUES (gen_random_uuid(), @userId, @bookId, gen_random_uuid(), now(), now(), 60, 100, 0, 0.1, now()),
                    (gen_random_uuid(), @userId, NULL, gen_random_uuid(), now(), now(), 60, 100, 0, 0.1, now());
-            INSERT INTO book_chapters (id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, created_at)
-            VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'ch-1', 1, 'One', '<p>x</p>', 'x', now());
-            INSERT INTO ingestion_jobs (id, user_id, book_id, file_id, status, attempt_count, created_at)
-            VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'succeeded', 1, now());
-            """, new { userId, bookId = book.Id, fileId = file.Id }, cancellationToken: Ct));
+            """, new { userId, bookId = book.Id }, cancellationToken: Ct));
         return (book, share);
     }
 

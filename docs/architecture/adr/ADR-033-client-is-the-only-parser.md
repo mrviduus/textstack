@@ -75,3 +75,8 @@ one the server lists. M6 decision D8 kept the tables until a replacement for the
 - **Until `book_chapters` is dropped:** revert the switch PRs; the enqueue comes back, the worker re-extracts.
 - **After the drop:** `make migrate-down` recreates the tables empty (schema first, then the code revert); a
   one-off script enqueues every current EPUB/PDF file. A backup is taken before the drop.
+
+## Done
+
+P5 (#1525): the extraction worker, `TextStack.Extraction`, `book_chapters` and `ingestion_jobs` are deleted
+(migration `0010_drop_book_chapters_and_ingestion_jobs`).

@@ -63,8 +63,11 @@ public class SchemaChecksTests(PostgresFixture db)
         // Fail closed: the down never rewrites or deletes a real book to fit the old list.
         var book = await db.NewReaderWithBookAsync();
         var down = await File.ReadAllTextAsync(Path.Combine(PostgresFixture.RepoRoot(), "database/migrations/0005_book_formats.down.sql"), Ct);
+        // 0005's down runs only after 0010's has put ingestion_jobs back.
+        var tablesBack = await File.ReadAllTextAsync(Path.Combine(PostgresFixture.RepoRoot(), "database/migrations/0010_drop_book_chapters_and_ingestion_jobs.down.sql"), Ct);
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         await using var tx = await conn.BeginTransactionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition(tablesBack, transaction: tx, cancellationToken: Ct));
         await conn.ExecuteAsync(new CommandDefinition("UPDATE book_files SET format = 'fb2' WHERE book_id = @bookId", new { bookId = book.Id }, tx, cancellationToken: Ct));
 
         var error = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(new CommandDefinition(down, transaction: tx, cancellationToken: Ct)));

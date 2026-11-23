@@ -5,7 +5,8 @@
 -- Each block raises (non-zero exit) with the offending names. Adding or dropping a table means
 -- editing the expected set below, on purpose: it is ADR-031's table list.
 
--- The table set is exactly ADR-031's 24 + 2 transitional (the ETL's ledger, 0003, dropped by 0007).
+-- The table set is exactly ADR-031's 24 (the ETL's ledger, 0003, dropped by 0007; the two transitional
+-- tables, book_chapters and ingestion_jobs, dropped by 0010).
 DO $$
 DECLARE missing text; extra text;
 BEGIN
@@ -17,8 +18,7 @@ BEGIN
         ('annotations'),
         ('vocabulary_words'), ('vocabulary_examples'), ('vocabulary_reviews'),
         ('shared_chapters'), ('discussion_checkpoints'), ('book_insight'), ('review_question'),
-        ('llm_traces'), ('agent_run'), ('eval_runs'), ('admin_settings'),
-        ('book_chapters'), ('ingestion_jobs')),
+        ('llm_traces'), ('agent_run'), ('eval_runs'), ('admin_settings')),
     db(t) AS (SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations')
     SELECT (SELECT string_agg(t, ', ') FROM (SELECT t FROM adr EXCEPT SELECT t FROM db) m),
            (SELECT string_agg(t, ', ') FROM (SELECT t FROM db EXCEPT SELECT t FROM adr) e)
@@ -28,7 +28,7 @@ BEGIN
     END IF;
 END $$;
 
--- Rule 1: every table has a COMMENT; the transitional ones carry the sunset sentence.
+-- Rule 1: every table has a COMMENT.
 DO $$
 DECLARE bad text;
 BEGIN
@@ -36,12 +36,6 @@ BEGIN
     WHERE relnamespace = 'public'::regnamespace AND relkind = 'r' AND relname <> 'schema_migrations'
       AND obj_description(oid, 'pg_class') IS NULL;
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'tables without COMMENT: %', bad; END IF;
-
-    SELECT string_agg(relname, ', ') INTO bad FROM pg_class
-    WHERE relnamespace = 'public'::regnamespace AND relname IN ('book_chapters', 'ingestion_jobs')
-      AND obj_description(oid, 'pg_class') NOT LIKE
-          'Transitional. Kept at M6 (D8, ADR-031 amended 2026-11-17)%dropped in ADR-033''s last phase.%';
-    IF bad IS NOT NULL THEN RAISE EXCEPTION 'transitional tables without the sunset sentence: %', bad; END IF;
 END $$;
 
 -- Rule 2: an FK to anything but users starts with user_id (ownership in the key) and follows an

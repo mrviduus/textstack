@@ -475,6 +475,8 @@ Wire rules: [v2-sync-protocol.md](../../internal/v2/v2-sync-protocol.md) "Annota
   `share_chapter`) and clip extraction read them; dropping them would take chapter text away from the assistant.
   They stay, with `V2IngestionWorker` and `Extraction`, until a replacement for those readers exists. Decision:
   [`m6-deletion-plan.md`](../../internal/v2/m6-deletion-plan.md) §3 D8.
+- **Done (ADR-033 P5, #1525):** the replacement exists (the reader's TOC in `book_files.toc`); the worker,
+  `Extraction` and both tables are gone, dropped by `0010_drop_book_chapters_and_ingestion_jobs`.
 - The legacy reader they fed is gone (R8), so the "Transitional" table comment ("Dropped at M6.4") is now stale;
   changing it is a migration and is not done here.
 - `migration_runs` (the ETL ledger) was dropped at M6 by `0007_drop_migration_runs`, as planned.
