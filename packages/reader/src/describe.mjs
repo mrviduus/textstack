@@ -90,17 +90,18 @@ const isCover = (c) => {
 }
 
 /**
- * A host's read of `described`: `{ id, meta, cover, error? }` fresh, or null for anything the page would not send
+ * A host's read of `described`: `{ id, meta, cover, toc, error? }` fresh, or null for anything the page would not send
  * (another type, a bad id, a field over its cap or of the wrong kind, a cover that is not a base64 JPEG data URL of at
  * most MAX_COVER_BYTES). `meta` is null with an `error`; `cover` null when the book has none.
  */
 export function readDescribed(m) {
   if (!m || typeof m !== 'object' || m.type !== 'described' || !isRequestId(m.id)) return null
-  if (m.error !== undefined) return str(m.error, 200) ? { id: m.id, meta: null, cover: null, error: m.error } : null
+  if (m.error !== undefined) return str(m.error, 200) ? { id: m.id, meta: null, cover: null, toc: [], error: m.error } : null
   const { meta, cover } = m
   if (!meta || typeof meta !== 'object') return null
   const { title, author, lang, description } = meta
   if (!str(title, MAX_META_TITLE) || !str(author, MAX_META_AUTHOR) || !str(lang, MAX_META_LANG) || !str(description, MAX_META_DESCRIPTION)) return null
   if (cover !== null && !isCover(cover)) return null
-  return { id: m.id, meta: { title, author, lang, description }, cover }
+  // ADR-033 P3: the contents as sent, unchecked here: shared `tocForServer` takes them before anything is sent.
+  return { id: m.id, meta: { title, author, lang, description }, cover, toc: Array.isArray(m.toc) ? m.toc : [] }
 }

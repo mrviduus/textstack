@@ -20,3 +20,12 @@ export function fitText(paragraphs: readonly string[], cap?: number): { text: st
 export function offersDiscuss(chapterEnd: ChapterEnd | null): boolean
 export function readChapterEnd(m: unknown): ChapterEnd | null
 export function readChapterText(m: unknown): ChapterText | null
+/** ADR-033 P3: a contents entry as the server keeps it (`book_files.toc`). */
+export interface ServerTocEntry { key: string; title: string; depth: number; fraction: number }
+export function sectionStarts(sections: readonly { linear?: string; size?: number }[]): number[]
+export function tocEntries(
+  toc: readonly { label?: string; href?: string; depth?: number }[],
+  sections: readonly { linear?: string; size?: number }[],
+  resolveHref: (href: string) => unknown,
+  fixedLayout?: boolean,
+): Promise<ServerTocEntry[]>

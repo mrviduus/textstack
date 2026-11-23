@@ -31,7 +31,7 @@ import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipF
 import { createLightbox, imageAt } from './lightbox.mjs'
 import { clipBook } from './clip.mjs'
 import { tapAction } from './tapZone.mjs'
-import { MAX_CHAPTER_TEXT_BYTES, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween } from './chapters.mjs'
+import { MAX_CHAPTER_TEXT_BYTES, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween, tocEntries } from './chapters.mjs'
 import { MAX_RESULTS, SEARCH_FILL, readQuery, searchItems } from './search.mjs'
 import { bookMeta, coverJpeg, isRequestId } from './describe.mjs'
 
@@ -1766,7 +1766,12 @@ async function describeBook(id, url) {
       log('warn', `describe: no cover (${e?.name ?? 'error'})`)
       return null
     })
-    answer({ meta, cover })
+    // ADR-033 P3: the contents the server keeps (chapters.mjs `tocEntries`); none when they cannot be read.
+    const toc = await tocEntries(flat(b.toc ?? []), b.sections, (href) => b.resolveHref(href), b.rendition?.layout === 'pre-paginated').catch((e) => {
+      log('warn', `describe: no contents (${e?.name ?? 'error'})`)
+      return []
+    })
+    answer({ meta, cover, toc })
   } catch (e) {
     log('warn', `describe: ${e?.name ?? 'error'}`)
     answer({ error: String(e?.message ?? e).slice(0, 200) })

@@ -12,6 +12,7 @@
 // entry, which goes by the list).
 import { isReviewableChapter } from '../../shared/src/lib/chapterReviewUi'
 import { clip } from '../../shared/src/reader/textAnchor'
+import { readToc } from './toc.mjs'
 
 /** The server's cap on a share's text (`SyncLimits.MaxChapterTextBytes`), as UTF-8. */
 export const MAX_CHAPTER_TEXT_BYTES = 200 * 1024
@@ -95,6 +96,46 @@ export const hasContents = (places) => places.some(Boolean)
 
 /** The key a chapter's share and checkpoints carry: stable for one file version, never a title. */
 export const chapterKey = ({ tocIndex, section }) => (whole(tocIndex) ? `toc-${tocIndex}` : `section-${section}`)
+
+/**
+ * Where each spine section starts on the 0–1 scale of `relocate.fraction`: foliate's SectionProgress (a linear
+ * section's share by byte size; a non-linear or empty one takes none), computed from `sections` so a book made without
+ * the view (`describe(id, url)`) has it too.
+ */
+export function sectionStarts(sections) {
+  const sizes = sections.map((s) => (s?.linear !== 'no' && s?.size > 0 ? s.size : 0))
+  const total = sizes.reduce((a, b) => a + b, 0)
+  let sum = 0
+  return sizes.map((size) => {
+    const at = total ? sum / total : 0
+    sum += size
+    return at
+  })
+}
+
+/**
+ * ADR-033 P3: the book's contents as the server keeps them, `[{ key, title, depth, fraction }]` in reading order. `toc`
+ * is the page's flat list (`opened.toc`), read as hosts read it (`readToc`: label, depth); `resolveHref` foliate's.
+ * Keys by `chapterKey`: an entry that leads somewhere is `toc-<its index>`, its title its label, its fraction where its
+ * section starts (section precision: an anchor's place inside its file is not measured). A book with no contents (the
+ * page's one rule, `hasContents`) has its linear spine sections, `section-<index>`, titled "Section <n>" (the server
+ * needs a title; a section has none of its own); a fixed layout with no contents has none (no chapters there).
+ */
+export async function tocEntries(toc, sections, resolveHref, fixedLayout = false) {
+  const starts = sectionStarts(sections)
+  const places = []
+  for (const t of toc) {
+    try { places.push(placeOf(await resolveHref(t.href), t.href, sections.length)) } catch { places.push(null) }
+  }
+  if (hasContents(places)) {
+    return readToc({ toc }).flatMap((e) => {
+      const p = places[e.index]
+      return p ? [{ key: chapterKey({ tocIndex: e.index }), title: e.label, depth: e.depth, fraction: starts[p.sec] }] : []
+    })
+  }
+  if (fixedLayout) return []
+  return sections.flatMap((s, i) => (s?.linear !== 'no' ? [{ key: chapterKey({ tocIndex: null, section: i }), title: `Section ${i + 1}`, depth: 0, fraction: starts[i] }] : []))
+}
 
 const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'body', 'caption', 'dd', 'details', 'div', 'dl', 'dt',
   'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'li', 'main', 'nav',

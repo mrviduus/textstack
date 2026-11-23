@@ -391,7 +391,7 @@ export function writeImageEpub(out, name = 'TS IMAGE') {
   })
 }
 
-/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsdup.epub (one href twice in its spine), tsimage.epub (#1265: images), tsfixedimg.epub (a pre-paginated image page), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tscjk.pdf, tslocked.pdf. */
+/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsdup.epub (one href twice in its spine), tsimage.epub (#1265: images), tsfixedimg.epub (a pre-paginated image page), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tsoutline.pdf, tscjk.pdf, tslocked.pdf. */
 export function writeFormatFixtures(dir) {
   // Its details and cover for `describe` (#1426): two authors, an HTML description, a cover image outside the spine.
   epub(resolve(dir, 'tsformat.epub'), 'TS EPUB', {
@@ -577,7 +577,9 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
   writeFileSync(resolve(dir, 'tslocked.pdf'), pdf(1, { title: 'TS LOCKED', locked: true }))
-  return ['tssearch.epub', 'tssvgspine.epub', 'tsformat.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  // ADR-033 P3: an outline to pages 1 and 4 of 5.
+  writeFileSync(resolve(dir, 'tsoutline.pdf'), pdf(5, { title: 'TS OUTLINE', outline: [{ title: 'Start', dest: (p) => `[${p[0]} /Fit]` }, { title: 'Four', dest: (p) => `[${p[3]} /Fit]` }] }))
+  return ['tssearch.epub', 'tssvgspine.epub', 'tsformat.pdf', 'tsoutline.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

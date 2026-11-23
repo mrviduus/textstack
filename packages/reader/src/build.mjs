@@ -142,7 +142,8 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // +960: safe text viewport insets and live, user-initiated scroll positions for mobile controls.
 // +566: saved quotations reuse anchored annotations without painting text.
 // +174: keep placed quotations separate from bookmark state.
-const BUDGET = 345457
+// +2,472: the contents the server keeps, sent in `described` (ADR-033 P3, chapters.mjs `tocEntries`).
+const BUDGET = 347929
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

@@ -71,13 +71,14 @@ describe('the shared V2 upload', () => {
       }))
     const JPEG = `data:image/jpeg;base64,${btoa('\xff\xd8\xff\xe0jpeg')}`
 
-    it('importsItsTitleAuthorAndDescription_AndSendsItsCoverAfterTheBytes', async () => {
+    it('importsItsTitleAuthorDescriptionAndToc_AndSendsItsCoverAfterTheBytes', async () => {
       const calls: { method: string; path: string; body: unknown }[] = []
       record(calls)
       const meta = { title: 'Moby-Dick', author: 'Herman Melville', lang: 'en', description: 'A whale.' }
-      await uploadFile({ name: 'moby_dick (1).epub', size: 3 }, 3, { ...io(async () => {}), describe: async () => ({ meta, cover: JPEG }) })
+      const toc = [{ key: 'toc-0', title: 'Loomings', depth: 0, fraction: 0.02 }]
+      await uploadFile({ name: 'moby_dick (1).epub', size: 3 }, 3, { ...io(async () => {}), describe: async () => ({ meta, cover: JPEG, toc: [...toc, { key: 'toc-0', title: 'twin', depth: 0, fraction: 0 }] }) })
       const imported = calls.find((c) => c.method === 'PUT' && /\/books\/[^/]+$/.test(c.path))!
-      expect(imported.body).toMatchObject({ title: 'Moby-Dick', author: 'Herman Melville', language: 'en', description: 'A whale.' })
+      expect(imported.body).toMatchObject({ title: 'Moby-Dick', author: 'Herman Melville', language: 'en', description: 'A whale.', file: { toc } })
       const complete = calls.findIndex((c) => c.path.endsWith('/content'))
       expect(calls.at(-1)).toMatchObject({ method: 'PUT', path: `${imported.path}/cover` })
       expect(calls.length - 1).toBeGreaterThan(complete)
@@ -92,6 +93,7 @@ describe('the shared V2 upload', () => {
         const imported = calls.find((c) => c.method === 'PUT' && /\/books\/[^/]+$/.test(c.path))!
         expect(imported.body).toEqual(expect.objectContaining({ title: 'moby dick' }))
         expect(imported.body).not.toHaveProperty('author')
+        expect((imported.body as { file: object }).file).not.toHaveProperty('toc')
         expect(calls.some((c) => c.path.endsWith('/content'))).toBe(true)
         expect(calls.some((c) => c.path.endsWith('/cover'))).toBe(false)
       }

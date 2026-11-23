@@ -248,8 +248,16 @@ try {
     const d = await described(file, bookAt(file))
     check(!d.error && d.meta?.title === title && (author === null || d.meta.author === author) && (cover ? jpeg(d.cover) : d.cover === null) && !d.disturbed,
       `${file} is described: "${d.meta?.title}" by "${d.meta?.author}", cover ${d.cover ? `${d.cover.slice(0, 23)}… ${d.cover.length} chars` : 'none'}${d.error ? `, ${d.error}` : ''}`)
+    // ADR-033 P3: the contents the server keeps, keyed by chapters.mjs, where each starts on the progress scale; a PDF
+    // with no outline has none (a fixed layout's pages are no chapters).
+    const toc = Array.isArray(d.toc) ? d.toc : []
+    check((file === 'tsformat.pdf' ? toc.length === 0 : toc.length > 0) && toc.every((e, i) => /^(toc|section)-\d+$/.test(e.key) && e.title && e.fraction >= 0 && e.fraction <= 1 && (i === 0 || e.fraction >= toc[i - 1].fraction)),
+      `${file}'s contents for the server: ${toc.length}, ${JSON.stringify(toc.slice(0, 3))}`)
     if (file === 'tsformat.epub') check(d.meta?.lang === 'en' && d.meta.description === 'A small book.', `its language is the primary subtag, its HTML description text (${d.meta?.lang}, ${d.meta?.description})`)
   }
+  const outlined = await described('outline', bookAt('tsoutline.pdf'))
+  check(JSON.stringify(outlined.toc) === JSON.stringify([{ key: 'toc-0', title: 'Start', depth: 0, fraction: 0 }, { key: 'toc-1', title: 'Four', depth: 0, fraction: 0.6 }]),
+    `a PDF's outline is its contents, each entry where its page starts (${JSON.stringify(outlined.toc)})`)
   const bad = await described('bad', bookAt('tsplain.txt'))
   check(bad.meta === null && bad.cover === null && /not a book this reader opens/.test(bad.error) && !bad.disturbed, `a file that is no book is described with an error (${bad.error})`)
   const onScreen = await described('screen', null)

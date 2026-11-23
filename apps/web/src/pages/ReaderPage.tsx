@@ -85,7 +85,7 @@ export function ReaderPage() {
         setLoad((l) => (l && 'percent' in l && l.percent === percent ? l : { percent }))
       }, abort.signal)
       // The reader data of this file goes to and comes from the server (#1226).
-      const sync = { bookId: id, fileId: file.id, format: file.format, sha256: file.sha256, size: file.byteSize, name: file.originalName }
+      const sync = { bookId: id, fileId: file.id, format: file.format, sha256: file.sha256, size: file.byteSize, name: file.originalName, hasToc: file.hasToc }
       return { bytes, name: file.originalName, sync }
     }
     ;(async () => {
