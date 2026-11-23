@@ -11,7 +11,7 @@ namespace Application.Transitional;
 /// <para>The server-extracted chapters of an uploaded file version, read-only (#1091: no editing on
 /// V2), for the readers that still open a book chapter by chapter (M2.7).</para>
 /// </summary>
-public sealed class ChapterReadService(ILibraryRepository library, IBookChapterRepository chapters, IIngestionJobRepository jobs)
+public sealed class ChapterReadService(IBookAccess library, IBookChapterRepository chapters, IIngestionJobRepository jobs) : IChapterLookup
 {
     /// <summary>The table of contents, empty while the extraction runs, and that extraction's status.</summary>
     public async Task<SyncResult> ListAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
@@ -32,6 +32,12 @@ public sealed class ChapterReadService(ILibraryRepository library, IBookChapterR
             chapter.ChapterKey, chapter.ChapterNumber, chapter.Title, chapter.Html, chapter.WordCount,
             previous is null ? null : ToDto(previous), next is null ? null : ToDto(next)));
     }
+
+    public Task<IReadOnlyList<BookChapterHeading>> ListTocAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct) =>
+        chapters.ListTocAsync(userId, bookId, fileId, ct);
+
+    public Task<bool> ExistsAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct) =>
+        chapters.ExistsAsync(userId, fileId, chapterKey, ct);
 
     private static ChapterHeadingDto ToDto(BookChapterHeading h) => new(h.ChapterKey, h.ChapterNumber, h.Title, h.WordCount);
 }

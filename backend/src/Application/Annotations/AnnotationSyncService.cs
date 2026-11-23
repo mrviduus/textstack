@@ -14,7 +14,7 @@ namespace Application.Annotations;
 /// write, because the schema would refuse a bad one only at commit (a deferred FK, a 500 that an
 /// outbox retries forever). A removed book still accepts annotations (owner decision 11).
 /// </summary>
-public sealed class AnnotationSyncService(ILibraryRepository library, IAnnotationRepository annotations, IBookChapterRepository chapters)
+public sealed class AnnotationSyncService(IBookAccess library, IAnnotationRepository annotations, IChapterLookup chapters)
 {
     private const string DefaultColor = "yellow";
 

@@ -18,7 +18,7 @@ public class ChapterReadServiceTests
     private readonly ILibraryRepository _library = SyncFakes.Library(User, BookId, FileId);
     private readonly IBookChapterRepository _chapters = Substitute.For<IBookChapterRepository>();
     private readonly IIngestionJobRepository _jobs = Substitute.For<IIngestionJobRepository>();
-    private ChapterReadService Service => new(_library, _chapters, _jobs);
+    private ChapterReadService Service => new(new BookAccess(_library), _chapters, _jobs);
 
     [Fact]
     public async Task ListAsync_JobStillRunning_EmptyItemsAndItsStatus()

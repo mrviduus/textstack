@@ -24,9 +24,9 @@ lists the offending types:
 3. **Infrastructure** never depends on Api or Worker.
 4. **A feature uses only its own repository ports.** An `I*Repository` in `Application/<Feature>` is
    used by that feature, by Infrastructure (the implementation) and by the Api/Worker composition
-   roots. Two ports are shared by every feature: `ILibraryRepository` (book ownership) and
-   `IBookChapterRepository` (transitional chapter text). The four other uses that exist today are on a
-   named allow-list, one reason each; the goal is zero (#1498). A new cross-feature use fails, naming
+   roots. Another feature goes through the owner's public port instead: Library's `IBookAccess` (book
+   ownership, the one place that check lives) and Transitional's `IChapterLookup` (chapter text). The
+   four cross-feature uses left today are on a named allow-list, one reason each; the goal is zero (#1498). A new cross-feature use fails, naming
    `user -> port`.
 5. **No type is named `V2*`**: the V2 program is over, its names are gone.
 

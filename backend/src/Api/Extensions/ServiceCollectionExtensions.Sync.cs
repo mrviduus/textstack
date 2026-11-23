@@ -26,6 +26,7 @@ public static partial class ServiceCollectionExtensions
             .AddSingleton<LibrarySyncService>()
             .AddSingleton<LibraryContentService>()
             .AddSingleton<Application.Transitional.ChapterReadService>()
+            .AddSingleton<Application.Transitional.IChapterLookup>(sp => sp.GetRequiredService<Application.Transitional.ChapterReadService>())
             .AddSingleton<ReadingSyncService>()
             .AddSingleton<AnnotationSyncService>()
             .AddSingleton<VocabularySyncService>()

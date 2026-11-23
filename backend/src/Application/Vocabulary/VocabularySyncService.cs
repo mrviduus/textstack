@@ -17,7 +17,7 @@ namespace Application.Vocabulary;
 /// (<see cref="LibraryProvenance"/>). After a write the response is the card as stored now, with its
 /// live examples.
 /// </summary>
-public sealed class VocabularySyncService(ILibraryRepository library, IVocabularyRepository words, ISrsEngine srs, TimeProvider clock)
+public sealed class VocabularySyncService(IBookAccess library, IVocabularyRepository words, ISrsEngine srs, TimeProvider clock)
 {
     public async Task<SyncResult> SaveWordAsync(Guid userId, SaveVocabularyWordRequest r, CancellationToken ct)
     {

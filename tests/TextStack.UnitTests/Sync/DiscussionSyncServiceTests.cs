@@ -20,7 +20,7 @@ public class DiscussionSyncServiceTests
     private readonly ILibraryRepository _library = SyncFakes.Library(User, BookId, FileId);
     private ISharedChapterRepository _shares = SyncFakes.Shares();
     private ICheckpointRepository _checkpoints = SyncFakes.Checkpoints();
-    private DiscussionSyncService Service => new(_library, _shares, _checkpoints);
+    private DiscussionSyncService Service => new(new BookAccess(_library), _shares, _checkpoints);
 
     [Fact]
     public async Task ShareAsync_ReaderSharesThenTheAppResends_IsStoredOnceAndResendsGetTheStoredShare()

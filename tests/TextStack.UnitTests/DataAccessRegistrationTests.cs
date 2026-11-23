@@ -25,7 +25,7 @@ public class DataAccessRegistrationTests
             .AddTextStackDataAccess(null)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        Type[] v2Ports = [typeof(IUnitOfWork), typeof(ILibraryRepository), typeof(IReadingStateRepository), typeof(IReadingSessionRepository),
+        Type[] v2Ports = [typeof(IUnitOfWork), typeof(ILibraryRepository), typeof(IBookAccess), typeof(IReadingStateRepository), typeof(IReadingSessionRepository),
             typeof(IAnnotationRepository), typeof(IVocabularyRepository),
             typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
             typeof(IBookInsightRepository), typeof(IReviewQuestionRepository),

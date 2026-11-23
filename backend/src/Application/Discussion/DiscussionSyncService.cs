@@ -17,7 +17,7 @@ namespace Application.Discussion;
 /// takes both (owner decision 11). The same-chapter rule of a checkpoint's share is the repository's
 /// insert; this maps its outcome. Saving never touches reading state.
 /// </summary>
-public sealed class DiscussionSyncService(ILibraryRepository library, ISharedChapterRepository shares, ICheckpointRepository checkpoints)
+public sealed class DiscussionSyncService(IBookAccess library, ISharedChapterRepository shares, ICheckpointRepository checkpoints)
 {
     public async Task<SyncResult> ShareAsync(Guid userId, Guid bookId, ShareChapterRequest r, CancellationToken ct)
     {

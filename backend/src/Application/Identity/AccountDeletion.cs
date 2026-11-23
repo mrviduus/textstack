@@ -8,7 +8,7 @@ namespace Application.Identity;
 /// legacy delete, and the guest reaper. One place, so the bytes cannot be forgotten by one of them
 /// (QA of M2.6: expired guests' books, covers and parts stayed forever).
 /// </summary>
-public sealed class AccountDeletion(IUserRepository users, IAccountMergeRepository aggregates, ILibraryRepository library, ILibraryFileStore files, ILogger<AccountDeletion> logger)
+public sealed class AccountDeletion(IUserRepository users, IAccountMergeRepository aggregates, IBookAccess library, ILibraryFileStore files, ILogger<AccountDeletion> logger)
 {
     /// <summary>Best-effort cleanup after a committed merge; the orphan sweep retries leftovers.</summary>
     public void DeleteReleasedFiles(IReadOnlyList<string> keys)

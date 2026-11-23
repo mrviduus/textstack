@@ -28,7 +28,7 @@ public class ReadingSyncServiceTests
     private readonly ILibraryRepository _library;
     private readonly IReadingStateRepository _states = Substitute.For<IReadingStateRepository>();
     private readonly IReadingSessionRepository _sessions = Substitute.For<IReadingSessionRepository>();
-    private readonly IBookChapterRepository _chapters = Substitute.For<IBookChapterRepository>();
+    private readonly IChapterLookup _chapters = Substitute.For<IChapterLookup>();
     private readonly SteppedClock _clock = new() { Now = new DateTimeOffset(2024, 3, 1, 12, 0, 0, TimeSpan.Zero) };
 
     public ReadingSyncServiceTests()
@@ -38,7 +38,7 @@ public class ReadingSyncServiceTests
         Loses(null);
     }
 
-    private ReadingSyncService Service => new(_library, _states, _sessions, _chapters, _clock);
+    private ReadingSyncService Service => new(new BookAccess(_library), _states, _sessions, _chapters, _clock);
 
     private static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 

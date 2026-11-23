@@ -13,7 +13,7 @@ namespace Application.Discussion;
 /// <c>book_insight</c>: a chapter must be one of the book's current file, and a structured chapter review in the
 /// slot is never overwritten (409 <c>review_exists</c>).
 /// </summary>
-public sealed class InsightSyncService(ILibraryRepository library, IBookInsightRepository insights, IBookChapterRepository chapters)
+public sealed class InsightSyncService(IBookAccess library, IBookInsightRepository insights, IChapterLookup chapters)
 {
     public const int MaxText = 20_000;
     public const int MaxQuestion = 1000;

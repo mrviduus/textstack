@@ -23,7 +23,7 @@ public class VocabularySyncServiceTests
     private readonly ILibraryRepository _library = SyncFakes.Library(User, BookId, FileId);
     private readonly IVocabularyRepository _words = Substitute.For<IVocabularyRepository>();
     private readonly SteppedClock _clock = new() { Now = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero) };
-    private VocabularySyncService Service => new(_library, _words, new SrsEngine(), _clock);
+    private VocabularySyncService Service => new(new BookAccess(_library), _words, new SrsEngine(), _clock);
 
     private static VocabularyWord Card(long revision = 1, bool deleted = false) => new()
     {
