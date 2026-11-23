@@ -59,7 +59,7 @@ Each is a real defect, known and not yet fixed.
 - **Review 2026-10 P2 still open:** #16 background services inside the API, #18 auth opt-in per endpoint, #19 admin API on the public host / no audit log, #26 (GDPR delete leaves LLM trace text, caches, backups).
 - **Dependency advisories with no fix to apply** are listed in `KNOWN` in `tools/checks/check-advisories.mjs`.
 - **`@sentry/react-native` is ahead of the Expo SDK pin**; recorded in `expo.install.exclude` as deliberate, but nobody remembers whether it was.
-- **Play Console** (#915, #916): the Data Safety form may still hold the pre-2026-08-20 answers; the correct answers are in [`play-store-release.md`](internal/ops/play-store-release.md). The feature graphic and one screenshot still show "Ask this book".
+- **Play Console** (#916): the feature graphic and one screenshot still show "Ask this book".
 - **Permissions:** 20 OEM launcher/badge permissions via `expo-notifications` (WATCH list in `apps/mobile/scripts/check-android-permissions.mjs`).
 
 **Product**
