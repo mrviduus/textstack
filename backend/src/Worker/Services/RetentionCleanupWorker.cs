@@ -44,6 +44,10 @@ public class RetentionCleanupWorker(
     /// the account delete's path (owner decision 2026-11-23, #1417).</summary>
     public static readonly TimeSpan GuestWithDataRetention = TimeSpan.FromDays(90);
 
+    /// <summary>The privacy policy announced the rule on this day; before it, a guest with data was kept. The
+    /// 90 days count from here (owner 2026-11-23), so the first such guest goes around 2027-02-21.</summary>
+    public static readonly DateTimeOffset GuestWithDataSince = new(2026, 11, 24, 0, 0, 0, TimeSpan.Zero);
+
     // ponytail: one batch per daily run, each guest its own delete and file cleanup; a backlog (174 on
     // prod at the switch) drains over days. A guest skipped as locked or active would be listed again
     // at once, so no loop within a run.
@@ -102,8 +106,9 @@ public class RetentionCleanupWorker(
             }
             return pictures.Count;
         }, ct);
-        await DeleteAsync("inactive guests with data",
-            () => services.GetRequiredService<AccountDeletion>().DeleteIdleGuestsAsync(now - GuestWithDataRetention, GuestWithDataBatch, ct), ct);
+        if (now - GuestWithDataRetention > GuestWithDataSince)
+            await DeleteAsync("inactive guests with data",
+                () => services.GetRequiredService<AccountDeletion>().DeleteIdleGuestsAsync(now - GuestWithDataRetention, GuestWithDataBatch, ct), ct);
         // Traces keep their cost, tokens and latency for spend history; only the text goes. Batches:
         // one statement over months of text would be one huge transaction (#941).
         var aiCutoff = now - AiTextRetention;
