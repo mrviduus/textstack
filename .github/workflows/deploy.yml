@@ -89,7 +89,7 @@ jobs:
   # Not the whole suite. The pull request already ran it; what this adds is the
   # one thing a pull request cannot prove under `strict: false` branch
   # protection — that the MERGED tree still compiles and passes. That is
-  # `backend` and `frontend`, plus `v2-reader` (the reader gates split out of
+  # `backend` and `frontend`, plus `reader` (the reader gates split out of
   # `frontend`, run beside it); `ci.yml` explains what is skipped and why,
   # including the deliberate omission of `e2e`.
   #

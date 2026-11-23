@@ -439,8 +439,7 @@ jobs:
 
   # The V2 reader page's gates, beside `frontend` rather than inside it: they need only the workspace and Chromium
   # (no build), and run only when what they read changed (reader), or on push to main.
-  # The job id stays `v2-reader`: branch protection requires that name (rename both together).
-  v2-reader:
+  reader:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.reader == 'true') }}
     runs-on: ubuntu-latest
