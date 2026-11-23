@@ -93,6 +93,17 @@ public sealed class LibraryRootTests : IDisposable
     public void AddTextStackFileStores_RootsNestedEitherWay_Throws(string rootPath, string libraryRoot) =>
         Assert.Throws<InvalidOperationException>(() => Register(Config(rootPath, libraryRoot)));
 
+    [Fact]
+    public void AddTextStackFileStores_LibraryRootSymlinkedIntoStorageRoot_Throws()
+    {
+        // The operator points the library at a directory under the public root: the paths differ, the bytes would be served.
+        var libraryRoot = Path.Combine(_dir, "library");
+        Directory.CreateSymbolicLink(libraryRoot, Directory.CreateDirectory(Path.Combine(StorageRoot, "v2")).FullName);
+
+        var e = Assert.Throws<InvalidOperationException>(() => Register(Config(StorageRoot, libraryRoot)));
+        Assert.Contains("are nested", e.Message);
+    }
+
     [Theory]
     [InlineData("storage", "storage-library")]
     [InlineData("storage-library", "storage")]
