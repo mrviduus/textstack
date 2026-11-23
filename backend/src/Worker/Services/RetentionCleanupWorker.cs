@@ -1,5 +1,6 @@
 using Application.Common.Interfaces;
 using Application.Identity;
+using Application.Library;
 using Domain.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -9,9 +10,10 @@ using Infrastructure.Persistence.Repositories;
 namespace Worker.Services;
 
 /// <summary>
-/// The "how long do we keep this row" rules, in one daily sweep. Each rule is its own try, so a
-/// failure on one table never skips the others. The credential rules are the identity ports' sweeps
-/// (#1100); the AI text rules are the V2 trace writers'.
+/// The "how long do we keep this row" rules, in one daily sweep, and the library's byte sweeps: stale
+/// upload parts every minute, orphan bytes daily (moved from the ingestion worker, ADR-033 P2). Each rule
+/// is its own try, so a failure on one never skips the others. The credential rules are the identity
+/// ports' sweeps (#1100); the AI text rules are the V2 trace writers'.
 /// Not here: <c>oauth_authorization_requests</c>, swept on every authorize (<c>OAuthEndpoints</c>).
 /// </summary>
 public class RetentionCleanupWorker(
@@ -21,6 +23,13 @@ public class RetentionCleanupWorker(
 {
     // Daily: expired rows are harmless (every reader filters on expiry) but accumulate forever.
     private static readonly TimeSpan Interval = TimeSpan.FromHours(24);
+
+    /// <summary>The stale-parts sweep's cadence; the daily rules run on the first tick a day after the last.</summary>
+    public TimeSpan Tick { get; init; } = TimeSpan.FromMinutes(1);
+
+    // A file younger than this may be an attach or a cover between its place and its commit, and a
+    // directory that young may be about to receive one: neither is an orphan yet.
+    private static readonly TimeSpan OrphanAge = TimeSpan.FromHours(1);
 
     /// <summary>A day past expiry before a token row goes, so an in-flight request never races it.</summary>
     public static readonly TimeSpan TokenGrace = TimeSpan.FromDays(1);
@@ -55,13 +64,21 @@ public class RetentionCleanupWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Retention cleanup worker started (interval: {Interval})", Interval);
+        logger.LogInformation("Retention cleanup worker started (interval: {Interval}, parts sweep: {Tick})", Interval, Tick);
 
+        var lastDaily = DateTimeOffset.MinValue;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await CleanupAsync(stoppingToken);
+                await DeleteAsync("stale upload parts", SweepStaleParts, stoppingToken);
+                // Stamped first, so a failing run waits a day instead of running on every tick.
+                var now = (clock ?? TimeProvider.System).GetUtcNow();
+                if (now - lastDaily >= Interval)
+                {
+                    lastDaily = now;
+                    await CleanupAsync(stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -72,7 +89,7 @@ public class RetentionCleanupWorker(
                 logger.LogError(ex, "Error during retention cleanup");
             }
 
-            await Task.Delay(Interval, clock ?? TimeProvider.System, stoppingToken);
+            await Task.Delay(Tick, clock ?? TimeProvider.System, stoppingToken);
         }
     }
 
@@ -109,6 +126,8 @@ public class RetentionCleanupWorker(
         if (now - GuestWithDataRetention > GuestWithDataSince)
             await DeleteAsync("inactive guests with data",
                 () => services.GetRequiredService<AccountDeletion>().DeleteIdleGuestsAsync(now - GuestWithDataRetention, GuestWithDataBatch, ct), ct);
+        await DeleteAsync("orphan library files",
+            () => SweepOrphansAsync(services.GetRequiredService<ILibraryRepository>(), services.GetRequiredService<ILibraryFileStore>(), ct), ct);
         // Traces keep their cost, tokens and latency for spend history; only the text goes. Batches:
         // one statement over months of text would be one huge transaction (#941).
         var aiCutoff = now - AiTextRetention;
@@ -125,6 +144,38 @@ public class RetentionCleanupWorker(
         }, ct);
         await DeleteAsync("agent runs",
             () => services.GetRequiredService<AgentRunWriter>().DeleteOlderThanAsync(aiCutoff, ct), ct);
+    }
+
+    /// <summary>
+    /// Deletes upload parts untouched for a day: filesystem only. Superseded bytes go at replace time; a
+    /// removed book keeps its bytes (removal is a hide, owner decision 11).
+    /// </summary>
+    private Task<int> SweepStaleParts()
+    {
+        using var scope = scopeFactory.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ILibraryFileStore>().SweepStaleParts((clock ?? TimeProvider.System).GetUtcNow());
+        return Task.FromResult(0); // the store does not count what it swept
+    }
+
+    /// <summary>
+    /// Deletes bytes under <c>library/</c> older than <see cref="OrphanAge"/> that no file or cover names,
+    /// then empty directories. One mechanism for every way bytes lose their row: a commit that failed
+    /// after the place, a merge's dropped guest copies, a crashed join's temp file, a key cleared whose
+    /// delete failed. The keys are read first: a file written after that is younger than the cutoff.
+    /// </summary>
+    private async Task<int> SweepOrphansAsync(ILibraryRepository library, ILibraryFileStore files, CancellationToken ct)
+    {
+        var referenced = await library.AllStorageKeysAsync(ct);
+        var cutoff = (clock ?? TimeProvider.System).GetUtcNow() - OrphanAge;
+        var deleted = 0;
+        foreach (var key in files.EnumerateLibraryFilesOlderThan(cutoff))
+        {
+            if (referenced.Contains(key)) continue;
+            if (files.TryDelete(key)) deleted++;
+            else logger.LogWarning("Could not delete orphan V2 bytes at {StorageKey}; retried next sweep", key);
+        }
+        files.RemoveEmptyDirectories(cutoff);
+        return deleted;
     }
 
     private async Task DeleteAsync(string what, Func<Task<int>> delete, CancellationToken ct)

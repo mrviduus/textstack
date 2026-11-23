@@ -17,7 +17,7 @@ using Worker.Services;
 
 namespace TextStack.UnitTests.Sync;
 
-/// <summary>The transitional V2 extraction worker on fakes: a job's run, its failures, the give-back, the sweeps, the host's gates.</summary>
+/// <summary>The transitional V2 extraction worker on fakes: a job's run, its failures, the give-back, the host's gates.</summary>
 public sealed class IngestionWorkerTests : IDisposable
 {
     private static readonly Guid User = Guid.NewGuid();
@@ -34,7 +34,6 @@ public sealed class IngestionWorkerTests : IDisposable
     private readonly ILibraryFileStore _files = Substitute.For<ILibraryFileStore>();
     private readonly IExtractorRegistry _registry = Substitute.For<IExtractorRegistry>();
     private readonly ITextExtractor _extractor = Substitute.For<ITextExtractor>();
-    private readonly SteppedClock _clock = new() { Now = new DateTimeOffset(2026, 11, 17, 12, 0, 0, TimeSpan.Zero) };
     private readonly FileIngestionJob _job = new() { Id = Guid.NewGuid(), UserId = User, BookId = BookId, FileId = FileId, AttemptCount = 2 };
     private List<BookChapter>? _stored;
 
@@ -52,7 +51,7 @@ public sealed class IngestionWorkerTests : IDisposable
     public void Dispose() => File.Delete(_bytes);
 
     private IngestionService Service() =>
-        new(_jobs, _library, _chapters, _files, _registry, NullLogger<IngestionService>.Instance, _clock);
+        new(_jobs, _library, _chapters, _files, _registry, NullLogger<IngestionService>.Instance);
 
     private void Extracts(IReadOnlyList<ContentUnit> units, TextSource source = TextSource.NativeText, string? warning = null) =>
         _extractor.ExtractAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>()).Returns(new ExtractionResult(
@@ -171,50 +170,22 @@ public sealed class IngestionWorkerTests : IDisposable
     }
 
     [Fact]
-    public async Task Sweeps_OldBytesNoRowNames_DeletedOnTheClocksCutoffs()
-    {
-        var cutoff = _clock.Now - TimeSpan.FromHours(1);
-        _library.AllStorageKeysAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<string> { "library/kept.epub" });
-        _files.EnumerateLibraryFilesOlderThan(cutoff).Returns(["library/kept.epub", "library/busy.epub", "library/orphan.epub", "library/stale.tmp"]);
-        _files.TryDelete(Arg.Any<string>()).Returns(true);
-        _files.TryDelete("library/busy.epub").Returns(false);
-
-        await Service().SweepAsync(Ct);
-        await Service().SweepOrphansAsync(Ct);
-
-        // Upload parts: swept against now; the stuck gauge counts with the reclaim's own threshold.
-        _files.Received(1).SweepStaleParts(_clock.Now);
-        await _jobs.Received(1).CountStuckAsync(StuckAfter, Arg.Any<CancellationToken>());
-        // Orphans: a failed delete does not stop the rest; a named file is never touched; empty dirs go last.
-        Received.InOrder(() =>
-        {
-            _files.TryDelete("library/busy.epub");
-            _files.TryDelete("library/orphan.epub");
-            _files.TryDelete("library/stale.tmp");
-            _files.RemoveEmptyDirectories(cutoff);
-        });
-        _files.DidNotReceive().TryDelete("library/kept.epub");
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_SteadyQueue_StillSweepsOnItsInterval()
+    public async Task ExecuteAsync_SteadyQueue_StillReportsStuckJobsOnItsInterval()
     {
         // Every pass claims a job: the queue never drains.
         _jobs.ClaimNextAsync(default, default, Ct).ReturnsForAnyArgs(_job);
-        _library.AllStorageKeysAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<string>());
-        _files.EnumerateLibraryFilesOlderThan(Arg.Any<DateTimeOffset>()).Returns([]);
         Extracts([Unit("One", 0)]);
-        var sweeps = 0;
-        _files.When(f => f.SweepStaleParts(Arg.Any<DateTimeOffset>())).Do(_ => Interlocked.Increment(ref sweeps));
+        var reports = 0;
+        _jobs.CountStuckAsync(StuckAfter, Arg.Any<CancellationToken>()).Returns(_ => { Interlocked.Increment(ref reports); return 0; });
         var services = new ServiceCollection().AddSingleton(Service()).BuildServiceProvider();
-        using var worker = new IngestionWorker(services, NullLogger<IngestionWorker>.Instance) { SweepEvery = TimeSpan.FromMilliseconds(20) };
+        using var worker = new IngestionWorker(services, NullLogger<IngestionWorker>.Instance) { StuckReportEvery = TimeSpan.FromMilliseconds(20) };
 
         await worker.StartAsync(Ct);
-        for (var waited = 0; waited < 5000 && Volatile.Read(ref sweeps) < 2; waited += 10) await Task.Delay(10, Ct);
+        for (var waited = 0; waited < 5000 && Volatile.Read(ref reports) < 2; waited += 10) await Task.Delay(10, Ct);
         await worker.StopAsync(Ct);
 
-        Assert.True(sweeps >= 2);
-        _files.ReceivedWithAnyArgs(1).RemoveEmptyDirectories(default); // the daily orphan sweep ran once, not per pass
+        // Counted with the reclaim's own threshold, on its clock, while jobs keep coming.
+        Assert.True(reports >= 2);
     }
 
     [Fact]

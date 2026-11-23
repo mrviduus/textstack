@@ -196,8 +196,7 @@ public sealed record VocabWordJson(
     string? BookTitle,
     DateTimeOffset NextReviewAt);
 
-// One word of add_vocabulary_words. UserBookId is read but not sent: a V2 example carries no book
-// (TextStackApiClient.Vocabulary.cs).
+// One word of add_vocabulary_words. UserBookId goes as its example's bookId (TextStackApiClient.Vocabulary.cs).
 public sealed record SaveWordJson(
     string Word,
     string Language,

@@ -16,23 +16,16 @@ namespace Worker.Services;
 /// <summary>
 /// Transitional. Dropped at M6.4 once the V2 reader serves EPUB and PDF on all clients; see ADR-031.
 /// <para>Extracts the chapters of uploaded V2 files into <c>book_chapters</c> (the extraction half of
-/// legacy's <see cref="UserIngestionService"/>; metadata stays the client's, owner decision 5), and
-/// sweeps the bytes the library no longer needs: day-old upload parts and orphans.</para>
+/// legacy's <see cref="UserIngestionService"/>; metadata stays the client's, owner decision 5). The byte
+/// sweeps live in <see cref="RetentionCleanupWorker"/> (ADR-033 P2).</para>
 /// </summary>
 public sealed class IngestionService(
     IIngestionJobRepository jobs, ILibraryRepository library, IBookChapterRepository chapters,
-    ILibraryFileStore files, IExtractorRegistry extractors, ILogger<IngestionService> logger,
-    TimeProvider? clock = null)
+    ILibraryFileStore files, IExtractorRegistry extractors, ILogger<IngestionService> logger)
 {
-    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
-
     private const int MaxAttempts = IngestionRetry.MaxAttempts;
     // A Processing job not touched this long is taken to be abandoned (a worker that died mid-job).
     private static readonly TimeSpan StuckAfter = TimeSpan.FromMinutes(2);
-
-    // A file younger than this may be an attach or a cover between its place and its commit, and a
-    // directory that young may be about to receive one: neither is an orphan yet.
-    private static readonly TimeSpan OrphanAge = TimeSpan.FromHours(1);
 
     /// <summary>Fails exhausted jobs, then claims and runs the next one; false when the queue is empty.</summary>
     public async Task<bool> ProcessNextAsync(CancellationToken ct)
@@ -101,6 +94,10 @@ public sealed class IngestionService(
         }
     }
 
+    /// <summary>Sets the stuck-jobs gauge, with the reclaim's own threshold.</summary>
+    public async Task ReportStuckAsync(CancellationToken ct) =>
+        IngestionMetrics.SetStuckJobs("v2_ingestion", await jobs.CountStuckAsync(StuckAfter, ct));
+
     /// <summary>
     /// Chapters numbered densely 1..N in this loop's order, not by <c>OrderIndex</c>: the extractor skips
     /// units (empty ones, watermarks, the navigation document), so <c>OrderIndex</c> has gaps. The same
@@ -128,31 +125,5 @@ public sealed class IngestionService(
             });
         }
         return chapters;
-    }
-
-    /// <summary>
-    /// Deletes upload parts untouched for a day, then sets the stuck-jobs gauge. Superseded bytes go at
-    /// replace time; a removed book keeps its bytes (removal is a hide, owner decision 11).
-    /// </summary>
-    public async Task SweepAsync(CancellationToken ct)
-    {
-        files.SweepStaleParts(_clock.GetUtcNow());
-        IngestionMetrics.SetStuckJobs("v2_ingestion", await jobs.CountStuckAsync(StuckAfter, ct));
-    }
-
-    /// <summary>
-    /// Deletes bytes under <c>library/</c> older than <see cref="OrphanAge"/> that no file or cover names,
-    /// then empty directories. One mechanism for every way bytes lose their row: a commit that failed
-    /// after the place, a merge's dropped guest copies, a crashed join's temp file, a key cleared whose
-    /// delete failed. The keys are read first: a file written after that is younger than the cutoff.
-    /// </summary>
-    public async Task SweepOrphansAsync(CancellationToken ct)
-    {
-        var referenced = await library.AllStorageKeysAsync(ct);
-        var cutoff = _clock.GetUtcNow() - OrphanAge;
-        foreach (var key in files.EnumerateLibraryFilesOlderThan(cutoff))
-            if (!referenced.Contains(key) && !files.TryDelete(key))
-                logger.LogWarning("Could not delete orphan V2 bytes at {StorageKey}; retried next sweep", key);
-        files.RemoveEmptyDirectories(cutoff);
     }
 }
