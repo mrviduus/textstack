@@ -8,7 +8,7 @@ In this lesson you add a book and read its first page. This is
 ## Steps
 
 1. **Add a book.** Open <http://localhost:5173>. Click **Upload your book** and choose an EPUB
-   file. The repository has one: `tests/TextStack.Extraction.Tests/Fixtures/frankenstein.epub`.
+   file. The repository has one: `apps/web/e2e/fixtures/frankenstein.epub`.
    You do not need an account. The app lets you in as a guest.
 
    You should see: the book's page, with its chapters listed.

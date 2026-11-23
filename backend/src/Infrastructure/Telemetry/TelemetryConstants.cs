@@ -9,7 +9,6 @@ public static class TelemetryConstants
         Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
 
     public const string ApiActivitySourceName = "TextStack.Api";
-    public const string MeterName = TextStack.Extraction.ExtractionTelemetry.MeterName;
 }
 
 public static class ApiActivitySource

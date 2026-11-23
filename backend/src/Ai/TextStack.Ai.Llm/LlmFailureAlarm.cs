@@ -27,7 +27,7 @@ public static class LlmFailureAlarm
     // OpenAI SDK messages start "HTTP 404 (invalid_request_error: model_not_found)". Anchored to the
     // "HTTP NNN (type: code)" head so body text like "(expected: object)" never becomes a code — the
     // set of codes stays small, which the fingerprint and the never-evicted throttle both rely on.
-    // Compiled, not [GeneratedRegex]: the ARM64 SIGILL caveat (CLAUDE.md, Extraction).
+    // Compiled, not [GeneratedRegex]: the ARM64 SIGILL caveat (CLAUDE.md).
     // The type may be empty ("HTTP 429 (: insufficient_quota)"); the code is what matters.
     private static readonly Regex HttpError = new(
         @"^HTTP (\d{3})(?: \(\s*\w*\s*:\s*(\w{1,64})\s*\))?", RegexOptions.Compiled);

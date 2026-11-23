@@ -6,7 +6,7 @@ Loaded when working under `backend/`. Rewritten for one database at M6 (2026-11-
 
 | Area | Path |
 |------|------|
-| Domain | `backend/src/Domain/` (`Library`, `Reading`, `Annotations`, `Vocabulary`, `Discussion`, `Identity`, `Transitional`, `LLM`) |
+| Domain | `backend/src/Domain/` (`Library`, `Reading`, `Annotations`, `Vocabulary`, `Discussion`, `Identity`, `LLM`) |
 | Application (services, repository ports) | `backend/src/Application/` (`Library`, `Reading`, `Annotations`, `Vocabulary`, `Discussion`, `Identity`, `Sync`) |
 | Data source + repositories (Dapper) | `backend/src/Infrastructure/Persistence/AppDataSource.cs`, `Persistence/Repositories/` |
 | Schema ledger | `database/migrations/`, `database/migrate.sh`, `database/run.sh`, `database/README.md`; image `backend/Docker/Migrator.Dockerfile` |
@@ -14,8 +14,7 @@ Loaded when working under `backend/`. Rewritten for one database at M6 (2026-11-
 | Sync API (`/me/v2`) | `backend/src/Api/Endpoints/SyncEndpoints.cs`, gate `backend/src/Api/Sync/SyncGate.cs` |
 | Old paths on V2 (clip, highlights/all, explain, translate) | `backend/src/Api/Endpoints/CompatEndpoints.cs` |
 | Route snapshot | `tests/TextStack.UnitTests/Routes/routes.public.txt` |
-| Worker | `backend/src/Worker/Services/` (`IngestionWorker.cs`, `RetentionCleanupWorker.cs`) |
-| Extraction | `backend/src/Extraction/TextStack.Extraction/` |
+| Worker | `backend/src/Worker/Services/` (`RetentionCleanupWorker.cs`, `HeartbeatWorker.cs`) |
 | Storage | `backend/src/Infrastructure/Services/LocalFileStorageService.cs` (`/storage`), `LibraryFileStore.cs` (`/library`) |
 | Vocabulary SRS | `backend/src/Vocabulary/TextStack.Vocabulary/` (`SrsEngine.cs`) |
 | TTS | `backend/src/Tts/TextStack.Tts/`, `backend/src/Api/Endpoints/TtsEndpoints.cs` |
@@ -40,7 +39,7 @@ Source of truth: `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`
 - status: `GET /status`
 - library: `GET /library/changes`, `GET /books/by-sha256/{sha256}`, `PUT/PATCH/DELETE /books/{id}`, `POST /books/{id}/restore`, `PUT /books/{id}/files/{fileId}` (replace)
 - bytes: `PUT /books/{id}/files/{fileId}/parts/{index}`, `POST|GET|DELETE /books/{id}/files/{fileId}/content`, `PUT|GET /books/{id}/cover`
-- TOC (ADR-033 P3): `PUT /books/{id}/files/{fileId}/toc`; transitional chapters (kept, M6 D8): `GET /books/{id}/files/{fileId}/chapters` (the list from `toc` when written; no chapter text, ADR-033)
+- TOC (ADR-033 P3): `PUT /books/{id}/files/{fileId}/toc`; chapters: `GET /books/{id}/files/{fileId}/chapters` (the synced `toc`, empty until a reader writes it; no chapter text, ADR-033)
 - reading: `GET /reading/changes`, `GET/PUT /books/{id}/reading-state`, `POST /books/{id}/reading-state/reset`, `PUT /reading/sessions/{clientSessionId}`
 - annotations (highlights, notes, bookmarks): `GET /annotations/changes`, `PUT/DELETE /annotations/{id}`
 - vocabulary: `GET /vocabulary/changes`, `GET /vocabulary/due`, `PUT /vocabulary/words`, `GET/PATCH/DELETE /vocabulary/words/{id}`, `POST /vocabulary/words/{id}/{restore,examples}`, `POST /vocabulary/reviews`
@@ -51,7 +50,3 @@ Source of truth: `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`
 **Admin**: `POST /admin/auth/{login,logout,refresh}`, `GET /admin/auth/me`. Nothing else (the admin app is a shell, M6 D2).
 
 **Internal**: none mapped; `/internal/*` stays 403 off the docker network (`PathGates`).
-
-## Extraction
-
-`ExtractorRegistry` maps `.epub`, `.pdf` and `.html` only (no TXT/MD). OCR exists as options only (`ExtractionOptions.EnableOcrFallback`, default off); no OCR engine is wired. Rules: `backend/src/Extraction/TextStack.Extraction/RULES.md`.

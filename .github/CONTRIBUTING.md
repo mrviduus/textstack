@@ -47,7 +47,7 @@ Follow [Ship a first pull request](../docs/start/first-pr.md): issue, branch, ch
 - **Reader UX** — smooth scroll, fast word-tap response, offline works.
 - **SRS quality** — capped queue, anti-spiral tiers, explanations that
   actually help the reader.
-- **Performance** — ingestion speed, reader cold-start.
+- **Performance** — upload speed, reader cold-start.
 - **Legal hygiene** — only public domain / CC0 / user-owned content.
 
 ## What I'll probably push back on
@@ -65,8 +65,7 @@ backend/src/
   Application/    # Business logic, interfaces
   Domain/         # Entities, enums (pure C#)
   Infrastructure/ # Dapper repositories, file stores
-  Worker/         # Ingestion + retention cleanup
-  Extraction/     # EPUB/PDF parsers
+  Worker/         # Retention cleanup, file sweeps
 
 apps/
   web/            # Public reader (React + Vite)

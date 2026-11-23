@@ -2,8 +2,6 @@ using Application;
 using Infrastructure.Persistence;
 using Infrastructure.Services;
 using Infrastructure.Telemetry;
-using TextStack.Extraction.Extractors;
-using TextStack.Extraction.Registry;
 using TextStack.Observability;
 using Worker.Services;
 
@@ -20,12 +18,6 @@ builder.Logging.AddTextStackSentry(builder.Configuration, builder.Environment.En
 builder.Services.AddTextStackDataAccess(builder.Configuration.AppConnectionString());
 
 builder.Services.AddTextStackFileStores(builder.Configuration);
-
-// Extraction
-builder.Services.AddSingleton<ITextExtractor, EpubTextExtractor>();
-builder.Services.AddSingleton<ITextExtractor, PdfTextExtractor>();
-builder.Services.AddSingleton<ITextExtractor, HtmlTextExtractor>();
-builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 
 // Application services
 builder.Services.AddApplication();

@@ -1,6 +1,6 @@
 /**
  * Book titles from file metadata or file names, cleaned of the junk real files carry.
- * Port of the backend's `BookTitleCleaner` (Extraction) plus file-name rules; the client is the
+ * Port of the former backend `BookTitleCleaner` plus file-name rules; the client is the
  * book's only parser (ADR-033), so this is where titles get cleaned.
  */
 

@@ -68,7 +68,6 @@ public static class TelemetryExtensions
             {
                 builder
                     .SetResourceBuilder(resourceBuilder)
-                    .AddMeter(TelemetryConstants.MeterName)
                     .AddRuntimeInstrumentation()
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()

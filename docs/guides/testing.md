@@ -52,7 +52,6 @@ Build_StillProducesFour_WithNoDistractorsAnywhere
 tests/
   TextStack.UnitTests/           # Pure logic, no DB
   TextStack.IntegrationTests/    # API against a running server
-  TextStack.Extraction.Tests/    # Book parsing
   TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres
   TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
   TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)

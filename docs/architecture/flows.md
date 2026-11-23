@@ -23,8 +23,8 @@ flowchart LR
     subgraph home["Home server · ports on 127.0.0.1"]
         nginx["nginx :80 · only ingress<br/>SPA + reader frame"]
         api["api :8080<br/>ASP.NET Core · .NET 11<br/>REST · OAuth 2.1 · hosted jobs"]
-        mcp["mcp-server :8090<br/>18 tools · HTTP bridge"]
-        worker["worker<br/>chapter extraction · cleanup"]
+        mcp["mcp-server :8090<br/>17 tools · HTTP bridge"]
+        worker["worker<br/>retention · file sweeps"]
         db[("Postgres 16 · textstack_v2<br/>queues = tables")]
         fs[("data/library · data/storage<br/>book files · covers<br/>+ tts/translate/explain caches")]
         ollama["Ollama<br/>gemma · local LLM"]
@@ -42,7 +42,7 @@ flowchart LR
     nginx -->|/mcp| mcp
     mcp -->|"HTTP, forwards bearer"| api
     api -->|Dapper| db
-    worker -->|polls ingestion_jobs| db
+    worker -->|Dapper| db
     api & worker --> fs
     api & worker -->|HTTP| ollama
     api & worker -->|HTTPS| openai
@@ -62,7 +62,6 @@ sequenceDiagram
     participant api
     participant fs as data/library
     participant db as Postgres
-    participant wk as worker
 
     U->>c: pick a file
     c->>api: PUT /api/me/v2/books/{id} (metadata, sha256)
@@ -71,17 +70,12 @@ sequenceDiagram
     c->>api: POST …/files/{fileId}/content (complete)
     api->>api: check parts against the file, check quota (entitlements tier)
     api->>fs: attach the bytes
-    api->>db: enqueue ingestion_jobs (EPUB / PDF / HTML)
-    loop every 5 s
-        wk->>db: take next queued job
-    end
-    wk->>fs: read file
-    wk->>db: extract chapters into book_chapters
+    c->>api: PUT …/files/{fileId}/toc (the reader's TOC)
+    api->>db: book_files.toc
 ```
 
-- The reader never waits for the worker: it opens the file itself. `book_chapters` is transitional and
-  feeds the MCP chapter tools and clips.
-- The queue is a table (`ingestion_jobs`), one consumer, `IngestionWorker`.
+- The server parses nothing (ADR-033): the reader opens the file itself and syncs its TOC, which
+  `GET …/chapters` and the assistant read.
 - Sync protocol (revisions, `operation_id`, parts): [v2-sync-protocol.md](../internal/v2/v2-sync-protocol.md).
 
 ## 2. Read a book
@@ -151,7 +145,7 @@ sequenceDiagram
 
 ## 4. Background work
 
-Hosted services in api and worker: chapter extraction, retention cleanup, the TTS cache sweep.
+Hosted services in api and worker: retention cleanup, the library's file sweeps, the TTS cache sweep.
 See [index.md](index.md#background-work).
 
 ## Trust boundaries
