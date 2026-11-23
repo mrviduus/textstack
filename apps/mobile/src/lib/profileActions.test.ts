@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { UserDto } from '@textstack/shared'
-import { createAccountSignOut, deleteGuestData, signOutIntent, type V2SignOutDeps } from './profileActions'
+import { createAccountSignOut, deleteGuestData, signOutIntent, type LibrarySignOutDeps } from './profileActions'
 
 const guest: UserDto = {
   id: 'g-1',
@@ -78,9 +78,9 @@ describe('deleteGuestData', () => {
 })
 
 describe('createAccountSignOut (#1070: sign-out wipes the V2 library)', () => {
-  const v2 = (over: (calls: string[]) => Partial<V2SignOutDeps> = () => ({})) => {
+  const v2 = (over: (calls: string[]) => Partial<LibrarySignOutDeps> = () => ({})) => {
     const calls: string[] = []
-    const d: V2SignOutDeps = {
+    const d: LibrarySignOutDeps = {
       syncFirst: async () => { calls.push('sync') },
       loss: async () => { calls.push('loss'); return { books: 0, writes: 0 } },
       confirm: async (loss) => { calls.push(`confirm:${JSON.stringify(loss)}`); return true },

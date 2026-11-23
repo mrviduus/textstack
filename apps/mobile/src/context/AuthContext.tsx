@@ -16,18 +16,18 @@ import { clearAllLocalProgress } from '../lib/progressStorage'
 import { clearPendingSessions, flushPendingSessions } from '../lib/pendingSessions'
 import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
-import { forgetV2Answer, reprobeV2AfterReconnect, v2Store } from '../lib/v2'
-import { applyV2MergeMap } from '../lib/v2Merge'
-import { adoptV2LocalAccount, claimV2LibraryFor } from '../lib/v2reader/sync'
-import { wipeDeviceV2Library } from '../lib/v2reader/deviceLibrary'
+import { forgetSyncAnswer, reprobeSyncAfterReconnect, syncStore } from '../lib/sync'
+import { applyMergeMap } from '../lib/merge'
+import { adoptLocalAccount, claimLibraryFor } from '../lib/reader/sync'
+import { wipeDeviceLibrary } from '../lib/reader/deviceLibrary'
 import { withDeadline } from '../lib/deadline'
 import { capabilitiesFor } from '../lib/capabilities'
 
 /** Every V2 local wipe at a session change is bounded: a hung database open must not hold the auth queue (#1070). */
-const V2_WIPE_MS = 5000
+const LIBRARY_WIPE_MS = 5000
 /** Sign-in's another-account wipe (#1070 rule B), bounded; a failure or a late one only warns. */
-const claimV2Library = (userId: string) =>
-  withDeadline(claimV2LibraryFor(userId), V2_WIPE_MS).catch((e) => console.warn('[v2] sign-in wipe failed or late:', e))
+const claimLibrary = (userId: string) =>
+  withDeadline(claimLibraryFor(userId), LIBRARY_WIPE_MS).catch((e) => console.warn('[v2] sign-in wipe failed or late:', e))
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
 // that don't ship it (e.g. Expo Go web preview, where this package may
@@ -216,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(restored)
           // A sign-in whose wipe failed or ran late is retried at the next start (#1070 rule B);
           // not awaited: the reading path waits for nothing, and passes refuse until it is done.
-          void claimV2Library(restored.id)
+          void claimLibrary(restored.id)
         }
       } catch {
         // ignore
@@ -270,19 +270,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await SecureStore.setItemAsync('user', JSON.stringify(userData))
         // Another account's V2 cache must not answer this one; a merged guest's ids move first.
         const previous = userRef.current
-        v2Store.reset()
+        syncStore.reset()
         // The V2 switch was the previous account's (M5 #1031): asked again for this one (the userId effect).
-        if (previous?.id !== userData.id) forgetV2Answer()
-        if (merge) await applyV2MergeMap(merge)
+        if (previous?.id !== userData.id) forgetSyncAnswer()
+        if (merge) await applyMergeMap(merge)
         // A V2 local library another real account owns is wiped here, where the identity is
         // authoritative (#1070 rule B; bounded like the sign-out wipe; a failure leaves every pass refused).
-        await claimV2Library(userData.id)
+        await claimLibrary(userData.id)
         // The V2 local library a guest synced becomes the account's (R6): ids re-keyed, full pull next.
         // A failure never blocks sign-in and is logged: the re-key and the identity commit together
         // in one transaction, so a failed adopt leaves the rows as they were (the first pass then
         // carries the guest's rows: sync.ts `account`).
         if (capabilitiesFor(previous).isGuest) {
-          await adoptV2LocalAccount(previous!.id, userData.id, merge).catch((e) => console.warn('[v2] local library not moved to the account:', e))
+          await adoptLocalAccount(previous!.id, userData.id, merge).catch((e) => console.warn('[v2] local library not moved to the account:', e))
         }
         // Fresh session — allow the next terminal auth failure to fire
         // again (the latch is one-shot per session).
@@ -334,14 +334,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearAllLocalProgress().catch(() => {})
       clearPendingSessions().catch(() => {})
       clearReaderCache().catch(() => {})
-      v2Store.reset()
-      forgetV2Answer()
+      syncStore.reset()
+      forgetSyncAnswer()
       // V2 books belong to the account (#1070): rows, then files. After the epoch bump, so no sync pass
       // of this session lands after it (one still waiting is dropped unrun: sync.ts). Awaited, with a
       // deadline: a hung database open must not hold the auth queue (sign-in waits on it). A failed or
       // late wipe only warns: the library keeps its owner, so another account's passes are refused and
-      // its sign-in wipes (`claimV2Library`). The profile pushed once and warned about what the server lacks first.
-      await withDeadline(wipeDeviceV2Library(), V2_WIPE_MS).catch((e) => console.warn('[v2] sign-out wipe failed or late:', e))
+      // its sign-in wipes (`claimLibrary`). The profile pushed once and warned about what the server lacks first.
+      await withDeadline(wipeDeviceLibrary(), LIBRARY_WIPE_MS).catch((e) => console.warn('[v2] sign-out wipe failed or late:', e))
       setUser(null)
     })
   }, [runExclusive])
@@ -368,8 +368,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearAllLocalProgress().catch(() => {})
         clearPendingSessions().catch(() => {})
         clearReaderCache().catch(() => {})
-        v2Store.reset()
-        forgetV2Answer()
+        syncStore.reset()
+        forgetSyncAnswer()
         setUser(null)
       }
     })
@@ -383,10 +383,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The V2 probe (`GET /me/v2/status`, #1025) needs a session; once per app start, asked again on
   // a reconnect when it never reached the server (the usual cold start offline). The queued sessions
   // flush after it answers: whether one goes to V2 is decided at send time. A call that needs the
-  // answer before this runs starts the probe itself (`onV2`).
+  // answer before this runs starts the probe itself (`syncOn`).
   useEffect(() => {
     if (!userId) return
-    void reprobeV2AfterReconnect()
+    void reprobeSyncAfterReconnect()
       .finally(() => flushPendingSessions().catch(() => {}))
   }, [userId, reconnects])
 
@@ -453,7 +453,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // never reaches the UI.
       resetAuthFailureLatch()
       // A minted guest takes the device after an account's library whose sign-out wipe did not run (#1070 rule B).
-      await claimV2Library(res.user.id)
+      await claimLibrary(res.user.id)
       setUser(res.user)
       return { status: 'minted' }
     })

@@ -2,7 +2,7 @@ import type { UserDto } from '@textstack/shared'
 import { capabilitiesFor } from './capabilities'
 import { createSingleFlight } from './singleFlight'
 import { withDeadline } from './deadline'
-import type { SignOutLoss } from './v2reader/localLibrary'
+import type { SignOutLoss } from './reader/localLibrary'
 
 /**
  * What leaving the session means for this viewer.
@@ -61,10 +61,10 @@ export async function deleteGuestData(deps: {
   await deps.signOut()
 }
 
-export interface V2SignOutDeps {
-  /** One bounded push (sync.ts `pushV2BeforeSignOut`); a failure is ignored. */
+export interface LibrarySignOutDeps {
+  /** One bounded push (sync.ts `pushBeforeSignOut`); a failure is ignored. */
   syncFirst: () => Promise<unknown>
-  /** What the wipe would delete that the server lacks (deviceLibrary `deviceV2SignOutLoss`). */
+  /** What the wipe would delete that the server lacks (deviceLibrary `deviceSignOutLoss`). */
   loss: () => Promise<SignOutLoss>
   /** The confirm; `null` when the loss could not be checked. Resolves true to sign out. */
   confirm: (loss: SignOutLoss | null) => Promise<boolean>
@@ -74,7 +74,7 @@ export interface V2SignOutDeps {
 }
 
 /** How long the loss check may take before it counts as failed (a hung database open). */
-export const V2_LOSS_CHECK_MS = 3000
+export const LOSS_CHECK_MS = 3000
 
 /**
  * An account's sign-out with the V2 library on the device (#1070: sign-out wipes it): one push first,
@@ -83,7 +83,7 @@ export const V2_LOSS_CHECK_MS = 3000
  * confirm, never straight to the wipe. Resolves to whether it signed out. A second tap joins the call
  * in flight.
  */
-export function createAccountSignOut(lossMs = V2_LOSS_CHECK_MS): (deps: V2SignOutDeps) => Promise<boolean> {
+export function createAccountSignOut(lossMs = LOSS_CHECK_MS): (deps: LibrarySignOutDeps) => Promise<boolean> {
   const flight = createSingleFlight<boolean>()
   return (deps) => flight.run(async () => {
     deps.onBusy?.(true)

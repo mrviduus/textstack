@@ -124,7 +124,7 @@ jobs:
             # live in v2reader/; a packages/ change to the page lands there regenerated, or the drift check in
             # `frontend` fails. Plus the nginx CSP, the fixtures the checks read, and the Playwright version.
             case "$f" in
-              packages/reader/*|apps/mobile/src/lib/v2reader/*|apps/mobile/assets/fonts/*|apps/web/e2e/fixtures/v2-sync.epub|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) reader=true ;;
+              packages/reader/*|apps/mobile/src/lib/reader/*|apps/mobile/assets/fonts/*|apps/web/e2e/fixtures/v2-sync.epub|infra/nginx/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) reader=true ;;
             esac
             case "$f" in
               '') ;;

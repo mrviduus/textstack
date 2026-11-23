@@ -22,7 +22,6 @@ export default defineConfig({
       'src/lib/**/*.test.ts',
       'src/hooks/**/*.test.{ts,tsx}',
       'src/components/reader/**/*.test.{ts,tsx}',
-      'src/components/v2reader/**/*.test.{ts,tsx}',
     ],
     // __DEV__ is a React Native global. Tests may run in Node where it
     // doesn't exist; define it so our utility code's `__DEV__ &&` paths

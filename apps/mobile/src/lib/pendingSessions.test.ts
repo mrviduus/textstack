@@ -38,11 +38,11 @@ describe('an upload session with its V2 id', () => {
     initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
     return fakeApi({ 'PUT /me/v2/reading/sessions/s-1': [{ status: 200, body: {} }] }, 'http://api')
   }
-  const v2Session = { ...session('x'), editionId: undefined, userBookId: 'b1', clientSessionId: 's-1' }
+  const syncSession = { ...session('x'), editionId: undefined, userBookId: 'b1', clientSessionId: 's-1' }
 
   it('goes to the V2 route by its id', async () => {
     const calls = sent()
-    await enqueuePendingSession(v2Session)
+    await enqueuePendingSession(syncSession)
     await flushPendingSessions()
     expect(calls[0]).toMatchObject({ method: 'PUT', path: '/me/v2/reading/sessions/s-1', body: { bookId: 'b1' } })
     vi.unstubAllGlobals()

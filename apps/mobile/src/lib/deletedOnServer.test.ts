@@ -7,10 +7,10 @@ import {
   deletedStillOnDevice, chooseNewlyDeleted,
 } from './deletedOnServer'
 import { listDeclinedDownloads, declineDownload, updateIdSet, forgetDeclinedDownloads } from './declinedDownloads'
-import { applyV2MergeMap } from './v2Merge'
+import { applyMergeMap } from './merge'
 
 vi.mock('./offlineDb', () => ({ rekeyCachedUserBooks: async () => {} }))
-vi.mock('./v2', () => ({ onV2: async () => false }))
+vi.mock('./sync', () => ({ syncOn: async () => false }))
 
 beforeEach(() => (AsyncStorage as unknown as { __reset(): void }).__reset())
 
@@ -88,10 +88,10 @@ describe('deletedOnServer (#1174)', () => {
     expect(await listDeletedOnServer()).toEqual(new Set(['b1']))
   })
 
-  it('v2Merge_RekeysGuestIds', async () => {
+  it('merge_RekeysGuestIds', async () => {
     await markDeletedOnServer('guest-b')
     await markDeletedOnServer('other')
-    await applyV2MergeMap({ books: { 'guest-b': 'acct-b' }, files: {} })
+    await applyMergeMap({ books: { 'guest-b': 'acct-b' }, files: {} })
     expect([...(await listDeletedOnServer())].sort()).toEqual(['acct-b', 'other'])
   })
 })
@@ -126,7 +126,7 @@ describe('failedLoadView', () => {
   it('otherError_IsFailed', () => expect(v({})).toBe('failed'))
 })
 
-/** Source guards: the screens cannot be mounted here (same approach as v2DefectsWiring.test). */
+/** Source guards: the screens cannot be mounted here (same approach as syncDefectsWiring.test). */
 describe('#1174 wiring', () => {
   const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), 'utf8')
   const page = read('app/my-books/[id].tsx')
@@ -197,7 +197,7 @@ describe('#1174 wiring', () => {
   it('library: a successful load marks what it lacks, guarded by the epoch and the generation', () => {
     const lib = read('app/(tabs)/library.tsx')
     expect(lib).toContain('const books = await userBooksApi.getUserBooks()')
-    expect(lib).toContain('const stale = () => v2Epoch() !== epoch || myGen !== loadGenRef.current')
+    expect(lib).toContain('const stale = () => syncEpoch() !== epoch || myGen !== loadGenRef.current')
     expect(lib).toContain("markUnlistedLeftovers(new Set(books.map(b => b.id)), 'v2', stale)")
     expect(lib).toContain('if (ids.length > 0 && !stale()) setMarksVersion(v => v + 1)')
   })
@@ -258,10 +258,10 @@ describe('#1174 QA — id-set writes', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
-  it('v2Merge_NothingToRekey_DoesNotWrite', async () => {
+  it('merge_NothingToRekey_DoesNotWrite', async () => {
     await markDeletedOnServer('other')
     const spy = setItem()
-    await applyV2MergeMap({ books: { 'guest-b': 'acct-b' }, files: {} })
+    await applyMergeMap({ books: { 'guest-b': 'acct-b' }, files: {} })
     expect(spy.mock.calls.filter(([k]) => k === 'offline:deletedOnServer')).toEqual([])
   })
 

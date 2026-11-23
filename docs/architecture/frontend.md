@@ -19,7 +19,7 @@ Web, mobile, browser extension and a retained admin shell; two shared packages.
 - Pages: login and an empty home (M6 D2).
 
 ### `apps/mobile/` — Expo 57 / React Native 0.86 (Expo Router)
-- Android first. The reader opens the book's file kept on the device (`src/lib/v2reader/hostStorage.ts`,
+- Android first. The reader opens the book's file kept on the device (`src/lib/reader/hostStorage.ts`,
   `localLibrary.ts`), so reading needs no network. iOS has no reader (M6 D4).
 
 ## Shared packages (`packages/`)

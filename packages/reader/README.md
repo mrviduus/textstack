@@ -5,14 +5,14 @@ Source and tests live in `src/`. Build with `pnpm --filter @textstack/reader bui
 check the committed bundle with `pnpm --filter @textstack/reader check`.
 
 Mobile-only storage, SQLite, sync and WebView version checks remain in
-`apps/mobile/src/lib/v2reader/` (from the repository root). Their entries below describe
-those mobile adapters. The Android host stays in `apps/mobile/src/components/v2reader/`;
+`apps/mobile/src/lib/reader/` (from the repository root). Their entries below describe
+those mobile adapters. The Android host stays in `apps/mobile/src/components/reader/`;
 the web host stays in `apps/web/src/components/reader/`.
 
 The page that renders a local EPUB, MOBI/AZW3, FB2, CBZ or PDF (see Formats) in the V2 reader's WebView ([ADR-029](../../docs/architecture/adr/ADR-029-foliate-for-v2-epub.md)).
 foliate-js parses and renders the book; our code adds word tap, the inline translation label, highlights and
 the reading position. Slice R1 of [v2-plan.md](../../docs/internal/v2/v2-plan.md) §7: the page
-and its build only. Hosted by `V2ReaderScreen.tsx` (R2): in production on the reader route `app/my-books/read/[bookId]/…` when V2 is on (M5 #1031); the dev route `app/dev/epub-v2.tsx` (its library list) is hidden from production Metro, see metro.config.js.
+and its build only. Hosted by `ReaderScreen.tsx` (R2): in production on the reader route `app/my-books/read/[bookId]/…` when V2 is on (M5 #1031); the dev route `app/dev/epub.tsx` (its library list) is hidden from production Metro, see metro.config.js.
 
 | File | What |
 |---|---|
@@ -999,7 +999,7 @@ serves exactly `bookOrigin.mjs` `BOOK_PATH` (`/v2/books/<sha256>.epub`, `/v2/sta
 404 to anything else on that host, so nothing on it reaches the network. The page reads the book by XHR from it,
 streamed, so no book bytes cross the bridge. The same patch limits the message bridge on that WebView: with `WEB_MESSAGE_LISTENER` (every engine that can run the page, Chrome 117+) only the main frame's messages are delivered; on the `addJavascriptInterface` fallback (older engines, no frame information) only the user-agent answer is, and no book opens there. Other WebViews keep the fallback as it was; on the listener path they too take main-frame messages only (none of them uses iframes). `originWhitelist={['*']}` on purpose: react-native-webview opens a navigation outside
 the whitelist in another app; `onShouldStartLoadWithRequest` (about:/blob:/data: only) is the filter. These props live
-once, in `src/components/v2reader/pageWebView.ts`, for every WebView of the page: the reader's and the upload screen's
+once, in `src/components/reader/pageWebView.ts`, for every WebView of the page: the reader's and the upload screen's
 hidden `V2Describer` (#1426), which copies the pick into `staging/`, calls `describe(id, <its URL>)` and unmounts.
 
 **Web, its own document** (#1219, production route #1225): `frame.mjs` splits the page into two files under

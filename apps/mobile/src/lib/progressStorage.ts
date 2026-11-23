@@ -134,24 +134,24 @@ const USERBOOK_V2_PREFIX = 'reading.userbook-v2-state.'
 
 /** V2 (#1025): the reading-state revision last read or written for a book, and the file it is on —
  *  beside the local progress, so a write after a restart names the revision it read. */
-export interface UserBookV2State {
+export interface UserBookSyncState {
   revision: number | null
   fileId: string
   /** The book fraction it holds: a write that knows none yet sends this, never 0 (absent on older records). */
   bookFraction?: number
 }
 
-export async function getUserBookV2State(bookId: string): Promise<UserBookV2State | null> {
+export async function getUserBookSyncState(bookId: string): Promise<UserBookSyncState | null> {
   try {
     const raw = await AsyncStorage.getItem(`${USERBOOK_V2_PREFIX}${bookId}`)
-    return raw ? (JSON.parse(raw) as UserBookV2State) : null
+    return raw ? (JSON.parse(raw) as UserBookSyncState) : null
   } catch {
     return null
   }
 }
 
 /** Null forgets it (the book's file changed). */
-export async function setUserBookV2State(bookId: string, state: UserBookV2State | null): Promise<void> {
+export async function setUserBookSyncState(bookId: string, state: UserBookSyncState | null): Promise<void> {
   try {
     if (state) await AsyncStorage.setItem(`${USERBOOK_V2_PREFIX}${bookId}`, JSON.stringify(state))
     else await AsyncStorage.removeItem(`${USERBOOK_V2_PREFIX}${bookId}`)

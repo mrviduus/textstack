@@ -74,20 +74,20 @@ describe('mobile i18n keys', () => {
  * (i18nHardcoded.ts). A new hard-coded string, an icon-only button without `accessibilityLabel` or a `Modal` without
  * `onRequestClose` fails here, by file and line.
  */
-const V2_DIR = resolve(__dirname, '../components/v2reader')
-const V2_HOST_FILES = [
-  ...readdirSync(V2_DIR).filter(f => /\.tsx$/.test(f) && !/\.test\.tsx$/.test(f)).map(f => join(V2_DIR, f)),
+const READER_DIR = resolve(__dirname, '../components/reader')
+const READER_HOST_FILES = [
+  ...readdirSync(READER_DIR).filter(f => /\.tsx$/.test(f) && !/\.test\.tsx$/.test(f)).map(f => join(READER_DIR, f)),
   ...['SelectionActionBar', 'HighlightNoteModal', 'TranslationSheet', 'ExplanationSheet', 'reader/ReaderTopBar', 'reader/ReaderFooter']
     .map(f => resolve(__dirname, `../components/${f}.tsx`)),
 ]
 
 describe('V2 reader host: no hard-coded strings, no unnamed controls, back closes every sheet (#1267)', () => {
   it('scans the V2 host files', () => {
-    expect(V2_HOST_FILES.length).toBeGreaterThan(8)
+    expect(READER_HOST_FILES.length).toBeGreaterThan(8)
   })
 
   it('every shown string goes through t(), every touchable has a name', () => {
-    const found = V2_HOST_FILES.flatMap(f =>
+    const found = READER_HOST_FILES.flatMap(f =>
       findHardcoded(readFileSync(f, 'utf8'), { touchables: true }).map(x => `${f.split('/src/')[1]}:${x.line} ${x.kind} ${x.text}`))
     expect(found).toEqual([])
   })
