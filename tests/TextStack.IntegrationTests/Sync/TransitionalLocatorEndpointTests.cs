@@ -6,9 +6,9 @@ using static TextStack.IntegrationTests.Sync.SyncApiFixture;
 namespace TextStack.IntegrationTests.Sync;
 
 /// <summary>
-/// M2.7a (#1112): the legacy reader's <c>textstack-*</c> locators on V2 writes, against the running stack
-/// with the worker extracting chapters (as <see cref="ContentEndpointTests"/>). Saved and restored as the
-/// old reader writes them; only on a chapter the file has; the revision rule unchanged across schemes.
+/// M2.7a (#1112): <c>textstack-*</c> locators (the assistant's, mark-read's) on V2 writes, against the running stack.
+/// Saved and restored as sent; only on a key of the TOC the reader synced for the file (ADR-033); the revision
+/// rule unchanged across schemes.
 /// </summary>
 public class TransitionalLocatorEndpointTests(SyncApiFixture v2) : IClassFixture<SyncApiFixture>
 {
@@ -42,10 +42,10 @@ public class TransitionalLocatorEndpointTests(SyncApiFixture v2) : IClassFixture
         Assert.True(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(sent), JsonNode.Parse(stored.GetRawText())), stored.GetRawText());
 
     [Fact]
-    public async Task PutState_LegacyPositionOnAnExtractedChapter_IsRestoredAsSentAndAnUnknownChapterIsChapterNotFound()
+    public async Task PutState_LegacyPositionOnATocChapter_IsRestoredAsSentAndAnUnknownChapterIsChapterNotFound()
     {
         v2.Require();
-        var (book, file, keys) = await v2.ImportWithChaptersAsync(v2.Alice, "One", "Two");
+        var (book, file, keys) = await v2.ImportWithTocAsync(v2.Alice, "One", "Two");
         var position = TextPosition(keys[1]);
 
         var saved = await v2.WriteStateAsync(v2.Alice, book, State(file, null, locator: position, bookFraction: 0.6m));
@@ -59,11 +59,11 @@ public class TransitionalLocatorEndpointTests(SyncApiFixture v2) : IClassFixture
     }
 
     [Fact]
-    public async Task PutAnnotation_LegacyAnchorOnAnExtractedChapter_Is201AndTheFeedCarriesItAsSent()
+    public async Task PutAnnotation_LegacyAnchorOnATocChapter_Is201AndTheFeedCarriesItAsSent()
     {
         v2.Require();
         var guest = await v2.NewGuestAsync(); // an empty feed
-        var (book, file, keys) = await v2.ImportWithChaptersAsync(guest, "One", "Two");
+        var (book, file, keys) = await v2.ImportWithTocAsync(guest, "One", "Two");
         var id = Guid.NewGuid();
 
         var created = await v2.PutAnnotationAsync(guest, id, Highlight(book, file, keys[1]));
@@ -77,10 +77,10 @@ public class TransitionalLocatorEndpointTests(SyncApiFixture v2) : IClassFixture
     }
 
     [Fact]
-    public async Task PutState_LegacyPositionOnAFileWithNoChapters_IsChapterNotFound()
+    public async Task PutState_LegacyPositionOnAFileWithNoToc_IsChapterNotFound()
     {
         v2.Require();
-        var (book, file, _) = await v2.ImportAsync(v2.Alice); // imported, never uploaded: nothing extracted
+        var (book, file, _) = await v2.ImportAsync(v2.Alice); // never opened in a reader: no TOC
 
         var state = await v2.WriteStateAsync(v2.Alice, book, State(file, null, locator: TextPosition("1-one"), bookFraction: 0.1m));
 
@@ -88,10 +88,10 @@ public class TransitionalLocatorEndpointTests(SyncApiFixture v2) : IClassFixture
     }
 
     [Fact]
-    public async Task PutAnnotation_LegacyAnchorOnAFileWithNoChapters_IsChapterNotFound()
+    public async Task PutAnnotation_LegacyAnchorOnAFileWithNoToc_IsChapterNotFound()
     {
         v2.Require();
-        var (book, file, _) = await v2.ImportAsync(v2.Alice); // imported, never uploaded: nothing extracted
+        var (book, file, _) = await v2.ImportAsync(v2.Alice); // never opened in a reader: no TOC
 
         var annotation = await v2.PutAnnotationAsync(v2.Alice, Guid.NewGuid(), Highlight(book, file, "1-one"));
 
@@ -102,10 +102,10 @@ public class TransitionalLocatorEndpointTests(SyncApiFixture v2) : IClassFixture
     public async Task PutState_AnotherUsersChapterKeyOrBook_IsChapterNotFoundOrBookNotFound()
     {
         v2.Require();
-        var (alicesBook, alicesFile, alicesKeys) = await v2.ImportWithChaptersAsync(v2.Alice, "Alpha");
-        var (_, _, bobsKeys) = await v2.ImportWithChaptersAsync(v2.Bob, "Bravo");
+        var (alicesBook, alicesFile, alicesKeys) = await v2.ImportWithTocAsync(v2.Alice, "Alpha");
+        var (_, _, bobsKeys) = await v2.ImportWithTocAsync(v2.Bob, "Bravo", "Charlie"); // toc-1: only Bob's file has it
 
-        var bobsKeyOnAlicesFile = await v2.WriteStateAsync(v2.Alice, alicesBook, State(alicesFile, null, locator: TextPosition(bobsKeys[0]), bookFraction: 0.1m));
+        var bobsKeyOnAlicesFile = await v2.WriteStateAsync(v2.Alice, alicesBook, State(alicesFile, null, locator: TextPosition(bobsKeys[1]), bookFraction: 0.1m));
         var bobOnAlicesBook = await v2.WriteStateAsync(v2.Bob, alicesBook, State(alicesFile, null, locator: TextPosition(alicesKeys[0]), bookFraction: 0.1m));
 
         Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (bobsKeyOnAlicesFile.Status, bobsKeyOnAlicesFile.Code));
@@ -117,7 +117,7 @@ public class TransitionalLocatorEndpointTests(SyncApiFixture v2) : IClassFixture
     public async Task PutState_OldAndNewReaderOnOneBook_RevisionDecidesAndTheFrontierIsByFraction()
     {
         v2.Require();
-        var (book, file, keys) = await v2.ImportWithChaptersAsync(v2.Alice, "One", "Two");
+        var (book, file, keys) = await v2.ImportWithTocAsync(v2.Alice, "One", "Two");
         var oldReader = TextPosition(keys[1]);
         var newReader = Position(1); // epub-cfi
 
@@ -133,31 +133,32 @@ public class TransitionalLocatorEndpointTests(SyncApiFixture v2) : IClassFixture
         Assert.Equal((HttpStatusCode.OK, 3L, "textstack-position-v1"), (old3.Status, old3.Body.GetProperty("revision").GetInt64(), Scheme(old3, "currentLocator")));
     }
 
-    // PDD "Guest → account merge" step 5: the merge moves the locator unchecked; the account's file has no chapters
-    // until its bytes are uploaded, and the same bytes extract to the same keys.
+    // PDD "Guest → account merge" step 5: the merge moves the locator unchecked; the account's file has no TOC
+    // until a reader opens it, and the same bytes give the same keys.
     [Fact]
-    public async Task PutState_MergedLegacyPositionBeforeTheAccountsFileHasChapters_IsChapterNotFoundThen200()
+    public async Task PutState_MergedLegacyPositionBeforeTheAccountsFileHasAToc_IsChapterNotFoundThen200()
     {
         v2.Require();
         var (email, password) = ($"v2-m27a-{Guid.NewGuid():N}@textstack.test", "correct-horse-battery");
         var (account, _) = await v2.SignInAsync("/auth/register", new { email, password, name = "Merge" });
         var epub = Epub("One", "Two");
-        var (accountBook, accountFile) = await v2.ImportBytesAsync(account, epub); // the same bytes, never uploaded
+        var (accountBook, accountFile) = await v2.ImportBytesAsync(account, epub); // the same bytes, never opened
         var guest = await v2.NewGuestAsync();
         var (guestBook, guestFile) = await v2.ImportBytesAsync(guest, epub);
-        var keys = await v2.UploadAndExtractAsync(guest, guestBook, guestFile, epub);
+        var keys = await v2.SyncTocAsync(guest, guestBook, guestFile, "One", "Two");
         await v2.WriteStateAsync(guest, guestBook, State(guestFile, null, locator: TextPosition(keys[1]), bookFraction: 0.6m));
 
         var (signedIn, _) = await v2.SignInAsync("/auth/login", new { email, password }, guest);
         var merged = await v2.SendAsync(signedIn, HttpMethod.Get, $"/me/v2/books/{accountBook}/reading-state");
         var revision = merged.Body.GetProperty("revision").GetInt64();
-        var before = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, locator: TextPosition(keys[1]), bookFraction: 0.7m));
-        var accountKeys = await v2.UploadAndExtractAsync(signedIn, accountBook, accountFile, epub);
-        var after = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, locator: TextPosition(keys[1]), bookFraction: 0.7m));
+        // Moving on in that chapter is a new locator: checked. (The stored one echoed back unchanged is not.)
+        var before = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, locator: TextPosition(keys[1], 0.5m), bookFraction: 0.7m));
+        await v2.SyncTocAsync(signedIn, accountBook, accountFile, "One", "Two");
+        var after = await v2.WriteStateAsync(signedIn, accountBook, State(accountFile, revision, locator: TextPosition(keys[1], 0.5m), bookFraction: 0.7m));
 
         Assert.Equal(keys[1], merged.Body.GetProperty("currentLocator").GetProperty("value").GetProperty("chapterSlug").GetString());
         Assert.Equal((HttpStatusCode.Conflict, "chapter_not_found"), (before.Status, before.Code));
-        Assert.Equal(keys, accountKeys);
+        Assert.Contains("open the book once", before.Body.GetProperty("message").GetString());
         Assert.Equal(HttpStatusCode.OK, after.Status);
     }
 

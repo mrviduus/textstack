@@ -7,9 +7,8 @@ using System.Text.Json;
 namespace TextStack.IntegrationTests.Sync;
 
 /// <summary>
-/// v2-sync-protocol.md "Endpoints", the M2.6 rows (file bytes, cover, transitional chapters), against
-/// the running stack (<see cref="SyncApiFixture"/>). The chapters test needs the worker running
-/// with the api's storage root and V2 database. The quota is pinned by the Persistence and unit tests:
+/// v2-sync-protocol.md "Endpoints", the M2.6 rows (file bytes, cover), against
+/// the running stack (<see cref="SyncApiFixture"/>). The quota is pinned by the Persistence and unit tests:
 /// a tier limit cannot be set per test here.
 /// </summary>
 public class ContentEndpointTests(SyncApiFixture v2) : IClassFixture<SyncApiFixture>
@@ -194,21 +193,5 @@ public class ContentEndpointTests(SyncApiFixture v2) : IClassFixture<SyncApiFixt
         Assert.All(answers, a => Assert.Equal((HttpStatusCode.NotFound, "book_not_found"), (a.Status, a.Code)));
         using var stillThere = await v2.SendRawAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/content");
         Assert.Equal(HttpStatusCode.OK, stillThere.StatusCode);
-    }
-
-    [Fact]
-    public async Task Chapters_AfterContent_SucceedAndAChapterCarriesItsNeighbours()
-    {
-        v2.Require();
-        var (book, file, keys) = await v2.ImportWithChaptersAsync(v2.Alice, "One", "Two", "Three");
-
-        var middle = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/chapters/{keys[1]}");
-        var unknown = await v2.SendAsync(v2.Alice, HttpMethod.Get, $"{Files(book, file)}/chapters/no-such-chapter");
-
-        Assert.Equal(3, keys.Count);
-        Assert.Equal(HttpStatusCode.OK, middle.Status);
-        Assert.Contains("Two", middle.Body.GetProperty("html").GetString());
-        Assert.Equal((keys[0], keys[2]), (middle.Body.GetProperty("previous").GetProperty("chapterKey").GetString(), middle.Body.GetProperty("next").GetProperty("chapterKey").GetString()));
-        Assert.Equal((HttpStatusCode.NotFound, "not_found"), (unknown.Status, unknown.Code));
     }
 }
