@@ -26,6 +26,7 @@ import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '.
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
 import { hostError } from '../../lib/reader/hostErrors'
 import { holdOpenSession } from '../../lib/reader/openSession'
+import { syncOpenedToc } from '../../lib/reader/openedToc'
 import { fill } from '../../lib/fill'
 import { readSelection } from '../../../../../packages/reader/src/selection.mjs'
 import { createScrollIntent, readReaderScroll } from '../../../../../packages/reader/src/scrollChrome.mjs'
@@ -1170,9 +1171,16 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     opening.current = { ...current, file: retained }
     sync.current()
     // #1426: a book uploaded before the page read files gets its details, once; beside the open, never in its way. A book
-    // picked here is not on the server yet: it is filled on an open after it synced.
+    // picked here is not on the server yet: it is filled on an open after it synced. ADR-033 P3: a file the server has
+    // no TOC for gets the page's, the same way; one `describe` serves both.
     const mine = opening.current
-    if (discussUser.current) NetInfo.fetch().then((n) => { if (n.isConnected) void fillBookMeta(m.book.sha256, () => describeOpen(mine)) }, () => {})
+    if (discussUser.current) NetInfo.fetch().then((n) => {
+      if (!n.isConnected) return
+      let details: Promise<FileDetails | null> | null = null
+      const describe = () => (details ??= describeOpen(mine))
+      void fillBookMeta(m.book.sha256, describe)
+      void syncOpenedToc(sha256Key(m.book.sha256), (sha) => deviceLocalLibrary().serverBookOf(sha), async () => (await describe())?.toc)
+    }, () => {})
   }
 
   /** An open that ends without a book: dropped with its staged file, the reader told why. */
