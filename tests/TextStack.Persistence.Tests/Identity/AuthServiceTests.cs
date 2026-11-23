@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using Application.AdminSettings;
 using Application.Identity;
 using Application.Library;
 using Domain.Identity;
@@ -55,7 +56,7 @@ public class AuthServiceTests(PostgresFixture db)
     private AdminAuthService Admin => AdminWith();
 
     private AdminAuthService AdminWith(IUserRepository? users = null) =>
-        new(users ?? _users, _sessions, new AdminSettingsRepository(db.DataSource), new MemoryCache(new MemoryCacheOptions()), _tokens, _clock);
+        new(users ?? _users, _sessions, new AdminSessionLifetimes(new AdminSettingsRepository(db.DataSource)), new MemoryCache(new MemoryCacheOptions()), _tokens, _clock);
 
     private (Guid UserId, bool IsGuest) Identity(string accessToken) =>
         Auth.ValidateAccessTokenIdentity(accessToken) is { } identity ? (identity.UserId, identity.IsGuest) : default;

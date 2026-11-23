@@ -53,17 +53,8 @@ public class ArchitectureTests
         AssertPasses(result, "Infrastructure must not depend on Api or Worker");
     }
 
-    // Shrinks to zero: #1498
-    private static readonly string[] AllowedCrossFeatureUses =
-    [
-        "Application.Library.LibraryContentService -> IUserRepository",          // quota by tier
-        "Application.Library.LibraryContentService -> IIngestionJobRepository",  // queue extraction on upload
-        "Application.Library.LibrarySyncService -> IReadingStateRepository",     // reset position on file replace
-        "Application.Identity.AdminAuthService -> IAdminSettingsRepository",     // admin login reads settings
-    ];
-
     [Fact]
-    public void RepositoryPorts_UsedByAnotherFeature_OnlyAllowListed()
+    public void RepositoryPorts_UsedByAnotherFeature_NoneExist()
     {
         var assemblies = OurAssemblies().Where(a => !a.GetName().Name!.EndsWith("Tests", StringComparison.Ordinal)).ToArray();
         var ports = Assembly.Load("Application").GetTypes()
@@ -78,11 +69,10 @@ public class ArchitectureTests
                 .And().DoNotResideInNamespace("Worker")
                 .GetTypes()
                 .Select(user => $"{user.FullName} -> {port.Name}"))
-            .Except(AllowedCrossFeatureUses)
             .ToList();
 
         Assert.True(offenders.Count == 0,
-            "A feature may use only its own repository ports; another feature's goes through that feature's public port (IBookAccess, IChapterLookup). Offending uses:\n  " + string.Join("\n  ", offenders));
+            "A feature may use only its own repository ports; another feature's goes through that feature's public port (IBookAccess, IChapterLookup, IExtractionQueue, IAccountLookup, IReadingPositionReset, IAdminSessionLifetimes). Offending uses:\n  " + string.Join("\n  ", offenders));
     }
 
     [Fact]

@@ -69,6 +69,7 @@ public static class DataSource
             .AddSingleton<ILibraryRepository, LibraryRepository>()
             .AddSingleton<IBookAccess, BookAccess>()
             .AddSingleton<IReadingStateRepository, ReadingStateRepository>()
+            .AddSingleton<IReadingPositionReset, ReadingPositionReset>()
             .AddSingleton<IReadingSessionRepository, ReadingSessionRepository>()
             .AddSingleton<IAnnotationRepository, AnnotationRepository>()
             .AddSingleton<IVocabularyRepository, VocabularyRepository>()
@@ -78,10 +79,13 @@ public static class DataSource
             .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>()
             .AddSingleton<UserRepository>()
             .AddSingleton<IUserRepository>(sp => sp.GetRequiredService<UserRepository>())
+            .AddSingleton<IAccountLookup, AccountLookup>()
             .AddSingleton<IAccountMergeRepository, AccountMergeRepository>()
             .AddSingleton<LlmTraceWriter>()
             .AddSingleton<AgentRunWriter>()
             .AddSingleton<IAdminSettingsRepository, AdminSettingsRepository>()
+            .AddSingleton<IAdminSessionLifetimes, AdminSessionLifetimes>()
             .AddSingleton<IBookChapterRepository, BookChapterRepository>()
-            .AddSingleton<IIngestionJobRepository, IngestionJobRepository>();
+            .AddSingleton<IIngestionJobRepository, IngestionJobRepository>()
+            .AddSingleton<IExtractionQueue, ExtractionQueue>();
 }

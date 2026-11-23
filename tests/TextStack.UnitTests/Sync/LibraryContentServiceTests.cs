@@ -47,7 +47,7 @@ public class LibraryContentServiceTests
         _files.SavePartAsync(User, FileId, Arg.Any<int>(), Arg.Any<Stream>(), Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(500L);
     }
 
-    private LibraryContentService Service => new(_library, _jobs, _users, _files, TestEntitlements.Options, NullLogger<LibraryContentService>.Instance);
+    private LibraryContentService Service => new(_library, new ExtractionQueue(_jobs), new AccountLookup(_users), _files, TestEntitlements.Options, NullLogger<LibraryContentService>.Instance);
 
     private Task<SyncResult> PartAsync(int index = 0, long length = 500, Guid? bookId = null, Guid? fileId = null) =>
         Service.SavePartAsync(User, bookId ?? BookId, fileId ?? FileId, index, length, Stream.Null, maxPartBytes: 800, Ct);
