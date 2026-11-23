@@ -555,8 +555,6 @@ describe('rankContinueReading — the whole list', () => {
   })
 
   it('carries the chapter slug needed for a real resume link', () => {
-    // /me/library/shelves has no chapterSlug, so a shelf tap cannot resume.
-    // These picks can.
     const ranked = rankContinueReading(inputs({
       library: [lib()],
       serverProgress: [srvProg({ chapterSlug: 'chapter-7' })],

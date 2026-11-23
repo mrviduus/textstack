@@ -68,7 +68,6 @@ async function init() {
     await refreshSelectionState();
 
     show("actions");
-    loadRecent();
   } catch (e) {
     if (e.notConnected) {
       show("disconnected");
@@ -88,69 +87,6 @@ async function refreshSelectionState() {
     btn.disabled = !sel?.hasSelection;
   } catch {
     btn.disabled = true;
-  }
-}
-
-async function loadRecent() {
-  try {
-    const clips = await send("recent");
-    const list = $("recent-list");
-    list.innerHTML = "";
-    const recent = (clips || []).slice(0, 5);
-    if (recent.length === 0) {
-      $("recent").classList.add("hidden");
-      return;
-    }
-    for (const c of recent) {
-      list.appendChild(renderClip(c));
-    }
-    $("recent").classList.remove("hidden");
-  } catch {
-    $("recent").classList.add("hidden");
-  }
-}
-
-function renderClip(c) {
-  const wrap = document.createElement("div");
-  wrap.className = "clip";
-
-  const main = document.createElement("div");
-  main.className = "clip-main";
-  main.title = "Open in reader";
-  main.addEventListener("click", () => openReader(c.id));
-
-  const title = document.createElement("span");
-  title.className = "clip-title";
-  title.textContent = c.title || "Untitled";
-
-  const meta = document.createElement("span");
-  meta.className = "clip-meta";
-  meta.textContent = `${domainOf(c.sourceUrl)} · ${statusLabel(c.status)}`;
-
-  main.append(title, meta);
-
-  const del = document.createElement("button");
-  del.className = "clip-del";
-  del.textContent = "×"; // ×
-  del.title = "Delete clip";
-  del.addEventListener("click", (e) => {
-    e.stopPropagation();
-    deleteClip(c.id, wrap);
-  });
-
-  wrap.append(main, del);
-  return wrap;
-}
-
-async function deleteClip(id, row) {
-  if (!id) return;
-  row.style.opacity = "0.5";
-  try {
-    await send("delete", { id });
-    loadRecent();
-  } catch (e) {
-    row.style.opacity = "";
-    handleErr(e);
   }
 }
 
@@ -238,7 +174,6 @@ $("link-options").addEventListener("click", (e) => {
 
 function onSuccess() {
   show("success");
-  loadRecent();
 }
 
 function handleErr(e) {
@@ -262,19 +197,6 @@ async function openLibrary() {
 
 // ── small utils ──────────────────────────────────────────────────────────────
 
-function domainOf(url) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "clip";
-  }
-}
-function statusLabel(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "ready" || s === "completed" || s === "done") return "Ready";
-  if (s === "failed" || s === "error") return "Failed";
-  return "Processing";
-}
 // Strip scripts/styles from the preview render (defense-in-depth; this HTML is
 // already Readability-cleaned, but the popup must never execute page script).
 function sanitizePreview(html) {

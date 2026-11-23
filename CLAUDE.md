@@ -160,7 +160,7 @@ BrowserRouter → AuthProvider → GuestLimitsProvider → NativeLanguageProvide
 ```
 
 - **AuthProvider**: Google Sign-In, email/password, Apple auth, auto-refresh token, guest sessions
-- **GuestLimitsProvider**: guest state (last-read book, word-count threshold that mints a guest session)
+- **GuestLimitsProvider**: word-count threshold that mints a guest session
 - **NativeLanguageProvider**: User's native language for translations/definitions direction
 - **LanguageProvider**: Inside language routes only. Extracts `lang` from URL params, provides `switchLanguage()`, `getLocalizedPath()`
 

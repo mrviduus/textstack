@@ -3,8 +3,6 @@
 
 .book-chapters__row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--color-border); }
 .book-chapters__row > .book-chapters__item { flex: 1; min-width: 0; border-bottom: 0; }
-.user-book-detail__chapter-list li { display: flex; align-items: center; gap: 12px; }
-.user-book-detail__chapter-list li > a { flex: 1; min-width: 0; }
 
 .review-chapter { position: relative; display: inline-flex; flex-shrink: 0; }
 .review-chapter__btn {
@@ -31,58 +29,10 @@
 }
 .review-chapter__menu button:hover { background: var(--color-bg-secondary, #f5f0e8); }
 
-.chapter-review-action { flex-shrink: 0; font-size: 13px; text-decoration: none; white-space: nowrap; }
-.chapter-review-action--done { color: #1a7f37; }
-html.dark .chapter-review-action--done { color: #4ac26b; }
-html.dark .chapter-review__rule { background: #3a3210; color: #fff3c4; }
-
 .review-connect__url { display: flex; align-items: center; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
 .review-connect__url code { padding: 6px 10px; border-radius: 6px; background: var(--color-bg-secondary, #f5f0e8); font-size: 13px; }
 .review-connect__steps { padding-left: 18px; font-size: 14px; line-height: 1.5; }
 .review-connect__more { font-size: 14px; }
 
 .chapter-review { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
-.chapter-review__back { font-size: 14px; text-decoration: none; color: var(--color-text-secondary, #666); }
-.chapter-review__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 12px 0 20px; flex-wrap: wrap; }
-.chapter-review__title { margin: 0; font-size: 1.6rem; }
-.chapter-review__date { font-size: 13px; color: var(--color-text-secondary, #666); }
-.chapter-review__recall,
-.chapter-review__card { border: 1px solid var(--color-border, #e0d8c8); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
-.chapter-review__card h2 { margin: 0 0 8px; font-size: 1.1rem; }
-.chapter-review__label {
-  display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-secondary, #666); margin-top: 12px;
-}
-.chapter-review__card p, .chapter-review__recall p { margin: 2px 0 0; line-height: 1.55; }
-.chapter-review__rule { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #fff6d6; color: #3a2f00; font-weight: 600; }
-.chapter-review__quotes { margin: 4px 0 0; padding-left: 18px; }
-.chapter-review__quotes li { font-style: italic; line-height: 1.5; }
-.chapter-review__removed { color: var(--color-text-secondary, #666); font-style: normal; }
-.chapter-review__answer { margin-top: 6px; padding: 8px 10px; border-left: 3px solid var(--color-border, #e0d8c8); }
-.chapter-review__section { margin: 24px 0; }
-.chapter-review__section h2 { font-size: 1.05rem; margin: 0 0 8px; }
-.chapter-review__section ul { padding-left: 18px; line-height: 1.55; }
-.chapter-review__actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 28px; align-items: center; }
-.chapter-review__empty { text-align: center; padding: 40px 16px; }
-.chapter-review__empty .review-chapter__btn { font-size: 15px; padding: 8px 18px; }
 .book-insights__review-link { font-size: 13px; }
-
-/* Quote → reader (PR 3) */
-.chapter-review__quote-link { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
-.chapter-review__quote-link:hover { text-decoration-style: solid; }
-
-/* Chapter questions: Practice card + session (ADR-016) */
-.chapter-questions-card { flex-direction: row; align-items: center; justify-content: space-between; margin-top: 1rem; }
-.chapter-questions-card__text { display: flex; flex-direction: column; gap: 2px; }
-.chapter-questions-card__due { font-size: 0.875rem; color: var(--color-text-secondary); }
-.chapter-questions-card__start { text-decoration: none; font-size: 1rem; padding: 0.6rem 1.25rem; }
-.question-review__progress { text-align: center; font-size: 14px; color: var(--color-text-secondary, #666); margin-bottom: 12px; }
-.question-review__prompt { font-size: 1.15rem; font-weight: 600; margin: 4px 0 16px !important; }
-.question-review__source { font-size: 13px; color: var(--color-text-secondary, #666); margin-top: 10px !important; }
-.question-review__assess { display: flex; gap: 8px; margin-top: 16px; }
-.question-review__assess > button { flex: 1; }
-.question-review__error { color: #b42318; font-size: 14px; }
-
-/* Reader: end-of-chapter Discuss, inline above the prev/next nav. */
-.reader-discuss { display: flex; justify-content: center; margin: 32px 0 8px; }
-.reader-discuss .review-chapter__btn { font-size: 14px; padding: 6px 16px; }
-.reader-discuss .review-chapter__menu { right: auto; left: 0; }

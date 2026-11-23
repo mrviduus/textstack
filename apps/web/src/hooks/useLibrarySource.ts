@@ -6,10 +6,8 @@ export type LibrarySource = 'all' | 'uploads'
 export interface LibrarySourceState {
   source: LibrarySource
   tag: string | null
-  collection: string | null
   setSource: (next: LibrarySource) => void
   setTag: (next: string | null) => void
-  setCollection: (next: string | null) => void
 }
 
 function readSource(value: string | null): LibrarySource {
@@ -22,7 +20,6 @@ export function useLibrarySource(): LibrarySourceState {
 
   const source = readSource(searchParams.get('source'))
   const tag = searchParams.get('tag') || null
-  const collection = searchParams.get('collection') || null
 
   const update = useCallback(
     (mutate: (sp: URLSearchParams) => void) => {
@@ -44,7 +41,6 @@ export function useLibrarySource(): LibrarySourceState {
         if (next === 'all') sp.delete('source')
         else sp.set('source', next)
         sp.delete('tag')
-        sp.delete('collection')
       })
     },
     [update],
@@ -55,25 +51,13 @@ export function useLibrarySource(): LibrarySourceState {
       update((sp) => {
         if (next) sp.set('tag', next)
         else sp.delete('tag')
-        sp.delete('collection')
-      })
-    },
-    [update],
-  )
-
-  const setCollection = useCallback(
-    (next: string | null) => {
-      update((sp) => {
-        if (next) sp.set('collection', next)
-        else sp.delete('collection')
-        sp.delete('tag')
       })
     },
     [update],
   )
 
   return useMemo(
-    () => ({ source, tag, collection, setSource, setTag, setCollection }),
-    [source, tag, collection, setSource, setTag, setCollection],
+    () => ({ source, tag, setSource, setTag }),
+    [source, tag, setSource, setTag],
   )
 }

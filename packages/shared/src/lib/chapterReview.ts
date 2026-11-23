@@ -76,7 +76,7 @@ export function parseAssistant(value: unknown): Assistant | null {
 /** Storage key for the remembered choice (localStorage on web, AsyncStorage on mobile). */
 export const REVIEW_ASSISTANT_KEY = 'chapterReview.assistant'
 
-/** Reviewed chapters by slug, from the book's insights (`GET /me/insights`). */
+/** Reviewed chapters by slug, from the book's insights (`GET /me/v2/books/{id}/insights`). */
 export function reviewsBySlug<T extends { chapterSlug: string | null; review?: ChapterReviewDto | null }>(
   insights: readonly T[],
 ): Map<string, T & { review: ChapterReviewDto }> {

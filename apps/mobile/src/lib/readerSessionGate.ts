@@ -4,17 +4,12 @@ import type { EnsureSessionResult } from './guestSession'
  * Should the reader mount yet?
  *
  * **Why a render gate and not merely an early `ensureSession()` call.**
- * `isAuthenticated` is a *fetch* input, not a display flag, all through the
- * reader: `useReaderBook.ts` has it in the dependency array of the effect that
- * loads the book, so flipping it mid-mount refetches the book and re-derives
- * the chapter list; `useEditionReaderSource.ts` re-creates `persist` and
- * `loadPosition` on it (and `loadPosition` is what the scroll-restore gate
- * awaits); `useReaderVocabMap.ts` rebuilds its map. A session that arrives 400ms
- * after mount therefore reruns the whole load underneath a reader that has
- * already restored the reader's scroll position. Holding a themed blank until
- * the session question is *settled* makes `isAuthenticated` constant for the
- * reader's entire lifetime, which is the only version of this that is actually
- * race-free.
+ * `isAuthenticated` is a *fetch* input, not a display flag: effects behind the
+ * gate list it as a dependency, so a session that arrives 400ms after mount
+ * reruns their loads underneath a screen that has already settled. Holding a
+ * themed blank until the session question is *settled* makes `isAuthenticated`
+ * constant for the gated screen's entire lifetime, which is the only version of
+ * this that is actually race-free.
  *
  * **And why the gate can never hide the book.** Reading works offline from the
  * chapter cache and must keep working; a session is an enhancement, not a

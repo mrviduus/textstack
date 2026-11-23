@@ -77,12 +77,9 @@ export interface ContinueReadingInputs {
  *   - For user-books: server progressUpdatedAt is the ranking anchor; the
  *     local bookPercent is shown when the local record wins.
  *
- * This exists because `LibraryShelfItem` (the `/me/library/shelves`
- * payload) carries no `chapterSlug`, so a shelf tap structurally cannot
- * resume at the right chapter — it can only open a detail page. The data
- * needed for a real resume link already lives in `ReadingProgressDto`
- * and `UserBookDto`; this function just stops throwing away everything
- * but the winner.
+ * The data needed for a real resume link lives in `ReadingProgressDto`
+ * and `UserBookDto`; this function keeps every candidate, not just the
+ * winner.
  *
  * Ties keep input order (library before user books) — `Array#sort` is
  * stable, which matches the previous strictly-greater-than comparison.

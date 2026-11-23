@@ -8,7 +8,7 @@
 // so it holds no long-lived in-memory state (flow state is in chrome.storage.local).
 
 import { POLL_ALARM, pollOnce, startDeviceFlow, isConnected, disconnect, getTokens } from "./lib/auth.js";
-import { clip, listReadLater, deleteClip, me, NotConnectedError } from "./lib/api.js";
+import { clip, me, NotConnectedError } from "./lib/api.js";
 
 const MENU_PAGE = "textstack-clip-page";
 const MENU_SELECTION = "textstack-clip-selection";
@@ -71,12 +71,6 @@ async function handleMessage(msg) {
     case "clipActive": {
       const tab = await activeTab();
       return clipActiveTab(tab, msg.mode || "page");
-    }
-    case "recent":
-      return listReadLater();
-    case "delete": {
-      await deleteClip(msg.id);
-      return { deleted: true };
     }
     case "me":
       return me();

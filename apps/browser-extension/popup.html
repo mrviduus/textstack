@@ -182,51 +182,6 @@
       .success-actions { display: flex; gap: 8px; margin-top: 4px; }
       .success-actions > * { flex: 1; }
 
-      /* ── recent clips ── */
-      .recent { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
-      .recent h3 {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--text-secondary);
-        margin: 0 0 4px;
-        padding: 0 4px;
-      }
-      .recent-list { max-height: 168px; overflow: auto; }
-      .clip {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 7px 4px;
-        border-radius: 6px;
-      }
-      .clip:hover { background: var(--bg-secondary); }
-      .clip-main { flex: 1; min-width: 0; cursor: pointer; }
-      .clip-title {
-        display: block;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--text);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .clip-main:hover .clip-title { color: var(--brand); }
-      .clip-meta { display: block; font-size: 10px; color: var(--text-secondary); }
-      .clip-del {
-        flex: 0 0 auto;
-        width: 22px;
-        height: 22px;
-        border: none;
-        border-radius: 5px;
-        background: transparent;
-        color: var(--text-secondary);
-        font-size: 15px;
-        line-height: 1;
-        cursor: pointer;
-      }
-      .clip-del:hover { background: rgba(185, 28, 28, 0.1); color: var(--err); }
-
       .spinner { text-align: center; color: var(--text-secondary); padding: 16px; font-size: 12px; }
 
       footer {
@@ -304,12 +259,6 @@
       </section>
 
       <div id="spinner" class="spinner hidden">Working…</div>
-
-      <!-- ── recent clips ── -->
-      <div class="recent hidden" id="recent">
-        <h3>Recent clips</h3>
-        <div class="recent-list" id="recent-list"></div>
-      </div>
     </main>
 
     <footer>

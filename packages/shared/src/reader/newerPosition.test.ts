@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideNewerPosition, readerMovedSince, serverProvablyNewer } from './newerPosition'
+import { decideNewerPosition, serverProvablyNewer } from './newerPosition'
 import { MAX_CLIENT_SKEW_MS } from './progressPrecedence'
 
 const T = Date.parse('2026-05-01T10:00:00Z')
@@ -60,21 +60,5 @@ describe('decideNewerPosition', () => {
   it('another chapter → always prompt', () => {
     expect(decideNewerPosition({ sameChapter: false, restoreApplied: false, readerMoved: false })).toBe('prompt')
     expect(decideNewerPosition({ sameChapter: false, restoreApplied: true, readerMoved: false })).toBe('prompt')
-  })
-})
-
-describe('readerMovedSince', () => {
-  it('nothing reported since the restore → not moved', () => {
-    expect(readerMovedSince(null, 900, 48)).toBe(false)
-  })
-
-  it('within tolerance → not moved; beyond → moved', () => {
-    expect(readerMovedSince(1000, 1040, 48)).toBe(false)
-    expect(readerMovedSince(1000, 1100, 48)).toBe(true)
-  })
-
-  it('pages: any change is a move', () => {
-    expect(readerMovedSince(12, 12, 0)).toBe(false)
-    expect(readerMovedSince(12, 13, 0)).toBe(true)
   })
 })

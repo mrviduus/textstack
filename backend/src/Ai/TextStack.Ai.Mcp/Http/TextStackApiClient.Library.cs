@@ -207,7 +207,7 @@ public sealed partial class TextStackApiClient
     {
         if (chapterSlug is null || (await BookAsync(bookId, ct))?.CurrentFile is not { } file) return false;
         var current = await ReadingStateAsync(bookId, ct);
-        var fraction = (decimal)Math.Clamp(percent ?? 0, 0, 1);
+        var fraction = Math.Round((decimal)Math.Clamp(percent ?? 0, 0, 1), 6);
         var locator = JsonSerializer.SerializeToElement(new
         {
             version = 1,

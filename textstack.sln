@@ -12,67 +12,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{208BA388-4
 		docs\README.md = docs\README.md
 	EndProjectSection
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "00-vision", "00-vision", "{D1A1A1A1-0000-0000-0000-000000000001}"
-	ProjectSection(SolutionItems) = preProject
-		docs\00-vision\README.md = docs\00-vision\README.md
-	EndProjectSection
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "01-architecture", "01-architecture", "{D1A1A1A1-0000-0000-0000-000000000002}"
-	ProjectSection(SolutionItems) = preProject
-		docs\01-architecture\README.md = docs\01-architecture\README.md
-		docs\01-architecture\frontend.md = docs\01-architecture\frontend.md
-		docs\01-architecture\multisite.md = docs\01-architecture\multisite.md
-	EndProjectSection
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "adr", "adr", "{D1A1A1A1-0000-0000-0000-000000000003}"
-	ProjectSection(SolutionItems) = preProject
-		docs\01-architecture\adr\0001-audience-based-multisite.md = docs\01-architecture\adr\0001-audience-based-multisite.md
-		docs\01-architecture\adr\001-storage-bind-mounts.md = docs\01-architecture\adr\001-storage-bind-mounts.md
-		docs\01-architecture\adr\002-google-auth-only.md = docs\01-architecture\adr\002-google-auth-only.md
-		docs\01-architecture\adr\003-work-edition-model.md = docs\01-architecture\adr\003-work-edition-model.md
-		docs\01-architecture\adr\004-postgres-fts.md = docs\01-architecture\adr\004-postgres-fts.md
-		docs\01-architecture\adr\005-multisite-resolution.md = docs\01-architecture\adr\005-multisite-resolution.md
-		docs\01-architecture\adr\006-modular-monolith.md = docs\01-architecture\adr\006-modular-monolith.md
-	EndProjectSection
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "02-system", "02-system", "{D1A1A1A1-0000-0000-0000-000000000004}"
-	ProjectSection(SolutionItems) = preProject
-		docs\02-system\admin.md = docs\02-system\admin.md
-		docs\02-system\api.md = docs\02-system\api.md
-		docs\02-system\database.dbml = docs\02-system\database.dbml
-		docs\02-system\database.md = docs\02-system\database.md
-		docs\02-system\ingestion.md = docs\02-system\ingestion.md
-		docs\02-system\reader.md = docs\02-system\reader.md
-	EndProjectSection
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "03-ops", "03-ops", "{D1A1A1A1-0000-0000-0000-000000000005}"
-	ProjectSection(SolutionItems) = preProject
-		docs\03-ops\backup.md = docs\03-ops\backup.md
-		docs\03-ops\local-dev.md = docs\03-ops\local-dev.md
-	EndProjectSection
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "04-dev", "04-dev", "{D1A1A1A1-0000-0000-0000-000000000006}"
-	ProjectSection(SolutionItems) = preProject
-		docs\04-dev\chatgpt-workflow.md = docs\04-dev\chatgpt-workflow.md
-		docs\04-dev\security.md = docs\04-dev\security.md
-		docs\04-dev\testing.md = docs\04-dev\testing.md
-	EndProjectSection
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "05-features", "05-features", "{D1A1A1A1-0000-0000-0000-000000000007}"
-	ProjectSection(SolutionItems) = preProject
-		docs\05-features\feat-0002-multisite-general-programming.md = docs\05-features\feat-0002-multisite-general-programming.md
-		docs\05-features\feat-0003-text-extraction-core.md = docs\05-features\feat-0003-text-extraction-core.md
-		docs\05-features\feat-0004-site-resolver-host.md = docs\05-features\feat-0004-site-resolver-host.md
-		docs\05-features\feat-0005-observability-opentelemetry.md = docs\05-features\feat-0005-observability-opentelemetry.md
-	EndProjectSection
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "archive", "archive", "{D1A1A1A1-0000-0000-0000-000000000008}"
-	ProjectSection(SolutionItems) = preProject
-		docs\archive\architecture-multilang.md = docs\archive\architecture-multilang.md
-		docs\archive\books_app_specs_en.md = docs\archive\books_app_specs_en.md
-		docs\archive\db-multilang.md = docs\archive\db-multilang.md
-	EndProjectSection
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{089100B1-113F-4E66-888A-E83F3999EAFD}"
 	ProjectSection(SolutionItems) = preProject
 		README.md = README.md
@@ -454,14 +393,6 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{0F9113EE-888A-26D2-68B0-4A7D0A2A8745} = {1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}
-		{D1A1A1A1-0000-0000-0000-000000000001} = {208BA388-4CEE-2CBF-559C-5607C099C1F8}
-		{D1A1A1A1-0000-0000-0000-000000000002} = {208BA388-4CEE-2CBF-559C-5607C099C1F8}
-		{D1A1A1A1-0000-0000-0000-000000000003} = {D1A1A1A1-0000-0000-0000-000000000002}
-		{D1A1A1A1-0000-0000-0000-000000000004} = {208BA388-4CEE-2CBF-559C-5607C099C1F8}
-		{D1A1A1A1-0000-0000-0000-000000000005} = {208BA388-4CEE-2CBF-559C-5607C099C1F8}
-		{D1A1A1A1-0000-0000-0000-000000000006} = {208BA388-4CEE-2CBF-559C-5607C099C1F8}
-		{D1A1A1A1-0000-0000-0000-000000000007} = {208BA388-4CEE-2CBF-559C-5607C099C1F8}
-		{D1A1A1A1-0000-0000-0000-000000000008} = {208BA388-4CEE-2CBF-559C-5607C099C1F8}
 		{8423791E-B092-4766-97A6-1FAD65B23A96} = {0F9113EE-888A-26D2-68B0-4A7D0A2A8745}
 		{87417921-0C66-4A75-9E09-E9169C187BC2} = {0F9113EE-888A-26D2-68B0-4A7D0A2A8745}
 		{8B443B5B-B74A-4E99-B1D6-264A7EA64788} = {0F9113EE-888A-26D2-68B0-4A7D0A2A8745}

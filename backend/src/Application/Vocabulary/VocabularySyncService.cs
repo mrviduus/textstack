@@ -148,7 +148,7 @@ public sealed class VocabularySyncService(IBookAccess library, IVocabularyReposi
     private Func<VocabularyWord, ReviewSchedule> Schedule(bool isCorrect) => card =>
     {
         var (stage, interval, consecutive) = srs.Calculate(card.Stage, card.ConsecutiveCorrect, (double)card.IntervalDays, isCorrect);
-        return new ReviewSchedule(stage, (decimal)interval, consecutive, srs.ShouldAutoRetire(stage, consecutive, interval));
+        return new ReviewSchedule(stage, Math.Round((decimal)interval, 6), consecutive, srs.ShouldAutoRetire(stage, consecutive, interval));
     };
 
     public async Task<SyncResult> DueAsync(Guid userId, string? limit, CancellationToken ct)

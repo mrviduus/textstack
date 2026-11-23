@@ -1,7 +1,5 @@
 namespace Contracts.UserBooks;
 
-public record TocEntryDto(string Title, int? ChapterNumber, IReadOnlyList<TocEntryDto>? Children);
-
 // HasOriginalPdf lets the upload redirect open a PDF into "Original layout"
 // immediately — the file is stored at upload, so it is true the instant a PDF lands.
 public record UploadUserBookResponse(Guid UserBookId, Guid JobId, string Status, bool HasOriginalPdf);
