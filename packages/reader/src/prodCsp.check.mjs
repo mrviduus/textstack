@@ -64,10 +64,10 @@ const appFrameSrc = APP_CSP.match(/(?:^|; )frame-src ([^;]*)/)?.[1] ?? ''
 if (!appFrameSrc.split(' ').includes("'self'")) { console.error("the app CSP has no frame-src 'self': the reader frame cannot load"); process.exit(2) }
 
 // The reader's nginx locations (textstack.app server), as text: what they send must be what the handler sends.
-const nginxLocations = [READER_DIR, '/reader-v2/'].map((dir) => {
+const nginxLocations = [READER_DIR].map((dir) => {
   const d = dir.replaceAll('/', '\\/')
   return {
-    dir, compat: dir !== READER_DIR,
+    dir,
     frameLocation: conf.match(new RegExp(`\\n {4}location = ${d}frame\\.html \\{\\n([\\s\\S]*?)\\n {4}\\}`))?.[1] ?? '',
     scriptLocation: conf.match(new RegExp(`\\n {4}location ~ "(\\^${d}\\(?page[^"]*)" \\{\\n([\\s\\S]*?)\\n {4}\\}`)),
   }
@@ -243,9 +243,8 @@ try {
 
   // nginx, as text (no nginx here): the shell location sends the frame headers and fills the placeholder with
   // $request_id; the script location takes this script's name and caches it as the handler does.
-  // Both paths: READER_DIR, and the compat /reader-v2/ serving the same files from it (#1440 2c, one release).
   const handlerNames = Object.keys(READER_FRAME_HEADERS).filter((k) => k !== 'Content-Type').sort().join()
-  for (const { dir, frameLocation, scriptLocation, compat } of nginxLocations) {
+  for (const { dir, frameLocation, scriptLocation } of nginxLocations) {
     const addHeader = (k, v) => frameLocation.includes(`add_header ${k} "${v}" always;`)
     const nginxNames = [...frameLocation.matchAll(/add_header (\S+) /g)].map((m) => m[1]).sort().join()
     check(report, Object.entries(READER_FRAME_HEADERS).every(([k, v]) => k === 'Content-Type' || addHeader(k, v))
@@ -257,9 +256,6 @@ try {
       && scriptLocation[2].includes(`set $cache_immutable "${READER_SCRIPT_HEADERS['Cache-Control']}";`)
       && /default_type text\/javascript;\s+charset utf-8;\s+charset_types text\/javascript;/.test(scriptLocation[2]),
       `nginx ${dir}: the script location matches this script, immutable, JS utf-8, server-level headers (nosniff) kept`)
-    if (compat)
-      check(report, frameLocation.includes(`try_files ${READER_FRAME_PATH} =404;`) && scriptLocation?.[2].includes(`try_files ${READER_DIR}$1 =404;`),
-        `nginx ${dir}: serves the files of ${READER_DIR}`)
   }
   await Promise.all(ROWS.map((row) => runRow(browser, row)))
 } finally {
