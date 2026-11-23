@@ -40,7 +40,7 @@ BEGIN
     SELECT string_agg(relname, ', ') INTO bad FROM pg_class
     WHERE relnamespace = 'public'::regnamespace AND relname IN ('book_chapters', 'ingestion_jobs')
       AND obj_description(oid, 'pg_class') NOT LIKE
-          'Transitional. Dropped at M6.4 once the V2 reader serves EPUB and PDF on all clients; see ADR-031.%';
+          'Transitional. Kept at M6 (D8, ADR-031 amended 2026-11-17)%dropped in ADR-033''s last phase.%';
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'transitional tables without the sunset sentence: %', bad; END IF;
 END $$;
 

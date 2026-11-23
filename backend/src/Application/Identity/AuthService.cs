@@ -21,7 +21,6 @@ public sealed class AuthService(
     JwtTokens tokens,
     ProviderTokens providers,
     TimeProvider clock,
-    IFileStorageService storage,
     ILogger<AuthService> logger) : IAuthService
 {
     public async Task<AuthResult> TestLoginAsync(string email, CancellationToken ct)
@@ -267,38 +266,8 @@ public sealed class AuthService(
         }
     }
 
-    /// <summary>The V2 rows and library bytes, then the files the account left in the legacy <c>/storage</c> root (uploads' tree, avatar).</summary>
-    public async Task<bool> DeleteAccountAsync(Guid userId, CancellationToken ct)
-    {
-        var picture = (await users.GetAsync(userId, ct))?.Picture;
-        var deleted = await deletion.DeleteAsync(userId, ct);
-        await DeleteUserFilesAsync(storage, userId, picture, logger, ct);
-        return deleted;
-    }
-
-    /// <summary>
-    /// A deleted account's files in the public <c>/storage</c> root: its uploads' tree and a local avatar
-    /// (<paramref name="picture"/>; external URLs such as Google's are not ours). Best-effort and logged.
-    /// </summary>
-    private static async Task DeleteUserFilesAsync(IFileStorageService storage, Guid userId, string? picture, ILogger? logger, CancellationToken ct)
-    {
-        await DeleteStoredAsync("DeleteUserDirectory", () => storage.DeleteUserDirectoryAsync(userId, ct));
-        if (UserAccount.IsStoredPicture(picture))
-            await DeleteStoredAsync("DeleteAvatar", () => storage.DeleteFileAsync(picture!, ct));
-
-        // An orphan file is recoverable, but it must be observable.
-        async Task DeleteStoredAsync(string operation, Func<Task> delete)
-        {
-            try
-            {
-                await delete();
-            }
-            catch (Exception ex)
-            {
-                logger?.LogWarning(ex, "Account {UserId} deleted but storage cleanup failed for {Operation}", userId, operation);
-            }
-        }
-    }
+    /// <summary>The V2 rows and every byte of the account: <see cref="AccountDeletion.DeleteAsync(Guid, CancellationToken)"/>.</summary>
+    public Task<bool> DeleteAccountAsync(Guid userId, CancellationToken ct) => deletion.DeleteAsync(userId, ct);
 
     public AccessTokenIdentity? ValidateAccessTokenIdentity(string accessToken) => tokens.ValidateAccessToken(accessToken);
 
