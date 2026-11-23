@@ -10,23 +10,20 @@ the monitor only fetches a public URL.
 |-------|-------|
 | URL | `https://textstack.app/api/health/ready` |
 | Method | `GET` |
-| Interval | 5 minutes |
-| Fails when | not `2xx` (readiness answers `503` when the database, schema, storage or library is down), or a timeout |
-| Alerts | email to the owner |
+| Interval | 1 minute (timeout 10 s) |
+| Fails when | 3 failed checks in a row: not `2xx`/redirect (readiness answers `503` when the database, schema, storage or library is down), or a timeout |
+| Alerts | email, through the project's alert rules ("high priority issues") |
 
 `/health/ready` checks more than `/health`: the database, the schema version, collation,
 storage and library write probes. A green answer means uploads and sync work, not only
 that nginx is up. It goes through Cloudflare and nginx, so it also catches the tunnel or
 the whole server being down.
 
-## Setup (Sentry, once)
+## Where it is
 
-1. Sentry → **Alerts** → **Create Alert** → **Uptime Monitor**.
-2. URL and method from the table; interval 5 minutes; environment `production`.
-3. Name it `textstack.app ready`; owner = you; notify by email.
-4. Save, then check the monitor shows a first green check within a few minutes. If
-   Cloudflare blocks Sentry's prober (a 403 in the check log), allow it in Cloudflare
-   → Security → WAF for the path `/api/health/ready`.
+Sentry → Monitors → Uptime → **Uptime Monitoring for https://textstack.app** (created by Sentry
+in Aug 2026 on the home page; pointed at `/api/health/ready` on 2026-11-23, environment
+`Production`). The free plan allows one uptime monitor: change this one, don't add another.
 
 ## Alert-response runbook
 
