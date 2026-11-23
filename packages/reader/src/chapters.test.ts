@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { MAX_CHAPTER_TEXT_BYTES, chapterKey, fileSummary, fitText, hasContents, offersDiscuss, placeOf, readChapterEnd, readChapterText, segmentsIn, startsIn, textBetween } from './chapters.mjs'
+import { MAX_CHAPTER_TEXT_BYTES, chapterKey, fileSummary, fitText, hasContents, offersDiscuss, placeOf, readChapterEnd, readChapterText, segmentsIn, startsIn, textBetween, tocEntries } from './chapters.mjs'
 
 const at = (sec: number, href: string) => ({ sec, at: href, top: !href.includes('#'), anchor: null })
 const places = [at(0, 's1'), at(0, 's1#c2'), null, at(2, 's3')]
@@ -181,5 +181,36 @@ describe('readChapterText', () => {
     expect(readChapterText({ type: 'chapter-text', request: 'r1', text: 'я'.repeat(MAX_CHAPTER_TEXT_BYTES / 2) })?.request).toBe('r1')
     expect(readChapterText({ type: 'relocate', request: 'r1', text: 'a' })).toBeNull()
     for (const request of [undefined, '', 5, 'x'.repeat(65)]) expect(readChapterText({ type: 'chapter-text', request, text: 'a' })).toBeNull()
+  })
+})
+
+// ADR-033 P3: the contents the server keeps for a file, by the one chapter rule.
+describe('tocEntries', () => {
+  // Three linear sections of 100, 300 and 600 bytes (starts 0, 0.1, 0.4) and a non-linear note.
+  const sections = [{ size: 100 }, { size: 300 }, { size: 600 }, { size: 50, linear: 'no' }]
+  const resolve = (href: string) => ({ index: Number(href.split('#')[0].slice(1)) })
+
+  it('aNestedContents_KeysEachEntryByItsIndex_WithItsDepthAndWhereItsSectionStarts', async () => {
+    const toc = [
+      { label: 'Part One', href: 's1', depth: 0 },
+      { label: ' Chapter 1 ', href: 's1#c1', depth: 1 },
+      { label: 'Dead link', href: 'nowhere', depth: 1 },
+      { label: 'Chapter 2', href: 's2', depth: 1 },
+    ]
+    expect(await tocEntries(toc, sections, (h) => (h === 'nowhere' ? null : resolve(h)))).toEqual([
+      { key: 'toc-0', title: 'Part One', depth: 0, fraction: 0.1 },
+      { key: 'toc-1', title: 'Chapter 1', depth: 1, fraction: 0.1 },
+      { key: 'toc-3', title: 'Chapter 2', depth: 1, fraction: 0.4 },
+    ])
+  })
+
+  it('aBookWithNoContents_HasItsLinearSectionsAsChapters_AFixedLayoutNone', async () => {
+    const dead = [{ label: 'Broken', href: 'x', depth: 0 }]
+    expect(await tocEntries(dead, sections, () => null)).toEqual([
+      { key: 'section-0', title: 'Section 1', depth: 0, fraction: 0 },
+      { key: 'section-1', title: 'Section 2', depth: 0, fraction: 0.1 },
+      { key: 'section-2', title: 'Section 3', depth: 0, fraction: 0.4 },
+    ])
+    expect(await tocEntries([], sections, resolve, true)).toEqual([])
   })
 })

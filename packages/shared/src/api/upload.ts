@@ -7,6 +7,7 @@ import * as syncApi from './sync'
 import type { Book, FileWrite } from './sync'
 import { clip } from '../reader/textAnchor'
 import { bookTitle } from '../lib/bookTitle'
+import { tocForServer } from '../lib/fileToc'
 
 /** Bytes as whole megabytes, for a quota message. */
 export const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
@@ -58,6 +59,8 @@ export interface UploadPart {
 export interface FileDetails {
   meta: { title: string; author: string; lang: string; description: string } | null
   cover: string | null
+  /** ADR-033 P3: the file's contents (`tocEntries`); sent at import through `tocForServer`. */
+  toc?: unknown
 }
 
 export interface FileUploadIo {
@@ -111,7 +114,9 @@ export async function uploadFile(file: { name: string; size: number; format?: Cl
     if (!found) {
       bookId = io.newId()
       fileId = io.newId()
-      const meta = (await described)?.meta
+      const details = await described
+      const meta = details?.meta
+      const toc = tocForServer(details?.toc)
       const title = clip(bookTitle(meta?.title, file.name), 500)
       try {
         await syncApi.importBook(bookId, {
@@ -120,7 +125,8 @@ export async function uploadFile(file: { name: string; size: number; format?: Cl
           author: meta?.author || undefined,
           language: meta?.lang || undefined,
           description: meta?.description || undefined,
-          file: { id: fileId, sha256, byteSize: file.size, originalName: clip(file.name, 500), format },
+          // ADR-033 P3: none read is left out (the reader sends it on a later open).
+          file: { id: fileId, sha256, byteSize: file.size, originalName: clip(file.name, 500), format, toc: toc.length ? toc : undefined },
         })
         imported = bookId
       } catch (e) {

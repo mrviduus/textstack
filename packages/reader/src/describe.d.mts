@@ -16,6 +16,8 @@ export interface Described {
   meta: BookMeta | null
   /** A `data:image/jpeg;base64,` URL, or null. */
   cover: string | null
+  /** ADR-033 P3: `tocEntries`' list as sent, unchecked: through shared `tocForServer` before it is sent. */
+  toc: unknown[]
   error?: string
 }
 export function bookMeta(metadata: unknown, ui?: string): BookMeta

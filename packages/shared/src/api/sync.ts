@@ -88,7 +88,8 @@ export interface BookFile {
   originalName: string
   format: string
   pageCount: number | null
-  toc: unknown
+  /** ADR-033 P3: the server keeps a TOC for this file version (`PUT …/toc`). */
+  hasToc: boolean
   isCurrent: boolean
   hasContent: boolean
   createdAt: string
@@ -543,6 +544,9 @@ export const coverUrl = (bookId: string, updatedAt: string) =>
   `${getApiConfig().baseUrl}${book(bookId)}/cover?v=${encodeURIComponent(updatedAt)}`
 
 export const getChapters = (bookId: string, fileId: string) => authFetch<FileChapters>(`${file(bookId, fileId)}/chapters`)
+/** ADR-033 P3: the file's TOC (shared `tocForServer`'s entries), overwritten; 204. */
+export const putFileToc = (bookId: string, fileId: string, toc: { key: string; title: string; depth: number; fraction: number }[]) =>
+  authFetch<void>(`${file(bookId, fileId)}/toc`, jsonBody('PUT', toc))
 export const getChapter = (bookId: string, fileId: string, chapterKey: string) =>
   authFetch<FileChapter>(`${file(bookId, fileId)}/chapters/${encodeURIComponent(chapterKey)}`)
 

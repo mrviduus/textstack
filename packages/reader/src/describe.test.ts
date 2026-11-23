@@ -21,7 +21,7 @@ describe('v2 reader describe', () => {
   })
 
   it('readDescribed_HostileBook_CannotHandTheAppMarkupOrAHugeCover', () => {
-    expect(readDescribed(described())).toEqual({ id: 'up-1', meta, cover: jpeg(1000) })
+    expect(readDescribed(described())).toEqual({ id: 'up-1', meta, cover: jpeg(1000), toc: [] })
     expect(readDescribed(described({ cover: null }))?.cover).toBeNull()
     expect(readDescribed(described({ meta: null, cover: null, error: 'this PDF is password-protected and cannot be opened' }))?.error).toMatch(/password/)
     for (const bad of [

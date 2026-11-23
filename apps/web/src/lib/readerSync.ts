@@ -52,6 +52,8 @@ export interface SyncTarget {
   sha256: string
   size: number
   name: string
+  /** ADR-033 P3: the file's `hasToc` as the library knew it at the open; only `false` sends the page's TOC. */
+  hasToc?: boolean
 }
 
 /**

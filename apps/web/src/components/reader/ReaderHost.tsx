@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CHAPTER_TEXT_MS, createDiscussLocks, createDiscuss, fillBookMeta, runDiscuss, syncApi, type PagePosition, type FileDetails } from '@textstack/shared'
+import { CHAPTER_TEXT_MS, createDiscussLocks, createDiscuss, fillBookMeta, runDiscuss, syncTocIfMissing, syncApi, type PagePosition, type FileDetails } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
@@ -649,8 +649,14 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
         }
         retryRead.current = read
         read()
-        // #1426: a book uploaded before the page read files gets its details, once; beside the open, never in its way.
-        if (authenticated.current && navigator.onLine) void fillBookMeta(m.book.sha256, () => describeOpen(current))
+        // #1426: a book uploaded before the page read files gets its details, once; ADR-033 P3: a file the server has
+        // no TOC for gets the page's. Beside the open, never in its way; one `describe` serves both.
+        if (authenticated.current && navigator.onLine) {
+          let details: Promise<FileDetails | null> | null = null
+          const describe = () => (details ??= describeOpen(current))
+          void fillBookMeta(m.book.sha256, describe)
+          void syncTocIfMissing(target.bookId, target.fileId, async () => (await describe())?.toc, target.hasToc)
+        }
       }
       setAnnotatable(m.annotatable !== false)
       setReflowable(m.reflowable !== false)
