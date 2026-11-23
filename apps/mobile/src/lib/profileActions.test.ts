@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { UserDto } from '@textstack/shared'
 import { createAccountSignOut, deleteGuestData, signOutIntent, type LibrarySignOutDeps } from './profileActions'
+import { holdOpenSession } from './reader/openSession'
 
 const guest: UserDto = {
   id: 'g-1',
@@ -94,6 +95,17 @@ describe('createAccountSignOut (#1070: sign-out wipes the V2 library)', () => {
     const { calls, d } = v2()
     expect(await createAccountSignOut()(d)).toBe(true)
     expect(calls).toEqual(['sync', 'loss', 'signOut'])
+  })
+
+  it('readerOpenAtSignOut_ItsSessionIsStoredBeforeThePush_SoItIsSentOrCounted', async () => {
+    const { calls, d } = v2()
+    const release = holdOpenSession(async () => { calls.push('session') })
+    try {
+      expect(await createAccountSignOut()(d)).toBe(true)
+    } finally {
+      release()
+    }
+    expect(calls).toEqual(['session', 'sync', 'loss', 'signOut'])
   })
 
   it('somethingLost_ConfirmWithTheCounts_CancelKeepsTheSession', async () => {

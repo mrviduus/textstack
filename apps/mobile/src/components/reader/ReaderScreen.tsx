@@ -25,6 +25,7 @@ import { createMovedTracker } from '../../../../../packages/reader/src/movedTrac
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../../packages/reader/src/sessionTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
 import { hostError } from '../../lib/reader/hostErrors'
+import { holdOpenSession } from '../../lib/reader/openSession'
 import { fill } from '../../lib/fill'
 import { readSelection } from '../../../../../packages/reader/src/selection.mjs'
 import { createScrollIntent, readReaderScroll } from '../../../../../packages/reader/src/scrollChrome.mjs'
@@ -193,9 +194,9 @@ const fail = (what: string, show?: (e: unknown) => void) => (e: unknown) => {
  * An ended reading session (#1313) into the local library, keyed by the book's bytes, and queued: the outbox sends
  * it on the next pass (a save's, an open's, the screen's). No account, no network: never on the reading path.
  */
-const saveSession = (e: EndedSession | null) => {
-  if (!e) return
-  deviceLocalLibrary().addSession(e.book, e, uuid.v4).then(
+const saveSession = (e: EndedSession | null): Promise<unknown> => {
+  if (!e) return Promise.resolve()
+  return deviceLocalLibrary().addSession(e.book, e, uuid.v4).then(
     (kept) => { if (!kept) console.warn(`[v2] reading session not kept: no book with bytes ${e.book}`) },
     fail('reading session'),
   )
@@ -1011,10 +1012,10 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   }, [userId])
 
   // The reading session (#1313): the heartbeat ends an idle one; the background, another identity and the
-  // unmount end it (the legacy reader's rules). The next activity starts another.
-  // ponytail: a sign-out from inside the reader ends the session after its library is wiped or handed on, so up to
-  // one session per sign-out is lost (#1322); end it in the sign-out flow (before pushBeforeSignOut) if that matters.
+  // unmount end it (the legacy reader's rules); so does sign-out, before its push (#1322, openSession.ts).
+  // The next activity starts another.
   useEffect(() => {
+    const release = holdOpenSession(() => saveSession(sessions.end(Date.now())))
     const beat = setInterval(() => saveSession(sessions.tick(Date.now())), SESSION_HEARTBEAT_MS)
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'background' || state === 'inactive') saveSession(sessions.end(Date.now()))
@@ -1022,6 +1023,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     return () => {
       clearInterval(beat)
       sub.remove()
+      release()
       saveSession(sessions.end(Date.now()))
     }
   }, [userId])
