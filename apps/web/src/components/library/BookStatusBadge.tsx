@@ -1,6 +1,6 @@
 import { useTranslation } from '../../hooks/useTranslation'
 
-export type BookStatusVariant = 'processing' | 'indexing' | 'failed' | 'new' | 'finished'
+export type BookStatusVariant = 'failed' | 'new' | 'finished'
 
 interface BookStatusBadgeProps {
   variant: BookStatusVariant
@@ -11,7 +11,6 @@ interface BookStatusBadgeProps {
 function Inner({ variant, label }: { variant: BookStatusVariant; label: string }) {
   return (
     <>
-      {variant === 'processing' && <span className="book-status-badge__spinner" aria-hidden="true" />}
       {variant === 'finished' && (
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
           <polyline points="20 6 9 17 4 12" />

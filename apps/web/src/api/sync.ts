@@ -6,7 +6,7 @@
  * (`createBooks`, `uploadFile`, #1121); this file caches, maps and gives them its IO.
  */
 import {
-  syncApi, ApiError, SYNC_OFF, ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, placeToLocator, createBooks, uploadFile, FileUploadError, mb,
+  syncApi, ApiError, SYNC_OFF, shelfFileSummary, isShelfBook, resumeChapterOf, placeToLocator, createBooks, uploadFile, FileUploadError, mb,
   type Book, type FileChapters, type FileChapter, type ReadingState, type Annotation, type Word,
   type ReadingStateWrite, type SyncSwitch, type ProgressWrite,
 } from '@textstack/shared'
@@ -162,7 +162,7 @@ export async function getBookDetail(id: string): Promise<UserBookDetail> {
   const [toc, state] = await Promise.all([bookChapters(b), syncApi.getReadingState(id).catch(() => null)])
   return {
     ...baseBook(b),
-    status: ingestionStatus(toc.ingestion, !!b.currentFile?.hasContent),
+    status: shelfFileSummary(b.currentFile).status,
     totalWordCount: totalWords(toc),
     publishedYear: b.publishedYear,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.

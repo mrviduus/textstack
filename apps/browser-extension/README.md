@@ -1,7 +1,7 @@
-# TextStack — Save to read later — Chrome extension (MV3)
+# TextStack — Save to library — Chrome extension (MV3)
 
 Clip the web article you're reading to your own private TextStack
-**Read-later** library. Vanilla JS, MV3, no bundler, no npm.
+library. Vanilla JS, MV3, no bundler, no npm.
 
 ## What it does
 

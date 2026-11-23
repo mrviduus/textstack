@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
 import { useLanguage } from '../../context/LanguageContext'
@@ -24,12 +23,6 @@ interface UserBookCardProps {
   onSelectToggle?: (id: string) => void
 }
 
-function formatElapsed(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
-
 function isNew(createdAt: string): boolean {
   const t = new Date(createdAt).getTime()
   if (!t) return false
@@ -41,7 +34,6 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
   const { t } = useTranslation()
   const pace = useReadingPace()
   const percent = progress?.percent ?? 0
-  const [elapsed, setElapsed] = useState(0)
   const [, setSearchParams] = useSearchParams()
   const filterByTag = (tag: string) => {
     setSearchParams((prev) => {
@@ -52,36 +44,14 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
     }, { replace: false })
   }
 
-  const isProcessing = book.status === 'Processing'
-
-  // Track elapsed time for processing books
-  useEffect(() => {
-    if (!isProcessing) return
-
-    const startTime = new Date(book.createdAt).getTime()
-    const updateElapsed = () => {
-      setElapsed(Math.floor((Date.now() - startTime) / 1000))
-    }
-
-    updateElapsed()
-    const timer = setInterval(updateElapsed, 1000)
-    return () => clearInterval(timer)
-  }, [isProcessing, book.createdAt])
-
   const onChange = () => {
     onUpdate?.()
     onDelete()
   }
 
-  const isReady = book.status === 'Ready'
-  const isFailed = book.status === 'Failed'
-  const isStuck = isProcessing && elapsed > 30
-
-  // Readability is DERIVED (ADR-012): a PDF opens in Original layout the instant
-  // its file exists, regardless of extraction status. So Processing/Failed on a
-  // PDF is NOT a blocker — the card stays a live link.
+  // Ready = the file's bytes are in: the reader parses the file itself (ADR-033).
+  const readable = book.status === 'Ready'
   const hasOriginalPdf = !!book.hasOriginalPdf
-  const readable = isReady || hasOriginalPdf
 
   const targetSlug = progress?.chapterSlug
   const readerBase = `/${language}/library/my/${book.id}`
@@ -145,8 +115,6 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
             className={book.coverPath ? 'hidden' : ''}
           />
 
-          {/* readable = isReady || hasOriginalPdf → a PDF still Processing/Failed
-              (per S1) can render page-% too, not just fully-extracted books. */}
           {readable && !book.completedAt && percent > 0 && (
             <div className="user-book-card__progress-bar">
               <div
@@ -158,31 +126,14 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
         </Link>
 
         <div className="user-book-card__badges">
-          {isProcessing && (
-            hasOriginalPdf ? (
-              // Readable PDF still extracting — quiet "Indexing…" hint, not a blocker.
-              <BookStatusBadge variant="indexing" title={t('library.badge.indexingHint')} />
-            ) : (
-              <BookStatusBadge
-                variant="processing"
-                title={`${formatElapsed(elapsed)}${isStuck ? ' — possible issue' : ''}`}
-              />
-            )
-          )}
-          {/* Failed extraction on a readable PDF is NOT scary — the book still
-              opens in Original; only text features (search/TOC) are gone. */}
-          {isFailed && !hasOriginalPdf && (
-            <BookStatusBadge
-              variant="failed"
-              title={book.errorMessage || 'Tap to retry'}
-            />
-          )}
-          {isReady && !book.completedAt && isNew(book.createdAt) && (
+          {/* Failed = the file's bytes are gone. */}
+          {!readable && <BookStatusBadge variant="failed" />}
+          {readable && !book.completedAt && isNew(book.createdAt) && (
             <BookStatusBadge variant="new" />
           )}
         </div>
 
-        {isReady && book.completedAt && (
+        {readable && book.completedAt && (
           <div className="user-book-card__finished-badge" aria-label="Read">
             <BookStatusBadge variant="finished" />
           </div>
@@ -213,16 +164,16 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
             </div>
           )}
           <div className="user-book-card__meta">
-            {isReady && book.completedAt && (
+            {readable && book.completedAt && (
               <span className="user-book-card__progress-text user-book-card__progress-text--done">Read</span>
             )}
             {readable && !book.completedAt && percent > 0 && (
               <span className="user-book-card__progress-text">{Math.round(percent * 100)}% read</span>
             )}
-            {isReady && !book.completedAt && book.chapterCount > 0 && percent === 0 && (
+            {readable && !book.completedAt && book.chapterCount > 0 && percent === 0 && (
               <span>{book.chapterCount} chapters</span>
             )}
-            {isReady && !book.completedAt && (() => {
+            {readable && !book.completedAt && (() => {
               const minutes = bookMinutesLeft(book.totalWordCount, percent, pace.wpm)
               if (minutes == null || minutes === 0) return null
               return (
@@ -234,13 +185,6 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
                 </span>
               )
             })()}
-            {isFailed && !hasOriginalPdf && book.errorMessage && (
-              <span className="user-book-card__error" title={book.errorMessage}>
-                {book.errorMessage.length > 40
-                  ? book.errorMessage.slice(0, 40) + '...'
-                  : book.errorMessage}
-              </span>
-            )}
           </div>
           {showContinue && (
             <Link to={continueHref} className="library-continue">

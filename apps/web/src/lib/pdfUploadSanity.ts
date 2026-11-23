@@ -1,8 +1,8 @@
 // Client-side pre-upload sanity check for PDFs.
 //
 // Motivation (prod-confirmed): a user picked a PDF while the browser was still
-// downloading it → a truncated file was uploaded, accepted, then failed
-// ingestion with a scary "corrupted" error. We catch it BEFORE spending the
+// downloading it → a truncated file was uploaded, accepted, then failed to
+// open with a scary "corrupted" error. We catch it BEFORE spending the
 // upload. Mirrors the backend rule (which 400s the same case):
 //   - `%PDF-` must appear within the first 1KB (header)
 //   - BOTH `startxref` and `%%EOF` must appear within the last 64KB (trailer)

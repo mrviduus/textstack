@@ -71,8 +71,8 @@ describe('UserBookDetailPage page count', () => {
 })
 
 describe('UserBookDetailPage', () => {
-  it('a Ready book shows its insights', async () => {
-    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready' })
+  it('a book with its file shows its insights', async () => {
+    getUserBook.mockResolvedValue({ ...baseBook, status: 'Ready', hasFile: true })
     renderPage()
     await screen.findByText('Test Book')
     expect(screen.getByTestId('insights')).toBeInTheDocument()

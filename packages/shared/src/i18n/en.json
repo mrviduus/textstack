@@ -129,11 +129,9 @@
       "chatgpt": "ChatGPT"
     },
     "chapters": "chapters",
-    "processing": "Processing...",
     "failed": "Failed",
     "sidebar": {
-      "all": "All books",
-      "uploads": "My uploads",
+      "all": "Library",
       "tags": "Tags",
       "allTags": "All tags →",
       "open": "Open filters",

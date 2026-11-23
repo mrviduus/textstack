@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 const navigateMock = vi.fn()
 
@@ -17,21 +17,11 @@ vi.mock('../UploadForm', () => ({
     <button data-testid="fake-upload" onClick={() => onUploadComplete('book-42')}>upload</button>
   ),
 }))
-// getUserBook is polled after upload — keep it pending so the modal stays in
-// the Processing phase (no auto-transition during these tests).
-const getUserBookMock = vi.fn((_id: string) => new Promise(() => {}) as Promise<unknown>)
-vi.mock('../../../api/userBooks', () => ({
-  getUserBook: (id: string) => getUserBookMock(id),
-}))
 
 import { UploadModal } from '../UploadModal'
 
 describe('UploadModal', () => {
-  beforeEach(() => {
-    navigateMock.mockReset()
-    getUserBookMock.mockReset()
-    getUserBookMock.mockImplementation(() => new Promise(() => {}))
-  })
+  beforeEach(() => navigateMock.mockReset())
   afterEach(() => cleanup())
 
   it('returns null when closed', () => {
@@ -61,42 +51,12 @@ describe('UploadModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('after upload the modal stays open and shows the processing state', () => {
+  it('an uploaded book opens in the reader at once: its file is all it needs, no waiting on the server', () => {
     const onClose = vi.fn()
     render(<UploadModal open={true} onClose={onClose} />)
     fireEvent.click(screen.getByTestId('fake-upload'))
-    // No close, no navigate — user sees the post-upload status UI.
-    expect(onClose).not.toHaveBeenCalled()
-    expect(navigateMock).not.toHaveBeenCalled()
-    expect(screen.getByText('upload.status.processing')).toBeInTheDocument()
-  })
-
-  it('failed phase shows server errorMessage when present', async () => {
-    getUserBookMock.mockResolvedValueOnce({
-      id: 'book-42', title: 't', slug: 't', language: 'en', status: 'Failed',
-      errorMessage: 'Could not read this file. It may be corrupted or password-protected.',
-      chapters: [], createdAt: '', updatedAt: '',
-    })
-    vi.useFakeTimers()
-    render(<UploadModal open={true} onClose={() => {}} />)
-    fireEvent.click(screen.getByTestId('fake-upload'))
-    await vi.advanceTimersByTimeAsync(2100)
-    vi.useRealTimers()
-    await waitFor(() => expect(screen.getByText('upload.status.failedTitle')).toBeInTheDocument())
-    expect(screen.getByText(/Could not read this file/)).toBeInTheDocument()
-  })
-
-  it('failed phase falls back to generic message when errorMessage is empty', async () => {
-    getUserBookMock.mockResolvedValueOnce({
-      id: 'book-42', title: 't', slug: 't', language: 'en', status: 'Failed',
-      errorMessage: '   ', chapters: [], createdAt: '', updatedAt: '',
-    })
-    vi.useFakeTimers()
-    render(<UploadModal open={true} onClose={() => {}} />)
-    fireEvent.click(screen.getByTestId('fake-upload'))
-    await vi.advanceTimersByTimeAsync(2100)
-    vi.useRealTimers()
-    await waitFor(() => expect(screen.getByText('upload.status.failed')).toBeInTheDocument())
+    expect(onClose).toHaveBeenCalled()
+    expect(navigateMock).toHaveBeenCalledWith('/en/library/my/book-42/read')
   })
 
   it('after upload broadcasts user-books + shelves changes so consumers refetch', () => {

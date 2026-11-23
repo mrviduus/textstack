@@ -495,10 +495,6 @@
         "shortcut": "or press ⌘U from anywhere"
       }
     },
-    "badge": {
-      "indexing": "Indexing…",
-      "indexingHint": "Indexing text for search, contents and chat — you can read the original now."
-    },
     "sort": {
       "recent": "Recently opened",
       "added": "Recently added",
@@ -540,17 +536,7 @@
       "signinAction": "Sign in"
     },
     "status": {
-      "uploading": "uploading…",
-      "processing": "Preparing your book…",
-      "processingHint": "Extracting chapters and indexing for search. This usually takes 10–30 seconds.",
-      "readyTitle": "Your book is ready",
-      "readyFallback": "Book ready",
-      "readyChapters": "{{n}} chapters indexed and ready to read.",
-      "readyDefault": "Indexing complete. Open the reader to start.",
-      "readNow": "Read now",
-      "viewInLibrary": "View in library",
-      "failed": "Something went wrong while processing this book.",
-      "failedTitle": "Couldn't process this book"
+      "uploading": "uploading…"
     },
     "v2": {
       "contentMismatch": "The file changed while it was uploading. Pick it again to upload it as it is now.",

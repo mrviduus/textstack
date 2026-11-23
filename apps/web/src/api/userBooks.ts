@@ -27,12 +27,6 @@ export interface UserBook {
   progressChapterSlug: string | null
   tags?: string[]
   suggestedTags?: string[]
-  // "Send to TextStack" web clips (Read later shelf). Present on every list row;
-  // sourceUrl/readAt are null for non-clips and for unread clips respectively.
-  sourceUrl?: string | null
-  isClip?: boolean
-  isRead?: boolean
-  readAt?: string | null
   /** True when the original upload is a PDF → the card can open "Original layout"
    *  instantly. Absent on older payloads → false. */
   hasOriginalPdf?: boolean

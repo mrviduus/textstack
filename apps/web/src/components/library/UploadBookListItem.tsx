@@ -19,10 +19,8 @@ export function UploadBookListItem({
   onChange: () => void
   t: (key: string) => string
 }) {
-  const isReady = book.status === 'Ready'
-  // Readability is DERIVED (ADR-012): a PDF opens in Original layout once its file exists, whatever
-  // the extraction status — same rule as the grid card (UserBookCard).
-  const readable = isReady || !!book.hasOriginalPdf
+  // Ready = the file's bytes are in: the reader parses the file itself (ADR-033).
+  const readable = book.status === 'Ready'
   const percent = book.progressPercent ?? 0
   // The row opens the book's page; "Continue" goes straight into the text.
   const destination = readable ? `/${language}/library/my/${book.id}` : '#'
@@ -110,13 +108,7 @@ export function UploadBookListItem({
               {t('library.lastRead')} {formatTimeAgo(book.progressUpdatedAt)}
             </span>
           )}
-          {book.status === 'Processing' && (
-            <span className="library-list-item__info-item library-list-item__info-item--processing">
-              <span className="material-icons-outlined">sync</span>
-              {t('library.processing')}
-            </span>
-          )}
-          {book.status === 'Failed' && (
+          {!readable && (
             <span className="library-list-item__info-item library-list-item__info-item--error">
               <span className="material-icons-outlined">error</span>
               {t('library.failed')}

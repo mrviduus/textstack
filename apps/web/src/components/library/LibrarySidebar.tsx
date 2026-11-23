@@ -6,7 +6,6 @@ const TAG_LIMIT = 10
 
 interface Counts {
   all: number
-  uploads: number
 }
 
 interface Props {
@@ -40,15 +39,6 @@ export function LibrarySidebar({
           <span className="library-sidebar-v3__label">{t('library.sidebar.all')}</span>
           <span className="library-sidebar-v3__count">{counts.all}</span>
         </button>
-        <button
-          type="button"
-          className={`library-sidebar-v3__item ${isSourceActive('uploads') ? 'library-sidebar-v3__item--active' : ''}`}
-          onClick={() => onSourceChange('uploads')}
-        >
-          <span className="material-icons-outlined">file_upload</span>
-          <span className="library-sidebar-v3__label">{t('library.sidebar.uploads')}</span>
-          <span className="library-sidebar-v3__count">{counts.uploads}</span>
-        </button>
       </div>
 
       {visibleTags.length > 0 && (
@@ -70,7 +60,7 @@ export function LibrarySidebar({
             <button
               type="button"
               className="library-sidebar-v3__more"
-              onClick={() => onSourceChange('uploads')}
+              onClick={() => onSourceChange('all')}
             >
               {t('library.sidebar.allTags')}
             </button>

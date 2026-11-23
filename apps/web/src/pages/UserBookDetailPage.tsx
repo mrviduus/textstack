@@ -11,7 +11,6 @@ import { AssistantMenu } from '../components/library/AssistantMenu'
 import { currentReviewChapter, bookPages, plural } from '@textstack/shared'
 import { useBookReviews } from '../hooks/useBookReviews'
 import { emitDataChanges } from '../lib/dataEvents'
-import { useTranslation } from '../hooks/useTranslation'
 
 interface SavedProgress {
   chapterSlug?: string
@@ -25,7 +24,6 @@ export function UserBookDetailPage() {
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
   const { language } = useLanguage()
-  const { t } = useTranslation()
   const [book, setBook] = useState<UserBookDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -36,7 +34,7 @@ export function UserBookDetailPage() {
   // popup and the prior loud red-circle visual.
   const [pendingDelete, setPendingDelete] = useState(false)
   const pendingTimeoutRef = useRef<number | null>(null)
-  const { reviews, insights } = useBookReviews(isAuthenticated && book?.status === 'Ready' ? { userBookId: book.id } : null)
+  const { reviews, insights } = useBookReviews(isAuthenticated && book?.hasFile ? { userBookId: book.id } : null)
 
   // The server's position is the truth (the library card already shows it); localStorage only
   // knows what THIS browser read, so on any other device a 44%-read book said "Start Reading" and
@@ -102,17 +100,6 @@ export function UserBookDetailPage() {
 
     return () => { cancelled = true }
   }, [id, isAuthenticated])
-
-  // Auto-refresh while processing
-  useEffect(() => {
-    if (!book || book.status !== 'Processing') return
-    const interval = setInterval(() => {
-      getUserBook(id!)
-        .then(setBook)
-        .catch(() => {})
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [book?.status, id])
 
   const handleDelete = async () => {
     if (!id || deleting) return
@@ -189,14 +176,9 @@ export function UserBookDetailPage() {
     )
   }
 
-  const isReady = book.status === 'Ready'
-  const isProcessing = book.status === 'Processing'
-  const isFailed = book.status === 'Failed'
-  // Readability is DERIVED (ADR-012): a PDF opens in Original layout regardless
-  // of extraction status, so Processing/Failed must not block or scare.
   const hasOriginalPdf = !!book.hasOriginalPdf
   const pages = bookPages(book)
-  // The reader opens the file itself (queued, processing or failed extraction alike) once its bytes are in.
+  // The reader opens the file itself once its bytes are in (ADR-033).
   const canRead = !!book.hasFile
   const readerBase = `/${language}/library/my/${book.id}`
   const readHref = continueReadingSlug
@@ -252,29 +234,7 @@ export function UserBookDetailPage() {
             )}
           </div>
 
-          {/* A readable PDF is never blocked: while it indexes we show a quiet
-              hint, and a failed extraction is NOT a scary block (ADR-012). */}
-          {isProcessing && !hasOriginalPdf && (
-            <div className="user-book-detail__status user-book-detail__status--processing">
-              <span className="user-book-detail__spinner" />
-              Processing... This may take a few minutes.
-            </div>
-          )}
-
-          {isProcessing && hasOriginalPdf && (
-            <div className="user-book-detail__status user-book-detail__status--indexing">
-              {t('library.badge.indexingHint')}
-            </div>
-          )}
-
-          {isFailed && !hasOriginalPdf && (
-            <div className="user-book-detail__status user-book-detail__status--failed">
-              <strong>Processing Failed</strong>
-              {book.errorMessage && <p>{book.errorMessage}</p>}
-            </div>
-          )}
-
-          {isReady && book.completedAt && (
+          {canRead && book.completedAt && (
             <div className="user-book-detail__completed">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                 <polyline points="20 6 9 17 4 12" />
@@ -300,7 +260,7 @@ export function UserBookDetailPage() {
               </Link>
             )}
 
-            {isReady && (
+            {canRead && (
               <AssistantMenu
                 book={{
                   title: book.title,
@@ -314,7 +274,7 @@ export function UserBookDetailPage() {
             )}
 
             {/* Completion is written on the reading place, so a book with no chapter yet has none to mark. */}
-            {isReady && !book.completedAt && book.chapters.length > 0 && (
+            {canRead && !book.completedAt && book.chapters.length > 0 && (
               <button
                 onClick={async () => {
                   if ((await markUserBookComplete(book.id)) === 'dropped') return
@@ -326,7 +286,7 @@ export function UserBookDetailPage() {
               </button>
             )}
 
-            {isReady && book.completedAt && (
+            {canRead && book.completedAt && (
               <button
                 onClick={async () => {
                   if ((await unmarkUserBookComplete(book.id)) === 'dropped') return
@@ -340,7 +300,7 @@ export function UserBookDetailPage() {
 
             {/* The file you uploaded, not a link: this page is private, so a shared URL opened a
                 login wall for whoever received it (mobile made the same change). */}
-            {isReady && (
+            {canRead && (
               <a
                 className="user-book-detail__reextract-icon"
                 href={getUserBookFileUrl(book.id)}
@@ -354,7 +314,7 @@ export function UserBookDetailPage() {
               </a>
             )}
 
-            {isReady && (
+            {canRead && (
               <button
                 type="button"
                 onClick={handleDelete}
@@ -377,7 +337,7 @@ export function UserBookDetailPage() {
       </div>
 
       {/* Coming back to a book, what you already worked out. */}
-      {isReady && book && (
+      {canRead && book && (
         <BookInsightsSection insights={insights} />
       )}
 
