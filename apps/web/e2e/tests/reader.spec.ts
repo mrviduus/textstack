@@ -88,7 +88,7 @@ async function collectPageMessages(page: Page) {
   return () => page.evaluate(() => (window as unknown as { __page: PageMessages }).__page)
 }
 
-/** The words of the first paragraph on screen, centred, in page coordinates (the section frames sit in the reader frame). */
+/** The words of the first paragraph on screen (offsets in its text), centred, in page coordinates (the section frames sit in the reader frame). */
 async function firstParagraphWords(page: Page) {
   for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
     const list = await f.evaluate((text) => {
@@ -100,14 +100,34 @@ async function firstParagraphWords(page: Page) {
         r.setStart(node, m.index!)
         r.setEnd(node, m.index! + m[0].length)
         const b = r.getBoundingClientRect()
-        return { word: m[0], x: b.left + b.width / 2, y: b.top + b.height / 2 }
+        return { word: m[0], start: m.index!, end: m.index! + m[0].length, width: b.width, x: b.left + b.width / 2, y: b.top + b.height / 2 }
       })
     }, FIRST_SECTION_TEXT).catch(() => null)
     if (!list) continue
-    const box = (await (await f.frameElement()).boundingBox())!
+    // A frame can detach mid-loop (a section unloaded after a reload): skip it.
+    const box = await f.frameElement().then((e) => e.boundingBox()).catch(() => null)
+    if (!box) continue
     return list.map((w) => ({ ...w, x: box.x + w.x, y: box.y + w.y }))
   }
   return []
+}
+
+/**
+ * #1341: a word of the first paragraph (`minLength` letters or more) in the centre tap zone (an edge turns the page),
+ * from live geometry once the layout holds still: two reads in a row agree. A section reports ready before its columns
+ * settle under load, so a first read can find no word in the centre, or a point the text then leaves.
+ */
+async function centreWord(page: Page, minLength = 1) {
+  const width = page.viewportSize()!.width
+  let last = ''
+  let word: Awaited<ReturnType<typeof firstParagraphWords>>[number] | undefined
+  await expect.poll(async () => {
+    const prev = last
+    word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65 && w.width > 0 && w.word.length >= minLength)
+    last = JSON.stringify(word ?? null)
+    return !!word && last === prev
+  }, { message: 'a word of the first paragraph in the centre zone, its place settled', timeout: 15_000 }).toBe(true)
+  return word!
 }
 
 /**
@@ -323,16 +343,17 @@ test.describe('Reader page @reader', () => {
     await expect(main).toHaveAttribute('data-bars', 'hidden', { timeout: 10_000 })
     const before = (await status(page).textContent()) ?? ''
 
-    const width = page.viewportSize()!.width
-    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65)
-    expect(word, 'a word in the centre zone').toBeTruthy()
-    await page.mouse.click(word!.x, word!.y)
+    const word = await centreWord(page)
+    await page.mouse.click(word.x, word.y)
     const popup = page.locator('.word-popup')
-    await expect(popup).toContainText(word!.word)
+    await expect(popup).toContainText(word.word)
     await expect(popup.locator('.word-popup__translation')).toHaveText('MOCK-TRANSLATION')
-    // The context is the tapped word's own sentence (not the paragraph's label sentence).
-    const own = new RegExp(`\\b${word!.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
-    expect(asked.at(-1)).toMatchObject({ text: word!.word, sourceLang: 'en', targetLang: 'uk', sentence: expect.stringMatching(own) })
+    // The context is the tapped word's own sentence (not the paragraph's label sentence): every request for this word
+    // carries it (#1341: not just the last request of any word).
+    const own = new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+    const forWord = asked.filter((a) => a.text === word.word)
+    expect(forWord.length, 'a translate request for the tapped word').toBeGreaterThan(0)
+    for (const a of forWord) expect(a).toMatchObject({ sourceLang: 'en', targetLang: 'uk', sentence: expect.stringMatching(own) })
     await expect(status(page)).toHaveText(before)
 
     await popup.getByRole('button', { name: 'Close' }).first().click()
@@ -350,18 +371,16 @@ test.describe('Reader page @reader', () => {
     await page.goto(`/en/library/my/${bookId}/read-v2`)
     await expectOpened(page)
 
-    const width = page.viewportSize()!.width
-    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65 && w.word.length > 2)
-    expect(word, 'a word in the centre zone').toBeTruthy()
+    const word = await centreWord(page, 3)
     const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith('/me/v2/vocabulary/words'))
     const patched = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/me\/v2\/vocabulary\/words\/[0-9a-f-]{36}$/.test(r.url()))
-    await page.mouse.click(word!.x, word!.y)
+    await page.mouse.click(word.x, word.y)
     const put = await saved
     expect(put.ok(), `PUT word: ${put.status()} ${await put.text()}`).toBeTruthy()
     // The context is the tapped word's own sentence (C2's e2e, 32ca405e): it holds the word as a whole word.
-    const own = new RegExp(`\\b${word!.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+    const own = new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
     expect(put.request().postDataJSON()).toMatchObject({
-      word: word!.word, language: 'en',
+      word: word.word, language: 'en',
       example: { bookId, bookTitle: 'E2E V2 sync', sentence: expect.stringMatching(own) },
     })
     // The translation follows the save (TR-2: it fills the untranslated card).
@@ -371,7 +390,7 @@ test.describe('Reader page @reader', () => {
     expect(patch.request().postDataJSON()).toMatchObject({ translation: 'MOCK-TRANSLATION' })
 
     await page.goto('/en/vocabulary')
-    await expect(page.getByText(word!.word, { exact: true }).first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(word.word, { exact: true }).first()).toBeVisible({ timeout: 15_000 })
     await context.close()
   })
 
@@ -385,9 +404,7 @@ test.describe('Reader page @reader', () => {
     await page.goto(`/en/library/my/${bookId}/read-v2`)
     await expectOpened(page)
 
-    const width = page.viewportSize()!.width
-    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65 && w.word.length > 3)
-    expect(word, 'a word in the centre zone').toBeTruthy()
+    const word = await centreWord(page, 4)
     /** What the page draws over the shown section: each overlay's underline colour, label and the text under it. */
     const marks = () => {
       const frame = page.frames().find((f) => f.url().includes('/reader/frame.html'))!
@@ -399,7 +416,7 @@ test.describe('Reader page @reader', () => {
         }))))
     }
     const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().endsWith('/me/v2/vocabulary/words'))
-    await page.mouse.click(word!.x, word!.y)
+    await page.mouse.click(word.x, word.y)
     expect((await saved).ok()).toBeTruthy()
     await page.locator('.word-popup').getByRole('button', { name: 'Close' }).first().click()
     const blueWithGloss = (ms: { line: string | null; label: string | null }[]) => ms.filter((m) => m.line === 'rgba(59,130,246,0.5)' && m.label === 'MOCK-TRANSLATION').length
@@ -701,33 +718,10 @@ test.describe('Reader page @reader', () => {
     // Offered once the server's highlights are in (the Highlight button).
     await expect(page.getByRole('button', { name: 'Highlight', exact: true })).toHaveCount(1, { timeout: 15_000 })
 
-    /** A word of the first paragraph in the centre tap zone (an edge turns the page): its offsets and page point. */
-    const centreWord = async () => {
-      const width = page.viewportSize()!.width
-      for (const f of page.frames().filter((x) => x.url().startsWith('blob:'))) {
-        // A frame can detach mid-loop (a section unloaded after a reload): skip it.
-        const box = await f.frameElement().then((e) => e.boundingBox()).catch(() => null)
-        if (!box) continue
-        const w = await f.evaluate(({ text, ox, lo, hi }) => {
-          const node = Array.from(document.querySelectorAll('p')).find((x) => x.textContent?.includes(text))?.firstChild as Text | undefined
-          for (const m of node ? node.data.matchAll(/\p{L}{4,}/gu) : []) {
-            const r = document.createRange()
-            r.setStart(node!, m.index!)
-            r.setEnd(node!, m.index! + m[0].length)
-            const b = r.getBoundingClientRect()
-            const x = ox + b.left + b.width / 2
-            if (x > lo && x < hi && b.width > 0) return { word: m[0], start: m.index!, end: m.index! + m[0].length, x: b.left + b.width / 2, y: b.top + b.height / 2 }
-          }
-          return null
-        }, { text: FIRST_SECTION_TEXT, ox: box.x, lo: width * 0.35, hi: width * 0.65 }).catch(() => null)
-        if (w) return { ...w, x: box.x + w.x, y: box.y + w.y }
-      }
-      throw new Error('no word of the first paragraph in the centre zone')
-    }
     const annotationWrite = (method: string) => page.waitForResponse((r) => r.request().method() === method && /\/me\/v2\/annotations\/[0-9a-f-]{36}$/.test(r.url()))
 
     // Create, green, from the selection toolbar.
-    const w = await centreWord()
+    const w = await centreWord(page, 4)
     const created = annotationWrite('PUT')
     await selectInFirstParagraph(page, w.start, w.end)
     await page.getByRole('button', { name: 'Highlight green' }).click()
@@ -775,7 +769,7 @@ test.describe('Reader page @reader', () => {
     await expect(page).not.toHaveURL(/[?&]highlight=/)
 
     // Delete from its editor: a DELETE, the tombstone; the list is empty.
-    const again = await centreWord()
+    const again = await centreWord(page, 4)
     await page.mouse.click(again.x, again.y)
     const deleted = annotationWrite('DELETE')
     await page.locator('.pdf-hl-popup').getByRole('button', { name: 'Delete highlight' }).click()
@@ -1248,10 +1242,8 @@ test.describe('Reader page @reader', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
 
-    const width = page.viewportSize()!.width
-    const word = (await firstParagraphWords(page)).find((w) => w.x > width * 0.35 && w.x < width * 0.65)
-    expect(word, 'a word in the centre zone').toBeTruthy()
-    await page.mouse.click(word!.x, word!.y)
+    const word = await centreWord(page)
+    await page.mouse.click(word.x, word.y)
     await expect(page.locator('.word-popup .word-popup__translation')).toHaveText('MOCK-TRANSLATION')
     expect(await violations()).toEqual([])
     await page.keyboard.press('Escape')
