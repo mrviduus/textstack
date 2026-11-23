@@ -25,8 +25,10 @@ public class SyncValidationTests
 
     private const int MaxTocBytes = 256 * 1024;
 
-    // A TOC of exactly this many UTF-8 bytes: ["ttt…"].
-    private static string TocOf(int bytes) => "[\"" + new string('t', bytes - 4) + "\"]";
+    private const string Entry = """{"key":"toc-0","title":"One","depth":0,"fraction":0}""";
+
+    // A TOC of exactly this many UTF-8 bytes: one entry, padded with JSON whitespace.
+    private static string TocOf(int bytes) => "[" + Entry + new string(' ', bytes - 2 - Entry.Length) + "]";
 
     // #1128: every format the reader opens (ADR-032) is a client upload, a TOC of up to 256 KB beside it.
     [Theory]
@@ -42,7 +44,7 @@ public class SyncValidationTests
         {
             Format = format,
             OriginalName = "book." + format,
-            Toc = tocAtTheCap ? TocOf(MaxTocBytes) : """[{"title":"One","children":[]}]""",
+            Toc = tocAtTheCap ? TocOf(MaxTocBytes) : $"[{Entry}]",
         }));
 
     public static TheoryData<string, BookFileRequest?> BrokenUploads => new()
@@ -63,7 +65,8 @@ public class SyncValidationTests
         { "file.format", Upload with { Format = "docx" } },
         { "file.format", Upload with { Format = "MOBI" } },
         { "file.toc", Upload with { Toc = """{"chapters":[]}""" } },
-        { "file.toc", Upload with { Toc = """[{"title":"one","children":[{"title":"t\u0000"}]}]""" } },
+        { "file.toc", Upload with { Toc = """[{"key":"toc-0","title":"t\u0000","depth":0,"fraction":0}]""" } },
+        { "file.toc", Upload with { Toc = """[{"title":"One","children":[]}]""" } },
         { "file.toc", Upload with { Toc = TocOf(MaxTocBytes + 1) } },
     };
 
@@ -71,6 +74,39 @@ public class SyncValidationTests
     [MemberData(nameof(BrokenUploads))]
     public void File_BrokenUpload_IsRefusedNamingTheField(string field, BookFileRequest? file) =>
         Assert.Equal(field, FieldOf(File("file.", file)));
+
+    // ---- A file's TOC as the reader writes it (ADR-033 P3) ----
+
+    private static string TocEntry(string key = "\"toc-1\"", string title = "\"Two\"", string depth = "1", string fraction = "0.5") =>
+        $$"""{"key":{{key}},"title":{{title}},"depth":{{depth}},"fraction":{{fraction}}}""";
+
+    // Reading order, not fraction order: a nested entry may share or precede its parent's fraction.
+    [Theory]
+    [InlineData(true, "[]")]
+    [InlineData(true, "[" + Entry + ",{\"key\":\"section-3\",\"title\":\"Two\",\"depth\":6,\"fraction\":0,\"extra\":true}]")]
+    [InlineData(false, "{}")]
+    [InlineData(false, "[\"One\"]")]
+    [InlineData(false, "[" + Entry + "," + Entry + "]")]
+    [InlineData(false, "[{\"key\":\"a\",\"key\":\"b\",\"title\":\"T\",\"depth\":0,\"fraction\":0}]")]
+    public void Toc_ReaderEntries_PassOnlyInTheirShape(bool passes, string toc) =>
+        Assert.Equal(passes ? null : "toc", FieldOf(Toc(toc, "toc")));
+
+    public static TheoryData<string> BrokenEntries => new()
+    {
+        TocEntry(key: "\"\""), TocEntry(key: $"\"{new string('k', MaxChapterKey + 1)}\""), TocEntry(key: "1"),
+        TocEntry(title: "\"\""), TocEntry(title: $"\"{new string('t', 501)}\""), TocEntry(title: "\"\\ud800\""),
+        TocEntry(depth: "-1"), TocEntry(depth: "7"), TocEntry(depth: "1.5"),
+        TocEntry(fraction: "-0.1"), TocEntry(fraction: "1.01"), TocEntry(fraction: "\"0.5\""),
+        """{"title":"Two","depth":1,"fraction":0.5}""",
+    };
+
+    [Theory]
+    [MemberData(nameof(BrokenEntries))]
+    public void Toc_BrokenEntry_IsRefused(string entry)
+    {
+        Assert.Null(Toc($"[{TocEntry(key: "\"k\"", title: $"\"{new string('t', 500)}\"", depth: "6", fraction: "1")}]", "toc"));
+        Assert.Equal("toc", FieldOf(Toc($"[{entry}]", "toc")));
+    }
 
     // ---- A locator: where a reading position or an annotation points ----
 

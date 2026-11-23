@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Application.Common;
 using Application.Library;
 using Application.Reading;
@@ -116,5 +117,29 @@ public class LibrarySyncServiceTests(PostgresFixture db)
         // Either write on a connection of its own would have committed by now.
         Assert.Equal(book.CurrentFile.Id, (await library.GetAsync(book.UserId, book.Id, Ct))!.CurrentFile!.Id);
         Assert.NotNull(await _reading.GetAsync(book.UserId, book.Id, Ct));
+    }
+
+    // ADR-033 P3: the reader writes a superseded version's TOC too, and the chapters list reads it back in its order.
+    [Fact]
+    public async Task SetTocAsync_ReaderToc_ServesTheChaptersAndLeavesAnotherUsersFileAlone()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var superseded = book.CurrentFile!.Id;
+        await db.ReplaceFileAsync(book);
+        var other = await db.NewReaderWithBookAsync();
+        var toc = JsonSerializer.Deserialize<JsonElement>("""
+            [{"key":"toc-1","title":"Chapter I","depth":0,"fraction":0},{"key":"toc-0","title":"Prologue","depth":1,"fraction":0}]
+            """);
+        var library = new LibraryRepository(db.DataSource);
+        var chapters = new ChapterReadService(new BookAccess(library), new BookChapterRepository(db.DataSource), new IngestionJobRepository(db.DataSource));
+
+        var written = await _service.SetTocAsync(book.UserId, book.Id, superseded, toc, Ct);
+        var foreign = await _service.SetTocAsync(book.UserId, other.Id, other.CurrentFile!.Id, toc, Ct);
+
+        Assert.Equal((204, 404), (written.Status, foreign.Status));
+        var list = Assert.IsType<FileChaptersDto>((await chapters.ListAsync(book.UserId, book.Id, superseded, Ct)).Body);
+        Assert.Equal([("toc-1", 0, "Chapter I"), ("toc-0", 1, "Prologue")], list.Items.Select(c => (c.ChapterKey, c.ChapterNumber, c.Title)));
+        Assert.Null((await library.GetFileAsync(other.UserId, other.Id, other.CurrentFile.Id, Ct))!.Toc);
+        Assert.Equal((true, false), ((await library.GetFileAsync(book.UserId, book.Id, superseded, Ct))!.HasToc, (await library.GetAsync(other.UserId, other.Id, Ct))!.CurrentFile!.HasToc));
     }
 }

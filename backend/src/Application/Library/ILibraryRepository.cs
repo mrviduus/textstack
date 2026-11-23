@@ -73,6 +73,12 @@ public interface ILibraryRepository
     /// </summary>
     Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct);
 
+    /// <summary>
+    /// Overwrites one file version's TOC (ADR-033 P3: derived, unversioned, last writer wins; current or
+    /// superseded, removed book or not). Moves no <c>updated_at</c>: the feed does not carry it. False when not the user's.
+    /// </summary>
+    Task<bool> SetTocAsync(Guid userId, Guid bookId, Guid fileId, string toc, CancellationToken ct);
+
     /// <summary>Hides the book (sets <c>removed_at</c>); false when not the user's or already removed.</summary>
     Task<bool> RemoveAsync(Guid userId, Guid bookId, CancellationToken ct);
 

@@ -125,6 +125,16 @@ public sealed class LibrarySyncService(ILibraryRepository library, IReadingPosit
     private async Task<SyncResult> IdempotentAsync(bool changed, Guid userId, Guid bookId, CancellationToken ct) =>
         changed || await library.ExistsAsync(userId, bookId, ct) ? SyncResult.NoContent : SyncResult.BookNotFound;
 
+    /// <summary>The reader's TOC of one file version (ADR-033 P3): overwrite, idempotent, 204.</summary>
+    public async Task<SyncResult> SetTocAsync(Guid userId, Guid bookId, Guid fileId, JsonElement toc, CancellationToken ct)
+    {
+        var raw = toc.GetRawText();
+        if (Toc(raw, "toc") is { } invalid) return invalid;
+        return await library.SetTocAsync(userId, bookId, fileId, raw, ct)
+            ? SyncResult.NoContent
+            : await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) ?? SyncResult.NotFound;
+    }
+
     public Task<SyncResult> ChangesAsync(Guid userId, string? cursor, string? limit, CancellationToken ct) =>
         ChangeFeed.PageAsync(cursor, limit,
             (since, after, take) => library.ListChangedAsync(userId, since, after, take, ct),

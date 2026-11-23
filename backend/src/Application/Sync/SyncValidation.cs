@@ -18,6 +18,7 @@ public static class SyncValidation
 
     private const int MaxTocBytes = 256 * 1024;
     private const int MaxQuoteCodePoints = 64;
+    private const int MaxTocTitle = 500;
 
     /// <summary>ADR-019's clock skew: a client time further ahead than this is a broken clock, not an answer.</summary>
     // Checked against the API's clock while the rows are stamped by the database's: fine at 5 minutes.
@@ -41,12 +42,35 @@ public static class SyncValidation
             : SyncResult.Invalid(prefix + "format", "format must be epub, pdf, mobi, azw3, fb2 or cbz."))
         ?? (file.Toc is null ? null : Toc(file.Toc, prefix + "toc"));
 
-    // The size first, on the raw text that is also what gets stored; only then the walk.
-    private static SyncResult? Toc(string raw, string field)
+    /// <summary>
+    /// A file's TOC as the reader writes it (ADR-033 P3), in reading order: <c>[{key, title, depth, fraction}]</c>,
+    /// keys unique (opaque, 1–200 characters), titles 1–500, depth 0–6, fraction 0–1. Fractions are not
+    /// ordered: a nested entry may share or precede its parent's. The size first, on the raw text that is
+    /// also what gets stored; only then the walk.
+    /// </summary>
+    public static SyncResult? Toc(string raw, string field)
     {
         if (Utf8Cap(Encoding.UTF8.GetByteCount(raw), field, MaxTocBytes) is { } tooBig) return tooBig;
-        using var toc = JsonDocument.Parse(raw);
-        return toc.RootElement.ValueKind == JsonValueKind.Array ? Json(toc.RootElement, field) : SyncResult.Invalid(field, "toc must be a JSON array of at most 256 KB.");
+        const string shape = "toc must be a JSON array of {key, title, depth, fraction} with unique keys, at most 256 KB.";
+        try
+        {
+            using var toc = JsonDocument.Parse(raw, NoDuplicateMembers);
+            if (toc.RootElement.ValueKind != JsonValueKind.Array) return SyncResult.Invalid(field, shape);
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var e in toc.RootElement.EnumerateArray())
+                if (e.ValueKind != JsonValueKind.Object
+                    || !e.TryGetProperty("key", out var key) || !IsText(key, 1, MaxChapterKey) || !keys.Add(key.GetString()!)
+                    || !e.TryGetProperty("title", out var title) || !IsText(title, 1, MaxTocTitle)
+                    || !e.TryGetProperty("depth", out var depth) || depth.ValueKind != JsonValueKind.Number || !depth.TryGetInt32(out var d) || d is < 0 or > 6
+                    || !e.TryGetProperty("fraction", out var fraction) || fraction.ValueKind != JsonValueKind.Number || !fraction.TryGetDecimal(out var f) || f is < 0 or > 1)
+                    return SyncResult.Invalid(field, shape);
+            return Json(toc.RootElement, field);
+        }
+        // A repeated member name (jsonb keeps only the last), or an escaped lone surrogate GetString cannot read.
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            return SyncResult.Invalid(field, shape);
+        }
     }
 
     /// <summary>The fields a client edits, as one value: an import's and a merged PATCH's alike.</summary>

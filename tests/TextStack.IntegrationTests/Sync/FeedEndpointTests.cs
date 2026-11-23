@@ -67,6 +67,25 @@ public class FeedEndpointTests(SyncApiFixture v2) : IClassFixture<SyncApiFixture
             || notExtracted.TryGetProperty("wordCount", out _));
     }
 
+    // ADR-033 P3: the reader's TOC is read from …/chapters, never from the feed.
+    [Fact]
+    public async Task PutToc_ReaderToc_ChaptersServeItAndTheFeedCarriesNone()
+    {
+        v2.Require();
+        var guest = await v2.NewGuestAsync();
+        var (book, file, _) = await v2.ImportAsync(guest);
+        var toc = $"/me/v2/books/{book}/files/{file}/toc";
+
+        var bad = await v2.SendAsync(guest, HttpMethod.Put, toc, new[] { new { key = "toc-0", title = "One", depth = 0, fraction = 2 } });
+        var put = await v2.SendAsync(guest, HttpMethod.Put, toc, new[] { new { key = "toc-0", title = "One", depth = 0, fraction = 0.5 } });
+
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.NoContent), (bad.Status, put.Status));
+        var chapters = await v2.SendAsync(guest, HttpMethod.Get, $"/me/v2/books/{book}/files/{file}/chapters");
+        Assert.Equal(["toc-0"], chapters.Body.GetProperty("items").EnumerateArray().Select(c => c.GetProperty("chapterKey").GetString()));
+        var row = (await PullAsync(guest, "library")).Rows.Single().GetProperty("currentFile");
+        Assert.Equal((false, true), (row.TryGetProperty("toc", out _), row.GetProperty("hasToc").GetBoolean()));
+    }
+
     [Fact]
     public async Task ReadingChanges_PagedByCursor_HasEachBooksState()
     {

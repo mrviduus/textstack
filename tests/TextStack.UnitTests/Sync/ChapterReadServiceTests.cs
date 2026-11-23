@@ -21,8 +21,10 @@ public class ChapterReadServiceTests
     private ChapterReadService Service => new(new BookAccess(_library), _chapters, _jobs);
 
     [Fact]
-    public async Task ListAsync_JobStillRunning_EmptyItemsAndItsStatus()
+    public async Task ListAsync_PreP3TocAndJobStillRunning_EmptyItemsAndItsStatus()
     {
+        // A free-form TOC from before ADR-033 P3 is not the reader's: the extraction answers.
+        (await _library.GetFileAsync(User, BookId, FileId, Ct))!.Toc = """[{"title":"One","children":[]}]""";
         _chapters.ListTocAsync(User, BookId, FileId, Arg.Any<CancellationToken>()).Returns([]);
         _jobs.GetLatestForFileAsync(User, BookId, FileId, Arg.Any<CancellationToken>())
             .Returns(new FileIngestionJob { Status = FileIngestionJob.Processing });

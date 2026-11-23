@@ -40,7 +40,7 @@ Source of truth: `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`
 - status: `GET /status`
 - library: `GET /library/changes`, `GET /books/by-sha256/{sha256}`, `PUT/PATCH/DELETE /books/{id}`, `POST /books/{id}/restore`, `PUT /books/{id}/files/{fileId}` (replace)
 - bytes: `PUT /books/{id}/files/{fileId}/parts/{index}`, `POST|GET|DELETE /books/{id}/files/{fileId}/content`, `PUT|GET /books/{id}/cover`
-- transitional chapters (kept, M6 D8): `GET /books/{id}/files/{fileId}/chapters[/{chapterKey}]`
+- TOC (ADR-033 P3): `PUT /books/{id}/files/{fileId}/toc`; transitional chapters (kept, M6 D8): `GET /books/{id}/files/{fileId}/chapters[/{chapterKey}]` (the list from `toc` when written)
 - reading: `GET /reading/changes`, `GET/PUT /books/{id}/reading-state`, `POST /books/{id}/reading-state/reset`, `PUT /reading/sessions/{clientSessionId}`
 - annotations (highlights, notes, bookmarks): `GET /annotations/changes`, `PUT/DELETE /annotations/{id}`
 - vocabulary: `GET /vocabulary/changes`, `GET /vocabulary/due`, `PUT /vocabulary/words`, `GET/PATCH/DELETE /vocabulary/words/{id}`, `POST /vocabulary/words/{id}/{restore,examples}`, `POST /vocabulary/reviews`
