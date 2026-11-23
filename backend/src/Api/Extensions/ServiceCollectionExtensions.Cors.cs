@@ -22,7 +22,7 @@ public static partial class ServiceCollectionExtensions
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials()
-                    // The PDF engine's length probe reads it (pdfRangeSource); dev/CI call the API cross-origin.
+                    // A cross-origin range read needs it; dev/CI call the API cross-origin.
                     .WithExposedHeaders("Content-Range");
             });
         });

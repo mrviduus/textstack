@@ -8,7 +8,7 @@ namespace TextStack.IntegrationTests;
 /// Requires: ENABLE_TEST_AUTH=true in docker compose.
 /// Handles Secure cookies over HTTP by manually extracting Set-Cookie values.
 /// Admin requests carry a separate admin session (POST /admin/auth/login with ADMIN_EMAIL /
-/// ADMIN_PASSWORD, defaults as the admin e2e): admin auth is its own JWT, not the user's (#990).
+/// ADMIN_PASSWORD, defaults as ci.yml create-admin): admin auth is its own JWT, not the user's (#990).
 /// </summary>
 public class AuthenticatedApiFixture : IAsyncLifetime
 {
