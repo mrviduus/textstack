@@ -1,28 +1,18 @@
-import { hasAnyUserBookCache, listUserBookCaches } from './offlineDb'
 import { listStoredOriginalIds } from './originalFileCache'
 import { chooseNewlyDeleted, listDeletedOnServer, markDeletedOnServer, type CopySource } from './deletedOnServer'
 
 /**
- * One definition of "this upload is still on the device" (#1174, #1193): SQLite rows, partial
- * included (chapters cached while reading online with no meta row), or the stored original alone.
- * The book screen's Remove, the Library's deleted-books row and the deleted-on-server marking all
- * read it.
+ * One definition of "this upload is still on the device" (#1174, #1193): its stored original (the
+ * legacy chapter rows went with #1522). The book screen's Remove, the Library's deleted-books row
+ * and the deleted-on-server marking all read it.
  */
 export async function hasLocalLeftovers(bookId: string): Promise<boolean> {
-  const [rows, originals] = await Promise.all([
-    hasAnyUserBookCache(bookId).catch(() => false),
-    listStoredOriginalIds(),
-  ])
-  return rows || originals.has(bookId)
+  return (await listStoredOriginalIds()).has(bookId)
 }
 
-/** `hasLocalLeftovers` for every upload at once, with where each copy came from. */
+/** `hasLocalLeftovers` for every upload at once, with where each copy came from (an original: unknown). */
 export async function listLocalLeftovers(): Promise<Map<string, CopySource>> {
-  const [rows, originals] = await Promise.all([listUserBookCaches(), listStoredOriginalIds()])
-  const out = new Map<string, CopySource>()
-  for (const [id, v2] of rows) out.set(id, v2 ? 'v2' : 'legacy')
-  for (const id of originals) if (!out.has(id)) out.set(id, 'unknown')
-  return out
+  return new Map([...(await listStoredOriginalIds())].map((id) => [id, 'unknown' as const]))
 }
 
 /**

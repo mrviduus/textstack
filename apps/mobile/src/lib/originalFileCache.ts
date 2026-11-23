@@ -140,7 +140,7 @@ async function downloadOriginalOnce(
   try {
     // `originalFileName` throws on an id that could escape the directory. Every
     // other caller wraps it; this one must too, or the rejection travels out
-    // through `startUserBookDownload` into an onPress handler.
+    // to the caller, into an onPress handler.
     name = originalFileName(bookId, format)
     dir = originalsDirectory()
     if (!dir.exists) dir.create({ intermediates: true })

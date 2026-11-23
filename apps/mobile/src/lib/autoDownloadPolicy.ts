@@ -13,16 +13,12 @@
 /** The fields of a library row this decision actually reads. */
 export interface AutoDownloadCandidate {
   id: string
-  /** Server-side processing state. Only a finished book has chapters to fetch. */
+  /** `Ready` when the server holds the book's file: the only kind there is to fetch. */
   status: string
   /** ISO timestamp of the last progress write, or null if never opened. */
   progressUpdatedAt: string | null
   /** ISO timestamp of the upload. */
   createdAt: string
-  /** How many chapters the server says this book has. A `Ready` book with none
-   *  can never satisfy "fully cached", so without this it would be re-queued on
-   *  every sweep for the life of the install. */
-  chapterCount?: number | null
 }
 
 const time = (iso: string | null): number => {
@@ -40,8 +36,8 @@ const time = (iso: string | null): number => {
  * recently thinking about. Ordering by upload date alone would start a
  * twenty-book library with the one abandoned two years ago.
  *
- * **Only `Ready` books.** Anything still processing has no chapters to fetch,
- * and a book that failed has none coming.
+ * **Only `Ready` books**: the server holds their file. A book whose bytes never
+ * arrived has nothing to fetch.
  *
  * Deliberately NOT here: the storage budget. The caller re-measures between
  * books and stops when it is reached, because sizes are not in the list payload
@@ -62,9 +58,7 @@ export function chooseAutoDownloads(
     .filter(b =>
       b.status === 'Ready'
       && !alreadyCached.has(b.id)
-      && !declined.has(b.id)
-      // Nothing to fetch, and "fully cached" is unreachable for it.
-      && (b.chapterCount ?? 0) > 0)
+      && !declined.has(b.id))
     .slice()
     .sort((a, b) => {
       const byRead = time(b.progressUpdatedAt) - time(a.progressUpdatedAt)

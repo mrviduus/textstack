@@ -19,19 +19,18 @@ interface Props {
   offline: BookOffline
   pick: ContinueReadingPick | undefined
   isTop: boolean
-  busyKey: string | null
   onOpen: () => void
   onMenu: () => void
   onResume: (pick: ContinueReadingPick) => void
 }
 
 /** A book as a row in the shelf. Everything it shows was decided in `bookRowModel`. */
-export function BookListRow({ model, offline, pick, isTop, busyKey, onOpen, onMenu, onResume }: Props) {
+export function BookListRow({ model, offline, pick, isTop, onOpen, onMenu, onResume }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const { title, author, cover, pct, isFailed, isFinished, dimmed, pill, lastRead, errorMessage } = model
   const [coverSource, onCoverError] = useCoverSource(cover)
-  const continuePill = pick ? <ResumeButton pick={pick} filled={isTop} onResume={onResume} busyKey={busyKey} /> : null
+  const continuePill = pick ? <ResumeButton pick={pick} filled={isTop} onResume={onResume} /> : null
 
   return (
     <View style={[styles.bookRow, { borderBottomColor: colors.border }]}>
@@ -103,7 +102,6 @@ export function BookListRow({ model, offline, pick, isTop, busyKey, onOpen, onMe
           {!isFailed && (
             <OfflineStateBadge
               state={offline.state}
-              percent={offline.percent}
               onDownload={offline.onDownload}
             />
           )}

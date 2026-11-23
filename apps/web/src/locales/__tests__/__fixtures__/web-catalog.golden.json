@@ -462,7 +462,6 @@
   "privacy.transfersBody": "Several of the providers above — OpenAI, Microsoft, Open Library, Google, Apple, Resend, Sentry, Expo and Cloudflare — process data in the United States and elsewhere. Using the features that depend on them transfers your data there.",
   "privacy.transfersHeading": "International transfers",
   "privacy.updated": "Last updated: 24 November 2026",
-  "profile.deviceStorageV2": "V2 reader {{size}}",
   "profile.signOutLossCancel": "Cancel",
   "profile.signOutLossConfirm": "Sign out",
   "profile.signOutLossMessage": "Signing out deletes the V2 reader's books from this device. {{books}} book(s) are not on the server and {{writes}} other change(s) (positions, highlights) exist only on this phone: they will be lost.",

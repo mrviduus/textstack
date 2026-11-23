@@ -3,51 +3,15 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 /**
- * Source guards for the #1142/#1143 wiring in a context and screens react-dom cannot mount here.
- * The logic is tested in offlineDb.v2.test (the change notification) and v2.test (cancel in the hash).
+ * Source guards for the #1191/#1143 wiring in screens react-dom cannot mount here.
  */
 const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), 'utf8')
 
 describe('#1191 — a V2 store reset never lets a listing delete downloads', () => {
-  it('the orphan sweep re-lists after a reset during or after the listing, and stops marking on one', () => {
-    const ctx = read('src/context/DownloadContext.tsx')
-    const listing = ctx.indexOf('const epoch = syncEpoch()')
-    const orphans = ctx.indexOf('markUnlistedLeftovers(', listing)
-    expect(listing).toBeGreaterThan(-1)
-    const before = ctx.slice(listing, orphans)
-    expect(before).toContain('if (!resetSince()) throw err')
-    expect(before).toContain('if (!listed || resetSince()) {')
-    expect(before).toContain('autoRerunRef.current = true')
-    // #1193: the sweep marks instead of deleting; `resetSince` stops the marking per id (localLeftovers)
-    // and a reset during it re-lists instead of queueing the previous account's books.
-    const after = ctx.slice(orphans, ctx.indexOf('chooseAutoDownloads(', orphans))
-    expect(after).toContain("'v2', resetSince)")
-    expect(after).toContain('if (resetSince()) { autoRerunRef.current = true; continue }')
-    expect(read('src/lib/localLeftovers.ts')).toMatch(/for \(const id of chooseNewlyDeleted\([^)]*\)\) \{\s*if \(stale\(\)\) break\s*await markDeletedOnServer\(id\)/)
-  })
-
   it('the library screen re-loads instead of failing when a reset dropped its load, and a sign-out supersedes it', () => {
     const lib = read('app/(tabs)/library.tsx')
     expect(lib.indexOf('const myGen = ++loadGenRef.current')).toBeLessThan(lib.indexOf('if (!isAuthenticated) { setLoading(false); return }'))
     expect(lib).toContain('if (syncEpoch() !== epoch) return void loadData()')
-  })
-})
-
-describe('#1142 — cached uploads changed by V2 reach the download state', () => {
-  it('DownloadContext re-reads SQLite and forgets finished downloads of the affected books', () => {
-    const ctx = read('src/context/DownloadContext.tsx')
-    const start = ctx.indexOf('useEffect(() => onCachedUserBooksChanged(')
-    expect(start).toBeGreaterThan(-1)
-    const body = ctx.slice(start, ctx.indexOf('}), [])', start))
-    // A download still running for a dropped book is cancelled, not left to end 'complete' (#1142 review).
-    expect(body).toContain("if (status === 'downloading') cancelledRef.current.add(id)")
-    expect(body).toContain('next.delete(id)')
-    expect(body).toContain('getAllCachedUserBooks().then(setCachedUserBooks)')
-  })
-
-  it('the book page asks SQLite again when its own rows changed', () => {
-    const page = read('app/my-books/[id].tsx')
-    expect(page).toMatch(/onCachedUserBooksChanged\(ids => \{\s*if \(!id \|\| !ids\.includes\(id\)\) return\s*isUserBookFullyCached\(id\)/)
   })
 })
 

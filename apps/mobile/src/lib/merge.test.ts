@@ -4,8 +4,6 @@ import { applyMergeMap } from './merge'
 import { enqueuePendingSession } from './pendingSessions'
 import { saveUserBookLocalProgress, getUserBookLocalProgress, setUserBookSyncState, getUserBookSyncState } from './progressStorage'
 
-const rekeyed = vi.hoisted(() => vi.fn(async () => {}))
-vi.mock('./offlineDb', () => ({ rekeyCachedUserBooks: rekeyed }))
 vi.mock('./sync', () => ({ syncOn: async () => false }))
 
 describe('a sign-in merge map re-keys the local stores', () => {
@@ -22,6 +20,5 @@ describe('a sign-in merge map re-keys the local stores', () => {
     expect(await AsyncStorage.getItem('reading.userbook-is-pdf.acct-b')).toBe('1')
     expect(await getUserBookSyncState('guest-b')).toBeNull()
     expect(JSON.parse((await AsyncStorage.getItem('reading.pendingSessions'))!)[0].userBookId).toBe('acct-b')
-    expect(rekeyed).toHaveBeenCalledWith({ 'guest-b': 'acct-b' }, { 'guest-f': 'acct-f' })
   })
 })

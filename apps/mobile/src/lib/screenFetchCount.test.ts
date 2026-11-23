@@ -47,9 +47,9 @@ describe('one open = one fetch per resource', () => {
     expect(src).toMatch(/useFocusEffect\(useCallback\([\s\S]*?\}, \[\]\)\)/)
   })
 
-  it('my-books detail: one poll on GET /me/books/{id} while processing', () => {
+  it('my-books detail: one GET of the book per load, no polling (#1522: no processing state)', () => {
     const src = read('app/my-books/[id].tsx')
-    expect(count(src, 'userBooksApi.getUserBook(')).toBe(2) // load + the single poll
+    expect(count(src, 'userBooksApi.getUserBook(')).toBe(1)
     expect(src).not.toContain('setInterval(')
   })
 

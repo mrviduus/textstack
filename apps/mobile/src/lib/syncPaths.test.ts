@@ -12,8 +12,6 @@ import { vocabularyApi } from './vocabularyApi'
 import { flushPendingSessions, enqueuePendingSession, clearPendingSessions } from './pendingSessions'
 import { setUserBookSyncState, getUserBookSyncState } from './progressStorage'
 
-vi.mock('./offlineDb', () => ({ dropReplacedUserBookFiles: async () => [] }))
-vi.mock('./originalFileCache', () => ({ deleteOriginal: async () => {} }))
 
 type Answer = { status: number; body?: unknown }
 interface Call { method: string; path: string; body: unknown }
@@ -48,7 +46,6 @@ async function everyCall() {
   const swallow = (p: Promise<unknown>) => p.catch(() => {})
   await swallow(userBooksApi.getUserBooks())
   await swallow(userBooksApi.getUserBook('b1'))
-  await swallow(userBooksApi.getUserBookChapter('b1', 'k1'))
   await swallow(userBooksApi.getUserBookProgress('b1'))
   await swallow(userBooksApi.updateUserBookProgress('b1', { chapterSlug: 'k1', percent: 0.1 } as never))
   await swallow(userBooksApi.markUserBookComplete('b1'))

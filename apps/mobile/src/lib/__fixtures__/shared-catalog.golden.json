@@ -206,7 +206,6 @@
   "profile.vocabReminder.permissionDeniedBody": "Enable notifications in Settings to receive review reminders.",
   "profile.vocabReminder.permissionDeniedTitle": "Notifications off",
   "profile.vocabReminder.unavailableBody": "Reminders aren't available in this build. Install the latest app version to enable them.",
-  "profile.deviceStorageV2": "V2 reader {{size}}",
   "profile.signOutLossTitle": "Sign out and lose unsynced books?",
   "profile.signOutLossMessage": "Signing out deletes the V2 reader's books from this device. {{books}} book(s) are not on the server and {{writes}} other change(s) (positions, highlights) exist only on this phone: they will be lost.",
   "profile.signOutLossConfirm": "Sign out",

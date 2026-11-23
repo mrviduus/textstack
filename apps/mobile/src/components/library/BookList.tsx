@@ -55,7 +55,7 @@ export function BookList({
     [resumeList],
   )
   const top = useMemo(() => firstContinuePick(entries, picks), [entries, picks])
-  const { open: resume, busyKey } = useResume()
+  const resume = useResume()
   const numColumns = viewMode === 'grid' ? Math.max(2, Math.floor(width / 130)) : 1
 
   const { showUploadActions } = useBookActions()
@@ -80,7 +80,7 @@ export function BookList({
     const model = bookRowModel(e, NO_PROGRESS)
     const pick = continuePickFor(e, picks)
     const common = {
-      model, pick, isTop: pick != null && pick === top, busyKey,
+      model, pick, isTop: pick != null && pick === top,
       onOpen: () => openEntry(e), onMenu: () => handleAction(e), onResume: resume,
     }
     return viewMode === 'grid'

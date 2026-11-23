@@ -1,6 +1,6 @@
 /**
  * The mobile app's user-book API on V2 (#1025 M2.7; the only store since M6): the status probe, and
- * library, upload, the transitional chapter reader, reading state mapped onto the shared shapes
+ * library, upload, reading state mapped onto the shared shapes
  * (`userBooksApi`, ./userBooksApi). The twin of apps/web/src/api/v2.ts; wire calls are `syncApi`, the
  * place and anchor mappings are `@textstack/shared` reader/locators, the book client and the upload
  * sequence are shared too (`createBooks`, `uploadFile`, #1121): this file keeps the probe, the
@@ -12,15 +12,13 @@ import NetInfo from '@react-native-community/netinfo'
 import {
   syncApi, ApiError, isOfflineError, SYNC_OFF, placeToLocator, createSha256, parsePdfPageLocator,
   ingestionStatus, shelfFileSummary, isShelfBook, resumeChapterOf, createBooks, uploadFile, FileUploadError,
-  type Book, type FileChapters, type Annotation, type Word, type FileChapter, type ReadingState, type ReadingStateWrite, type SyncSwitch,
-  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookChapterDto, type UserBookDetailResponse, type ClientFormat, type FileDetails,
+  type Book, type FileChapters, type Annotation, type Word, type ReadingState, type ReadingStateWrite, type SyncSwitch,
+  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookDetailResponse, type ClientFormat, type FileDetails,
 } from '@textstack/shared'
 
 export { FileUploadError }
 export type { ProgressWrite }
-import { dropReplacedUserBookFiles } from './offlineDb'
 import { createSingleFlight } from './singleFlight'
-import { deleteOriginal } from './originalFileCache'
 import { getUserBookSyncState, setUserBookSyncState, saveUserBookLocalProgress } from './progressStorage'
 
 // ---- The probe ----------------------------------------------------------------------------------
@@ -171,16 +169,6 @@ export function resetSyncForTests() {
 
 const { books, chapters } = syncStore
 
-/** Books whose file changed since this device cached them: drop the old files' chapters and originals. */
-async function dropReplaced(list: Book[]): Promise<void> {
-  const current = list.flatMap((b) => (b.currentFile ? [{ bookId: b.id, fileId: b.currentFile.id }] : []))
-  try {
-    for (const id of await dropReplacedUserBookFiles(current)) await deleteOriginal(id, 'pdf')
-  } catch (e) {
-    console.warn('[v2] could not drop a replaced file:', e)
-  }
-}
-
 /** Recreated by `syncStore.reset()`: the next account never joins the previous one's pull. */
 let pullFlight = createSingleFlight<Book[]>()
 /** Bumped by `syncStore.reset()`. */
@@ -209,7 +197,6 @@ const client = createBooks({
   },
   progressBody,
   pullFlight: (pull) => pullFlight.run(pull),
-  afterPull: dropReplaced,
   // A lost write takes the server's place: it becomes this device's record, so the next open resumes there.
   keepAdopted: (s, p) => {
     const page = parsePdfPageLocator(p.locator)
@@ -327,18 +314,6 @@ export async function getUserBook(id: string): Promise<UserBookDetailResponse> {
     originalFileBytes: isPdf(b) ? b.currentFile!.byteSize : null,
     pageCount: b.currentFile?.pageCount ?? null,
     fileId: b.currentFile?.id ?? null,
-  }
-}
-
-const nav = (h: FileChapter['previous']) => h && { slug: h.chapterKey, title: h.title }
-
-export async function getUserBookChapter(bookId: string, chapterKey: string): Promise<UserBookChapterDto> {
-  const b = await liveBook(bookId)
-  if (!b.currentFile) throw new ApiError(404, 'Chapter not found')
-  const ch = await syncApi.getChapter(bookId, b.currentFile.id, chapterKey)
-  return {
-    id: ch.chapterKey, slug: ch.chapterKey, title: ch.title, html: ch.html, wordCount: ch.wordCount,
-    prev: nav(ch.previous), next: nav(ch.next), fileId: b.currentFile.id,
   }
 }
 

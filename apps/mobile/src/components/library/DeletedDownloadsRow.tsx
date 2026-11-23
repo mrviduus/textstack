@@ -26,13 +26,13 @@ export function DeletedDownloadsRow({ listedIds, refreshKey }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const { show: showToast } = useToast()
-  const { cachedUserBooks, removeUserBookDownloads } = useDownload()
+  const { removeUserBookDownloads } = useDownload()
   const [ids, setIds] = useState<string[]>([])
   const [removing, setRemoving] = useState(false)
   const listedKey = listedIds.join(',')
 
-  // On focus too: a mark the book screen's 404 wrote changes none of the deps.
-  // `cachedUserBooks` changes after the sweep marks and after a removal (refreshCachedBooks).
+  // On focus too: a mark the book screen's 404 wrote changes none of the deps. `removed` after a removal.
+  const [removed, setRemoved] = useState(0)
   useFocusEffect(useCallback(() => {
     let cancelled = false
     Promise.all([listDeletedOnServer(), listLocalLeftovers()])
@@ -42,7 +42,7 @@ export function DeletedDownloadsRow({ listedIds, refreshKey }: Props) {
       .catch(() => {})
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- listedKey stands for listedIds
-  }, [cachedUserBooks, listedKey, refreshKey]))
+  }, [removed, listedKey, refreshKey]))
 
   if (ids.length === 0) return null
 
@@ -52,8 +52,9 @@ export function DeletedDownloadsRow({ listedIds, refreshKey }: Props) {
     if (removing) return
     setRemoving(true)
     try {
-      // The not-found screen's Remove for all of them, without declining (#1193); one refresh.
-      const failed = await removeUserBookDownloads(ids, { decline: false })
+      // The not-found screen's Remove for all of them (#1193); one re-read.
+      const failed = await removeUserBookDownloads(ids)
+      setRemoved(n => n + 1)
       if (failed > 0) {
         showToast({
           message: plural(failed, t('library.deletedOnDevice.one'), t('library.deletedOnDevice.many'), t('library.deletedOnDevice.failed')),

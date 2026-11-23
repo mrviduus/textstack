@@ -2,7 +2,9 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../context/ThemeContext'
 import { fonts } from '../../theme/typography'
-import type { OfflineState } from '../../lib/offlineState'
+
+/** Readable with no connection (its file is on the device), arriving now, or on the server only. */
+export type OfflineState = 'on-device' | 'downloading' | 'in-cloud'
 
 /**
  * Where this book actually is, said on the shelf.
@@ -18,12 +20,9 @@ import type { OfflineState } from '../../lib/offlineState'
  */
 export function OfflineStateBadge({
   state,
-  percent,
   onDownload,
 }: {
   state: OfflineState
-  /** 0-100 while downloading. */
-  percent?: number | null
   /** Omitted when the row cannot start one — then `in-cloud` stays silent
    *  rather than offering something that does nothing. */
   onDownload?: () => void
@@ -43,29 +42,8 @@ export function OfflineStateBadge({
     return (
       <View style={styles.row} accessibilityLabel="Downloading">
         <Ionicons name="arrow-down-circle-outline" size={13} color={colors.primary} />
-        <Text style={[styles.text, { color: colors.primary }]}>
-          {typeof percent === 'number' ? `Downloading ${percent}%` : 'Downloading'}
-        </Text>
+        <Text style={[styles.text, { color: colors.primary }]}>Downloading</Text>
       </View>
-    )
-  }
-
-  if (state === 'partial') {
-    // Deliberately not "in the cloud": the reader can finish this one, and
-    // calling a half-downloaded book absent is a lie the next flight exposes.
-    return (
-      <TouchableOpacity
-        style={styles.row}
-        onPress={onDownload}
-        disabled={!onDownload}
-        accessibilityRole={onDownload ? 'button' : undefined}
-        accessibilityLabel="Finish downloading"
-      >
-        <Ionicons name="pause-circle-outline" size={13} color={colors.warning} />
-        <Text style={[styles.text, { color: colors.warning }]}>
-          {onDownload ? 'Finish download' : 'Partly downloaded'}
-        </Text>
-      </TouchableOpacity>
     )
   }
 

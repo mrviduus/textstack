@@ -16,14 +16,13 @@ interface Props {
   cardWidth: number
   pick: ContinueReadingPick | undefined
   isTop: boolean
-  busyKey: string | null
   onOpen: () => void
   onMenu: () => void
   onResume: (pick: ContinueReadingPick) => void
 }
 
 /** A book as a cover in the grid. Everything it shows was decided in `bookRowModel`. */
-export function BookGridCell({ model, cardWidth, pick, isTop, busyKey, onOpen, onMenu, onResume }: Props) {
+export function BookGridCell({ model, cardWidth, pick, isTop, onOpen, onMenu, onResume }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const { title, author, cover, pct, isFinished, dimmed, pill } = model
@@ -50,7 +49,7 @@ export function BookGridCell({ model, cardWidth, pick, isTop, busyKey, onOpen, o
           )}
           {pick && (
             <View style={{ position: 'absolute', right: 6, bottom: 6 }}>
-              <ResumeButton pick={pick} filled={isTop} compact onResume={onResume} busyKey={busyKey} />
+              <ResumeButton pick={pick} filled={isTop} compact onResume={onResume} />
             </View>
           )}
         </View>
