@@ -10,8 +10,8 @@ on:
     # (docs/internal/incidents/2026-10-30-migrator-v2-took-down-the-api.md).
     #
     # The request stays high because a dropped run costs nothing and the check is 6s. Do not read it
-    # as coverage: nothing here can see this site go down promptly, and nothing hosted on GitHub can
-    # see it when GitHub is the unreliable part. That needs an outside prober — #1054.
+    # as coverage: nothing here can see this site go down promptly. The prompt alarm is the Sentry
+    # uptime monitor on /api/health/ready (#1054, docs/internal/ops/uptime-monitoring.md).
     - cron: '*/5 * * * *'
   workflow_dispatch:
 

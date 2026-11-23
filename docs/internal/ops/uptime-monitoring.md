@@ -1,47 +1,45 @@
-# Uptime Monitoring
+# Uptime monitoring
 
-External probes for production services. Free-tier UptimeRobot covers the
-playbook: 3 monitors, 5-min interval, email alerts. BetterStack is a drop-in
-alternative (3-min interval, 10 monitors on free tier).
+Production is watched from outside by a **Sentry uptime monitor** (#1054, owner decision
+2026-11-23). Sentry already holds the errors, so no new account and no new data processor:
+the monitor only fetches a public URL.
 
-## Monitors
+## The monitor
 
-| Name | URL | Type | Expected | Interval |
-|------|-----|------|----------|----------|
-| Public site | `https://textstack.app/` | HTTP(S) | `200` | 5 min |
-| API + DB | `https://textstack.app/api/health` | Keyword | body contains `healthy` | 5 min |
-| Admin | `https://textstack.dev/` | HTTP(S) | `200` | 5 min |
+| Field | Value |
+|-------|-------|
+| URL | `https://textstack.app/api/health/ready` |
+| Method | `GET` |
+| Interval | 5 minutes |
+| Fails when | not `2xx` (readiness answers `503` when the database, schema, storage or library is down), or a timeout |
+| Alerts | email to the owner |
 
-`/api/health` round-trips Postgres (`SELECT 1`), so it doubles as a DB probe —
-if DB is down, API returns 503 and UptimeRobot pages.
+`/health/ready` checks more than `/health`: the database, the schema version, collation,
+storage and library write probes. A green answer means uploads and sync work, not only
+that nginx is up. It goes through Cloudflare and nginx, so it also catches the tunnel or
+the whole server being down.
 
-## Setup (UptimeRobot)
+## Setup (Sentry, once)
 
-1. Sign up at <https://uptimerobot.com> (free tier).
-2. Add the 3 monitors from the table above (**+ New Monitor** → HTTP(s) or
-   Keyword).
-3. **Alert Contacts** → add email (`${ADMIN_ALERT_EMAIL}`). Optional: Telegram
-   bot or Slack webhook.
-4. Attach all contacts to each monitor.
-5. (Optional) **Public Status Page** → creates a public URL
-   (`stats.uptimerobot.com/...`) listing the 3 monitors. Useful for buyers
-   doing due diligence.
+1. Sentry → **Alerts** → **Create Alert** → **Uptime Monitor**.
+2. URL and method from the table; interval 5 minutes; environment `production`.
+3. Name it `textstack.app ready`; owner = you; notify by email.
+4. Save, then check the monitor shows a first green check within a few minutes. If
+   Cloudflare blocks Sentry's prober (a 403 in the check log), allow it in Cloudflare
+   → Security → WAF for the path `/api/health/ready`.
 
 ## Alert-response runbook
 
 | Alert | First checks |
 |-------|-------------|
-| Public site down | `curl -I https://textstack.app/` → nginx/tunnel issue. Check Cloudflare Tunnel status, nginx logs on server. |
-| `/api/health` failing | `ssh asus` → `docker compose ps` → find unhealthy container. `docker compose logs api worker db --tail=100`. |
-| Admin down (only) | Admin container — `docker compose logs admin`. Public site likely still fine. |
-| TTS down (health-check step "TTS synthesizes through Edge", or Sentry "TTS upstream failed") | The step log shows only status/type/size (Cloudflare swaps a 502 body for `error code: 502`); the reason is in the Sentry issue or `docker compose logs api --tail=200 \| grep -i tts`. `403 when 101 was expected` = Microsoft changed the Edge token protocol (#827): diff upstream [rany2/edge-tts](https://github.com/rany2/edge-tts) `src/edge_tts/drm.py` + `constants.py` against `backend/src/Tts/TextStack.Tts/EdgeTtsDrm.cs` (version string, hash, headers), regenerate test vectors with upstream. Reproduce: `curl -G --data-urlencode "text=test $(date +%s)" -d lang=en https://textstack.app/api/tts -o /dev/null -w '%{http_code}\n'` (unique text — a cached word passes while Edge is down). |
+| Monitor down, site loads | `curl -s https://textstack.app/api/health/ready` names the failing component. `docker compose logs api --tail=100` on the server. |
+| Monitor down, site down too | Cloudflare tunnel status, then nginx and `docker compose ps` on the server. |
+| A deploy failed | `deploy.yml` prints the failing containers' last 100 log lines (#1055). |
+| TTS broken (health-check step "TTS synthesizes through Edge", or Sentry "TTS upstream failed") | The reason is in the Sentry issue or `docker compose logs api --tail=200 \| grep -i tts`. `403 when 101 was expected` = Microsoft changed the Edge token protocol (#827): diff upstream [rany2/edge-tts](https://github.com/rany2/edge-tts) `src/edge_tts/drm.py` + `constants.py` against `backend/src/Tts/TextStack.Tts/EdgeTtsDrm.cs`. Reproduce: `curl -G --data-urlencode "text=test $(date +%s)" -d lang=en https://textstack.app/api/tts -o /dev/null -w '%{http_code}\n'` (unique text, so the cache can't hide an Edge outage). |
 
-## GitHub Actions health-check
+## GitHub Actions health check
 
-`.github/workflows/health-check.yml` runs every 5 min. Beyond `/health` on both hosts and both
-frontends, it asks things UptimeRobot cannot: a Googlebot-UA request must get prerendered HTML
-(`X-SEO-Render: ssg`, >5 KB, has `<title>`), SSG must not be failing or stale (>36h), and book
-listing, search and author pages must work, and `/api/tts` must synthesize a unique phrase
-through Edge (unique so the disk cache can't hide an Edge outage; #880). Not redundant — the SSG checks exist because
-crawler-only breakage went unnoticed twice. There is also `GET /health/ready` (per-component:
-db, storage critical; ollama soft).
+`.github/workflows/health-check.yml` asks what a URL probe cannot: the schema matches the
+build, collation matches the OS, the sync API is ready, and TTS really synthesizes through
+Edge. It is scheduled every 5 minutes but GitHub runs it every 3–6 hours, so it is a slow
+second opinion, not the alarm. The alarm is the Sentry monitor.
