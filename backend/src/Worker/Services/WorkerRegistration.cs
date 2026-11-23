@@ -14,8 +14,6 @@ public static class WorkerRegistration
             ?? throw new InvalidOperationException("ConnectionStrings:Default is required");
         services.AddHostedService(sp => new SingleInstanceLock(connection, sp.GetRequiredService<ILogger<SingleInstanceLock>>()));
         services.AddHostedService<AiProviderReadinessCheck>();
-        services.AddSingleton<IngestionService>();
-        services.AddHostedService<IngestionWorker>();
         services.AddHostedService<RetentionCleanupWorker>();
         services.AddHostedService<HeartbeatWorker>();
         return services;

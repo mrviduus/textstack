@@ -94,14 +94,8 @@ export interface BookFile {
   hasContent: boolean
   createdAt: string
   contentRemovedAt: string | null
-  /**
-   * Transitional (dropped with the chapter reader at M6.4, #1118), on the library feed only, absent
-   * when null: the latest extraction's status, the chapter count, the chapters' summed word counts.
-   * A shelf reads these, never `/chapters`.
-   */
-  ingestion?: Ingestion
+  /** On the library feed only, absent when null: the entries of the reader's TOC. A shelf reads it, never `/chapters`. */
   chapterCount?: number | null
-  wordCount?: number | null
 }
 
 export interface Book {
@@ -330,7 +324,7 @@ export interface RecordedReview {
   word: Word
 }
 
-/** Transitional (dropped at M6.4). `chapterNumber` orders, never displays. */
+/** An entry of the reader's TOC (ADR-033). `chapterNumber` orders, never displays; `wordCount` is always null. */
 export interface ChapterHeading {
   chapterKey: string
   chapterNumber: number
@@ -338,23 +332,15 @@ export interface ChapterHeading {
   wordCount: number | null
 }
 
-export type Ingestion = 'queued' | 'processing' | 'succeeded' | 'failed' | null
-
+/** A file's chapters: the reader's TOC, empty until a reader syncs it. */
 export interface FileChapters {
   items: ChapterHeading[]
-  /** The file's latest extraction job; items stay empty while it runs. */
-  ingestion: Ingestion
 }
 
 // ---- The uploads shelf (transitional, #1118) ----------------------------------------------------
 
-/**
- * A file's status: ready when its bytes are in. The reader parses the file itself (ADR-033), so the
- * server's extraction says nothing about it; `_ingestion` is ignored, kept only for callers until P5.
- */
-export function ingestionStatus(_ingestion: Ingestion | null | undefined, hasContent: boolean): 'Processing' | 'Ready' | 'Failed' {
-  return hasContent ? 'Ready' : 'Failed'
-}
+/** A file's status: ready when its bytes are in. The reader parses the file itself (ADR-033). */
+const fileStatus = (hasContent: boolean): 'Processing' | 'Ready' | 'Failed' => (hasContent ? 'Ready' : 'Failed')
 
 /**
  * A book the shelf lists: live, with a file. A book with no file is a legacy catalog save the ETL
@@ -365,9 +351,9 @@ export const isShelfBook = (b: Book) => !b.removedAt && b.currentFile !== null
 
 /** A shelf row's status and counts, from the library feed's file alone: a shelf never calls `/chapters`. */
 export const shelfFileSummary = (file: BookFile | null | undefined) => ({
-  status: ingestionStatus(file?.ingestion, !!file?.hasContent),
+  status: fileStatus(!!file?.hasContent),
   chapterCount: file?.chapterCount ?? 0,
-  totalWordCount: file?.wordCount ?? null,
+  totalWordCount: null,
 })
 
 /**

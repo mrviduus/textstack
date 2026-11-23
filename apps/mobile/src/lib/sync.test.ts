@@ -145,21 +145,20 @@ describe('mobile v2', () => {
     expect(fetchSpy.mock.calls.map(([u]) => String(u)).filter((u) => u.includes('/chapters'))).toHaveLength(0)
   })
 
-  // #1118: the shelf is the two feeds; each book's status and counts are its file's, no /chapters call.
+  // #1118: the shelf is the two feeds; each book's status and chapter count are its file's, no /chapters call.
   it('getUserBooks_FeedCarriesSummary_MapsFourShapesWithTwoPullsOnly', async () => {
     const calls = fakeApi({
       'GET /library/changes': feed(
-        book('ready', 'f1', { currentFile: file('f1', { ingestion: 'succeeded', chapterCount: 3, wordCount: 1200 }) }),
-        book('running', 'f2', { currentFile: file('f2', { ingestion: 'processing' }) }),
+        book('ready', 'f1', { currentFile: file('f1', { chapterCount: 3 }) }),
+        book('no-toc', 'f2'),
         book('no-bytes', 'f3', { currentFile: file('f3', { hasContent: false }) }),
         book('mobi', 'f5', { currentFile: file('f5', { format: 'mobi' }) }),
-        book('no-words', 'f4', { currentFile: file('f4', { ingestion: 'succeeded', chapterCount: 2 }) }),
       ),
       'GET /reading/changes': feed(),
     })
     const shelf = await getUserBooks()
     expect(shelf.map((b) => [b.id, b.status, b.chapterCount, b.totalWordCount])).toEqual([
-      ['ready', 'Ready', 3, 1200], ['running', 'Ready', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null], ['no-words', 'Ready', 2, null],
+      ['ready', 'Ready', 3, null], ['no-toc', 'Ready', 0, null], ['no-bytes', 'Failed', 0, null], ['mobi', 'Ready', 0, null],
     ])
     expect(calls.map((c) => c.path.split('?')[0]).sort()).toEqual(['/library/changes', '/reading/changes'])
   })
@@ -171,16 +170,17 @@ describe('mobile v2', () => {
       'GET /reading/changes': [...feed(state('b1', 1, { currentLocator: cfi })), ...feed(state('b1', 1, { currentLocator: cfi }))],
     })
     expect((await getUserBooks())[0].progressChapterSlug).toBeNull()
-    syncStore.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 100 }, { chapterKey: 'two', chapterNumber: 2, title: 'Two', wordCount: 100 }], ingestion: 'succeeded' })
+    syncStore.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 100 }, { chapterKey: 'two', chapterNumber: 2, title: 'Two', wordCount: 100 }] })
     expect((await getUserBooks())[0].progressChapterSlug).toBe('two')
     expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
   })
 
   // #1151: per-book writes made after an await drop when the store was reset meanwhile.
   it('a chapters fetch answered after syncStore.reset caches nothing', async () => {
-    const toc = await resetMidCall({ 'GET /books/b/files/f-ch/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } } },
+    const one = { chapterKey: 'one', chapterNumber: 0, title: 'One', wordCount: null }
+    const toc = await resetMidCall({ 'GET /books/b/files/f-ch/chapters': { status: 200, body: { items: [one] } } },
       () => bookChapters(book('b', 'f-ch') as never))
-    expect(toc).toEqual({ items: [], ingestion: null })
+    expect(toc).toEqual({ items: [] })
     expect(syncStore.chapters.size).toBe(0)
   })
 
@@ -215,7 +215,7 @@ describe('mobile v2', () => {
     const outcome = await resetMidCall({
       'PUT /books/b-adopt/reading-state': conflict('stale_revision', { current }),
       'GET /library/changes': feed(book('b-adopt', 'f1'))[0],
-      'GET /books/b-adopt/files/f1/chapters': { status: 200, body: { items: [], ingestion: 'succeeded' } },
+      'GET /books/b-adopt/files/f1/chapters': { status: 200, body: { items: [] } },
     }, () => saveProgress('b-adopt', { chapterSlug: 'k1' }), '/books/b-adopt/files/f1/chapters')
     // Web's answer since the shared fold (#1121): no place is adopted for the next account.
     expect(outcome).toBe('dropped')

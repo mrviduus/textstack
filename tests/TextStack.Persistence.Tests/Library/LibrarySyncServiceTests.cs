@@ -131,7 +131,7 @@ public class LibrarySyncServiceTests(PostgresFixture db)
             [{"key":"toc-1","title":"Chapter I","depth":0,"fraction":0},{"key":"toc-0","title":"Prologue","depth":1,"fraction":0.25}]
             """);
         var library = new LibraryRepository(db.DataSource);
-        var chapters = new ChapterReadService(new BookAccess(library), new BookChapterRepository(db.DataSource), new IngestionJobRepository(db.DataSource));
+        var chapters = new ChapterReadService(new BookAccess(library));
 
         var written = await _service.SetTocAsync(book.UserId, book.Id, superseded, toc, Ct);
         var foreign = await _service.SetTocAsync(book.UserId, other.Id, other.CurrentFile!.Id, toc, Ct);

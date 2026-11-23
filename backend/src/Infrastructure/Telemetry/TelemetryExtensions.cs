@@ -50,7 +50,6 @@ public static class TelemetryExtensions
             {
                 builder
                     .SetResourceBuilder(resourceBuilder)
-                    .AddSource(TelemetryConstants.IngestionActivitySourceName)
                     .AddSource(TelemetryConstants.ApiActivitySourceName)
                     // AI-pipeline spans (agent runs, RAG indexing). TraceScope dual-writes them to
                     // Sentry as well; this registration is what keeps them flowing to OTLP/Aspire.

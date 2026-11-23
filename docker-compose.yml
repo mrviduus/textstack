@@ -191,12 +191,12 @@ services:
       args:
         GIT_SHA: "${GIT_SHA:-}"
     container_name: textstack_worker_prod
-    # Single consumer: ingestion claims are check-then-act and the metadata-enrichment sweep assumes one
+    # Single instance: the file sweeps and retention assume one
     # worker. Do not scale or add a second worker container (see ADR-022).
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      # The V2 extraction loop, the V2 file sweeps and retention; a V2 database that is missing or
-      # behind pauses the loop and nothing else (the 2026-10-30 rule).
+      # The file sweeps and retention; a database that is missing or behind pauses them and nothing
+      # else (the 2026-10-30 rule).
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${TEXTSTACK_DB:-textstack_v2};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
       # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
@@ -221,7 +221,7 @@ services:
     restart: always
     healthcheck:
       # HeartbeatWorker writes /tmp/worker-alive every 30s. 2min grace covers
-      # GC pauses and brief ingestion stalls without false-negatives.
+      # GC pauses and brief stalls without false-negatives.
       test: ["CMD-SHELL", "find /tmp/worker-alive -mmin -2 | grep -q ."]
       interval: 60s
       timeout: 5s

@@ -912,9 +912,6 @@ jobs:
           path: apps/web/e2e/playwright-report/
           retention-days: 14
 
-      # `worker` was missing here, and it is where ingestion happens — so when an
-      # ingestion-dependent test timed out, the one log that could explain it was the
-      # one not captured.
       - name: Dump service logs on failure
         if: failure()
         run: docker compose logs --no-color api migrator worker

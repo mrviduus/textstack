@@ -34,16 +34,12 @@ public sealed record BookDto(
 /// No <c>toc</c>: the file's TOC is read from <c>GET …/chapters</c> (ADR-033 P3), so feed rows stay small;
 /// <see cref="HasToc"/> tells a reader whether to <c>PUT …/toc</c>.
 /// <see cref="ContentRemovedAt"/>: the reader stopped syncing this version, so no client uploads its bytes on its own.
-/// Transitional (dropped with <c>book_chapters</c> at M6.4, #1118), on the library feed only and absent when null:
-/// <see cref="Ingestion"/> is the latest extraction job's status (as <see cref="FileChaptersDto.Ingestion"/>),
-/// <see cref="ChapterCount"/> the extracted chapters, <see cref="WordCount"/> their summed word counts.
+/// <see cref="ChapterCount"/>: the entries of the reader's TOC, on the library feed only and absent when null (no TOC).
 /// </summary>
 public sealed record BookFileDto(
     Guid Id, string Sha256, long ByteSize, string OriginalName, string Format, int? PageCount,
     bool IsCurrent, bool HasContent, bool HasToc, DateTimeOffset CreatedAt, DateTimeOffset? ContentRemovedAt,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Ingestion = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ChapterCount = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? WordCount = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ChapterCount = null);
 
 /// <summary>A part stored: its index and its size in bytes.</summary>
 public sealed record UploadedPartDto(int Index, long Size);
@@ -57,20 +53,17 @@ public sealed record ContentMismatchDto(string ExpectedSha256, string ActualSha2
 public sealed record StorageQuotaDto(long Used, long Limit);
 
 /// <summary>
-/// An entry of a file's table of contents. <see cref="ChapterNumber"/> orders, never displays. From the reader's TOC
-/// (ADR-033): <see cref="Depth"/> and <see cref="Fraction"/> (where the entry starts in the book, 0–1), no word count;
-/// from the transitional server extraction: a word count, no depth or fraction (absent when null).
+/// An entry of a file's table of contents, from the reader's TOC (ADR-033). <see cref="ChapterNumber"/> orders, never displays.
+/// <see cref="Depth"/> and <see cref="Fraction"/> (where the entry starts in the book, 0–1); <see cref="WordCount"/> is always
+/// null (the reader counts no words), kept in the wire shape clients read.
 /// </summary>
 public sealed record ChapterHeadingDto(
     string ChapterKey, int ChapterNumber, string Title, int? WordCount,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Depth = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? Fraction = null);
 
-/// <summary>
-/// Transitional (dropped at M6.4): a file version's chapters, and its latest extraction job's status
-/// (<c>queued</c>, <c>processing</c>, <c>succeeded</c>, <c>failed</c>; null: none). Empty while it runs.
-/// </summary>
-public sealed record FileChaptersDto(IReadOnlyList<ChapterHeadingDto> Items, string? Ingestion);
+/// <summary>A file version's chapters: the reader's TOC, empty until a reader syncs it.</summary>
+public sealed record FileChaptersDto(IReadOnlyList<ChapterHeadingDto> Items);
 
 /// <summary>A file version as a client sends it: on import (with <see cref="Id"/>) and on replace (the path's id wins).</summary>
 public sealed record BookFileRequest(

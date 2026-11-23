@@ -131,7 +131,7 @@ public sealed class StubBackend : IAsyncDisposable
             var items = book.Chapters.Select((c, i) => c.Fraction is { } f
                 ? $$"""{ "chapterKey": "{{c.Key}}", "chapterNumber": {{i}}, "title": "{{c.Title}}", "wordCount": null, "depth": {{c.Depth}}, "fraction": {{f.ToString(System.Globalization.CultureInfo.InvariantCulture)}} }"""
                 : $$"""{ "chapterKey": "{{c.Key}}", "chapterNumber": {{i + 1}}, "title": "{{c.Title}}", "wordCount": 3000 }""");
-            await WriteJsonAsync(ctx, $$"""{ "items": [{{string.Join(",", items)}}], "ingestion": "succeeded" }""");
+            await WriteJsonAsync(ctx, $$"""{ "items": [{{string.Join(",", items)}}] }""");
         });
         _app.MapGet("/me/v2/annotations/changes", async ctx =>
         {
@@ -359,7 +359,7 @@ public sealed class StubBackend : IAsyncDisposable
               "createdAt": "2026-08-01T10:00:00Z", "updatedAt": "2026-08-01T10:00:00Z", "removedAt": null,
               "currentFile": { "id": "{{FileId}}", "sha256": "{{new string('a', 64)}}", "byteSize": 1000, "originalName": "book.epub",
                                "format": "epub", "pageCount": null, "toc": null, "isCurrent": true, "hasContent": true,
-                               "createdAt": "2026-08-01T10:00:00Z", "contentRemovedAt": null, "ingestion": "succeeded",
+                               "createdAt": "2026-08-01T10:00:00Z", "contentRemovedAt": null,
                                "chapterCount": {{Chapters.Length}} }
             }
             """;

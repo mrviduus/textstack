@@ -103,14 +103,14 @@ export function createBooks({ books, chapters, epoch, keepState, forgetState, pr
     return b
   }
 
-  /** The current file's table of contents and extraction status (empty when it has no bytes). */
+  /** The current file's table of contents (empty with no file, or until a reader syncs it; only a non-empty one is cached). */
   async function bookChapters(b: Book): Promise<FileChapters> {
     const file = b.currentFile
-    if (!file) return { items: [], ingestion: null }
+    if (!file) return { items: [] }
     const cached = chapters.get(file.id)
     if (cached) return cached
-    const toc = await whileCurrent(syncApi.getChapters(b.id, file.id), (t) => t.ingestion === 'succeeded' && chapters.set(file.id, t))
-    return toc ?? { items: [], ingestion: null }
+    const toc = await whileCurrent(syncApi.getChapters(b.id, file.id), (t) => t.items.length > 0 && chapters.set(file.id, t))
+    return toc ?? { items: [] }
   }
 
   /** Forget what was known of a book: its file changed (`file_replaced` / `unknown_file`). */

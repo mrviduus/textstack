@@ -11,7 +11,7 @@ namespace Worker.Services;
 
 /// <summary>
 /// The "how long do we keep this row" rules, in one daily sweep, and the library's byte sweeps: stale
-/// upload parts every minute, orphan bytes daily (moved from the ingestion worker, ADR-033 P2). Each rule
+/// upload parts every minute, orphan bytes daily (ADR-033 P2). Each rule
 /// is its own try, so a failure on one never skips the others. The credential rules are the identity
 /// ports' sweeps (#1100); the AI text rules are the V2 trace writers'.
 /// Not here: <c>oauth_authorization_requests</c>, swept on every authorize (<c>OAuthEndpoints</c>).

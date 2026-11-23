@@ -157,10 +157,6 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         var insight = await new BookInsightRepository(DataSource).SaveReviewAsync(NewInsight(book, "ch-1", reviewJson: "{}"), Ct);
         await new ReviewQuestionRepository(DataSource).ReplaceForInsightAsync(userId, insight.Id,
             [new() { Id = Guid.NewGuid(), UserId = userId, BookInsightId = insight.Id, Prompt = "Why?", Answer = "Because.", PromptHash = "h1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
-        await new BookChapterRepository(DataSource).ReplaceForFileAsync(userId, book.Id, file.Id,
-            [new() { Id = Guid.NewGuid(), ChapterKey = "ch-1", ChapterNumber = 1, Title = "One", Html = "<p>x</p>", PlainText = "x" }], Ct);
-        // The job is inserted finished, not enqueued: a queued one would be claimable by the ingestion
-        // tests' ClaimNextAsync, which runs across users.
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
         await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, null, Application.Identity.SessionKind.Reader, Ct);
@@ -175,6 +171,8 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
             INSERT INTO reading_sessions (id, user_id, book_id, client_session_id, started_at, ended_at, duration_seconds, words_read, start_percent, end_percent, created_at)
             VALUES (gen_random_uuid(), @userId, @bookId, gen_random_uuid(), now(), now(), 60, 100, 0, 0.1, now()),
                    (gen_random_uuid(), @userId, NULL, gen_random_uuid(), now(), now(), 60, 100, 0, 0.1, now());
+            INSERT INTO book_chapters (id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, created_at)
+            VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'ch-1', 1, 'One', '<p>x</p>', 'x', now());
             INSERT INTO ingestion_jobs (id, user_id, book_id, file_id, status, attempt_count, created_at)
             VALUES (gen_random_uuid(), @userId, @bookId, @fileId, 'succeeded', 1, now());
             """, new { userId, bookId = book.Id, fileId = file.Id }, cancellationToken: Ct));

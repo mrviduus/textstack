@@ -84,7 +84,7 @@ public sealed class ClipService(ILibraryRepository library, LibraryContentServic
         return (null, done);
     }
 
-    /// <summary>The page as the file's one part, then complete: the V2 quota and file store, extraction queued.</summary>
+    /// <summary>The page as the file's one part, then complete: the V2 quota and file store.</summary>
     private async Task<SyncResult> UploadAsync(Guid userId, Guid bookId, Guid fileId, byte[] bytes, CancellationToken ct)
     {
         using var body = new MemoryStream(bytes);

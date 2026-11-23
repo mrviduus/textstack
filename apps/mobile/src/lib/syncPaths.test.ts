@@ -191,7 +191,7 @@ describe('reading-state write outcomes', () => {
   it('getUserBook_StateCompleted_BookPageShowsCompleted', async () => {
     fakeApi({ ...on,
       'GET /me/v2/library/changes': [{ status: 200, body: { items: [{ id: 'b1', title: 't', currentFile: { id: 'f1', format: 'epub', hasContent: true } }], hasMore: false, cursor: null } }],
-      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [], ingestion: 'succeeded' } }],
+      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [] } }],
       'GET /me/v2/books/b1/reading-state': [{ status: 200, body: { ...state(2), completedAt: '2026-11-02T00:00:00Z' } }],
     })
     expect((await getUserBook('b1')).completedAt).toBe('2026-11-02T00:00:00Z')

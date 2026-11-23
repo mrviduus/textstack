@@ -5,7 +5,7 @@ namespace TextStack.Ai.Core;
 /// <summary>
 /// The <see cref="ActivitySource"/> every AI-pipeline span is emitted on (agent runs, RAG indexing).
 /// Registered with OpenTelemetry in <c>TelemetryExtensions.AddTextStackTelemetry</c> so these spans
-/// reach the OTLP exporter (Aspire) exactly like the existing ingestion spans.
+/// reach the OTLP exporter (Aspire) exactly like the API's spans.
 /// </summary>
 public static class AiActivitySource
 {

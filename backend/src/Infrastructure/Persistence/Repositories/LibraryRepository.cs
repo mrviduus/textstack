@@ -82,21 +82,13 @@ public sealed partial class LibraryRepository(AppDataSource dataSource) : ILibra
     public async Task<Book?> FindBySha256Async(Guid userId, string sha256, CancellationToken ct) =>
         (await QueryBooksAsync(SelectOldestBySha256, new { userId, sha256 }, null, ct)).SingleOrDefault();
 
-    // The feed alone carries the current file's extraction summary (transitional, dropped with book_chapters
-    // at M6.4, #1118): the latest job's status, the chapter count (null at 0) and the summed word counts
-    // (null when no chapter has one), so a shelf needs no /chapters call per book. Appended to the file half.
-    // Every job status write bumps the book's updated_at (IngestionJobRepository), so a cursor pull sees them change.
-    private const string SelectChanged = BookWithCurrentFile + $"""
-               , (SELECT j.status FROM ingestion_jobs j
-                  WHERE (j.user_id, j.book_id, j.file_id) = (f.user_id, f.book_id, f.id)
-                  {IngestionJobRepository.LatestFirst}) AS ingestion,
-               c.chapter_count, c.word_count
+    // The feed alone carries the current file's chapter count: the entries of the reader's TOC (null when none,
+    // or not an array), so a shelf needs no /chapters call per book. Appended to the file half.
+    // ponytail: a TOC write does not bump updated_at (as with has_toc), so a cursor pull sees the count on the book's next change.
+    private const string SelectChanged = BookWithCurrentFile + """
+               , CASE WHEN jsonb_typeof(f.toc) = 'array' THEN NULLIF(jsonb_array_length(f.toc), 0) END AS chapter_count
 
         """ + BooksJoinCurrentFile + """
-        LEFT JOIN LATERAL (
-            SELECT NULLIF(count(*), 0)::int AS chapter_count, sum(ch.word_count)::int AS word_count
-            FROM book_chapters ch
-            WHERE ch.user_id = f.user_id AND ch.book_id = f.book_id AND ch.file_id = f.id) c ON true
         WHERE b.user_id = @userId AND (b.updated_at, b.id) > (@since, @afterId)
         ORDER BY b.updated_at, b.id
         LIMIT @limit

@@ -3,31 +3,25 @@ using Application.Library;
 using Application.Sync;
 using Contracts.Sync;
 using Domain.Library;
-using Domain.Transitional;
 using static Application.Sync.SyncValidation;
 
 namespace Application.Transitional;
 
 /// <summary>
-/// Transitional. Dropped at M6.4 once the V2 reader serves EPUB and PDF on all clients; see ADR-031.
-/// <para>A file version's table of contents: the reader's, else the server-extracted chapters' headings
-/// (read-only, #1091). Chapter text is not served (ADR-033 P4): the assistant reads what the reader shares.</para>
+/// A file version's table of contents, as the reader synced it (<c>book_files.toc</c>, ADR-033). The server
+/// extracts nothing and holds no chapter text: the assistant reads what the reader shares.
 /// </summary>
-public sealed class ChapterReadService(IBookAccess library, IBookChapterRepository chapters, IIngestionJobRepository jobs) : IChapterLookup
+public sealed class ChapterReadService(IBookAccess library) : IChapterLookup
 {
     /// <summary>
-    /// The table of contents: the reader's (<c>book_files.toc</c>, ADR-033 P3) once written in its shape, entry index as the
-    /// order, with each entry's depth and fraction, and <c>succeeded</c> as the status so older clients keep it; else the extracted chapters, empty
-    /// while the extraction runs, and that extraction's status.
+    /// The reader's TOC, entry index as the order, with each entry's depth and fraction; empty until a reader
+    /// writes it (one not in its shape, from before ADR-033 P3, reads as none).
     /// </summary>
     public async Task<SyncResult> ListAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
     {
         var file = await library.GetFileAsync(userId, bookId, fileId, ct);
         if (file is null) return await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) ?? SyncResult.NotFound;
-        if (ReaderToc(file) is { } written) return SyncResult.Ok(new FileChaptersDto(written, FileIngestionJob.Succeeded));
-        var toc = await chapters.ListTocAsync(userId, bookId, fileId, ct);
-        var job = await jobs.GetLatestForFileAsync(userId, bookId, fileId, ct);
-        return SyncResult.Ok(new FileChaptersDto(toc.Select(ToDto).ToList(), job?.Status));
+        return SyncResult.Ok(new FileChaptersDto(ReaderToc(file) ?? []));
     }
 
     public async Task<IReadOnlyList<ChapterHeadingDto>?> ListTocAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct) =>
@@ -51,6 +45,4 @@ public sealed class ChapterReadService(IBookAccess library, IBookChapterReposito
                 e.GetProperty("depth").GetInt32(), e.GetProperty("fraction").GetDecimal()))
             .ToList();
     }
-
-    private static ChapterHeadingDto ToDto(BookChapterHeading h) => new(h.ChapterKey, h.ChapterNumber, h.Title, h.WordCount);
 }

@@ -64,14 +64,11 @@ test.describe('V2 sync @v2', () => {
     })).ok()).toBeTruthy()
     expect((await api.post(v2(`/books/${bookId}/files/${fileId}/content`), { data: { partCount: 1 } })).ok()).toBeTruthy()
 
-    // The worker extracts the chapters (the transitional reader).
-    let keys: string[] = []
-    await expect.poll(async () => {
-      const toc = await (await api.get(v2(`/books/${bookId}/files/${fileId}/chapters`))).json()
-      keys = toc.items.map((c: { chapterKey: string }) => c.chapterKey)
-      return toc.ingestion
-    }, { timeout: 120_000 }).toBe('succeeded')
-    expect(keys).toHaveLength(3)
+    // The reader's TOC (ADR-033: the server extracts nothing), written as the reader would on its first open.
+    const keys = ['ch-1', 'ch-2', 'ch-3']
+    expect((await api.put(v2(`/books/${bookId}/files/${fileId}/toc`), {
+      data: keys.map((key, i) => ({ key, title: `Chapter ${i + 1}`, depth: 0, fraction: i / 3 })),
+    })).ok()).toBeTruthy()
 
     // The app's session: the web build keeps the mobile tokens in localStorage.
     await page.addInitScript((s) => {
