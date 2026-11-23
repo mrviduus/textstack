@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Application.Library;
 using Application.Sync;
 using Contracts.Sync;
@@ -13,10 +14,23 @@ namespace Application.Transitional;
 /// </summary>
 public sealed class ChapterReadService(IBookAccess library, IBookChapterRepository chapters, IIngestionJobRepository jobs) : IChapterLookup
 {
-    /// <summary>The table of contents, empty while the extraction runs, and that extraction's status.</summary>
+    /// <summary>
+    /// The table of contents: the reader's (<c>book_files.toc</c>, ADR-033 P3) once written in its shape, entry index as the
+    /// order and <c>succeeded</c> as the status so older clients keep it; else the extracted chapters, empty
+    /// while the extraction runs, and that extraction's status.
+    /// </summary>
     public async Task<SyncResult> ListAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct)
     {
-        if (await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) is { } missing) return missing;
+        var file = await library.GetFileAsync(userId, bookId, fileId, ct);
+        if (file is null) return await library.MissingBookOrFileAsync(userId, bookId, fileId, ct) ?? SyncResult.NotFound;
+        // A TOC not in the reader's shape (a free-form row from before P3) reads as none.
+        if (file.Toc is not null && Toc(file.Toc, "toc") is null)
+        {
+            using var written = JsonDocument.Parse(file.Toc);
+            return SyncResult.Ok(new FileChaptersDto(written.RootElement.EnumerateArray()
+                .Select((e, i) => new ChapterHeadingDto(e.GetProperty("key").GetString()!, i, e.GetProperty("title").GetString()!, null))
+                .ToList(), FileIngestionJob.Succeeded));
+        }
         var toc = await chapters.ListTocAsync(userId, bookId, fileId, ct);
         var job = await jobs.GetLatestForFileAsync(userId, bookId, fileId, ct);
         return SyncResult.Ok(new FileChaptersDto(toc.Select(ToDto).ToList(), job?.Status));

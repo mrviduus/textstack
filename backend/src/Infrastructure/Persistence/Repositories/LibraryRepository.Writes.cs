@@ -89,7 +89,7 @@ public sealed partial class LibraryRepository
     // It comes first: Dapper maps an all-null split to null only after the first.
     private const string SelectCurrentFileAndIdHolder = """
         SELECT (SELECT (user_id, book_id) = (@userId, @bookId) FROM book_files WHERE id = @fileId) AS file_is_this_books,
-               f.id, f.user_id, f.book_id, f.sha256, f.byte_size, f.original_name, f.format, f.page_count, f.toc,
+               f.id, f.user_id, f.book_id, f.sha256, f.byte_size, f.original_name, f.format, f.page_count, f.toc, f.toc IS NOT NULL AS has_toc,
                f.server_storage_key, f.content_removed_at, f.is_current, f.created_at
         FROM (SELECT 1) AS one
         LEFT JOIN book_files f ON f.user_id = @userId AND f.book_id = @bookId AND f.is_current
@@ -152,6 +152,11 @@ public sealed partial class LibraryRepository
 
     public async Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct) =>
         (await QueryBooksAsync(SetCheckpointSaving, new { userId, bookId, enabled }, null, ct)).SingleOrDefault();
+
+    private const string SetToc = "UPDATE book_files SET toc = CAST(@toc AS jsonb) WHERE user_id = @userId AND book_id = @bookId AND id = @fileId";
+
+    public Task<bool> SetTocAsync(Guid userId, Guid bookId, Guid fileId, string toc, CancellationToken ct) =>
+        ChangesOneAsync(SetToc, new { userId, bookId, fileId, toc }, ct);
 
     private const string MarkRemoved = """
         UPDATE books SET removed_at = now(), updated_at = now()

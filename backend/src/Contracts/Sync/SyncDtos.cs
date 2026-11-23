@@ -31,14 +31,16 @@ public sealed record BookDto(
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? RemovedAt, BookFileDto? CurrentFile);
 
 /// <summary>
+/// No <c>toc</c>: the file's TOC is read from <c>GET …/chapters</c> (ADR-033 P3), so feed rows stay small;
+/// <see cref="HasToc"/> tells a reader whether to <c>PUT …/toc</c>.
 /// <see cref="ContentRemovedAt"/>: the reader stopped syncing this version, so no client uploads its bytes on its own.
 /// Transitional (dropped with <c>book_chapters</c> at M6.4, #1118), on the library feed only and absent when null:
 /// <see cref="Ingestion"/> is the latest extraction job's status (as <see cref="FileChaptersDto.Ingestion"/>),
 /// <see cref="ChapterCount"/> the extracted chapters, <see cref="WordCount"/> their summed word counts.
 /// </summary>
 public sealed record BookFileDto(
-    Guid Id, string Sha256, long ByteSize, string OriginalName, string Format, int? PageCount, [property: JsonConverter(typeof(RawJsonConverter))] string? Toc,
-    bool IsCurrent, bool HasContent, DateTimeOffset CreatedAt, DateTimeOffset? ContentRemovedAt,
+    Guid Id, string Sha256, long ByteSize, string OriginalName, string Format, int? PageCount,
+    bool IsCurrent, bool HasContent, bool HasToc, DateTimeOffset CreatedAt, DateTimeOffset? ContentRemovedAt,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Ingestion = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ChapterCount = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? WordCount = null);

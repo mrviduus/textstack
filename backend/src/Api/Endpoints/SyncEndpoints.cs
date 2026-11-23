@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Api.Extensions;
 using Api.Sync;
 using Application.Annotations;
@@ -62,7 +63,9 @@ public static class SyncEndpoints
             Send(s.PutCoverAsync(User(h, a), bookId, h.Request.ContentType, h.Request.ContentLength, h.Request.Body, ct)));
         v2.MapGet("/books/{bookId:guid}/cover", (HttpContext h, IAuthService a, LibraryContentService s, Guid bookId, CancellationToken ct) =>
             SendBytes(h, s.GetCoverAsync(User(h, a), bookId, ct)));
-        // Transitional (dropped at M6.4): server-extracted chapters, read-only.
+        v2.MapPut("/books/{bookId:guid}/files/{fileId:guid}/toc", (HttpContext h, IAuthService a, LibrarySyncService s, Guid bookId, Guid fileId, JsonElement body, CancellationToken ct) =>
+            Send(s.SetTocAsync(User(h, a), bookId, fileId, body, ct)));
+        // The file's TOC: the reader's (above) once written, else the server-extracted chapters (transitional).
         v2.MapGet("/books/{bookId:guid}/files/{fileId:guid}/chapters", (HttpContext h, IAuthService a, ChapterReadService s, Guid bookId, Guid fileId, CancellationToken ct) =>
             Send(s.ListAsync(User(h, a), bookId, fileId, ct)));
         v2.MapGet("/books/{bookId:guid}/files/{fileId:guid}/chapters/{chapterKey}", (HttpContext h, IAuthService a, ChapterReadService s, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct) =>

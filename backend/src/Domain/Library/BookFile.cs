@@ -24,6 +24,9 @@ public class BookFile
     /// <summary>Opaque JSON.</summary>
     public string? Toc { get; set; }
 
+    /// <summary>Whether <see cref="Toc"/> is written: read where the TOC itself is not (the feed).</summary>
+    public bool HasToc { get; set; }
+
     /// <summary>Relative key of the bytes on the volume; null when the server holds none.</summary>
     public string? ServerStorageKey { get; set; }
 

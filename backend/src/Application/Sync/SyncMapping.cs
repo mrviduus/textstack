@@ -15,8 +15,8 @@ public static class SyncMapping
         b.CoverKey is not null, b.Revision, b.CreatedAt, b.UpdatedAt, b.RemovedAt, b.CurrentFile?.ToDto());
 
     public static BookFileDto ToDto(this BookFile f) => new(
-        f.Id, f.Sha256, f.ByteSize, f.OriginalName, f.Format, f.PageCount, f.Toc, f.IsCurrent,
-        f.ServerStorageKey is not null, f.CreatedAt, f.ContentRemovedAt, f.Ingestion, f.ChapterCount, f.WordCount);
+        f.Id, f.Sha256, f.ByteSize, f.OriginalName, f.Format, f.PageCount, f.IsCurrent,
+        f.ServerStorageKey is not null, f.HasToc, f.CreatedAt, f.ContentRemovedAt, f.Ingestion, f.ChapterCount, f.WordCount);
 
     public static ReadingStateDto ToDto(this ReadingState s) => new(
         s.BookId, s.FileId, s.CurrentLocator, s.BookFraction, s.FrontierLocator, s.FrontierFraction,
