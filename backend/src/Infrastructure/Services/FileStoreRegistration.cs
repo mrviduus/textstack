@@ -102,14 +102,19 @@ public static class FileStoreRegistration
         return (false, unreadable);
     }
 
+    // One fixed name per root, so a crash between write and delete leaves at most one file (#1135); the
+    // lock (per root: a hung disk holds up only its own) keeps concurrent probes from deleting each other's file.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> ProbeLocks = new();
+
     /// <summary>
     /// /health/ready's write probe: null when a file can be written to <paramref name="root"/>, else the
-    /// error's type name. A file of its own per call, deleted in finally: one shared name raced between
-    /// concurrent probes (one deleting the file another was about to delete: a false "down").
+    /// error's type name. Writes <c>.health-probe</c>, deleted in finally; probes of one root run one at a time.
     /// </summary>
     public static async Task<string?> ProbeWriteAsync(string root, CancellationToken ct)
     {
-        var probe = Path.Combine(root, $".health-probe-{Guid.NewGuid():N}");
+        var probe = Path.Combine(root, ".health-probe");
+        var gate = ProbeLocks.GetOrAdd(probe, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
         try
         {
             await File.WriteAllTextAsync(probe, DateTimeOffset.UtcNow.ToString("O"), ct);
@@ -122,6 +127,7 @@ public static class FileStoreRegistration
         finally
         {
             try { File.Delete(probe); } catch { /* nothing written, or already gone */ }
+            gate.Release();
         }
     }
 }
