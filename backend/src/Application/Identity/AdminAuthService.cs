@@ -14,7 +14,7 @@ namespace Application.Identity;
 public sealed class AdminAuthService(
     IUserRepository users,
     ISessionTokenRepository sessions,
-    IAdminSettingsRepository settings,
+    IAdminSessionLifetimes settings,
     IMemoryCache cache,
     JwtTokens tokens,
     TimeProvider clock,
@@ -71,8 +71,7 @@ public sealed class AdminAuthService(
         await cache.GetOrCreateAsync("v2-admin-session-settings", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = SettingsCacheDuration;
-            return (AdminSettingsService.ParseMinutes(await settings.GetAsync(AdminSettingsService.AccessTokenExpiryKey, ct)),
-                AdminSettingsService.ParseDays(await settings.GetAsync(AdminSettingsService.RefreshTokenExpiryKey, ct)));
+            return await settings.GetAsync(ct);
         });
 
     private async Task<AdminAuthResult> ResultAsync(UserAccount admin, string refreshToken, DateTimeOffset issuedAt, CancellationToken ct) => new(

@@ -18,7 +18,7 @@ namespace Application.Library;
 /// a part checks it cheaply before a byte lands; the complete decides, inside the attach's transaction.
 /// </summary>
 public sealed class LibraryContentService(
-    ILibraryRepository library, IIngestionJobRepository jobs, IUserRepository users, ILibraryFileStore files,
+    ILibraryRepository library, IExtractionQueue jobs, IAccountLookup users, ILibraryFileStore files,
     EntitlementOptions entitlements, ILogger<LibraryContentService> logger)
 {
     private readonly EntitlementResolver _resolver = new(entitlements);
