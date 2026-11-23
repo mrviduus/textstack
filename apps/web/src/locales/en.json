@@ -329,18 +329,13 @@
       "toolInstallLabel": "terminal"
     },
     "tools": {
-      "heading": "The 21 tools",
+      "heading": "The 18 tools",
       "lead": "What your AI assistant can do once connected:",
-      "searchBooks": "Search the public book catalog by query.",
-      "getBook": "Fetch a book's metadata and chapter list by slug.",
-      "getChapter": "Fetch the full text of a single chapter.",
       "searchMyLibrary": "Search the books you uploaded — your own library, not the public catalog (requires sign-in).",
       "getMyBook": "Fetch one of your uploaded books: metadata and chapter list (requires sign-in).",
       "getMyChapter": "Fetch the full text of one chapter of a book you uploaded (requires sign-in).",
       "saveMyHighlight": "Highlight a passage in a book you uploaded (requires sign-in).",
       "listMyBookHighlights": "List the highlights already in a book you uploaded (requires sign-in).",
-      "listMyHighlights": "List your saved highlights (requires sign-in).",
-      "saveHighlight": "Save a passage to your highlights (requires sign-in).",
       "listMyVocabulary": "List your saved vocabulary words (requires sign-in).",
       "addVocabularyWords": "Save up to 20 words with their translations to your vocabulary (requires sign-in).",
       "updateVocabularyWord": "Fix the translation or definition of a saved word (requires sign-in).",
@@ -350,8 +345,10 @@
       "getMyReading": "List the books you are reading and where you are in each (requires sign-in).",
       "getBookProgress": "Get your reading progress in one book (requires sign-in).",
       "setBookProgress": "Record a chapter you finished elsewhere — audiobook, paper — so the reader resumes at the next one (requires sign-in).",
-      "getChapterReview": "Get a chapter and the TextStack method for reviewing it (requires sign-in).",
-      "saveChapterReview": "Save a chapter review; its questions join your review queue (requires sign-in)."
+      "shareChapter": "Share one chapter of a book you uploaded into the discussion (requires sign-in).",
+      "getSharedChapter": "Read a chapter you shared from the reader (requires sign-in).",
+      "saveCheckpoint": "Save a checkpoint of a discussion about a book you uploaded (requires sign-in).",
+      "listCheckpoints": "List the checkpoints saved about a book you uploaded, oldest first (requires sign-in)."
     },
     "steps": {
       "heading": "Local tool: sign in in 3 steps",

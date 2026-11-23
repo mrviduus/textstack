@@ -68,16 +68,11 @@ export function McpLandingPage() {
   const { t } = useTranslation()
 
   const tools: Array<{ name: string; desc: string }> = [
-    { name: 'search_books', desc: t('mcp.tools.searchBooks') },
-    { name: 'get_book', desc: t('mcp.tools.getBook') },
-    { name: 'get_chapter', desc: t('mcp.tools.getChapter') },
     { name: 'search_my_library', desc: t('mcp.tools.searchMyLibrary') },
     { name: 'get_my_book', desc: t('mcp.tools.getMyBook') },
     { name: 'get_my_chapter', desc: t('mcp.tools.getMyChapter') },
     { name: 'save_my_highlight', desc: t('mcp.tools.saveMyHighlight') },
     { name: 'list_my_book_highlights', desc: t('mcp.tools.listMyBookHighlights') },
-    { name: 'list_my_highlights', desc: t('mcp.tools.listMyHighlights') },
-    { name: 'save_highlight', desc: t('mcp.tools.saveHighlight') },
     { name: 'list_my_vocabulary', desc: t('mcp.tools.listMyVocabulary') },
     { name: 'add_vocabulary_words', desc: t('mcp.tools.addVocabularyWords') },
     { name: 'update_vocabulary_word', desc: t('mcp.tools.updateVocabularyWord') },
@@ -87,8 +82,10 @@ export function McpLandingPage() {
     { name: 'get_my_reading', desc: t('mcp.tools.getMyReading') },
     { name: 'get_book_progress', desc: t('mcp.tools.getBookProgress') },
     { name: 'set_book_progress', desc: t('mcp.tools.setBookProgress') },
-    { name: 'get_chapter_review', desc: t('mcp.tools.getChapterReview') },
-    { name: 'save_chapter_review', desc: t('mcp.tools.saveChapterReview') },
+    { name: 'share_chapter', desc: t('mcp.tools.shareChapter') },
+    { name: 'get_shared_chapter', desc: t('mcp.tools.getSharedChapter') },
+    { name: 'save_checkpoint', desc: t('mcp.tools.saveCheckpoint') },
+    { name: 'list_checkpoints', desc: t('mcp.tools.listCheckpoints') },
   ]
 
   return (

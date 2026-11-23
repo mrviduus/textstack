@@ -13,7 +13,6 @@ describe('useLibrarySource', () => {
     const { result } = renderHook(() => useLibrarySource(), { wrapper: wrapper() })
     expect(result.current.source).toBe('all')
     expect(result.current.tag).toBeNull()
-    expect(result.current.collection).toBeNull()
   })
 
   it('reads source from URL', () => {
@@ -30,19 +29,18 @@ describe('useLibrarySource', () => {
     expect(result.current.source).toBe('all')
   })
 
-  it('reads tag and collection from URL', () => {
+  it('reads tag from URL', () => {
     const { result } = renderHook(() => useLibrarySource(), {
-      wrapper: wrapper('/library?tag=fantasy&collection=summer'),
+      wrapper: wrapper('/library?tag=fantasy'),
     })
     expect(result.current.tag).toBe('fantasy')
-    expect(result.current.collection).toBe('summer')
   })
 
-  it('setSource clears tag and collection', () => {
+  it('setSource clears tag', () => {
     let location: { search: string } = { search: '' }
     const Capture = () => { location = useLocation(); return null }
     const w = ({ children }: { children: ReactNode }) => (
-      <MemoryRouter initialEntries={['/library?tag=foo&collection=bar']}>
+      <MemoryRouter initialEntries={['/library?tag=foo']}>
         <Capture />
         {children}
       </MemoryRouter>
@@ -66,11 +64,11 @@ describe('useLibrarySource', () => {
     expect(location.search).toBe('')
   })
 
-  it('setTag clears collection but keeps source', () => {
+  it('setTag keeps source', () => {
     let location: { search: string } = { search: '' }
     const Capture = () => { location = useLocation(); return null }
     const w = ({ children }: { children: ReactNode }) => (
-      <MemoryRouter initialEntries={['/library?source=uploads&collection=bar']}>
+      <MemoryRouter initialEntries={['/library?source=uploads']}>
         <Capture />
         {children}
       </MemoryRouter>
@@ -79,21 +77,5 @@ describe('useLibrarySource', () => {
     act(() => result.current.setTag('fantasy'))
     expect(location.search).toContain('source=uploads')
     expect(location.search).toContain('tag=fantasy')
-    expect(location.search).not.toContain('collection=')
-  })
-
-  it('setCollection clears tag', () => {
-    let location: { search: string } = { search: '' }
-    const Capture = () => { location = useLocation(); return null }
-    const w = ({ children }: { children: ReactNode }) => (
-      <MemoryRouter initialEntries={['/library?tag=foo']}>
-        <Capture />
-        {children}
-      </MemoryRouter>
-    )
-    const { result } = renderHook(() => useLibrarySource(), { wrapper: w })
-    act(() => result.current.setCollection('summer'))
-    expect(location.search).toContain('collection=summer')
-    expect(location.search).not.toContain('tag=foo')
   })
 })

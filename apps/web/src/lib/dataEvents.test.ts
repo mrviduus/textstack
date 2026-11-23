@@ -32,14 +32,14 @@ describe('emitDataChange', () => {
   })
 
   it('passes the detail payload through to listeners', () => {
-    listen('library')
-    emitDataChange('library', { reason: 'book-saved', id: 'ed-1' })
+    listen('user-books')
+    emitDataChange('user-books', { reason: 'book-saved', id: 'ed-1' })
     expect(received[0].detail).toEqual({ reason: 'book-saved', id: 'ed-1' })
   })
 
   it('listeners on a different entity do not fire', () => {
     listen('vocabulary')
-    emitDataChange('library')
+    emitDataChange('user-books')
     expect(received).toHaveLength(0)
   })
 })
@@ -103,9 +103,9 @@ describe('useDataChange hook', () => {
   it('accepts array of entities — fires for any of them', () => {
     let fired = 0
     const { unmount } = renderHook(() =>
-      useDataChange(['library', 'user-books'], () => { fired++ })
+      useDataChange(['shelves', 'user-books'], () => { fired++ })
     )
-    emitDataChange('library')
+    emitDataChange('shelves')
     emitDataChange('user-books')
     emitDataChange('vocabulary') // not in array — should not fire
     expect(fired).toBe(2)

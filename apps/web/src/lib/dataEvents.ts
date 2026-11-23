@@ -18,7 +18,6 @@ import { useEffect } from 'react'
 export type DataEntity =
   // Books
   | 'user-books'        // user-uploaded books (UserBook entity)
-  | 'library'           // saved catalog books: retired with the catalog, unused (#1406)
   | 'shelves'           // homepage/library shelves cache
   // Reader-adjacent
   | 'reading-progress'

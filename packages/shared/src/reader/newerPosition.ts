@@ -1,7 +1,6 @@
 /**
  * A newer position from the server: is it provably newer, and what may the reader do with it?
- * Pure decisions shared by mobile (`apps/mobile/src/lib/progressRestore.ts` re-exports these) and
- * web (`useReaderScrollSync`, `PdfEngineView`). Moved from mobile in web R4.
+ * Pure decisions behind `decideServerState` (`localSync.ts`), which both reader hosts call.
  */
 import { MAX_CLIENT_SKEW_MS } from './progressPrecedence'
 
@@ -57,16 +56,3 @@ export function decideNewerPosition(o: {
   if (!o.restoreApplied) return 'adopt'
   return o.readerMoved ? 'prompt' : 'move'
 }
-
-/**
- * Has the reader moved since the restore settled? `baseline` is the first position reported
- * after it (null: none reported yet → not moved). `tolerance` absorbs layout jitter — pixels for
- * the reflow reader, 0 for PDF pages.
- */
-export function readerMovedSince(baseline: number | null, current: number | null, tolerance: number): boolean {
-  if (baseline == null || current == null) return false
-  return Math.abs(current - baseline) > tolerance
-}
-
-/** Pixels of scroll that still count as "where the restore put them". */
-export const REFLOW_MOVE_TOLERANCE_PX = 48

@@ -79,7 +79,7 @@ lib/auth.js       device flow (RFC 8628) + token refresh + disconnect
 lib/api.js        Bearer fetch wrapper (401 → refresh → retry)
 lib/readability.js  VENDORED Mozilla Readability 0.6.0 (Apache-2.0)
 lib/THIRDPARTY.md   third-party provenance + re-vendor instructions
-popup.html/.js    capture UI + recent clips + success actions
+popup.html/.js    capture UI + success actions
 options.html/.js  connection status, Disconnect, dev API-origin override
 privacy.html      privacy policy
 icons/            icon-16/32/48/128.png (pre-existing)
