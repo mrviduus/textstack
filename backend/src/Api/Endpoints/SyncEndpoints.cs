@@ -65,11 +65,9 @@ public static class SyncEndpoints
             SendBytes(h, s.GetCoverAsync(User(h, a), bookId, ct)));
         v2.MapPut("/books/{bookId:guid}/files/{fileId:guid}/toc", (HttpContext h, IAuthService a, LibrarySyncService s, Guid bookId, Guid fileId, JsonElement body, CancellationToken ct) =>
             Send(s.SetTocAsync(User(h, a), bookId, fileId, body, ct)));
-        // The file's TOC: the reader's (above) once written, else the server-extracted chapters (transitional).
+        // The file's TOC: the reader's (above) once written, else the server-extracted chapters (transitional). No chapter text (ADR-033 P4).
         v2.MapGet("/books/{bookId:guid}/files/{fileId:guid}/chapters", (HttpContext h, IAuthService a, ChapterReadService s, Guid bookId, Guid fileId, CancellationToken ct) =>
             Send(s.ListAsync(User(h, a), bookId, fileId, ct)));
-        v2.MapGet("/books/{bookId:guid}/files/{fileId:guid}/chapters/{chapterKey}", (HttpContext h, IAuthService a, ChapterReadService s, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct) =>
-            Send(s.GetAsync(User(h, a), bookId, fileId, chapterKey, ct)));
 
         v2.MapGet("/reading/changes", (HttpContext h, IAuthService a, ReadingSyncService s, string? cursor, string? limit, CancellationToken ct) =>
             Send(s.ChangesAsync(User(h, a), cursor, limit, ct)));

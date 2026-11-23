@@ -329,11 +329,10 @@
       "toolInstallLabel": "terminal"
     },
     "tools": {
-      "heading": "The 18 tools",
+      "heading": "The 17 tools",
       "lead": "What your AI assistant can do once connected:",
       "searchMyLibrary": "Search the books you uploaded — your own library, not the public catalog (requires sign-in).",
-      "getMyBook": "Fetch one of your uploaded books: metadata and chapter list (requires sign-in).",
-      "getMyChapter": "Fetch the full text of one chapter of a book you uploaded (requires sign-in).",
+      "getMyBook": "Fetch one of your uploaded books: metadata and chapter list; to discuss a chapter, share it from the reader (requires sign-in).",
       "saveMyHighlight": "Highlight a passage in a book you uploaded (requires sign-in).",
       "listMyBookHighlights": "List the highlights already in a book you uploaded (requires sign-in).",
       "listMyVocabulary": "List your saved vocabulary words (requires sign-in).",

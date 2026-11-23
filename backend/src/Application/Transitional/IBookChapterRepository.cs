@@ -14,14 +14,6 @@ public interface IBookChapterRepository
     /// <summary>The file's table of contents, in order, without the chapters' text; empty when none.</summary>
     Task<IReadOnlyList<BookChapterHeading>> ListTocAsync(Guid userId, Guid bookId, Guid fileId, CancellationToken ct);
 
-    /// <summary>
-    /// The whole chapter under <paramref name="chapterKey"/> in that file version of the book, text included,
-    /// and the chapters before and after it in reading order (gaps in the numbering are skipped; each null at
-    /// an end of the book). All null when the file has no chapter under that key.
-    /// </summary>
-    Task<(BookChapter? Chapter, BookChapterHeading? Previous, BookChapterHeading? Next)> GetWithNeighboursAsync(
-        Guid userId, Guid bookId, Guid fileId, string chapterKey, CancellationToken ct);
-
     /// <summary>The chapter's plain text, for the assistant and the review; null when no such chapter.</summary>
     Task<string?> GetPlainTextAsync(Guid userId, Guid fileId, string chapterKey, CancellationToken ct);
 

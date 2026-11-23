@@ -3,7 +3,7 @@ import { API_BASE } from './client'
 import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
-  syncSwitch, startSyncProbe, pullBooks, getShelfBooks, getBookDetail, getBookChapter, removeBook, originalFileUrl,
+  syncSwitch, startSyncProbe, pullBooks, getShelfBooks, getBookDetail, removeBook, originalFileUrl,
   readBookProgress, saveProgress, uploadBook, FileUploadError, completeBook, uncompleteBook, type WriteOutcome, type MarkOutcome,
 } from './sync'
 
@@ -79,17 +79,6 @@ export interface UserBookDetail {
   sourceUrl?: string | null
   /** PDF-2: the PDF's real page count; null/absent → estimate from words. */
   pageCount?: number | null
-}
-
-export interface UserChapter {
-  id: string
-  chapterNumber: number
-  slug: string | null
-  title: string
-  html: string
-  wordCount: number | null
-  previous: { chapterNumber: number; slug: string | null; title: string } | null
-  next: { chapterNumber: number; slug: string | null; title: string } | null
 }
 
 export interface UploadResponse {
@@ -184,10 +173,6 @@ export function getUserBooks(): Promise<UserBook[]> {
 
 export function getUserBook(id: string): Promise<UserBookDetail> {
   return getBookDetail(id)
-}
-
-export function getUserBookChapter(bookId: string, slug: string): Promise<UserChapter> {
-  return getBookChapter(bookId, slug)
 }
 
 export function deleteUserBook(id: string): Promise<void> {

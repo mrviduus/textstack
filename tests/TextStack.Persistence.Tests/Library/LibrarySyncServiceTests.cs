@@ -128,7 +128,7 @@ public class LibrarySyncServiceTests(PostgresFixture db)
         await db.ReplaceFileAsync(book);
         var other = await db.NewReaderWithBookAsync();
         var toc = JsonSerializer.Deserialize<JsonElement>("""
-            [{"key":"toc-1","title":"Chapter I","depth":0,"fraction":0},{"key":"toc-0","title":"Prologue","depth":1,"fraction":0}]
+            [{"key":"toc-1","title":"Chapter I","depth":0,"fraction":0},{"key":"toc-0","title":"Prologue","depth":1,"fraction":0.25}]
             """);
         var library = new LibraryRepository(db.DataSource);
         var chapters = new ChapterReadService(new BookAccess(library), new BookChapterRepository(db.DataSource), new IngestionJobRepository(db.DataSource));
@@ -138,7 +138,8 @@ public class LibrarySyncServiceTests(PostgresFixture db)
 
         Assert.Equal((204, 404), (written.Status, foreign.Status));
         var list = Assert.IsType<FileChaptersDto>((await chapters.ListAsync(book.UserId, book.Id, superseded, Ct)).Body);
-        Assert.Equal([("toc-1", 0, "Chapter I"), ("toc-0", 1, "Prologue")], list.Items.Select(c => (c.ChapterKey, c.ChapterNumber, c.Title)));
+        Assert.Equal([("toc-1", 0, "Chapter I", 0, 0m), ("toc-0", 1, "Prologue", 1, 0.25m)],
+            list.Items.Select(c => (c.ChapterKey, c.ChapterNumber, c.Title, c.Depth ?? -1, c.Fraction ?? -1m)));
         Assert.Null((await library.GetFileAsync(other.UserId, other.Id, other.CurrentFile.Id, Ct))!.Toc);
         Assert.Equal((true, false), ((await library.GetFileAsync(book.UserId, book.Id, superseded, Ct))!.HasToc, (await library.GetAsync(other.UserId, other.Id, Ct))!.CurrentFile!.HasToc));
     }

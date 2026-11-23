@@ -63,7 +63,7 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
         Assert.Equal(
             McpManifestCatalog.Tools.Select(t => t.Name).Order(StringComparer.Ordinal),
             manifest.Tools.Select(t => t.Name).Order(StringComparer.Ordinal));
-        Assert.Equal(18, manifest.Tools.Count); // the size guard (CLAUDE.md "MCP tool count")
+        Assert.Equal(17, manifest.Tools.Count); // the size guard (CLAUDE.md "MCP tool count")
         Assert.All(manifest.Tools, t => Assert.False(string.IsNullOrWhiteSpace(t.Description)));
     }
 }

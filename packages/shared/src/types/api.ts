@@ -1,8 +1,4 @@
 import type { MergeMap } from '../api/sync'
-export interface ChapterNav {
-  slug: string
-  title: string
-}
 
 // Auth
 export interface UserDto {
@@ -368,20 +364,6 @@ export interface UserBookDto {
   /** True when the original upload is a PDF → the card can open "Original layout".
    *  Absent on older payloads → false. */
   hasOriginalPdf?: boolean
-}
-
-export interface UserBookChapterDto {
-  id: string
-  slug: string
-  title: string
-  html: string
-  wordCount: number | null
-  prev: ChapterNav | null
-  next: ChapterNav | null
-  /** 1-based PDF page where this chapter starts. Null for EPUBs / unknown. */
-  sourceStartPage?: number | null
-  /** V2 (`/me/v2`): the file version this chapter is from. Absent on legacy. */
-  fileId?: string | null
 }
 
 // ── Chapter review (ADR-016) — `BookInsight.review`; mirrors Contracts/ChapterReview/ChapterReviewDtos.cs ──

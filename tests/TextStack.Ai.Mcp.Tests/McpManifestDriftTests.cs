@@ -44,7 +44,7 @@ public class McpManifestDriftTests
     [Fact]
     public void Manifest_AdvertisesTheWholeToolSurface()
     {
-        Assert.Equal(18, McpManifestCatalog.Tools.Count);
+        Assert.Equal(17, McpManifestCatalog.Tools.Count);
     }
 
     private sealed class NoTokenProvider : IMcpTokenProvider
