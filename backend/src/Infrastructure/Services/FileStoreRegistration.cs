@@ -60,11 +60,26 @@ public static class FileStoreRegistration
         return l.StartsWith(s, StringComparison.OrdinalIgnoreCase) || s.StartsWith(l, StringComparison.OrdinalIgnoreCase);
     }
 
-    // Full, with one trailing separator, so "/storage-x" is not inside "/storage" and "/" holds everything.
+    // Full, links resolved, with one trailing separator, so "/storage-x" is not inside "/storage" and "/" holds everything.
     internal static string AsDirectory(string root)
     {
-        var full = Path.GetFullPath(root);
+        var full = ResolveLinks(Path.GetFullPath(root));
         return Path.EndsInDirectorySeparator(full) ? full : full + Path.DirectorySeparatorChar;
+    }
+
+    // Every ancestor's symlink resolved (#1136): /library -> /storage/v2 must read as inside /storage.
+    // A missing path (or a dangling link) stays as written.
+    private static string ResolveLinks(string path, int hops = 40)
+    {
+        if (hops == 0)
+            throw new IOException($"Too many levels of symbolic links: {path}");
+        var parent = Path.GetDirectoryName(path);
+        if (parent is null)
+            return path;
+        var current = Path.Combine(ResolveLinks(parent, hops), Path.GetFileName(path));
+        var dir = new DirectoryInfo(current);
+        var target = dir.Exists ? dir.ResolveLinkTarget(returnFinalTarget: true) : null;
+        return target is null ? current : ResolveLinks(target.FullName, hops - 1);
     }
 
     /// <summary>The fix, per directory and safe to re-run: copy into data/library/{dir}, then remove.</summary>
