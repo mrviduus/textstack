@@ -303,9 +303,10 @@ const prose = (n) => Array.from({ length: n }, (_, i) => `Paragraph ${i + 1}. ${
  * `locked`: a Standard security handler whose /U no empty password matches (opening needs a password).
  * `jpx`: a JPEG 2000 codestream drawn at 200×200 pt on each page (pdf.js decodes it with OpenJPEG's wasm).
  * `metadata`: the catalog's XMP stream, `{ filter, bytes }` raw (pdf.js decodes it whole while opening).
+ * `contents`: `{ [page]: { filter, bytes } }`, raw content streams in place of those pages' text (decoded when drawn).
  * Offsets computed, so the xref is real; binary stream bytes ride as latin1.
  */
-export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk = false, locked = false, lines = null, outline = [], jpx = null, metadata = null } = {}) {
+export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk = false, locked = false, lines = null, outline = [], jpx = null, metadata = null, contents = {} } = {}) {
   const objs = []
   const add = (body) => objs.push(body) && objs.length
   const catalog = add('')
@@ -327,7 +328,7 @@ export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk
     // CJK: U+4E2D U+6587 as UCS-2 code units.
     const text = cjk ? 'BT /F1 28 Tf 40 760 Td <4E2D6587> Tj ET'
       : `BT /F1 14 Tf 40 760 Td ${(lines ?? [`Page ${n}. Sphinx of black quartz, judge my vow.`, 'The quick brown fox jumps over the lazy dog.']).map((l) => `(${l}) Tj`).join(' 0 -20 Td ')} ET`
-    const content = add(stream('', image ? `${text} q 200 0 0 200 40 300 cm /Im1 Do Q` : text))
+    const content = add(contents[n] ? stream(`/Filter ${contents[n].filter}`, contents[n].bytes) : stream('', image ? `${text} q 200 0 0 200 40 300 cm /Im1 Do Q` : text))
     const annotRefs = (annots[n - 1] ?? []).map((a) => `${add(a)} 0 R`)
     kids.push(add(`<< /Type /Page /Parent ${tree} 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 ${font} 0 R >>${image ? ` /XObject << /Im1 ${image} 0 R >>` : ''} >> /Contents ${content} 0 R${annotRefs.length ? ` /Annots [${annotRefs.join(' ')}]` : ''} >>`))
   }
@@ -367,7 +368,11 @@ export const RED_J2K = Buffer.from('/0//UQAvAAAAAAAQAAAAEAAAAAAAAAAAAAAAEAAAABAA
  * (`/Filter [/FlateDecode /FlateDecode]`), which pdf.js inflates whole while opening (3.5 s on a desktop Chromium).
  * Making it takes 1.5 s and 1 GiB of memory.
  */
-export const bombPdf = () => pdf(1, { title: 'TS BOMB', metadata: { filter: '[/FlateDecode /FlateDecode]', bytes: deflateSync(deflateSync(Buffer.alloc(1 << 30), { level: 9 }), { level: 9 }) } })
+let bombBytes = null
+const bomb = () => ({ filter: '[/FlateDecode /FlateDecode]', bytes: bombBytes ??= deflateSync(deflateSync(Buffer.alloc(1 << 30), { level: 9 }), { level: 9 }) })
+export const bombPdf = () => pdf(1, { title: 'TS BOMB', metadata: bomb() })
+/** #1204: the same bomb as page 2's content: the PDF opens, and that page never finishes drawing. */
+export const bombPagePdf = () => pdf(2, { title: 'TS BOMB PAGE', contents: { 2: bomb() } })
 
 /**
  * The hostile PDF (#1128 S5): every way a PDF asks a reader to run script or leave the file. A JavaScript

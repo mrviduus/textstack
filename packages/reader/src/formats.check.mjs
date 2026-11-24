@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt } from './bookOriginRoute.mjs'
-import { bombPdf, fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
+import { bombPagePdf, bombPdf, fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
 import { chromium, drive, hostPage as harnessPage } from './pageHarness.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
@@ -398,11 +398,30 @@ try {
   const gap = await call('clearInterval(window.__ticker), Math.round(window.__gap)')
   await call('window.__fol.__testPdfDeadline(0)')
   check(bomb.type === 'open-failed' && /took too long/.test(bomb.error) && bombMs < 1000 + 5000, `the bomb fails at its deadline (${bomb.type}: ${bomb.error}, ${bombMs} ms)`)
+  check(!messages.slice(bomb.from).some((x) => x.type === 'book-stopped'), 'a failed open says `open-failed` only, never `book-stopped`')
   check(gap < 500, `and the page answers all the while (longest gap between 20 ms ticks: ${gap} ms)`)
   check(!!(await turnSaves('a store after the bomb')), 'the PDF open before it still turns and saves')
   m = await open('tsformat.pdf')
   // Drawn before the next open (an open over a page still rendering cancels it: a page error).
   check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `a PDF opens and draws after it (${m.type})`)
+  // #1204 review: a page that never finishes drawing after `opened` (the bomb as page 2's content) terminates the worker at
+  // its page budget (PDF_PAGE_MS; shortened here) and the hosts are told, `book-stopped` for that book; the page answers.
+  writeFileSync(resolve(dir, 'tsbombpage.pdf'), bombPagePdf())
+  await call('window.__fol.__testPdfDeadline(1000)')
+  m = await open('tsbombpage.pdf')
+  await call('window.__gap = 0; window.__tick = performance.now(); window.__ticker = setInterval(() => { const t = performance.now(); window.__gap = Math.max(window.__gap, t - window.__tick); window.__tick = t }, 20)')
+  from = messages.length
+  const turnAt = Date.now()
+  call('window.__fol.next()')
+  const stopped = await waitFor(from, (x) => x.type === 'book-stopped', 'book-stopped').catch(() => null)
+  const stoppedMs = Date.now() - turnAt
+  const pageGap = await call('clearInterval(window.__ticker), Math.round(window.__gap)')
+  await call('window.__fol.__testPdfDeadline(0)')
+  check(m.type === 'opened' && stopped?.key === m.book.sha256 && /took too long/.test(stopped?.error) && stoppedMs < 1000 + 5000,
+    `a page past its budget after \`opened\` says \`book-stopped\` for its book (${m.type}; ${JSON.stringify(stopped)}, ${stoppedMs} ms)`)
+  check(pageGap < 500 && messages.slice(from).filter((x) => x.type === 'book-stopped').length === 1, `once, and the page answers all the while (longest gap: ${pageGap} ms)`)
+  m = await open('tsformat.pdf')
+  check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `the next PDF opens and draws (${m.type})`)
 
   console.log('alignment')
   writeAlignmentEpub(resolve(dir, 'tsalignment.epub'))

@@ -17,8 +17,9 @@ import { ANDROID_CSP, CSP, NONCE, formatsJs, html } from './carrier.mjs'
 // Pinned by SHA on our fork (ADR-032): upstream 78914aef (2026-05-01, no releases, unstable API)
 // + our patches as real commits. MIT © John Factotum. A bump is a PR that re-runs every ADR-029
 // Decision 6 check.
-// FOLIATE_REPO (env): another clone to fetch the pin from (a local path), for a fork commit not pushed yet. The SHA
-// still decides what is built, wherever it is fetched from.
+// The pin is fetched from the GitHub fork; CI never sets anything else. FOLIATE_REPO (env) is a LOCAL-DEV override only:
+// a clone (a path) holding a fork commit not pushed yet, so a fork change can be built and checked before its push. The SHA
+// still decides what is built, wherever it comes from; push the fork commit before the PR, or CI's fresh clone fails.
 const FOLIATE_REPO = process.env.FOLIATE_REPO || 'https://github.com/mrviduus/foliate-js.git'
 // Branch textstack-pin: 78914aef + d73682a (paginator render-while-loading) + #1182: typed KF8 resource
 // blobs, KF8 sections through transformTarget, view relocate carries `reason`, PDF null outline
@@ -32,8 +33,9 @@ const FOLIATE_REPO = process.env.FOLIATE_REPO || 'https://github.com/mrviduus/fo
 // (older ones revoked and cleaned up), a failed load destroys its own task, TOCProgress resolves entries in parallel;
 // #1204/#1557 (branch pdf-worker-wasm-1204): the bytes handed to pdf.js once (`data`), a host-made worker per document
 // terminated past a deadline, OpenJPEG's wasm vendored, the outline after open (`getTOC`, `view.updateTOC`), a page's
-// blob: URL kept until its frame has loaded it.
-const FOLIATE_SHA = 'b97691ee76614b08fa28a6d4c095fc8a6251cc74'
+// blob: URL kept until its frame has loaded it; a page's calls on a budget of their own (`pageDeadline`), a terminated worker
+// reported (`onFail`).
+const FOLIATE_SHA = '0e6e7e3cd5053caa88e9598962f5ae91ef10cdd1'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // the retired reader engine's 64 KB budget.
@@ -158,7 +160,8 @@ const FOLIATE_SHA = 'b97691ee76614b08fa28a6d4c095fc8a6251cc74'
 // +2,230 (#1204, #1557): pdf.js in a Worker per PDF (`pdfWorker`, a blob: URL of the carried `pdfworker`), its deadline (the
 // open's, deadlines.mjs; `__testPdfDeadline`), OpenJPEG's wasm from its chunk (`PdfWasm`), the bytes handed over once, the outline
 // after `opened` (`toc`, `view.updateTOC`; describe asks for it).
-const BUDGET = 350619
+// +318 (#1204 review): a page's own budget (PDF_PAGE_MS) and `book-stopped` when the worker of the book on screen is terminated.
+const BUDGET = 350937
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -169,12 +172,13 @@ const BUDGET = 350619
 // pdf +936 (#1203 pin bump): the link service's no-ops, layers replaced per render, pages released, a failed load's task destroyed.
 // pdf −1,231,045 / pdfworker +1,234,278 (#1204): pdf.worker.mjs moved to a chunk of its own, run in a Worker (polyfills first
 // there too, MINIFIED); the fork's worker, deadline, bytes-once, lazy outline and per-load page URLs. Together +3,233.
+// pdf +98 (#1204 review): the fork's `pageDeadline` and `onFail`, a render the terminated worker never answers ends quietly.
 // pdfwasm (#1204) = OpenJPEG's openjpeg.wasm (250009 bytes) as base64 + its two BSD notices, run only for a JPEG 2000 image.
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
 // dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
 // notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
 // serif: Literata's four full Latin/Cyrillic faces and OFL notice, plus the Latin-only brand font's four (English in TextStack).
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478436, pdfworker: 1234278, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478534, pdfworker: 1234278, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'readerPage.generated.ts')

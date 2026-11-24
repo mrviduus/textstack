@@ -390,6 +390,7 @@
       "filesLocal": "Files: local",
       "notSynced": "Not synced: {reason}",
       "openTimeout": "{name} is taking too long to open.",
+      "bookStopped": "{name} stopped responding. Retry opens it again.",
       "theBook": "The book",
       "frameFailed": "The reader failed to load.",
       "newerPlace": "Read further on another device ({percent}%): go there",

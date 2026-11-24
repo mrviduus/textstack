@@ -23,7 +23,7 @@ import { DESCRIBE_MS, PAGE_WEBVIEW_PROPS, pageSource } from './pageWebView'
 import { createOpenTracker, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
 import { createMovedTracker } from '../../../../../packages/reader/src/movedTracker.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../../packages/reader/src/sessionTracker.mjs'
-import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
+import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, stoppedBook, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
 import { hostError } from '../../lib/reader/hostErrors'
 import { holdOpenSession } from '../../lib/reader/openSession'
 import { syncOpenedToc } from '../../lib/reader/openedToc'
@@ -309,6 +309,8 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   const showOpenError = (what: string) => (e: unknown) => setOpenError(failedText(what, e))
   /** A deadline the page missed (deadlines.mjs, #1080 item 3); a late answer clears it. */
   const [overdue, setOverdue] = useState<Overdue>(null)
+  /** #1204: the open PDF's reader was terminated (a page that never finished): its pages stay blank until Retry reopens it. */
+  const [stopped, setStopped] = useState(false)
   const [deadlines] = useState(() => createDeadlines(setOverdue))
   /** The same open overdue twice in a row is given up (deadlines.mjs OPENED_OVERDUE_LIMIT). */
   const [strikes] = useState(() => createOverdueStrikes())
@@ -1076,6 +1078,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     setOffer(null)
     setOpenError(null)
     setError(null)
+    setStopped(false)
     setHeading(fill(t('reader.v2.opening'), { name: target.name }))
     setProgress.current(null)
     setAtEnd(false)
@@ -1253,6 +1256,10 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
       }
+      case 'book-stopped':
+        // #1204: only for the book on screen; Retry (a new page load) opens it again.
+        if (stoppedBook(m, openShaRef.current)) setStopped(true)
+        return
       case 'toc': {
         // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
         const u = readTocMessage(m, openShaRef.current)
@@ -1492,6 +1499,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   /** A new page load: not ready until it says so, and no lightbox (#1265: the old page's went with it, unannounced). */
   function newPage() {
     ready.current = false
+    setStopped(false)
     setLightbox(false)
     setNonce(freshNonce())
   }
@@ -1639,6 +1647,12 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
           <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('common.retry')}</Text></Pressable>
         </View>
       )}
+      {stopped && (
+        <View style={styles.alert} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          <Text style={[styles.meta, { color: colors.error }]}>{fill(t('reader.v2.bookStopped'), { name: opening.current?.name ?? t('reader.v2.theBook') })}</Text>
+          <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('common.retry')}</Text></Pressable>
+        </View>
+      )}
       {linkFailed && (
         <View>
           <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{t('reader.v2.linkFailed')}</Text>
@@ -1655,7 +1669,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
       )}
     </>
   )
-  const hasNotices = !!(overdue || linkFailed || openError || error || offer)
+  const hasNotices = !!(overdue || stopped || linkFailed || openError || error || offer)
   const dismissNotices = () => {
     setLinkFailed(false)
     setError(null)

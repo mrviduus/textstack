@@ -199,7 +199,9 @@ describe('readerPageHtml', () => {
       expect(js).toContain('Licensed under the Apache License, Version 2.0')
     }
     // The page: the bytes themselves (#1557), its worker, the open's deadline; wasm and cMaps from its own chunks, no URL for anything.
-    expect(html).toMatch(/makePDF\(bytes, \{ css(?:: \w+)?, worker: pdfWorker, deadline, params: \{ useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm \} \}\)/)
+    expect(html).toMatch(/made = await makePDF\(bytes, \{ css(?:: \w+)?, worker: pdfWorker, deadline, pageDeadline: testPdfDeadline \|\| PDF_PAGE_MS, onFail, params: \{ useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm \} \}\)/)
+    // #1204 review: a terminated worker with its book on screen is said to the hosts, never for a book not on screen.
+    expect(html).toContain('if (made && (view == null ? void 0 : view.book) === made) post({ type: "book-stopped", key: book.sha256,')
     expect(html).toContain('const deadline = testPdfDeadline || openedDeadlineMs(bytes.length);')
     // #1204: OpenJPEG's wasm, base64, with its two notices; asked for by name, nothing else.
     const wasm = chunk('pdfwasm')
@@ -207,7 +209,7 @@ describe('readerPageHtml', () => {
     expect(wasm).toContain('Universite catholique de Louvain')
     expect(wasm).toContain('Mozilla Foundation')
     expect(html).toContain('if (filename !== "openjpeg.wasm") throw')
-    expect(html).toMatch(/book\d*\.rendition\.spread = "none";/)
+    expect(html).toContain('made.rendition.spread = "none";')
     const cmaps = JSON.parse(html.match(/\npdfcmaps: ("(?:[^"\\]|\\.)*")/)![1]) as string
     expect(cmaps).toContain('Adobe Systems Incorporated')
     expect(cmaps).toMatch(/"UniGB-UCS2-H": ?"[A-Za-z0-9+/=]+"/)

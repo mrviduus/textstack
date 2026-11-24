@@ -24,6 +24,19 @@ export const OPENED_CAP_MS = 180_000
  */
 export const DOWNLOAD_STALL_MS = 30_000
 
+/**
+ * #1204: each call pdf.js's worker answers about one page (the page, its render, text, annotations) gets this long, timed
+ * on its own, before the worker is terminated: a heavy page (a big scanned image) on a slow phone is seconds, a few tens
+ * at worst; 3× the open's floor still ends a page that never finishes (a bomb in its content) in a minute, and the page
+ * answers all the while (the worker parses, not the page). The load, metadata and outline keep `openedDeadlineMs`.
+ */
+export const PDF_PAGE_MS = 60_000
+
+/** #1204: a host's read of `book-stopped` (the open book's PDF reader was terminated): true for the book on screen (`key`, its sha256; case ignored) only. */
+export function stoppedBook(m, key) {
+  return typeof key === 'string' && typeof m?.key === 'string' && m.key.toLowerCase() === key.toLowerCase()
+}
+
 /** The `opened` deadline for a file of `bytes` (unknown: the floor). */
 export function openedDeadlineMs(bytes) {
   const mb = bytes > 0 ? bytes / 1_048_576 : 0 // NaN, null, undefined: false

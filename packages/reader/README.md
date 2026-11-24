@@ -67,7 +67,7 @@ and its build only. Hosted by `ReaderScreen.tsx` (R2): in production on the read
 | `vocabWords.mjs` (+ `.d.mts`) | Pure, DOM-free, both hosts (#1271): `langOf`, `ofBook` (a card is the book's language), `wordId` (key + language), `markWordsOf` (what a host sends), `backfillTranslations` (the once-per-open rule: serial writes, a 429 stops it, cancelled by the host). |
 | `readerVocab.ts` | Android (#1271): `forBook`, `backfillable`, `answerRow` (the row a save's answer card makes: V2 cards only, `routeOf`; none for another user's), `ownsLibrary`, `serverTranslation`, `nudgeCount`. |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
-| `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
+| `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants; the page's `PDF_PAGE_MS` and the hosts' `stoppedBook` (#1204). See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
 
@@ -202,7 +202,7 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   (`open-failed`; whether before or after the swap depends on where foliate reads it, not checked).
 - **Combo files** (MOBI6 record 0 + an EXTH 121 KF8 boundary) are read as their **KF8 half**, foliate's own choice
   (CSS, its TOC; one code path with AZW3); a boundary at no MOBI header falls back to MOBI6 inside foliate. Cost,
-  accepted because V2 is dev-only with no users: a combo stored before #1182 by its MOBI6 half has other section
+  accepted when V2 had no users (#1182): a combo stored before #1182 by its MOBI6 half has other section
   indexes and CFIs, so its saved position fails the quote check and the book restores to the start.
 - **FB2 encodings and entities:** foliate decodes FB2 as UTF-8 before reading its declaration, so the page
   re-encodes a UTF-16 file (BOM or not, either order) to UTF-8 first. Any `<!ENTITY` before the root is refused
@@ -223,12 +223,15 @@ the Android host stages and retains every format as `*.epub`, the web host opens
     (`pdfworker`: `pdfPolyfills.mjs`, then `pdf.worker.mjs`, minified), never run on the page: page.mjs makes one
     `blob:` URL of its text and a `Worker` of it per book (`pdfWorker`), handed to the fork's `makePDF` (`worker`),
     which gives pdf.js its port and terminates it with the book. The CSP gains `worker-src blob:` for it. Each call
-    the worker answers (the load, metadata, outline, a page, its render, text and annotations) is bounded by the
-    open's deadline (`openedDeadlineMs(size)`, deadlines.mjs, what the host allows the whole open): one that does not
-    answer in time terminates the worker, fails that call, every call in flight and every later one ("this PDF took
-    too long to read"), so a decompression bomb fails the open (`open-failed`, before the swap if it is in the load)
-    while the page keeps answering; after the swap, the page's frames stay blank. A worker that cannot start fails the
-    open at once. `__testPdfDeadline(ms)` (test only) shortens it.
+    the worker answers is timed on its own: the load, metadata and outline by the open's deadline
+    (`openedDeadlineMs(size)`, deadlines.mjs, what the host allows the whole open), each call about one page (the page,
+    its render, text and annotations, the cover) by `PDF_PAGE_MS` (60 s: a heavy scanned page on a slow phone is
+    seconds, a few tens at worst; a page that never finishes still ends in a minute). One that does not answer in time
+    terminates the worker, fails that call, every call in flight and every later one ("this PDF took too long to
+    read"), while the page keeps answering. Before the swap that is the open's `open-failed` (a decompression bomb in
+    the load); with the book on screen the page sends `book-stopped` (once) instead of leaving blank pages, and the
+    hosts say the book stopped responding, with Retry (a new page load, the book opened again). A worker that cannot
+    start fails the open at once. `__testPdfDeadline(ms)` (test only) shortens both.
   - *Nothing fetched:* `isEvalSupported: false` (forced by the fork; the CSP refuses eval anyway), no URL for
     anything. pdf.js's predefined cMaps ride in the page as their own carried chunk (`pdfcmaps`,
     base64, `PdfCMaps` in page.mjs), run the first time a PDF's font names one: without them a CJK font on a
@@ -417,6 +420,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.â€
 | `opened` | (Also for a book swapped in while a newer open is under way: see Formats, the open order.) `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `bookmarkable` (#1314: a bookmark can be made somewhere in this book: text at a CFI; false on a CBZ, a PDF and a pre-paginated EPUB, where a host offers no bookmark control unless the book holds bookmarks already), `reflowable` (false: disable the flow toggle), `dir` (`ltr` / `rtl`, #1263: the direction the renderer pages in, `pagedDir`: a fixed layout by the book's page-progression direction (EPUB spine, MOBI/KF8 EXTH 527), a reflowable book by its shown section's own direction as foliate's paginator reads it (`dir` attributes, else the computed `direction`, which foliate sets from the book's language); unknown is `ltr`; `relocate` carries it too), `title`, `author` (either may be `''`), `lang` (#1269: the book's first metadata language as written, at most 35 chars, or `''`; hosts read it through `readLang`), `sections`, `toc [{label, href, depth}]` (flat, in reading order; `depth` 0 = top level, #1261), `searchable` (#1315: true where the book has section documents to search; false on a CBZ and a PDF; hosts offer search only for strictly `true`) | calls `restore` with the stored JSON for `book.sha256` |
 | `toc` | #1557: a PDF's outline, read after `opened` (`opened.toc` is `[]` for a PDF): `key` (the book's `sha256`), `toc` as `opened.toc`'s, `tocIndex` (the entry of the place on screen, or null). Only for the view on screen; none for a PDF without an outline that can be read | through `readTocMessage` (toc.mjs): for the book taken only, then as `opened.toc` and `relocate.tocIndex` |
 | `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, DRM, password-protected PDF, a PDF past its deadline) | must not keep the file |
+| `book-stopped` | #1204: the book on screen (a PDF) stopped answering: its reader was terminated past a deadline (a page that never finished drawing), so no further page draws. `key` (the book's `sha256`), `error`. Once per book; never for an open that fails (that is `open-failed`) | through `stoppedBook` (deadlines.mjs), for the book taken only: "{name} stopped responding" with Retry, which loads a new page and opens the book again |
 | `restored` | `key` (= the book's `sha256`, as `store`'s: a host drops one for a book it is not reading), `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ, pre-paginated EPUB, PDF) / `wrong position kind, stayed at start` (a CFI or fraction on a PDF, a page number elsewhere) / `navigation failed, stayed at start`), `highlights [{id, status}]` | â€” |
 | `highlights` | `key` (= the book's `sha256`), `highlights [{id, status}]` (`restored` / `quote mismatch, not drawn` / `already drawn` / `not a highlight`) | the answer to `addHighlights`; a host logs the ones not drawn |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |

@@ -33,7 +33,7 @@ import { clipBook } from './clip.mjs'
 import { tapAction } from './tapZone.mjs'
 import { MAX_CHAPTER_TEXT_BYTES, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween, tocEntries } from './chapters.mjs'
 import { MAX_RESULTS, SEARCH_FILL, readQuery, searchItems } from './search.mjs'
-import { openedDeadlineMs } from './deadlines.mjs'
+import { PDF_PAGE_MS, openedDeadlineMs } from './deadlines.mjs'
 import { bookMeta, coverJpeg, isRequestId } from './describe.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -1184,20 +1184,27 @@ async function makeBookFor(bytes, name, kind) {
     if (typeof structuredClone !== 'function' || typeof Worker !== 'function') throw new Error('this WebView is too old to read PDF')
     const { makePDF, css } = formatModule('pdf')
     const deadline = testPdfDeadline || openedDeadlineMs(bytes.length)
+    // A page's calls get a budget of their own (a heavy page on a slow phone). A worker terminated with the book on
+    // screen (a page past it) leaves blank pages: the hosts are told (`book-stopped`) and offer to open it again.
+    // Not for a book not (yet) on screen: a failed open says `open-failed`, a `describe` its own error.
+    let made = null
+    const onFail = (e) => {
+      if (made && view?.book === made) post({ type: 'book-stopped', key: book.sha256, error: String(e?.message ?? e).slice(0, 200) })
+    }
     // A load that fails destroys its own loading task and worker (the fork's makePDF, #1203).
-    const book = await makePDF(bytes, { css, worker: pdfWorker, deadline, params: { useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm } }).catch((e) => {
+    made = await makePDF(bytes, { css, worker: pdfWorker, deadline, pageDeadline: testPdfDeadline || PDF_PAGE_MS, onFail, params: { useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm } }).catch((e) => {
       throw e?.name === 'PasswordException' ? new Error('this PDF is password-protected and cannot be opened') : e
     })
     // One page per screen, never foliate's two-page spreads: within a spread a page step or goTo shows the
     // other page without a relocate, so the saved page would be the spread's first.
-    book.rendition.spread = 'none'
+    made.rendition.spread = 'none'
     // An outline entry pdf.js cannot resolve (an integer page, a dangling reference) rejects; foliate awaits
     // every entry while opening, after the swap. Such an entry goes nowhere instead of failing the open.
     for (const k of ['splitTOCHref', 'resolveHref']) {
-      const f = book[k]
-      book[k] = (href) => f(href).catch(() => null)
+      const f = made[k]
+      made[k] = (href) => f(href).catch(() => null)
     }
-    return { format: 'pdf', book }
+    return { format: 'pdf', book: made }
   }
   // An HTML clip: one section, sanitized (clip.mjs).
   if (kind === 'html') return { format: 'html', book: clipBook(bytes) }

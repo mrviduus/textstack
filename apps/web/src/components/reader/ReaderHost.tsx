@@ -5,7 +5,7 @@ import { CHAPTER_TEXT_MS, createDiscussLocks, createDiscuss, fillBookMeta, runDi
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
 import { createOpenTracker, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
 import { READER_FRAME_PATH } from '../../../../../packages/reader/src/framePath.mjs'
-import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
+import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, stoppedBook, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
 import { readSelection } from '../../../../../packages/reader/src/selection.mjs'
 import { readDescribed } from '../../../../../packages/reader/src/describe.mjs'
 import { DESCRIBE_MS } from '../../lib/describeBook'
@@ -260,6 +260,8 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
   const [error, setError] = useState<string | null>(null)
   /** A deadline the frame missed (deadlines.mjs); a late answer clears it. */
   const [overdue, setOverdue] = useState<Overdue>(null)
+  /** #1204: the open PDF's reader was terminated (a page that never finished): its pages stay blank until Retry reopens it. */
+  const [stopped, setStopped] = useState(false)
   const [deadlines] = useState(() => createDeadlines(setOverdue))
   /** The size of the open last handed to the page: its `opened` deadline (said in the message). */
   const openedBytes = useRef(0)
@@ -514,6 +516,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
     endSession(sessions.open(Date.now()))
     // Nothing of the previous book may stay on screen beside this one's answer (or its error).
     setError(null)
+    setStopped(false)
     setOffer(null)
     setHeading(t('v2Reader.opening', { name: book.name }))
     setStatus('')
@@ -557,6 +560,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
   /** Retry after a deadline: a fresh frame; an open whose bytes the old one took is asked for again (`onReload`). */
   const reloadFrame = () => {
     ready.current = false
+    setStopped(false)
     // #1265: the old frame's lightbox went with it, unannounced.
     setLightbox(false)
     // A fresh frame has no book on screen.
@@ -707,6 +711,10 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           takeOpened(take)
           return
         }
+        case 'book-stopped':
+          // #1204: only for the book on screen; Retry (a fresh frame) opens it again.
+          if (stoppedBook(m, openedSha.current)) setStopped(true)
+          return
         case 'toc': {
           // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
           const u = readTocMessage(m, openedSha.current)
@@ -1170,6 +1178,12 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
             {overdue === 'ready'
               ? (dev ? t('v2Reader.frameFailedDev', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 }) : t('v2Reader.frameFailed', { seconds: readyDeadlineMs / 1000 }))
               : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: Math.ceil(openedDeadlineMs(openedBytes.current) / 1000) })}{' '}
+            <button inert={lightboxOpen} onClick={reloadFrame}>{t('v2Reader.retry')}</button>
+          </span>
+        )}
+        {stopped && (
+          <span role="alert" data-testid="v2-stopped">
+            {t('v2Reader.bookStopped', { name: opening.current?.originalName ?? '' })}{' '}
             <button inert={lightboxOpen} onClick={reloadFrame}>{t('v2Reader.retry')}</button>
           </span>
         )}

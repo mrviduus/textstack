@@ -83,6 +83,44 @@ describe.skipIf(!vendored)('the fork PDF reader (makePDF)', () => {
     await expect(book.getTOC()).rejects.toThrow('took too long')
   })
 
+  it('aHeavyPage_GetsThePageBudget_NotTheOpensDeadline', async () => {
+    vi.useFakeTimers()
+    const slow = (i: number) => new Promise((done) => setTimeout(() => done(page(i)), 20_000))
+    fakePdfjs(fake, { getPage: slow })
+    const book = await makePDF(new Uint8Array(4), { deadline: 5000, pageDeadline: 60_000 })
+    const loaded = book.sections[0].load()
+    await vi.advanceTimersByTimeAsync(20_000)
+    await expect(loaded).resolves.toMatchObject({ src: expect.stringMatching(/^blob:/) })
+    expect(fake.webWorker.terminate).not.toHaveBeenCalled()
+  })
+
+  it('aWorkerTerminatedAfterTheBookIsMade_IsReportedOnce_ItsRendersFailQuietly', async () => {
+    vi.useFakeTimers()
+    const onFail = vi.fn()
+    let renders = 0
+    const drawn = (i: number) => ({ ...page(i), render: () => ({ promise: (renders++ ? never() : Promise.resolve()) }) })
+    fakePdfjs(fake, { getPage: (i: number) => Promise.resolve(drawn(i)) })
+    ;(globalThis as any).document = { createElement: () => ({ getContext: () => ({}) }), querySelectorAll: () => [] }
+    ;(globalThis as any).devicePixelRatio = 1
+    try {
+      const book = await makePDF(new Uint8Array(4), { deadline: 5000, pageDeadline: 60_000, onFail })
+      const { onZoom } = await book.sections[0].load()
+      const frame = { documentElement: { style: { setProperty() {} } }, querySelector: () => ({ replaceChildren() {}, replaceWith() {} }), adoptNode: (n: unknown) => n }
+      renders = 1
+      const rendering = onZoom({ doc: frame, scale: 1 })
+      await vi.advanceTimersByTimeAsync(60_000)
+      // The render the dead worker never answers resolves quietly (no unhandled rejection): onFail says it, once.
+      await expect(rendering).resolves.toBeUndefined()
+      expect(onFail).toHaveBeenCalledTimes(1)
+      expect(onFail.mock.calls[0][0].message).toBe('this PDF took too long to read')
+      await expect(book.sections[1].load()).rejects.toThrow('took too long')
+      expect(onFail).toHaveBeenCalledTimes(1)
+    } finally {
+      delete (globalThis as any).document
+      delete (globalThis as any).devicePixelRatio
+    }
+  })
+
   it('answersInTime_NothingIsTerminated_EvenLongAfter', async () => {
     vi.useFakeTimers()
     fakePdfjs(fake)
