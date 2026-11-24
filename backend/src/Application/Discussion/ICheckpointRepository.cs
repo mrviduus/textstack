@@ -4,7 +4,7 @@ using Domain.Discussion;
 namespace Application.Discussion;
 
 /// <summary>
-/// The V2 discussion checkpoints (table <c>discussion_checkpoints</c>, ADR-031): append-only, read in
+/// The V2 discussion checkpoints (table <c>discussion_checkpoints</c>, ADR-031): never updated, deleted one by one, read in
 /// bounded chronological pages (docs/internal/v2/mcp-discussion-checkpoints.md). Every method is
 /// scoped to <c>userId</c> (docs/architecture/data-access.md rule 7).
 /// <para>Input validation (JSON shape, hash format, text lengths, enum values) is the API's job: a caller

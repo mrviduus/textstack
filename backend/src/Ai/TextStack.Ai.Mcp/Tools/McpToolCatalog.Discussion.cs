@@ -250,18 +250,6 @@ public sealed partial class McpToolCatalog
         },
     };
 
-    private static readonly JsonElement DeleteCheckpointSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "id": { "type": "string", "format": "uuid" }
-          },
-          "required": ["id"],
-          "additionalProperties": false
-        }
-        """).RootElement;
-
     private McpToolDescriptor BuildDeleteCheckpoint(TextStackApiClient api) => new()
     {
         Name = "delete_checkpoint",
@@ -270,7 +258,7 @@ public sealed partial class McpToolCatalog
         Destructive = true,
         Idempotent = true,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("delete_checkpoint"),
-        InputSchema = DeleteCheckpointSchema,
+        InputSchema = IdOnlySchema,
         Handler = (args, ct) =>
         {
             if (!ArgReader.TryObject(args, out var obj, out var err, "id")
@@ -280,8 +268,7 @@ public sealed partial class McpToolCatalog
             return InvokeAsync("delete_checkpoint", ct, async () =>
             {
                 var result = await api.DeleteCheckpointAsync(id, ct);
-                if (result.Status is System.Net.HttpStatusCode.NotFound)
-                    return Error("delete_checkpoint: no such checkpoint; get ids from list_checkpoints");
+                if (result.Code == "not_found") return NotFoundOnDelete(id, "checkpoint", "list_checkpoints");
                 return Refused("delete_checkpoint", result) ?? Text(JsonSerializer.Serialize(new { id, deleted = true }));
             });
         },

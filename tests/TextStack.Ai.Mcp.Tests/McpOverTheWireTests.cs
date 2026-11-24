@@ -577,21 +577,35 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         Assert.Equal((false, JsonValueKind.Null), (Json(lastPage).GetProperty("hasMore").GetBoolean(), Json(lastPage).GetProperty("cursor").ValueKind));
     }
 
-    [Fact]
-    public async Task DeleteCheckpoint_OwnAndUnknownCheckpoint_DeletesOneAndSaysWhereIdsComeFrom()
+    /// <summary>
+    /// The two delete tools on every answer a delete can get: deleted; the endpoint's own not_found (a retry after a
+    /// lost response, or a guessed id) is not an error but never "deleted"; a bare 404 or a 500 is an error.
+    /// </summary>
+    [Theory]
+    [InlineData("delete_checkpoint", StubBackend.CheckpointId, "/me/v2/checkpoints/", "list_checkpoints", "checkpoint")]
+    [InlineData("delete_vocabulary_word", "55555555-5555-5555-5555-555555555555", "/me/v2/vocabulary/words/", "list_my_vocabulary", "word")]
+    public async Task DeleteTools_DeletedNotFoundBare404And500_OnlyTheRealDeleteSaysDeleted(string tool, string ownId, string path, string listTool, string what)
     {
         await using var client = await ConnectSharedAsync();
-        var unknown = Guid.NewGuid().ToString();
+        var missing = tool == "delete_vocabulary_word" ? StubBackend.MissingV2WordId : Guid.NewGuid().ToString();
 
-        var deleted = await CallAsync(client, "delete_checkpoint", Args(("id", StubBackend.CheckpointId)));
-        var sent = shared.Harness.Stub.Last("v2_delete_checkpoint")!;
-        var missing = await CallAsync(client, "delete_checkpoint", Args(("id", unknown)));
+        var deleted = await CallAsync(client, tool, Args(("id", ownId)));
+        var sent = shared.Harness.Stub.Last(tool == "delete_checkpoint" ? "v2_delete_checkpoint" : "v2_delete_word")!;
+        var notFound = await CallAsync(client, tool, Args(("id", missing)));
+        var bare404 = await CallAsync(client, tool, Args(("id", StubBackend.BareNotFoundId)));
+        var failed = await CallAsync(client, tool, Args(("id", StubBackend.FailingDeleteId)));
 
         AssertOk(deleted);
-        Assert.Equal(("DELETE", $"/me/v2/checkpoints/{StubBackend.CheckpointId}"), (sent.Method, sent.PathAndQuery));
-        Assert.Equal((StubBackend.CheckpointId, true), (Json(deleted).GetProperty("id").GetString(), Json(deleted).GetProperty("deleted").GetBoolean()));
-        Assert.True(missing.IsError);
-        Assert.Equal("delete_checkpoint: no such checkpoint; get ids from list_checkpoints", TextOf(missing));
+        Assert.Equal(("DELETE", path + ownId), (sent.Method, sent.PathAndQuery));
+        Assert.Equal((ownId, true), (Json(deleted).GetProperty("id").GetString(), Json(deleted).GetProperty("deleted").GetBoolean()));
+        AssertOk(notFound);
+        var gone = Json(notFound);
+        Assert.Equal((missing, false, false), (gone.GetProperty("id").GetString(), gone.GetProperty("deleted").GetBoolean(), gone.GetProperty("found").GetBoolean()));
+        Assert.Equal($"no {what} with this id; ids come from {listTool}", gone.GetProperty("message").GetString());
+        Assert.True(bare404.IsError);
+        Assert.Equal($"{tool} refused: upstream answered 404", TextOf(bare404));
+        Assert.True(failed.IsError);
+        Assert.Equal($"{tool} refused: upstream answered 500", TextOf(failed));
     }
 
     private const string CheckpointBody = """ "topic": "The letter", "language": "en", "chapterKey": "ch02.xhtml", "readerThoughts": ["It reads like a confession.", "Second"], "openQuestions": ["Who wrote it?"] """;

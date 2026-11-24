@@ -82,6 +82,8 @@ public sealed class CheckpointRepository(AppDataSource dataSource) : ICheckpoint
         return new(rows, new(last.CreatedAt, last.Id));
     }
 
+    // ponytail: a hard delete also drops the row that made the save idempotent by (user_id, operation_id), so a
+    // save_checkpoint retried with the same operationId after a delete saves it again; keep a tombstone if that bites.
     private const string DeleteCheckpoint = "DELETE FROM discussion_checkpoints WHERE user_id = @userId AND id = @id";
 
     public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
