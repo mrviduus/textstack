@@ -8,7 +8,7 @@ import { memoryDb } from './reader/sqliteShim'
 const onDevice: LibraryBook = {
   id: 'book-1', sha256: 'a'.repeat(64), size: 1000, title: 'Designing Data-Intensive Applications',
   author: 'Martin Kleppmann', originalName: 'ddia.epub', importedAt: 1_757_000_000_000, openedAt: 0,
-  local: true, notSynced: null, finished: false, format: 'epub',
+  local: true, notSynced: null, finished: false, completedAt: null, format: 'epub',
 }
 
 describe('cachedUserBookDetail', () => {
@@ -46,5 +46,19 @@ describe('cachedUserBook (#1532)', () => {
     expect(row).toMatchObject({ id: book.id, progressPercent: 0.3, progressUpdatedAt: new Date(at).toISOString() })
     const [pick] = rankContinueReading({ library: [], serverProgress: [], userBooks: [row], localCatalogMap: new Map(), localUserBookMap: new Map() })
     expect(pick).toMatchObject({ type: 'userbook', id: book.id, percent: 0.3 })
+  })
+
+  it('cachedUserBook_FinishedThenOfflineColdStart_RowAndBookPageShowRead', async () => {
+    const db = memoryDb()
+    const SHA = 'ef'.repeat(32)
+    const reading = createLocalLibrary(db)
+    await reading.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.fb2', format: 'fb2' }, () => '00000000-0000-4000-8000-000000000001')
+    await reading.finish(SHA, '2026-11-20T10:00:00.000Z')
+
+    const lib = createLocalLibrary(db)
+    const [book] = (await lib.books()).filter((b) => b.local)
+
+    expect(cachedUserBook(book, undefined).completedAt).toBe('2026-11-20T10:00:00.000Z')
+    expect(cachedUserBookDetail(book).completedAt).toBe('2026-11-20T10:00:00.000Z')
   })
 })

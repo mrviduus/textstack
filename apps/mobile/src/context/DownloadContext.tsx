@@ -25,6 +25,8 @@ interface DownloadContextValue {
   refreshOnDevice: () => Promise<void>
   /** Fetch anything of the reader's own that is not on the device yet. */
   syncOfflineLibrary: () => Promise<void>
+  /** One sync pass: the device's library takes what the server holds now (a mark read on the book page, #1552). */
+  syncDevice: () => Promise<void>
 }
 
 const NONE: ReadonlySet<string> = new Set()
@@ -35,6 +37,7 @@ const DownloadContext = createContext<DownloadContextValue>({
   download: async () => false,
   refreshOnDevice: async () => {},
   syncOfflineLibrary: async () => {},
+  syncDevice: async () => {},
 })
 
 export function useDownload() {
@@ -208,6 +211,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         download,
         refreshOnDevice,
         syncOfflineLibrary,
+        syncDevice: pull,
       }}
     >
       {children}

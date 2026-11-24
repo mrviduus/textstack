@@ -30,7 +30,7 @@ export function cachedUserBookDetail(b: LibraryBook): UserBookDetailResponse {
     toc: null,
     createdAt: at,
     updatedAt: at,
-    completedAt: null,
+    completedAt: b.completedAt,
     hasOriginalPdf: false,
     hasFile: true,
   }
@@ -55,7 +55,8 @@ export function cachedUserBook(b: LibraryBook, progress: BookPlace | undefined):
     status: 'Ready',
     chapterCount: 0,
     createdAt: new Date(b.importedAt).toISOString(),
-    completedAt: null,
+    // Finished here or on another device (#1552): the row and the book page show it as read offline too.
+    completedAt: b.completedAt,
     errorMessage: null,
     progressPercent: progress?.fraction ?? null,
     progressUpdatedAt: at ? new Date(at).toISOString() : null,
