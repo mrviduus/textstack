@@ -4,6 +4,7 @@ export interface TocEntry { index: number; label: string; href: string; depth: n
 export const MAX_TOC_ENTRIES: number
 export const MAX_TOC_DEPTH: number
 export function readToc(m: unknown): TocEntry[]
+export function readTocMessage(m: unknown, key: string | null): { toc: TocEntry[]; tocIndex: number | null } | null
 export function tocAround(toc: readonly TocEntry[], tocIndex: number | null):
   { prev: TocEntry | null; current: TocEntry | null; next: TocEntry | null }
 export function withTitle(text: string, title: string): string

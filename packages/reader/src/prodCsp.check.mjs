@@ -7,7 +7,8 @@
 // (fixtures.mjs: a linked stylesheet and @font-face, so the book's blob: CSS and fonts are exercised), and
 // records every CSP violation in any frame. Rows, all at once (one page each):
 //   frame           <iframe src>: must open, render text, apply book CSS, load the book font, with no
-//                   violation; an un-nonced script must not run. Plus: a fresh hex nonce per response.
+//                   violation; an un-nonced script must not run; a PDF with a JPEG 2000 image opens and draws (#1204:
+//                   pdf.js in a Worker from a blob: URL, OpenJPEG's wasm). Plus: a fresh hex nonce per response.
 //   srcdoc-control  the served document as srcdoc, host without CSP: works (so the next row fails by CSP alone).
 //   srcdoc          the same under the app CSP: never sends `ready`, refused by script-src. Why the host does
 //                   not use srcdoc.
@@ -31,7 +32,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mobi, writeFontsEpub } from './fixtures.mjs'
+import { RED_J2K, mobi, pdf, writeFontsEpub } from './fixtures.mjs'
 import {
   FRAME_NONCE_PLACEHOLDER, READER_DIR, READER_FRAME_HEADERS, READER_FRAME_PATH, READER_SCRIPT_HEADERS, fillNonce, serveReaderFrame,
   readerFrameFiles, readerFrameTemplate,
@@ -52,6 +53,7 @@ writeFontsEpub(resolve(tmp, 'tsfonts.epub'))
 const FONTS_BOOK = readFileSync(resolve(tmp, 'tsfonts.epub'))
 const MOBI_TEXT = 'A MOBI paragraph through the shell.'
 const MOBI_BOOK = mobi('TS MOBI', `<html><body><p>${MOBI_TEXT}</p></body></html>`)
+const PDF_BOOK = pdf(1, { title: 'TS JPX', jpx: RED_J2K })
 rmSync(tmp, { recursive: true, force: true })
 
 // The server-level headers of the app's server block: its CSP and X-Frame-Options, verbatim.
@@ -128,6 +130,7 @@ const server = createServer((req, res) => {
   if (url.pathname === '/book.epub') return res.writeHead(200).end(BOOK)
   if (url.pathname === '/fonts.epub') return res.writeHead(200).end(FONTS_BOOK)
   if (url.pathname === '/book.mobi') return res.writeHead(200).end(MOBI_BOOK)
+  if (url.pathname === '/book.pdf') return res.writeHead(200).end(PDF_BOOK)
   if (row?.serve === 'unfilled' && url.pathname === READER_FRAME_PATH)
     return res.writeHead(200, READER_FRAME_HEADERS).end(readerFrameTemplate())
   if (row?.serve === 'shell' && url.pathname === READER_FRAME_PATH)
@@ -208,10 +211,19 @@ async function runRow(browser, row) {
     // here that is the external page script's (#1225), so a MOBI proves the nonce reaches it.
     const mobi = renders && await page.evaluate(() => window.__open('/book.mobi', 'tsformat.mobi')).then(() =>
       until(async () => (await msgs()).filter((x) => x === 'opened').length === 3 && (await text()).includes(MOBI_TEXT)))
+    // #1204: pdf.js parses in a Worker made from a blob: URL in this document (worker-src blob:), and draws the JPEG 2000
+    // image with OpenJPEG's wasm ('wasm-unsafe-eval'): the image's middle pixel is its red.
+    const pdfDrawn = mobi && await page.evaluate(() => window.__open('/book.pdf', 'tsjpx.pdf')).then(() =>
+      until(async () => (await msgs()).filter((x) => x === 'opened').length === 4 && (await Promise.all(blobFrames().map((f) => f.evaluate(() => {
+        const c = document.querySelector('#canvas canvas')
+        const d = c?.getContext('2d').getImageData(Math.round(c.width * 140 / 600), Math.round(c.height * 400 / 800), 1, 1).data
+        return !!d && d[0] > 150 && d[1] < 80 && d[2] < 80 && !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx')
+      }).catch(() => false)))).some(Boolean)))
     for (const v of violations) log.push(`    violation: ${v}`)
     check(log, ready && renders, `${row.id}: ready, opens, renders the book text`)
     check(log, css && font, `${row.id}: book CSS applied (${css}) and book font loaded (${font}) from blob:`)
     check(log, mobi, `${row.id}: a MOBI opens (its format reader runs under the page's nonce)`)
+    check(log, pdfDrawn, `${row.id}: a PDF opens in a Worker and draws its text and JPEG 2000 image`)
     check(log, !violations.length, `${row.id}: no CSP violation`)
     check(log, !(await probe(null)), `${row.id}: the page's own CSP holds: an un-nonced script does not run`)
   } else {

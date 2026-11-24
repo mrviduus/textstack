@@ -20,7 +20,7 @@ import { capabilitiesFor } from '../../lib/capabilities'
 import type { BookNotes, BookRow } from '../../lib/reader/localLibrary'
 import { downloadBook, openBookHost, syncLibrary, tryAgainBook, type SyncHost } from '../../lib/reader/sync'
 import { DESCRIBE_MS, PAGE_WEBVIEW_PROPS, pageSource } from './pageWebView'
-import { createOpenTracker, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
+import { createOpenTracker, isBookKey, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
 import { createMovedTracker } from '../../../../../packages/reader/src/movedTracker.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../../packages/reader/src/sessionTracker.mjs'
 import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
@@ -66,7 +66,7 @@ import { colorOf, noteChange, readHighlightList, readHighlightRemoved, readHighl
 import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
 import { readBookmarkList, type BookmarkList } from '../../../../../packages/reader/src/bookmarks.mjs'
-import { readToc, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import { readToc, readTocMessage, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
 import { BookmarksSheet, HighlightsSheet, SectionNav, TocSheet } from './ReaderToc'
 import { SearchSheet } from './SearchSheet'
 import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type Search } from '../../../../../packages/reader/src/search.mjs'
@@ -309,6 +309,8 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   const showOpenError = (what: string) => (e: unknown) => setOpenError(failedText(what, e))
   /** A deadline the page missed (deadlines.mjs, #1080 item 3); a late answer clears it. */
   const [overdue, setOverdue] = useState<Overdue>(null)
+  /** #1204: the open PDF's reader was terminated (a page that never finished): its pages stay blank until Retry reopens it. */
+  const [stopped, setStopped] = useState(false)
   const [deadlines] = useState(() => createDeadlines(setOverdue))
   /** The same open overdue twice in a row is given up (deadlines.mjs OPENED_OVERDUE_LIMIT). */
   const [strikes] = useState(() => createOverdueStrikes())
@@ -326,8 +328,16 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
    */
   const [openSha, setOpenShaState] = useState<string | null>(null)
   const openShaRef = useRef<string | null>(null)
+  /**
+   * The book the page has on screen, set at once when its `opened` is taken. `openShaRef` follows only after the store is
+   * read and the restore sent (it also keys sync and highlights); the page's `toc` and `book-stopped` can come before that
+   * (a small PDF's outline right after `opened`), so they are matched by this one (#1204, #1557).
+   */
+  const shownShaRef = useRef<string | null>(null)
   const setOpenSha = (sha: string | null) => {
     openShaRef.current = sha
+    // Cleared with it (a new open, the book closed); set before it, when `opened` is taken.
+    if (sha === null) shownShaRef.current = null
     setOpenShaState(sha)
   }
   const [place] = useState(createMovedTracker)
@@ -548,7 +558,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     }, (e) => (retry ? refreshNotes(false) : fail('notes')(e)))
   }
   /** A page message for the open book (its `key`, the page's lower-case sha256). */
-  const isOpenKey = (key: string) => openShaRef.current !== null && key.toLowerCase() === openShaRef.current
+  const isOpenKey = (key: string) => isBookKey(key, openShaRef.current)
   /** The reader's choice (a highlight or bookmark in its sheet, a deep link, a search result): saved where it lands. */
   const goHighlight = (h: { cfi: string }) => {
     startHostMove()
@@ -1076,6 +1086,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     setOffer(null)
     setOpenError(null)
     setError(null)
+    setStopped(false)
     setHeading(fill(t('reader.v2.opening'), { name: target.name }))
     setProgress.current(null)
     setAtEnd(false)
@@ -1096,6 +1107,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   const takeOpened = (t: Take<Opening, any>) => {
     for (const o of t.dropped) if (isStaged(o.file) && o.file !== t.open.file) readerStorage().dropStaged(o.file).catch(fail('drop'))
     opening.current = t.open
+    shownShaRef.current = sessionKey(t.opened.book?.sha256)
     saveSession(sessions.bind(sessionKey(t.opened.book?.sha256), Date.now()))
     setReflowable(t.opened.reflowable !== false)
     setFormat(typeof t.opened.format === 'string' ? t.opened.format : null)
@@ -1248,9 +1260,29 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
             // Shown: a remount of the route opens at the book, not the sheet again.
             router.setParams({ contents: undefined })
           }
-          contentsOnOpen.current = false
+          // #1557: a PDF's contents come after `opened`, as `toc`: the request waits for them.
+          if (m.format !== 'pdf' || entries.length) contentsOnOpen.current = false
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
+        return
+      }
+      case 'book-stopped':
+        // #1204: only for the book on screen; Retry (a new page load) opens it again.
+        if (isBookKey(m.key, shownShaRef.current)) setStopped(true)
+        return
+      case 'toc': {
+        // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
+        const u = readTocMessage(m, shownShaRef.current)
+        if (!u) return
+        setToc(u.toc)
+        tocIndex.current = u.tocIndex
+        setProgress.current((p) => p && { ...p, tocIndex: u.tocIndex })
+        // The `contents` param for a PDF (#1557): its contents are here now.
+        if (contentsOnOpen.current && u.toc.length) {
+          setTocOpen(true)
+          router.setParams({ contents: undefined })
+        }
+        contentsOnOpen.current = false
         return
       }
       case 'described': {
@@ -1483,6 +1515,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   /** A new page load: not ready until it says so, and no lightbox (#1265: the old page's went with it, unannounced). */
   function newPage() {
     ready.current = false
+    setStopped(false)
     setLightbox(false)
     setNonce(freshNonce())
   }
@@ -1630,6 +1663,12 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
           <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('common.retry')}</Text></Pressable>
         </View>
       )}
+      {stopped && (
+        <View style={styles.alert} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          <Text style={[styles.meta, { color: colors.error }]}>{fill(t('reader.v2.bookStopped'), { name: opening.current?.name ?? t('reader.v2.theBook') })}</Text>
+          <Pressable onPress={retry} accessibilityRole="button" style={button}><Text style={styles.buttonText}>{t('common.retry')}</Text></Pressable>
+        </View>
+      )}
       {linkFailed && (
         <View>
           <Text style={[styles.meta, { color: colors.error }]} accessibilityRole="alert" accessibilityLiveRegion="polite">{t('reader.v2.linkFailed')}</Text>
@@ -1646,9 +1685,10 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
       )}
     </>
   )
-  const hasNotices = !!(overdue || linkFailed || openError || error || offer)
+  const hasNotices = !!(overdue || stopped || linkFailed || openError || error || offer)
   const dismissNotices = () => {
     setLinkFailed(false)
+    setStopped(false)
     setError(null)
     setOpenError(null)
     setOffer(null)

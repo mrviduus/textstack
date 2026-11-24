@@ -51,8 +51,8 @@ and its build only. Hosted by `ReaderScreen.tsx` (R2): in production on the read
 | `frame.mjs`, `framePath.mjs` (+ `.d.mts`) | Web only (#1219, #1225): the page as a no-store shell + a content-hashed page script, and the one handler that serves both (dev, preview, the check; the build writes the same files for nginx). See Host responsibilities, "Web, its own document". `frame.test.ts` pins the split. |
 | `pageHarness.mjs` | The Chromium checks' one way to drive the page (#1557): Playwright from `apps/web`, a host page (bridge, messages, book-origin route), `waitFor`, `open`, frame probes. Used by `formats.check`, `sandbox.check`, `pdfgate`. |
 | `prodCsp.check.mjs` | The production-CSP gate (CI): shell + script under the app CSP read from nginx; the refused variants; nginx's reader locations against the handler's headers. |
-| `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). |
-| `toc.mjs` (+ `.d.mts`) | Pure, both hosts (#1261): `readToc` (a host's read of `opened.toc`: malformed entries dropped, each kept one with its `index` in the page's list, the one `relocate.tocIndex` names; at most 5000 places, labels cut to 200, depth 0 to 6) and `tocAround` (the current entry and the nearest ones before and after that lead somewhere else, an entry with the current one's href being the same place: the contents dialog's mark, the title beside the percent, and the section controls, which go by title with `goTo(href, true)`; a host marks a chosen entry at once, since a jump within the view on screen may send no relocate, and clears the place where an open starts, since a book's first relocate comes before its `opened`). `withTitle` fills a label with a title as text. A book with no entries has no contents button and no section controls; no host shows a section number. |
+| `openTracker.mjs` (+ `.d.mts`) | Pure, both hosts: which page answer belongs to which open — the open in flight, a book the page kept on screen while a newer open failed, a stale `restored` (dropped). `isBookKey`: whether a keyed message (`toc`, `book-stopped`, Android's own) names the book taken. |
+| `toc.mjs` (+ `.d.mts`) | Pure, both hosts (#1261): `readToc` (a host's read of `opened.toc`: malformed entries dropped, each kept one with its `index` in the page's list, the one `relocate.tocIndex` names; at most 5000 places, labels cut to 200, depth 0 to 6) and `tocAround` (the current entry and the nearest ones before and after that lead somewhere else, an entry with the current one's href being the same place: the contents dialog's mark, the title beside the percent, and the section controls, which go by title with `goTo(href, true)`; a host marks a chosen entry at once, since a jump within the view on screen may send no relocate, and clears the place where an open starts, since a book's first relocate comes before its `opened`). `withTitle` fills a label with a title as text. `readTocMessage` (#1557): a host's read of `toc` (a PDF's outline, after `opened`), for the book it took only. A book with no entries has no contents button and no section controls; no host shows a section number. |
 | `chapters.mjs` (+ `.d.mts`) | The page and both hosts (#1316; bundled, it imports packages/shared): what a chapter is, ONE rule by the document's order (`placeOf`, `startsIn`: where each entry starts in its file, a file-level entry at the top, a dead anchor nowhere; `segmentsIn`, `fileSummary`, `hasContents`, `chapterKey`), its text (`textBetween`, a section document's text as paragraphs: text only, without page-break markers and what the markup hides; `fitText`, the server's 200 KB cap, `cut` said), the server's copy of the contents (`tocEntries`, `sectionStarts`: ADR-033 P3, sent in `described`), and the hosts' reads `readChapterEnd` (of `relocate.chapterEnd` and `chapter-end`; the title cut never through a surrogate pair), `readChapterText` (of `chapter-text`) and `offersDiscuss` (not front and back matter by title, the legacy `isReviewableChapter`). See "Discuss this chapter". |
 | `movedTracker.mjs` (+ `.d.mts`) | Pure, any host: the open book as ADR-019 sees it (`decideServerState`'s `reader`): restored yet, whether the reader moved since (the page's `relocate.moved`, never a CFI comparison; a host `goTo` clears it), the spine index of the last relocate, the opening one included (#1278). |
 | `sessionTracker.mjs` (+ `.d.mts`) | Pure, both hosts (#1313): the reading session, the legacy readers' rules (starts on the first activity, time up to 3 min after the last, 5 min idle ends it, under 10 s not kept, at most 4 h), words read from `relocate` by the page's `relocate.cause` (`readRelocate`): `turn` counts the ground past the session's furthest place × `words` (at most 800 wpm of the counted time since the last counted step), `nav` (a navigation's landing) counts nothing and resets the baseline and furthest place, `layout` (anything else, the default) counts nothing and keeps the furthest place; whenever the seconds sent are fewer than the time counted, the words scale down with them. `open` / `bind` / `relocate` / `activity` / `tick` / `end`; an ended session is returned for the host to send. |
@@ -67,7 +67,7 @@ and its build only. Hosted by `ReaderScreen.tsx` (R2): in production on the read
 | `vocabWords.mjs` (+ `.d.mts`) | Pure, DOM-free, both hosts (#1271): `langOf`, `ofBook` (a card is the book's language), `wordId` (key + language), `markWordsOf` (what a host sends), `backfillTranslations` (the once-per-open rule: serial writes, a 429 stops it, cancelled by the host). |
 | `readerVocab.ts` | Android (#1271): `forBook`, `backfillable`, `answerRow` (the row a save's answer card makes: V2 cards only, `routeOf`; none for another user's), `ownsLibrary`, `serverTranslation`, `nudgeCount`. |
 | `wordPopup.mjs` (+ `.d.mts`) | Pure, both hosts (#1269): `readWord` (a host's read of `word`, `readSelection`'s caps; the rect through `selection.mjs` `readRect`), `readLang` (`opened.lang` as a two-letter primary subtag, or null: a three-letter code gives the host's fallback), and `popupStep`: what a `word`, `tap`, `selection`, `selection-cleared` or a move does to the word popup / selection toolbar and to the tap zones. See Host responsibilities, "Word popup and selection toolbar". |
-| `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants. See Host responsibilities, "Deadlines and states". |
+| `deadlines.mjs` (+ `.d.mts`) | Pure (setTimeout only), both hosts (#1227): the `ready` and `opened` deadlines and their calibration constants; the page's `PDF_SILENCE_MS` (#1204). See Host responsibilities, "Deadlines and states". |
 | `hostErrors.ts` | Android host: a full disk (`ENOSPC`, `SQLITE_FULL`, quota) as one human message, `NotReadableError` as "could not be read", anything else as is (#1080 item 6). |
 | `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): `node bigbook.mjs <in.epub> <out.epub> [MB=88]` pads a real EPUB to about MB MiB with PNG plates foliate renders. Needs `zip`/`unzip`; the output path is the caller's (put it in the gitignored `fixtures/`). |
 
@@ -202,7 +202,7 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   (`open-failed`; whether before or after the swap depends on where foliate reads it, not checked).
 - **Combo files** (MOBI6 record 0 + an EXTH 121 KF8 boundary) are read as their **KF8 half**, foliate's own choice
   (CSS, its TOC; one code path with AZW3); a boundary at no MOBI header falls back to MOBI6 inside foliate. Cost,
-  accepted because V2 is dev-only with no users: a combo stored before #1182 by its MOBI6 half has other section
+  accepted when V2 had no users (#1182): a combo stored before #1182 by its MOBI6 half has other section
   indexes and CFIs, so its saved position fails the quote check and the book restores to the start.
 - **FB2 encodings and entities:** foliate decodes FB2 as UTF-8 before reading its declaration, so the page
   re-encodes a UTF-16 file (BOM or not, either order) to UTF-8 first. Any `<!ENTITY` before the root is refused
@@ -216,19 +216,41 @@ the Android host stages and retains every format as `*.epub`, the web host opens
   handed to foliate with lower-case extensions (`comicName`: it keeps `.jpg`, never `.JPG`), each name once, and
   each page blob is typed by its extension (an untyped SVG is no image). `opened.reflowable` is `false`: `flow()`
   changes nothing on a fixed layout, is not counted as a switch, and the hosts disable their toggle.
-- **PDF (#1128 S5): the V2 page only.** The page is reachable from the dev hosts alone (Android `__DEV__` route,
-  web `/dev/reader` on the dev server); **the ADR-012 pdf.js viewer remains the production PDF reader** and is
-  untouched. **The ADR-032 PDF gate is NOT complete**: its evidence is desktop headless Chromium only
-  (`pdfgate.mjs`, `formats.check.mjs`); no Android System WebView or device row has been run.
-  - *Where pdf.js's worker runs:* on the page's main thread. The PDF reader's IIFE evaluates `pdf.worker.mjs`
-    first, which sets `globalThis.pdfjsWorker`; pdf.js then uses it as a "fake worker" and never constructs a
-    `Worker` nor `import()`s a URL. Why: the CSP is `script-src 'nonce-…'` only — a real Worker needs
-    `worker-src blob:` (or a served file), a widening this slice does not make. **No CSP change.** The price is
-    parsing and rendering on the UI thread: a heavy page stalls input. Its cost on a device is **not measured**.
-  - *Nothing fetched:* `isEvalSupported: false` (forced by the fork; the CSP refuses eval anyway), `useWasm: false`,
-    no URL for anything. pdf.js's predefined cMaps ride in the page as their own carried chunk (`pdfcmaps`,
+- **PDF (#1128 S5):** the production PDF reader on both hosts (the ADR-012 viewer is gone). **The ADR-032 PDF gate's
+  evidence is desktop headless Chromium** (`pdfgate.mjs`, `formats.check.mjs`, `prodCsp.check.mjs`); no Android System
+  WebView row is in a check.
+  - *Where pdf.js's worker runs (#1204):* in a real Worker, one per PDF. The worker is a carried chunk of its own
+    (`pdfworker`: `pdfPolyfills.mjs`, then `pdf.worker.mjs`, minified), never run on the page: page.mjs makes one
+    `blob:` URL of its text and a `Worker` of it per book (`pdfWorker`), handed to the fork's `makePDF` (`worker`),
+    which gives pdf.js its port and terminates it with the book. The CSP gains `worker-src blob:` for it. A watchdog
+    on the worker's **silence**, not a timer per call (#1579 review: pdf.js's worker answers one call at a time, so a
+    call's wait in its queue, behind a slow page or the outline, is no sign of trouble): while calls are outstanding, a
+    worker that says nothing at all (no answer, no message: a page's operator chunks and images count) for
+    `PDF_SILENCE_MS` (60 s, deadlines.mjs: one page's single decode on a slow phone is seconds, a few tens at worst; a
+    stuck worker still ends within a minute) is terminated, failing every call in flight and every later one ("this
+    PDF took too long to read"), while the page keeps answering. A busy worker that keeps answering is kept. A render
+    no longer wanted (its frame left the document, or a newer render of the same page) is cancelled when another
+    starts (`RenderTask.cancel`), so the page wanted now does not queue behind it. The host's own `opened` deadline
+    is unchanged: a bomb in the load shows the host's "taking too long" first, then `open-failed`.
+    A page that fails to draw for any reason but a cancel is the book stopped too (`book-stopped` with the reason), never
+    a blank page nobody hears of: pdf.js draws past what it can ignore, so a page that still fails is one the worker
+    could not do; past its memory, pdf.js ignores the out-of-memory in the drawing and rejects the page's text ("Array
+    buffer allocation failed"), and the worker, having answered, never goes silent. A worker `error` or `messageerror`
+    after the load stops the book at once. Before the swap that is the open's `open-failed` (a decompression bomb in
+    the load); with the book on screen the page sends `book-stopped` (once) instead of leaving blank pages, and the
+    hosts say the book stopped responding, with Retry (a new page load, the book opened again). A worker that cannot
+    start fails the open at once, and so does a page built without its `pdfworker` chunk. `__testPdfSilence(ms)` (test
+    only) shortens the watchdog.
+  - *Nothing fetched:* `isEvalSupported: false` (forced by the fork; the CSP refuses eval anyway), no URL for
+    anything. pdf.js's predefined cMaps ride in the page as their own carried chunk (`pdfcmaps`,
     base64, `PdfCMaps` in page.mjs), run the first time a PDF's font names one: without them a CJK font on a
-    predefined cMap draws a blank page. pdf.js never runs a PDF's JavaScript here (its scripting sandbox is not
+    predefined cMap draws a blank page. `useWasm: true` (#1204): OpenJPEG's wasm (JPEG 2000 images) rides as
+    `pdfwasm` (base64), run the first time a PDF has one; pdf.js's worker asks the page for it through its
+    `WasmFactory` (`PdfWasm`; a custom cMap factory turns pdf.js's worker fetch off, so the bytes come over the
+    worker's port and no `wasmUrl` is needed), and the CSP's `'wasm-unsafe-eval'` lets it compile. JBIG2's and the
+    ICC wasm are not carried: pdf.js falls back to its JS JBIG2 decoder, and draws ICC colours by their alternate.
+  - *The bytes (#1557):* the page hands pdf.js the bytes it read (`makePDF(bytes)`, pdf.js's `data`), transferred to
+    the worker: one copy, in the worker; the page's buffer is empty after (`opened.book.size` is taken before). pdf.js never runs a PDF's JavaScript here (its scripting sandbox is not
     shipped). A link annotation goes through `external-link` → `openLink`, http(s) only, as in an EPUB (a GoToR to
     an http file spec is handed the same way, as pdf.js makes it a URL); Launch and `javascript:` never are.
   - *Layout and position:* one page per screen (`rendition.spread = 'none'`: inside a two-page spread a step shows
@@ -246,31 +268,35 @@ the Android host stages and retains every format as `*.epub`, the web host opens
     `showTranslation()` ignored. A PDF highlight is a `pdf-page` anchor (page + rects) and the fixed-layout
     renderer has no overlayer: **highlights and the translation label are not built**. The web dev host hides
     its Highlight button and asks for no label; the Android dev host offers neither for any format yet.
-  - *Known gaps:* **JPEG 2000 images are not drawn** (accepted: pdf.js decodes them with OpenJPEG wasm, which
-    needs `'wasm-unsafe-eval'`); the rest of such a page draws. **Standard fonts fall back to system fonts**
+  - *Known gaps:* **Standard fonts fall back to system fonts**
     (standard-font data is not carried); glyph shapes on Android may differ, positions come from the PDF.
-    **UI-thread parsing cost is not measured on devices.** The fork's text-selection fix (`selecting` class)
+    **The worker and wasm are not run on a device by any check** (an Android System WebView older than Chrome 97 has
+    no `'wasm-unsafe-eval'`: there a JPEG 2000 image is not drawn, the rest of its page is). The deadline bounds what the
+    worker does; drawing a decoded page on the page's canvas is still the main thread's (a huge image costs there).
+    The fork's text-selection fix (`selecting` class)
     targets Firefox; selection was **verified in Chromium only** (desktop, mouse/script, no long-press). A
-    password-protected PDF is refused (see above), not opened with a password. A hostile PDF can burn CPU or
-    memory on the UI thread (a freeze, not an escape): **a decompression bomb freezes the main thread** (no
-    guard: 1 MB → 12 s on desktop); bounding it needs the fork's PDF reader to pass pdf.js a stream/image size
-    cap (or parse in a real Worker), not a page change. Still open (#1203): **the PDF's bytes are held 2–3 times**
-    (the page's read buffer, the `File` made of it, pdf.js's own chunks); **three copies of the page-driving
-    harness** (`formats.check.mjs`, `sandbox.check.mjs`, `pdfgate.mjs`).
+    password-protected PDF is refused (see above), not opened with a password. Still open (#1557): **three copies of
+    the page-driving harness** (`formats.check.mjs`, `sandbox.check.mjs`, `pdfgate.mjs`).
   - *Fork fixes (#1203):* the link service has `getAnchorUrl` and pdf.js's other `IPDFLinkService` methods as
     no-ops (a Named action, ResetForm or attachment link no longer loses the page's links); `render()` builds its
     own text and annotation layers and only the latest one replaces the old (a resize never duplicates them);
-    `makePDF` keeps the last four loaded pages, an older one's `blob:` URL revoked and `page.cleanup()` called,
-    rebuilt on a revisit; a failed load destroys its own loading task; foliate's TOC progress resolves the outline
-    entries in parallel (still all before `opened`, no longer one round trip after another). `formats.check.mjs`
-    checks the links, a resize and the page release; the refusal and outline rows cover the other two.
+    `makePDF` keeps the last four loaded pages (`page.cleanup()` for an older one, rebuilt on a revisit); a failed
+    load destroys its own loading task; foliate's TOC progress resolves the outline entries in parallel.
+    `formats.check.mjs` checks the links, a resize and the page release; the refusal and outline rows cover the other two.
+  - *Fork fixes (#1204, #1557):* the worker and deadline above; the bytes as `data`; **the outline after `opened`**: makePDF
+    no longer reads it, `book.getTOC()` does (once) and the page calls it after `opened`, then `view.updateTOC()` and a
+    `toc` message (Host ↔ page contract), so a huge outline no longer holds up the first page (`describe` asks for it
+    too); **a page's `blob:` URL is revoked once its frame has loaded it** (the first `onZoom` on it), each load a
+    document of its own, never by the four-page eviction (which could revoke a URL whose frame was still loading on a
+    jump of four or more pages); one whose frame never loads goes at `destroy`. `pdfReader.test.ts` tells these
+    stories over a pdf.js stand-in; `formats.check.mjs` has the bomb, JPEG 2000, outline-after-`opened` and jump rows.
   - *Older WebViews:* the pdf.js 5.5 modern build calls `Map`/`WeakMap.prototype.getOrInsertComputed`,
     `Promise.withResolvers`, `Promise.try`, `AbortSignal.any`, `Uint8Array.prototype.toHex`/`toBase64`,
     `Uint8Array.fromBase64`, `ArrayBuffer.prototype.transferToFixedLength`, `URL.parse`, `Array.prototype.findLast`,
     `.at()` and async iteration of `ReadableStream`; esbuild's target lowers syntax, not APIs.
-    `pdfPolyfills.mjs` stands in for those (checked: they are deleted and the PDF still opens and draws).
-    `structuredClone` (pdf.js's main-thread worker clones every message with it) is not polyfilled: without
-    it the open answers `open-failed` "this WebView is too old to read PDF", before the swap. Not polyfilled
+    `pdfPolyfills.mjs` stands in for those, on the page and first in the worker (checked: they are deleted in both and
+    the PDF still opens and draws). `structuredClone` (pdf.js calls it on the page) is not polyfilled, and a `Worker`
+    cannot be: without either the open answers `open-failed` "this WebView is too old to read PDF", before the swap. Not polyfilled
     either, on paths this page does not take: `Response.prototype.bytes` (fetching), `DecompressionStream`
     (guarded by pdf.js). pdf.js's two layer stylesheets use **native CSS nesting** (`&.highlighting`,
     `&:hover`, …): a WebView older than Chrome 112 drops those nested rules (selection highlight and link
@@ -296,9 +322,13 @@ The section iframes are `sandbox="allow-same-origin allow-scripts"`, so the page
 (ADR-029 Decision 4; changing a directive is a change to that ADR):
 
 ```
-default-src 'none'; script-src 'nonce-__READER_NONCE__'; style-src blob: 'unsafe-inline'; img-src blob: data:;
-font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'
+default-src 'none'; script-src 'nonce-__READER_NONCE__' 'wasm-unsafe-eval'; style-src blob: 'unsafe-inline'; img-src blob: data:;
+font-src blob: data:; media-src blob: data:; frame-src blob:; worker-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'
 ```
+
+`worker-src blob:` and `'wasm-unsafe-eval'` (#1204, owner decision 2026-11-24) are pdf.js's: its worker from a `blob:` URL of
+the page's own carried text, and the OpenJPEG wasm the page carries. Neither lets a book run anything: a book's script still
+needs the nonce, and without a script no Worker is made and no wasm compiled.
 
 That is the page as built and the web frame's. The Android page (`readerAndroidPageHtml`, #1228) differs in
 `connect-src` only: `blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/`,
@@ -397,7 +427,9 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 |---|---|---|
 | `ready` | — | may call `openUrl` |
 | `opened` | (Also for a book swapped in while a newer open is under way: see Formats, the open order.) `book {sha256, size, name}`, `format` (`epub`/`mobi`/`fb2`/`cbz`/`pdf`), `textual` (false: no word taps, hide translation and vocabulary), `annotatable` (false: hide highlight and the translation label; CBZ and PDF), `bookmarkable` (#1314: a bookmark can be made somewhere in this book: text at a CFI; false on a CBZ, a PDF and a pre-paginated EPUB, where a host offers no bookmark control unless the book holds bookmarks already), `reflowable` (false: disable the flow toggle), `dir` (`ltr` / `rtl`, #1263: the direction the renderer pages in, `pagedDir`: a fixed layout by the book's page-progression direction (EPUB spine, MOBI/KF8 EXTH 527), a reflowable book by its shown section's own direction as foliate's paginator reads it (`dir` attributes, else the computed `direction`, which foliate sets from the book's language); unknown is `ltr`; `relocate` carries it too), `title`, `author` (either may be `''`), `lang` (#1269: the book's first metadata language as written, at most 35 chars, or `''`; hosts read it through `readLang`), `sections`, `toc [{label, href, depth}]` (flat, in reading order; `depth` 0 = top level, #1261), `searchable` (#1315: true where the book has section documents to search; false on a CBZ and a PDF; hosts offer search only for strictly `true`) | calls `restore` with the stored JSON for `book.sha256` |
-| `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, DRM, password-protected PDF) | must not keep the file |
+| `toc` | #1557: a PDF's outline, read after `opened` (`opened.toc` is `[]` for a PDF): `key` (the book's `sha256`), `toc` as `opened.toc`'s, `tocIndex` (the entry of the place on screen, or null). Only for the view on screen; none for a PDF whose outline cannot be read. Said again right after an `open-failed` while that view stays (a host dropped it during the newer open, then takes the book back) | through `readTocMessage` (toc.mjs): for the book taken only, then as `opened.toc` and `relocate.tocIndex`; a contents request on open (web `openContents`, Android `contents`) waits for it on a PDF |
+| `open-failed` | `name`, `error` (shown as is: unreadable, unsupported format, DRM, password-protected PDF, a PDF past its deadline) | must not keep the file |
+| `book-stopped` | #1204: the book on screen (a PDF) stopped answering: its worker went silent past the watchdog (a page that never finished drawing) and was terminated, so no further page draws. `key` (the book's `sha256`), `error`. Once per book, said again after an `open-failed` as `toc` is; never for an open that fails (that is `open-failed`) | for the book taken only (`isBookKey`, openTracker.mjs): "{name} stopped responding" with Retry, which loads a new page and opens the book again |
 | `restored` | `key` (= the book's `sha256`, as `store`'s: a host drops one for a book it is not reading), `found`, `rejected`, `position` (`none` / `restored` / `restored by fraction` / `quote mismatch, stayed at start` / `page not found, stayed at start` (CBZ, pre-paginated EPUB, PDF) / `wrong position kind, stayed at start` (a CFI or fraction on a PDF, a page number elsewhere) / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
 | `highlights` | `key` (= the book's `sha256`), `highlights [{id, status}]` (`restored` / `quote mismatch, not drawn` / `already drawn` / `not a highlight`) | the answer to `addHighlights`; a host logs the ones not drawn |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |

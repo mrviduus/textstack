@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createOpenTracker } from './openTracker.mjs'
+import { createOpenTracker, isBookKey } from './openTracker.mjs'
 
 const opened = (name: string, sha256 = `${name}-sha`) => ({ type: 'opened', book: { name, sha256 } })
 
@@ -97,5 +97,20 @@ describe('v2 host open tracker (S5 review)', () => {
     t.dispose() // the screen unmounted during the copy
     expect(second()).toBe(false)
     expect(t.pick()()).toBe(true) // a remount's pick still counts
+  })
+})
+
+describe('a keyed message for the book on screen (#1204, #1557)', () => {
+  it('isBookKey_TheBookTaken_CaseIgnored', () => {
+    expect(isBookKey('AB12', 'ab12')).toBe(true)
+  })
+
+  it.each([
+    ['another book', 'cd34', 'ab12'],
+    ['no book taken', 'ab12', null],
+    ['no key', undefined, 'ab12'],
+    ['a key that is no string', 12, '12'],
+  ])('isBookKey_%s_False', (_name, key, open) => {
+    expect(isBookKey(key, open)).toBe(false)
   })
 })

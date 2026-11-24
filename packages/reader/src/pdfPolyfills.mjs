@@ -1,9 +1,10 @@
 // Runtime APIs the vendored pdf.js 5.5.207 (modern build) calls and an older Android System WebView lacks
 // (#1128 S5 review). esbuild's `chrome90` target lowers syntax only, never APIs. Imported FIRST by the
-// carried `pdf` reader (build.mjs FORMATS.pdf), so it runs before pdf.js, and only when a PDF opens.
+// carried `pdf` reader and by pdf.js's worker (build.mjs FORMATS.pdf, FORMATS.pdfworker: a Worker has globals of its
+// own, #1204), so it runs before pdf.js, and only when a PDF opens.
 // Each is installed only where missing; each is the few lines the spec needs for how pdf.js calls it.
-// structuredClone (pdf.js's main-thread "worker" clones every message with it) is NOT polyfillable here:
-// page.mjs refuses a PDF without it (`PDF_NEEDS`). Checked by formats.check.mjs ("old WebView").
+// structuredClone (pdf.js calls it on the page) is NOT polyfillable here, nor is a Worker:
+// page.mjs refuses a PDF without either. Checked by formats.check.mjs ("old WebView", page and worker).
 const define = (o, k, v) => { if (o && !(k in o)) Object.defineProperty(o, k, { value: v, writable: true, configurable: true }) }
 
 for (const M of [Map, WeakMap]) {

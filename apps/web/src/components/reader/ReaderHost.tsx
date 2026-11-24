@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { CHAPTER_TEXT_MS, createDiscussLocks, createDiscuss, fillBookMeta, runDiscuss, syncTocIfMissing, syncApi, type PagePosition, type FileDetails } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
-import { createOpenTracker, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
+import { createOpenTracker, isBookKey, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
 import { READER_FRAME_PATH } from '../../../../../packages/reader/src/framePath.mjs'
 import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
 import { readSelection } from '../../../../../packages/reader/src/selection.mjs'
@@ -22,7 +22,7 @@ import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type Chapte
 import { ChapterDiscuss, type DiscussState } from './ChapterDiscuss'
 import { syncStore } from '../../api/sync'
 import { listOAuthGrants } from '../../api/oauth'
-import { readToc, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import { readToc, readTocMessage, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../../packages/reader/src/sessionTracker.mjs'
 import { flushPendingSessions, queueReadingSession } from '../../hooks/useReadingSession'
 import { useAuth } from '../../context/AuthContext'
@@ -56,6 +56,8 @@ import { createReaderSync, type ReaderSync, type SaveStatus, type SyncTarget } f
 export interface HostBook { bytes: ArrayBuffer; name: string; sync?: SyncTarget }
 /** The page's `opened` message, as far as hosts read it. */
 export interface HostOpenedMessage {
+  /** `epub` / `mobi` / `fb2` / `cbz` / `pdf` (a PDF's contents come later, as `toc`). */
+  format?: string
   title?: string
   author?: string
   annotatable?: boolean
@@ -260,6 +262,8 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
   const [error, setError] = useState<string | null>(null)
   /** A deadline the frame missed (deadlines.mjs); a late answer clears it. */
   const [overdue, setOverdue] = useState<Overdue>(null)
+  /** #1204: the open PDF's reader was terminated (a page that never finished): its pages stay blank until Retry reopens it. */
+  const [stopped, setStopped] = useState(false)
   const [deadlines] = useState(() => createDeadlines(setOverdue))
   /** The size of the open last handed to the page: its `opened` deadline (said in the message). */
   const openedBytes = useRef(0)
@@ -514,6 +518,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
     endSession(sessions.open(Date.now()))
     // Nothing of the previous book may stay on screen beside this one's answer (or its error).
     setError(null)
+    setStopped(false)
     setOffer(null)
     setHeading(t('v2Reader.opening', { name: book.name }))
     setStatus('')
@@ -557,6 +562,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
   /** Retry after a deadline: a fresh frame; an open whose bytes the old one took is asked for again (`onReload`). */
   const reloadFrame = () => {
     ready.current = false
+    setStopped(false)
     // #1265: the old frame's lightbox went with it, unannounced.
     setLightbox(false)
     // A fresh frame has no book on screen.
@@ -668,7 +674,8 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
         setTocOpen(true)
         onContentsShownRef.current?.()
       }
-      contentsOnOpen.current = false
+      // #1557: a PDF's contents come after `opened`, as `toc`: the request waits for them.
+      if (m.format !== 'pdf' || entries.length) contentsOnOpen.current = false
       setBookLanguage(readLang(m) ?? 'en')
       setMarksLanguage(savesWords(m) ? readLang(m) ?? 'en' : null)
       setTtsLanguage(ttsLang(m.lang, 'en'))
@@ -705,6 +712,24 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           if (!take) return
           deadlines.answered()
           takeOpened(take)
+          return
+        }
+        case 'book-stopped':
+          // #1204: only for the book on screen; Retry (a fresh frame) opens it again.
+          if (isBookKey(m?.key, openedSha.current)) setStopped(true)
+          return
+        case 'toc': {
+          // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
+          const u = readTocMessage(m, openedSha.current)
+          if (!u) return
+          setToc(u.toc)
+          setTocIndex(u.tocIndex)
+          // `openContents` for a PDF (#1557): its contents are here now.
+          if (contentsOnOpen.current && u.toc.length) {
+            setTocOpen(true)
+            onContentsShownRef.current?.()
+          }
+          contentsOnOpen.current = false
           return
         }
         case 'open-failed': {
@@ -1162,6 +1187,12 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
             {overdue === 'ready'
               ? (dev ? t('v2Reader.frameFailedDev', { path: FRAME_SRC, seconds: readyDeadlineMs / 1000 }) : t('v2Reader.frameFailed', { seconds: readyDeadlineMs / 1000 }))
               : t('v2Reader.openTimeout', { name: opening.current?.originalName ?? '', seconds: Math.ceil(openedDeadlineMs(openedBytes.current) / 1000) })}{' '}
+            <button inert={lightboxOpen} onClick={reloadFrame}>{t('v2Reader.retry')}</button>
+          </span>
+        )}
+        {stopped && (
+          <span role="alert" data-testid="v2-stopped">
+            {t('v2Reader.bookStopped', { name: opening.current?.originalName ?? '' })}{' '}
             <button inert={lightboxOpen} onClick={reloadFrame}>{t('v2Reader.retry')}</button>
           </span>
         )}

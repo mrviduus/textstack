@@ -379,6 +379,7 @@
   "reader.v2.linkFailed": "This book could not be opened on this device.",
   "reader.v2.notServed": "not a file the reader serves",
   "reader.v2.openedLateTwice": "it did not open in time, twice",
+  "reader.v2.bookStopped": "{name} stopped responding. Retry opens it again.",
   "reader.v2.crashes": "this book crashes the reader",
   "reader.v2.diskFull": "Not enough free storage on this device. Free some space and try again.",
   "reader.v2.notReadable": "The file could not be read.",

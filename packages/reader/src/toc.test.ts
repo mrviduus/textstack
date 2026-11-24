@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_TOC_DEPTH, MAX_TOC_ENTRIES, readToc, tocAround, withTitle } from './toc.mjs'
+import { MAX_TOC_DEPTH, MAX_TOC_ENTRIES, readToc, readTocMessage, tocAround, withTitle } from './toc.mjs'
 
 const opened = (toc: unknown) => ({ type: 'opened', toc })
 const entry = (index: number, label = `e${index}`, depth = 0) => ({ index, label, href: `${label}.xhtml`, depth })
@@ -15,6 +15,23 @@ describe('v2 reader table of contents (host side)', () => {
       { index: 1, label: 'The Pond', href: 'c1.xhtml#a', depth: 1 },
       { index: 2, label: 'Notes', href: 'n.xhtml', depth: 2 },
     ])
+  })
+
+  it('readTocMessage_APdfOutlineAfterOpened_ForTheBookOnScreen_TakenWithItsPlace', () => {
+    const m = { type: 'toc', key: 'AB12', toc: [{ label: 'Start', href: '[1]', depth: 0 }, { label: 'Four', href: '[4]', depth: 0 }], tocIndex: 1 }
+    expect(readTocMessage(m, 'ab12')).toEqual({ toc: [entry(0, 'Start'), entry(1, 'Four')].map((e) => ({ ...e, href: e.label === 'Start' ? '[1]' : '[4]' })), tocIndex: 1 })
+  })
+
+  it.each([
+    ['another book', { key: 'cd34', toc: [], tocIndex: 0 }, 'ab12'],
+    ['no book taken', { key: 'ab12', toc: [], tocIndex: 0 }, null],
+    ['no key', { toc: [], tocIndex: 0 }, 'ab12'],
+  ])('readTocMessage_%s_Dropped', (_name, m, key) => {
+    expect(readTocMessage(m, key)).toBeNull()
+  })
+
+  it.each([[-1], [1.5], ['2'], [null], [undefined]])('readTocMessage_PlaceEntry%s_None', (tocIndex) => {
+    expect(readTocMessage({ key: 'k', toc: [], tocIndex }, 'k')).toEqual({ toc: [], tocIndex: null })
   })
 
   it.each([

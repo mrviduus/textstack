@@ -4,7 +4,9 @@
 // AZW3 and a combo (its KF8 half) open and draw; CBZ has no text features and saves and restores its page by name;
 // a fraction-only position (#1187) restores without saving; an HTML clip opens only with the host's format, sanitized; PDF opens, pages, saves and resumes by `pdf-page` and
 // never takes a CFI; `describe` reads every format's details and cover beside the open book; a DRM, damaged, entity-declaring or unknown file is refused, leaving the open book reading;
-// a hostile PDF neither runs script nor leaves the file; an older WebView still reads a PDF or says why not.
+// a hostile PDF neither runs script nor leaves the file; a decompression bomb fails at the watchdog while the page answers
+// (#1204: pdf.js in a Worker); a JPEG 2000 image draws (OpenJPEG's wasm); a PDF's outline comes after `opened` (#1557);
+// an older WebView still reads a PDF or says why not.
 // The reader's features (selection, search, highlights, bookmarks, chrome) are not this check's: their modules'
 // unit tests and the web e2e cover them.
 //
@@ -15,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt } from './bookOriginRoute.mjs'
-import { fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
+import { bombPagePdf, bombPdf, fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
 import { chromium, drive, hostPage as harnessPage } from './pageHarness.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
@@ -39,16 +41,29 @@ try {
    * An older WebView (S5 review), on pages of their own, after the main page: the APIs pdf.js 5.5 calls that
    * pdfPolyfills.mjs stands in for are deleted before the page runs, and a PDF still opens and draws; without
    * structuredClone too (not polyfillable) the open is refused with a clear message, never left hanging.
+   * #1204: pdf.js's worker has globals of its own: each Worker the page makes runs the same deletions first.
    */
   const oldWebView = async (alsoClone) => {
     const got = []
     const old = await hostPage(got, { viewport: { width: 420, height: 760 } })
     await old.addInitScript((alsoClone) => {
-      for (const [o, k] of [[Map.prototype, 'getOrInsertComputed'], [Map.prototype, 'getOrInsert'], [WeakMap.prototype, 'getOrInsertComputed'],
-        [WeakMap.prototype, 'getOrInsert'], [Promise, 'withResolvers'], [Promise, 'try'], [AbortSignal, 'any'], [Array.prototype, 'findLast'],
-        [Uint8Array.prototype, 'toHex'], [Uint8Array.prototype, 'toBase64'], [Uint8Array, 'fromBase64'], [ArrayBuffer.prototype, 'transferToFixedLength'],
-        [URL, 'parse'], [ReadableStream.prototype, Symbol.asyncIterator]]) delete o[k]
+      const strip = () => {
+        for (const [o, k] of [[Map.prototype, 'getOrInsertComputed'], [Map.prototype, 'getOrInsert'], [WeakMap.prototype, 'getOrInsertComputed'],
+          [WeakMap.prototype, 'getOrInsert'], [Promise, 'withResolvers'], [Promise, 'try'], [AbortSignal, 'any'], [Array.prototype, 'findLast'],
+          [Uint8Array.prototype, 'toHex'], [Uint8Array.prototype, 'toBase64'], [Uint8Array, 'fromBase64'], [ArrayBuffer.prototype, 'transferToFixedLength'],
+          [URL, 'parse'], [ReadableStream.prototype, Symbol.asyncIterator]]) delete o[k]
+      }
+      strip()
       if (alsoClone) delete window.structuredClone
+      // The worker's script, read back from its blob: URL (connect-src blob:), behind the same deletions.
+      const W = window.Worker
+      window.Worker = function (url, options) {
+        const x = new XMLHttpRequest()
+        x.open('GET', url, false)
+        x.send()
+        window.__strippedWorkers = (window.__strippedWorkers ?? 0) + 1
+        return new W(URL.createObjectURL(new Blob([`(${strip})();\n${x.responseText}`], { type: 'text/javascript' })), options)
+      }
     }, alsoClone)
     await old.goto(PAGE_URL)
     await old.evaluate((u) => window.__fol.openUrl(u, 'tsformat.pdf'), bookAt('tsformat.pdf'))
@@ -57,15 +72,60 @@ try {
     let drawn = false
     for (const t0 = Date.now(); !alsoClone && answer?.type === 'opened' && !drawn && Date.now() - t0 < TIMEOUT_MS; await old.waitForTimeout(100))
       for (const f of old.frames().filter((f) => f.url().startsWith('blob:'))) drawn ||= await f.evaluate(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx')).catch(() => false)
+    const stripped = await old.evaluate(() => window.__strippedWorkers ?? 0)
     await old.close()
     return alsoClone
       ? () => check(answer?.type === 'open-failed' && /too old to read PDF/.test(answer.error), `old WebView: without structuredClone a PDF is refused with a clear message (${answer?.type ?? 'no answer'}: ${answer?.error})`)
-      : () => check(answer?.type === 'opened' && drawn, `old WebView: without the polyfilled APIs a PDF still opens and draws (${answer?.type ?? 'no answer'}${answer?.error ? `, ${answer.error}` : ''})`)
+      : () => check(answer?.type === 'opened' && drawn && stripped === 1, `old WebView: without the polyfilled APIs (page and worker) a PDF still opens and draws (${answer?.type ?? 'no answer'}${answer?.error ? `, ${answer.error}` : ''}, ${stripped} worker)`)
+  }
+
+  /**
+   * #1204 (emulator): a phone's memory, on any machine. Each Worker the page makes runs behind a shim that refuses any
+   * ArrayBuffer over 64 MiB with the error a phone gives ("Array buffer allocation failed"); then page 2's bomb (1 GiB as
+   * its content) runs out of memory in pdf.js's decode, at the default silence. pdf.js ignores that in the page's drawing
+   * and rejects the page's text: the worker answered, so no watchdog. The failed page must be the book stopped, never a
+   * blank page nobody hears of, and nothing goes unhandled.
+   */
+  const lowMemory = async () => {
+    const got = []
+    const low = await hostPage(got, { viewport: { width: 420, height: 760 } })
+    let errors = 0
+    low.on('pageerror', () => errors++)
+    await low.addInitScript(() => {
+      const shim = () => {
+        const refuse = (T) => new Proxy(T, { construct(t, args, nt) {
+          if (typeof args[0] === 'number' && args[0] > 64 << 20) throw new RangeError('Array buffer allocation failed')
+          return Reflect.construct(t, args, nt)
+        } })
+        self.ArrayBuffer = refuse(ArrayBuffer)
+        self.Uint8Array = refuse(Uint8Array)
+      }
+      const W = window.Worker
+      window.Worker = function (url, options) {
+        const x = new XMLHttpRequest()
+        x.open('GET', url, false)
+        x.send()
+        return new W(URL.createObjectURL(new Blob([`(${shim})();\n${x.responseText}`], { type: 'text/javascript' })), options)
+      }
+    })
+    await low.goto(PAGE_URL)
+    const { call: lowCall, waitFor: lowWait, open: lowOpen } = drive(low, got, TIMEOUT_MS)
+    await lowWait(0, (x) => x.type === 'ready', 'ready')
+    const opened = await lowOpen(bookAt('tsbombpage.pdf'), 'tsbombpage.pdf')
+    const from = got.length
+    lowCall('window.__fol.next()')
+    const stopped = await lowWait(from, (x) => x.type === 'book-stopped', 'book-stopped (out of memory)').catch(() => null)
+    await low.waitForTimeout(500) // an unhandled rejection after it has had its turn
+    const logged = got.slice(from).filter((x) => x.type === 'log' && x.level === 'error').length
+    await low.close()
+    return () => check(opened.type === 'opened' && stopped?.key === opened.book?.sha256 && /could not be drawn: .*allocation failed/.test(stopped?.error) && !errors && !logged,
+      `a page past a phone's memory says \`book-stopped\` with the reason, nothing unhandled (${opened.type}; ${stopped?.error ?? 'no notice'}; ${errors} page errors, ${logged} error logs)`)
   }
 
   const messages = []
   const page = await hostPage(messages, { viewport: { width: 420, height: 760 } })
-  page.on('pageerror', (e) => check(false, `pageerror: ${e.message}`))
+  let pageErrors = 0
+  page.on('pageerror', (e) => { pageErrors++; check(false, `pageerror: ${e.message}`) })
   // Every CSP violation in any frame of the page, as `directive blockedURI`.
   await page.addInitScript(() => addEventListener('securitypolicyviolation', (e) => (top.__violations ??= []).push(`${e.violatedDirective} ${e.blockedURI}`)))
   await page.goto(PAGE_URL)
@@ -213,7 +273,8 @@ try {
   m = await open('tslinks.pdf')
   check(m.type === 'opened' && await shown(() => document.querySelectorAll('.annotationLayer section a').length === 3
     && !!document.querySelector('.annotationLayer a[href="https://example.tst/a"]'), m.stale), 'a page with a Named action and a ResetForm link draws all three of its links')
-  // #1203: the last four visited pages are kept; an older one's blob: URL is revoked and the page rebuilt on a revisit.
+  // #1203, #1557: the last four visited pages are kept; a page's blob: URL is revoked once its frame has loaded it (never
+  // by the eviction, which could beat a frame still loading), and the page is rebuilt on a revisit.
   m = await open('tsformat.pdf')
   await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale)
   const pageUrl = () => page.frames().find((f) => f.url().startsWith('blob:') && !m.stale.has(f))?.url()
@@ -223,11 +284,56 @@ try {
     await call('window.__fol.next()')
     await waitFor(at, (x) => x.type === 'relocate' && x.index === i - 1, `relocate to page ${i}`).catch(() => null)
   }
+  await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 5. Sphinx'), m.stale)
   const fetches = (url) => call(`fetch(${JSON.stringify(url)}).then(() => true, () => false)`)
   const last = pageUrl()
-  check(!!first && first !== last && await fetches(last) && !(await fetches(first)), `after five pages, page 1's blob: URL is revoked, page 5's is not (${!!first}, ${first !== last})`)
+  check(!!first && first !== last && !(await fetches(last)) && !(await fetches(first)), `after five pages, page 1's and page 5's blob: URLs are revoked, each once its frame loaded it (${!!first}, ${first !== last})`)
   await call('document.querySelector("foliate-view").goTo(0)')
   check(await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), 'and page 1 is rebuilt and drawn on a revisit')
+  // #1557: a jump over more than four pages while pages still load (each goTo unawaited): every page shown loads its document,
+  // the last one asked for is drawn.
+  writeFileSync(resolve(dir, 'tsjump.pdf'), pdf(12, { title: 'TS JUMP' }))
+  m = await open('tsjump.pdf')
+  await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale)
+  const errorsBefore = pageErrors
+  await call('{ const v = document.querySelector("foliate-view"); for (let i = 1; i < 12; i++) v.goTo(i) }')
+  check(await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 12. Sphinx'), m.stale) && pageErrors === errorsBefore,
+    `a jump over 11 pages while they load draws the last one, no page error (${pageErrors - errorsBefore})`)
+  // #1557: the outline is read after `opened` and comes as `toc`, with the entry of the place on screen.
+  m = await open('tsoutline.pdf')
+  const tocMsg = await waitFor(m.from, (x) => x.type === 'toc', 'the outline').catch(() => null)
+  const openedAt = messages.indexOf(messages.slice(m.from).find((x) => x.type === 'opened'))
+  check(m.toc?.length === 0 && !!tocMsg && messages.indexOf(tocMsg) > openedAt && JSON.stringify(tocMsg.toc) === JSON.stringify([{ label: 'Start', href: tocMsg.toc[0]?.href, depth: 0 }, { label: 'Four', href: tocMsg.toc[1]?.href, depth: 0 }]) && tocMsg.tocIndex === 0 && tocMsg.key === m.book.sha256,
+    `a PDF's outline arrives after \`opened\` (opened.toc ${m.toc?.length}, then ${JSON.stringify(tocMsg)})`)
+  from = messages.length
+  await call('window.__fol.goTo({ page: 4 })')
+  const onFour = await waitFor(from, (x) => x.type === 'relocate' && x.index === 3, 'relocate to page 4').catch(() => null)
+  check(onFour?.tocIndex === 1, `and the place's entry follows it (page 4: ${onFour?.tocIndex})`)
+  // #1557 review: a newer open that fails leaves this book on screen; a host that dropped its `toc` meanwhile (the newer
+  // open in flight) takes it back, so the page says it again after the `open-failed`.
+  const refused = await open('tsplain.txt')
+  const again = messages.slice(refused.from).findIndex((x) => x.type === 'toc' && x.key === tocMsg?.key)
+  check(refused.type === 'open-failed' && again > messages.slice(refused.from).findIndex((x) => x.type === 'open-failed'),
+    `after a newer open fails, the book still on screen says its \`toc\` again (${refused.type}, at ${again})`)
+  // #1204: a JPEG 2000 image is drawn (OpenJPEG's wasm, carried in the page, compiled under 'wasm-unsafe-eval').
+  check(!(await loaded()).split(',').includes('pdfwasm'), 'no wasm chunk has run for a PDF without a JPEG 2000 image')
+  m = await open('tsjpx.pdf')
+  const red = async () => {
+    for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(100)) {
+      const px = await framesValue(() => {
+        const c = document.querySelector('#canvas canvas')
+        if (!c) return null
+        // The image's middle: 200×200 pt at (40, 300) from the bottom-left of a 600×800 pt page.
+        const d = c.getContext('2d').getImageData(Math.round(c.width * 140 / 600), Math.round(c.height * 400 / 800), 1, 1).data
+        return d[0] > 150 && d[1] < 80 && d[2] < 80 ? [...d].join(',') : null
+      })
+      if (px) return px
+    }
+    return null
+  }
+  const jpxPixel = await red()
+  check(m.type === 'opened' && !!jpxPixel, `a PDF's JPEG 2000 image is drawn (${m.type}${m.error ? `, ${m.error}` : ''}; pixel ${jpxPixel})`)
+  check((await loaded()).split(',').includes('pdfwasm'), 'the wasm chunk ran for it')
   check(!(await loaded()).split(',').includes('pdfcmaps'), 'no cMap chunk has run for a Latin PDF')
   m = await open('tscjk.pdf')
   check(m.type === 'opened' && await shown(() => document.querySelector('.textLayer')?.textContent.includes('中文')), `a CJK PDF on a predefined cMap opens and draws its text (${m.type})`)
@@ -326,6 +432,45 @@ try {
   // in an EPUB. The Launch and script ones never.
   const handed = messages.slice(from).filter((x) => x.type === 'openLink').map((x) => x.href)
   check(handed.length === 2 && handed[0].startsWith(`${evil}/gotor.pdf`) && handed[1] === `${evil}/uri`, `only the two http links are handed to the host, never followed (${handed.join(', ')})`)
+
+  // #1204: pdf.js parses in a Worker: a decompression bomb (1 GiB of XMP in 2 KB) keeps that worker busy and silent, not
+  // the page; past the watchdog's silence (shortened here, PDF_SILENCE_MS by default) the worker is terminated and the
+  // open fails, the book on screen still reading.
+  console.log('pdf bomb')
+  writeFileSync(resolve(dir, 'tsbomb.pdf'), bombPdf())
+  m = await open('tsformat.pdf')
+  await call('window.__fol.__testPdfSilence(1000)')
+  await call('window.__gap = 0; window.__tick = performance.now(); window.__ticker = setInterval(() => { const t = performance.now(); window.__gap = Math.max(window.__gap, t - window.__tick); window.__tick = t }, 20)')
+  const bombAt = Date.now()
+  const bomb = await open('tsbomb.pdf')
+  const bombMs = Date.now() - bombAt
+  const gap = await call('clearInterval(window.__ticker), Math.round(window.__gap)')
+  await call('window.__fol.__testPdfSilence(0)')
+  check(bomb.type === 'open-failed' && /took too long/.test(bomb.error) && bombMs < 1000 + 5000, `the bomb fails at the watchdog's silence (${bomb.type}: ${bomb.error}, ${bombMs} ms)`)
+  check(!messages.slice(bomb.from).some((x) => x.type === 'book-stopped'), 'a failed open says `open-failed` only, never `book-stopped`')
+  check(gap < 500, `and the page answers all the while (longest gap between 20 ms ticks: ${gap} ms)`)
+  check(!!(await turnSaves('a store after the bomb')), 'the PDF open before it still turns and saves')
+  m = await open('tsformat.pdf')
+  // Drawn before the next open (an open over a page still rendering cancels it: a page error).
+  check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `a PDF opens and draws after it (${m.type})`)
+  // #1204 review: a page that never finishes drawing after `opened` (the bomb as page 2's content) leaves the worker silent:
+  // the watchdog (PDF_SILENCE_MS; shortened here) terminates it and the hosts are told, `book-stopped` for that book.
+  writeFileSync(resolve(dir, 'tsbombpage.pdf'), bombPagePdf())
+  await call('window.__fol.__testPdfSilence(1000)')
+  m = await open('tsbombpage.pdf')
+  await call('window.__gap = 0; window.__tick = performance.now(); window.__ticker = setInterval(() => { const t = performance.now(); window.__gap = Math.max(window.__gap, t - window.__tick); window.__tick = t }, 20)')
+  from = messages.length
+  const turnAt = Date.now()
+  call('window.__fol.next()')
+  const stopped = await waitFor(from, (x) => x.type === 'book-stopped', 'book-stopped').catch(() => null)
+  const stoppedMs = Date.now() - turnAt
+  const pageGap = await call('clearInterval(window.__ticker), Math.round(window.__gap)')
+  await call('window.__fol.__testPdfSilence(0)')
+  check(m.type === 'opened' && stopped?.key === m.book.sha256 && /took too long/.test(stopped?.error) && stoppedMs < 1000 + 5000,
+    `a page that never finishes after \`opened\` says \`book-stopped\` for its book (${m.type}; ${JSON.stringify(stopped)}, ${stoppedMs} ms)`)
+  check(pageGap < 500 && messages.slice(from).filter((x) => x.type === 'book-stopped').length === 1, `once, and the page answers all the while (longest gap: ${pageGap} ms)`)
+  m = await open('tsformat.pdf')
+  check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `the next PDF opens and draws (${m.type})`)
 
   console.log('alignment')
   writeAlignmentEpub(resolve(dir, 'tsalignment.epub'))
@@ -426,6 +571,8 @@ try {
   }
 
   for (const alsoClone of [false, true]) (await oldWebView(alsoClone))()
+  console.log('pdf low memory')
+  ;(await lowMemory())()
 
   // Every page error, last so every block above is covered; refusals log theirs as `open: …`.
   for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg)) check(false, `page error: ${x.msg.split('\n')[0]}`)

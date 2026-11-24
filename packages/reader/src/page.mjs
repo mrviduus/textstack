@@ -33,6 +33,7 @@ import { clipBook } from './clip.mjs'
 import { tapAction } from './tapZone.mjs'
 import { MAX_CHAPTER_TEXT_BYTES, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween, tocEntries } from './chapters.mjs'
 import { MAX_RESULTS, SEARCH_FILL, readQuery, searchItems } from './search.mjs'
+import { PDF_SILENCE_MS } from './deadlines.mjs'
 import { bookMeta, coverJpeg, isRequestId } from './describe.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -181,7 +182,7 @@ function fontUrl() {
     const fonts = formatModule(look.fontFamily)
     const faces = look.fontFamily === 'dyslexic' ? { regular: fonts.woff2 } : fonts
     const urls = Object.fromEntries(Object.entries(faces).map(([name, bytes]) => [name,
-      URL.createObjectURL(new Blob([Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0))], { type: 'font/woff2' }))]))
+      URL.createObjectURL(new Blob([fromBase64(bytes)], { type: 'font/woff2' }))]))
     fontUrls.set(look.fontFamily, urls)
     return urls
   } catch (e) {
@@ -1174,27 +1175,36 @@ function formatModule(name) {
 async function makeBookFor(bytes, name, kind) {
   // `kind` is sniffFormat's, taken before the open book was touched (openFor).
   if (kind === 'pdf') {
-    // pdf.js runs on the page's main thread (build.mjs FORMATS.pdf): no Worker, no wasm (the CSP has no
-    // 'wasm-unsafe-eval'), nothing fetched: cMaps come from the page's own chunk (PdfCMaps), standard-font
-    // data not at all (system fonts).
-    // pdf.js's main-thread "worker" clones every message with structuredClone, which pdfPolyfills.mjs cannot
-    // stand in for: refused here, before the swap, instead of an open that never answers.
-    if (typeof structuredClone !== 'function') throw new Error('this WebView is too old to read PDF')
+    // pdf.js parses in a Worker of its own (#1204, `pdfWorker`), each call it answers bounded by the deadline the host
+    // gives this file's open (deadlines.mjs): past it the worker is terminated and the open fails (the fork's makePDF).
+    // Nothing fetched: cMaps (PdfCMaps) and OpenJPEG's wasm (PdfWasm) come from the page's own chunks, standard-font
+    // data not at all (system fonts). The bytes are transferred to the worker (#1557): `bytes` is empty after this.
+    // pdf.js clones with structuredClone, which pdfPolyfills.mjs cannot stand in for, and needs a Worker: refused
+    // here, before the swap, instead of an open that never answers.
+    if (typeof structuredClone !== 'function' || typeof Worker !== 'function') throw new Error('this WebView is too old to read PDF')
     const { makePDF, css } = formatModule('pdf')
-    // A load that fails destroys its own loading task (the fork's makePDF, #1203).
-    const book = await makePDF(new File([bytes], name), { css, params: { useWasm: false, CMapReaderFactory: PdfCMaps } }).catch((e) => {
+    // A worker silent for PDF_SILENCE_MS while it owes answers is terminated (the fork's watchdog: pdf.js answers one
+    // call at a time, so a wait in its queue is no sign of trouble). With the book on screen that leaves blank pages:
+    // the hosts are told (`book-stopped`, kept to be said again, `openFailed`) and offer to open it again. Not for a
+    // book not (yet) on screen: a failed open says `open-failed`, a `describe` its own error.
+    let made = null
+    const onFail = (e) => {
+      if (made && view?.book === made) post(said(view).stopped = { type: 'book-stopped', key: book.sha256, error: String(e?.message ?? e).slice(0, 200) })
+    }
+    // A load that fails destroys its own loading task and worker (the fork's makePDF, #1203).
+    made = await makePDF(bytes, { css, worker: pdfWorker, silence: testPdfSilence || PDF_SILENCE_MS, onFail, params: { useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm } }).catch((e) => {
       throw e?.name === 'PasswordException' ? new Error('this PDF is password-protected and cannot be opened') : e
     })
     // One page per screen, never foliate's two-page spreads: within a spread a page step or goTo shows the
     // other page without a relocate, so the saved page would be the spread's first.
-    book.rendition.spread = 'none'
+    made.rendition.spread = 'none'
     // An outline entry pdf.js cannot resolve (an integer page, a dangling reference) rejects; foliate awaits
     // every entry while opening, after the swap. Such an entry goes nowhere instead of failing the open.
     for (const k of ['splitTOCHref', 'resolveHref']) {
-      const f = book[k]
-      book[k] = (href) => f(href).catch(() => null)
+      const f = made[k]
+      made[k] = (href) => f(href).catch(() => null)
     }
-    return { format: 'pdf', book }
+    return { format: 'pdf', book: made }
   }
   // An HTML clip: one section, sanitized (clip.mjs).
   if (kind === 'html') return { format: 'html', book: clipBook(bytes) }
@@ -1246,9 +1256,40 @@ class PdfCMaps {
   async fetch({ name }) {
     const b64 = formatModule('pdfcmaps')[name]
     if (!b64) throw new Error(`unknown CMap ${String(name).slice(0, 40)}`)
-    return { cMapData: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), isCompressed: true }
+    return { cMapData: fromBase64(b64), isCompressed: true }
   }
 }
+
+/**
+ * pdf.js's wasm from the page's own carried chunk (build.mjs `pdfwasm`), run the first time a PDF has a JPEG 2000 image:
+ * OpenJPEG only. pdf.js's worker asks the page for it (its WasmFactory), so no URL is needed; any other (JBIG2's) is
+ * refused and pdf.js falls back to its JS decoder.
+ */
+class PdfWasm {
+  async fetch({ filename }) {
+    if (filename !== 'openjpeg.wasm') throw new Error(`no ${String(filename).slice(0, 40)}`)
+    return fromBase64(formatModule('pdfwasm')[filename])
+  }
+}
+
+/** pdf.js's worker (#1204): a Worker per PDF from one blob: URL of the carried `pdfworker` text (CSP worker-src blob:). */
+let pdfWorkerUrl = null
+let testPdfSilence = 0
+const pdfWorker = () => {
+  // No carried worker (a page built without it): said at once, not after the watchdog.
+  const src = self.__TS_FORMATS?.pdfworker
+  if (!src) throw new Error('the PDF reader could not start')
+  return new Worker(pdfWorkerUrl ??= URL.createObjectURL(new Blob([src], { type: 'text/javascript' })))
+}
+
+/** A carried chunk's base64 as bytes (fonts, cMaps, wasm). */
+const fromBase64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+
+/**
+ * What a view said that the hosts may need again (#1557 `toc`, #1204 `book-stopped`): a host drops both while a newer
+ * open is in flight, and takes the view back when that open fails (openTracker.mjs standby), so `openFailed` says them again.
+ */
+const said = (v) => (v.tsSaid ??= {})
 
 /** A book no view will show again: its own `destroy` (a pdf.js document, blob: URLs). Never throws. */
 function destroy(b) {
@@ -1281,6 +1322,8 @@ const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.
 
 async function open(bytes, name, kind, mine) {
   const sha256 = await sha256Yielding(bytes, undefined, () => mine !== openSeq)
+  // Before the book is made: a PDF's bytes go to pdf.js's worker (transferred, #1557).
+  const size = bytes.length
   // Checked BEFORE book is assigned: a superseded open must not re-key the current book's saves (#1168).
   if (mine !== openSeq) return false
   // Made before the open book is touched: a file its reader cannot make a book of (a password-protected
@@ -1297,7 +1340,7 @@ async function open(bytes, name, kind, mine) {
   saves.flush()
   saves.forget()
   endSession()
-  book = { sha256, size: bytes.length, name }
+  book = { sha256, size, name }
   entry = null
   quotes = []
   hostMoving = true
@@ -1454,6 +1497,15 @@ async function open(bytes, name, kind, mine) {
   })
   // #1316: after the book is on screen and answered; nothing of an open waits for it.
   startChapters(view)
+  // #1557: a PDF's outline is read after `opened` (a huge one held up the first page), then sent as `toc`, with the
+  // entry of the place on screen; never for a view no longer on screen.
+  if (b.getTOC) b.getTOC().then(async () => {
+    if (mine !== viewSeq) return
+    await view.updateTOC()
+    if (mine !== viewSeq) return
+    const at = view.lastLocation?.section?.current
+    post(said(view).toc = { type: 'toc', key: book.sha256, toc: flat(b.toc ?? []), tocIndex: Number.isInteger(at) ? view.getProgressOf(at)?.tocItem?.id ?? null : null })
+  }).catch((e) => log('warn', `contents: ${e?.message ?? e}`))
   return true
 }
 
@@ -1711,7 +1763,13 @@ function endSelection() {
   selectionSent = null
 }
 
-const openFailed = (name, error) => post({ type: 'open-failed', name, error })
+const openFailed = (name, error) => {
+  post({ type: 'open-failed', name, error })
+  // The view still on screen (a superseded open failed, before any swap): what it said that its host dropped meanwhile.
+  const { toc, stopped } = view?.tsSaid ?? {}
+  if (toc) post(toc)
+  if (stopped) post(stopped)
+}
 
 /**
  * One `opened` or one `open-failed` per call — unless a newer openUrl took over first: then neither, except a
@@ -1762,7 +1820,8 @@ async function describeBook(id, url) {
       return null
     })
     // ADR-033 P3: the contents the server keeps (chapters.mjs `tocEntries`); none when they cannot be read.
-    const toc = await tocEntries(flat(b.toc ?? []), b.sections, (href) => b.resolveHref(href), b.rendition?.layout === 'pre-paginated').catch((e) => {
+    // A PDF's outline is read when asked for (#1557).
+    const toc = await Promise.resolve(b.getTOC?.()).then(() => tocEntries(flat(b.toc ?? []), b.sections, (href) => b.resolveHref(href), b.rendition?.layout === 'pre-paginated')).catch((e) => {
       log('warn', `describe: no contents (${e?.name ?? 'error'})`)
       return []
     })
@@ -1868,6 +1927,8 @@ window.__fol = {
   __testRestoreDelay: (ms) => { testRestoreDelay = ms },
   // Test-only: the next opens find out where their contents lead `ms` later (#1316: an open never waits for it).
   __testHoldChapters: (ms) => { testHoldChapters = ms },
+  // #1204: a PDF worker's silence budget for the next opens (0: PDF_SILENCE_MS).
+  __testPdfSilence: (ms) => { testPdfSilence = ms },
   // #1260: the whole settings object, read through settings.mjs (closed lists, a clamped size): nothing of the
   // host's reaches the CSS as it came. Applied live; before `opened` it sets what the next open uses.
   settings: (raw) => { look = readSettings(raw); applyLook(); return look },

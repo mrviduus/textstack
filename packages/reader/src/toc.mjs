@@ -1,5 +1,6 @@
 // The book's table of contents for the reader chrome (#1261): the hosts' read of `opened.toc` and the entries
 // around the reader's place. Pure: the page renders untrusted book content, so a host shows only what these return.
+import { isBookKey } from './openTracker.mjs'
 
 /** Entries past this place in the page's list are not taken (a host renders every one it takes). */
 export const MAX_TOC_ENTRIES = 5000
@@ -24,6 +25,16 @@ export function readToc(m) {
     out.push({ index, label, href: e.href, depth: Number.isInteger(e.depth) && e.depth > 0 ? Math.min(e.depth, MAX_TOC_DEPTH) : 0 })
   }
   return out
+}
+
+/**
+ * #1557: a host's read of `toc` (a PDF's outline, sent after `opened`): `{ toc, tocIndex }` for the book on screen (`key`,
+ * the sha256 of the book the host took; case ignored), else null. `toc` as `readToc` takes it; `tocIndex` (the place's
+ * entry) a whole number, else null.
+ */
+export function readTocMessage(m, key) {
+  if (!isBookKey(m?.key, key)) return null
+  return { toc: readToc(m), tocIndex: Number.isInteger(m.tocIndex) && m.tocIndex >= 0 ? m.tocIndex : null }
 }
 
 /**

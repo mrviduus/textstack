@@ -405,6 +405,7 @@
     "frameFailed": "The reader failed to load: no answer in {{seconds}} s.",
     "frameFailedDev": "The reader failed to load: no answer from {{path}} in {{seconds}} s.",
     "openTimeout": "{{name}} is taking too long to open (no answer in {{seconds}} s).",
+    "bookStopped": "{{name}} stopped responding. Retry opens it again.",
     "loadFailed": "Could not load the book: {{error}}",
     "noFile": "This book has no file to read yet.",
     "downloading": "Downloading the book… {{percent}}%",

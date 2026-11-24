@@ -24,6 +24,16 @@ export const OPENED_CAP_MS = 180_000
  */
 export const DOWNLOAD_STALL_MS = 30_000
 
+/**
+ * #1204: the page's watchdog on pdf.js's worker (the fork's `silence`): while it owes answers, a worker that says nothing
+ * at all for this long is terminated. Not a timer per call: the worker answers one call at a time, so a call's wait in
+ * its queue (behind a slow page, an outline) is no sign of trouble, and anything it says (an answer, a page's operator
+ * chunks, an image) starts the wait again. A decompression bomb is one long silent decode. One page's single decode on a
+ * slow phone (a big scanned image) is seconds, a few tens at worst; 60 s (3× the open's floor) still ends a stuck worker
+ * within a minute, the page answering all the while. The host's own `opened` deadline is unchanged.
+ */
+export const PDF_SILENCE_MS = 60_000
+
 /** The `opened` deadline for a file of `bytes` (unknown: the floor). */
 export function openedDeadlineMs(bytes) {
   const mb = bytes > 0 ? bytes / 1_048_576 : 0 // NaN, null, undefined: false

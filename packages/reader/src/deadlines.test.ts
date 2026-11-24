@@ -116,3 +116,4 @@ describe('v2 host overdue strikes (#1227)', () => {
     expect(s.strike('a')).toBe(true)
   })
 })
+
