@@ -56,6 +56,7 @@ public sealed class AnnotationRepository(AppDataSource dataSource) : IAnnotation
                   ELSE a.locator->'value' END)::text AS AnchorJson,
             a.color AS Color, a.note_text AS NoteText, a.created_at AS CreatedAt, a.book_id AS BookId, b.title AS BookTitle,
             b.removed_at IS NOT NULL AS BookRemoved,
+            CASE WHEN b.cover_key IS NOT NULL THEN b.updated_at END AS BookCoverVersion,
             NULL::uuid AS ChapterId, c.title AS ChapterTitle, c.chapter_key AS ChapterKey
         {ListAllFrom}
         LEFT JOIN LATERAL (
@@ -79,11 +80,11 @@ public sealed class AnnotationRepository(AppDataSource dataSource) : IAnnotation
         var total = rows.Count > 0 ? rows[0].Total
             : offset == 0 ? 0 : await conn.ExecuteScalarAsync<int>(new CommandDefinition($"SELECT count(*)::int {ListAllFrom} {ListAllWhere}", args, cancellationToken: ct));
         return new(total, rows.Select(r => new AnnotationListItem(r.Id, r.SelectedText, r.AnchorJson, r.Color, r.NoteText, r.CreatedAt,
-            r.BookId, r.BookTitle, r.BookRemoved, r.ChapterId, r.ChapterTitle, r.ChapterKey)).ToList());
+            r.BookId, r.BookTitle, r.BookRemoved, r.ChapterId, r.ChapterTitle, r.ChapterKey, r.BookCoverVersion)).ToList());
     }
 
     private sealed record ListRow(int Total, Guid Id, string SelectedText, string AnchorJson, string Color, string? NoteText,
-        DateTimeOffset CreatedAt, Guid BookId, string BookTitle, bool BookRemoved, Guid? ChapterId, string? ChapterTitle, string? ChapterKey);
+        DateTimeOffset CreatedAt, Guid BookId, string BookTitle, bool BookRemoved, DateTimeOffset? BookCoverVersion, Guid? ChapterId, string? ChapterTitle, string? ChapterKey);
 
     public async Task<Annotation?> GetAsync(Guid userId, Guid id, CancellationToken ct)
     {
