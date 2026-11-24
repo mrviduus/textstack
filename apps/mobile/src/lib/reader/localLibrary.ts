@@ -490,7 +490,7 @@ export function createLocalLibrary(db: Db) {
     /** Books on this device, in import order, then the server's that can be downloaded (bytes not already here). */
     books: (): Promise<LibraryBook[]> => job(async () => {
       const stuck = new Set((await all<{ id: string }>(`SELECT ${BOOK_OF} AS id FROM outbox WHERE failures >= ? GROUP BY 1`, [MAX_FAILURES])).map((r) => r.id))
-      const finished = new Set((await all<{ book_id: string }>('SELECT book_id FROM reading_state WHERE completed_at IS NOT NULL')).map((r) => r.book_id))
+      const finished = new Map((await all<{ book_id: string; completed_at: string }>('SELECT book_id, completed_at FROM reading_state WHERE completed_at IS NOT NULL')).map((r) => [r.book_id, r.completed_at]))
       const rows = await all<BookRow>(
         `SELECT * FROM books WHERE imported_at IS NOT NULL
            OR (removed_at IS NULL AND has_content = 1 AND content_removed = 0 AND server_sha256 IS NOT NULL
@@ -505,6 +505,7 @@ export function createLocalLibrary(db: Db) {
           importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
           notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : null),
           finished: finished.has(b.id),
+          completedAt: finished.get(b.id) ?? null,
           format: (local ? b.format : b.server_format) ?? null,
         }
       })

@@ -28,6 +28,8 @@ export interface LibraryBook {
   notSynced: string | null
   /** The reader finished it (#1266), here or on another device. */
   finished: boolean
+  /** When it was finished (ISO); null: not finished. */
+  completedAt: string | null
   /** The file's format as the server or the page last said ('html': a clip, opened only as one); null: not known. */
   format?: string | null
 }

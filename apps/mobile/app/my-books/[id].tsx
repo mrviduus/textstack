@@ -110,7 +110,7 @@ export default function UserBookDetailScreen() {
   const reconnects = useReconnectCount()
   const [savedProgress, setSavedProgress] = useState<{ chapterSlug: string | null; percent: number | null; locator: string | null } | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const { onDevice, downloading, download, refreshOnDevice } = useDownload()
+  const { onDevice, downloading, download, refreshOnDevice, syncDevice } = useDownload()
   // Its file is on the device (the V2 local library): what "Downloaded" means.
   const cached = !!id && onDevice.has(id)
   /** Rendering the device's copy because the server could not be reached. */
@@ -274,6 +274,9 @@ export default function UserBookDetailScreen() {
       } else {
         await userBooksApi.markUserBookComplete(id)
       }
+      // The server holds it now; the device's library takes it on its next pass, so an offline cold start
+      // still shows it read (#1552). Best effort: the reader's next open runs the same pass.
+      syncDevice().catch(() => {})
     } catch (err) {
       console.warn('markUserBookComplete failed:', err)
       setBook({ ...book, completedAt: prevCompletedAt })
