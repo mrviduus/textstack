@@ -108,6 +108,14 @@ describe('v2 api', () => {
     expect(v2.coverUrl('b1', '2026-11-02T00:00:00Z')).toBe('http://api/me/v2/books/b1/cover?v=2026-11-02T00%3A00%3A00Z')
   })
 
+  // #1584: a TOC sync or an edit moves the book's updatedAt, never its cover's URL; a server before #1584 still keys by updatedAt.
+  it('keys a book cover by its own version, falling back to updatedAt; none without a cover', () => {
+    const b = { id: 'b1', hasCover: true, coverVersion: '2026-11-01T00:00:00Z', updatedAt: '2026-11-24T00:00:00Z' }
+    expect(v2.bookCoverUrl(b)).toBe('http://api/me/v2/books/b1/cover?v=2026-11-01T00%3A00%3A00Z')
+    expect(v2.bookCoverUrl({ ...b, coverVersion: undefined })).toBe('http://api/me/v2/books/b1/cover?v=2026-11-24T00%3A00%3A00Z')
+    expect(v2.bookCoverUrl({ ...b, hasCover: false })).toBeNull()
+  })
+
   describe('getContent (#1227)', () => {
     const streamOf = (parts: number[][], breakOff = false) => new ReadableStream<Uint8Array>({
       start(c) {

@@ -12,7 +12,8 @@ public static class SyncMapping
 {
     public static BookDto ToDto(this Book b) => new(
         b.Id, b.Title, b.Author, b.Language, b.Description, b.Genre, b.PublishedYear, b.Tags, b.CheckpointSavingEnabled,
-        b.CoverKey is not null, b.Revision, b.CreatedAt, b.UpdatedAt, b.RemovedAt, b.CurrentFile?.ToDto());
+        b.CoverKey is not null, b.Revision, b.CreatedAt, b.UpdatedAt, b.RemovedAt, b.CurrentFile?.ToDto(),
+        b.CoverKey is null ? null : b.CoverUpdatedAt ?? b.UpdatedAt);
 
     public static BookFileDto ToDto(this BookFile f) => new(
         f.Id, f.Sha256, f.ByteSize, f.OriginalName, f.Format, f.PageCount, f.IsCurrent,

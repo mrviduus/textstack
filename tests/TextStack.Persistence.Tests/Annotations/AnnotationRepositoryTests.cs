@@ -323,7 +323,7 @@ public class AnnotationRepositoryTests(PostgresFixture db)
     {
         var covered = await db.NewReaderWithBookAsync();
         await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
-        await using (var set = new NpgsqlCommand("UPDATE books SET cover_key = 'library/cover.png', updated_at = now() WHERE id = @id", conn))
+        await using (var set = new NpgsqlCommand("UPDATE books SET cover_key = 'library/cover.png', cover_updated_at = now(), updated_at = now() WHERE id = @id", conn))
         {
             set.Parameters.AddWithValue("id", covered.Id);
             await set.ExecuteNonQueryAsync(Ct);

@@ -20,6 +20,9 @@ public class Book
     /// <summary>Relative key of the cover on the volume, not a path.</summary>
     public string? CoverKey { get; set; }
 
+    /// <summary>When the cover was stored: its cache version (#1584). Null without a cover; set by the server.</summary>
+    public DateTimeOffset? CoverUpdatedAt { get; set; }
+
     /// <summary>Hidden provenance, opaque JSON: <c>{"kind":"upload"}</c>, <c>{"kind":"clip",…}</c>, <c>{"kind":"catalog",…}</c>.</summary>
     public string Origin { get; set; } = """{"kind":"upload"}""";
 

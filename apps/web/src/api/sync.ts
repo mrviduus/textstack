@@ -117,7 +117,7 @@ function baseBook(b: Book) {
     language: b.language ?? 'en',
     author: b.author,
     description: b.description,
-    coverPath: b.hasCover ? syncApi.coverUrl(b.id, b.updatedAt) : null,
+    coverPath: syncApi.bookCoverUrl(b),
     genre: b.genre,
     errorMessage: null,
     createdAt: b.createdAt,

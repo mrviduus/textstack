@@ -194,7 +194,7 @@ const { rememberState: remember, toProgress } = client
 
 const isPdf = (b: Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasContent
 
-const coverOf = (b: Book) => (b.hasCover ? syncApi.coverUrl(b.id, b.updatedAt) : null)
+const coverOf = (b: Book) => syncApi.bookCoverUrl(b)
 
 /**
  * The uploads list: live books only, each with its status and the reader's place — two feed pulls,

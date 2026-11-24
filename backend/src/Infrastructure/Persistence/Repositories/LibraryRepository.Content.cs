@@ -121,7 +121,7 @@ public sealed partial class LibraryRepository
 
     private const string SetCoverKey = $"""
         WITH b AS (
-            UPDATE books SET cover_key = @coverKey, updated_at = now()
+            UPDATE books SET cover_key = @coverKey, cover_updated_at = now(), updated_at = now()
             WHERE user_id = @userId AND id = @bookId
             RETURNING {BookColumns}
         )

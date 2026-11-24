@@ -21,8 +21,8 @@ public sealed partial class LibraryRepository
         """;
 
     private const string InsertBook = $"""
-        INSERT INTO books (id, user_id, title, author, language, description, genre, published_year, tags, cover_key, origin, checkpoint_saving_enabled, created_at, updated_at)
-        VALUES (@Id, @UserId, @Title, @Author, @Language, @Description, @Genre, @PublishedYear, @Tags, @CoverKey, CAST(@Origin AS jsonb), @CheckpointSavingEnabled, now(), now())
+        INSERT INTO books (id, user_id, title, author, language, description, genre, published_year, tags, cover_key, cover_updated_at, origin, checkpoint_saving_enabled, created_at, updated_at)
+        VALUES (@Id, @UserId, @Title, @Author, @Language, @Description, @Genre, @PublishedYear, @Tags, @CoverKey, CASE WHEN @CoverKey IS NOT NULL THEN now() END, CAST(@Origin AS jsonb), @CheckpointSavingEnabled, now(), now())
         RETURNING {BookColumns}
         """;
 
