@@ -25,17 +25,14 @@ export const OPENED_CAP_MS = 180_000
 export const DOWNLOAD_STALL_MS = 30_000
 
 /**
- * #1204: each call pdf.js's worker answers about one page (the page, its render, text, annotations) gets this long, timed
- * on its own, before the worker is terminated: a heavy page (a big scanned image) on a slow phone is seconds, a few tens
- * at worst; 3× the open's floor still ends a page that never finishes (a bomb in its content) in a minute, and the page
- * answers all the while (the worker parses, not the page). The load, metadata and outline keep `openedDeadlineMs`.
+ * #1204: the page's watchdog on pdf.js's worker (the fork's `silence`): while it owes answers, a worker that says nothing
+ * at all for this long is terminated. Not a timer per call: the worker answers one call at a time, so a call's wait in
+ * its queue (behind a slow page, an outline) is no sign of trouble, and anything it says (an answer, a page's operator
+ * chunks, an image) starts the wait again. A decompression bomb is one long silent decode. One page's single decode on a
+ * slow phone (a big scanned image) is seconds, a few tens at worst; 60 s (3× the open's floor) still ends a stuck worker
+ * within a minute, the page answering all the while. The host's own `opened` deadline is unchanged.
  */
-export const PDF_PAGE_MS = 60_000
-
-/** #1204: a host's read of `book-stopped` (the open book's PDF reader was terminated): true for the book on screen (`key`, its sha256; case ignored) only. */
-export function stoppedBook(m, key) {
-  return typeof key === 'string' && typeof m?.key === 'string' && m.key.toLowerCase() === key.toLowerCase()
-}
+export const PDF_SILENCE_MS = 60_000
 
 /** The `opened` deadline for a file of `bytes` (unknown: the floor). */
 export function openedDeadlineMs(bytes) {

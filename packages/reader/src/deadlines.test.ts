@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  stoppedBook,
   OPENED_CAP_MS, OPENED_FLOOR_MS, OPENED_MS_PER_MB, OPENED_OVERDUE_LIMIT, READY_DEADLINE_MS, createDeadlines, createOverdueStrikes, openedDeadlineMs,
 } from './deadlines.mjs'
 
@@ -118,17 +117,3 @@ describe('v2 host overdue strikes (#1227)', () => {
   })
 })
 
-describe('a PDF that stopped answering (#1204)', () => {
-  it('stoppedBook_TheBookOnScreen_Taken_CaseIgnored', () => {
-    expect(stoppedBook({ type: 'book-stopped', key: 'AB12', error: 'this PDF took too long to read' }, 'ab12')).toBe(true)
-  })
-
-  it.each([
-    ['another book', { key: 'cd34' }, 'ab12'],
-    ['no book taken', { key: 'ab12' }, null],
-    ['no key', {}, 'ab12'],
-    ['no message', undefined, 'ab12'],
-  ])('stoppedBook_%s_Dropped', (_name, m, key) => {
-    expect(stoppedBook(m, key)).toBe(false)
-  })
-})

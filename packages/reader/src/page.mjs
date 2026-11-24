@@ -33,7 +33,7 @@ import { clipBook } from './clip.mjs'
 import { tapAction } from './tapZone.mjs'
 import { MAX_CHAPTER_TEXT_BYTES, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween, tocEntries } from './chapters.mjs'
 import { MAX_RESULTS, SEARCH_FILL, readQuery, searchItems } from './search.mjs'
-import { PDF_PAGE_MS, openedDeadlineMs } from './deadlines.mjs'
+import { PDF_SILENCE_MS } from './deadlines.mjs'
 import { bookMeta, coverJpeg, isRequestId } from './describe.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -182,7 +182,7 @@ function fontUrl() {
     const fonts = formatModule(look.fontFamily)
     const faces = look.fontFamily === 'dyslexic' ? { regular: fonts.woff2 } : fonts
     const urls = Object.fromEntries(Object.entries(faces).map(([name, bytes]) => [name,
-      URL.createObjectURL(new Blob([Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0))], { type: 'font/woff2' }))]))
+      URL.createObjectURL(new Blob([fromBase64(bytes)], { type: 'font/woff2' }))]))
     fontUrls.set(look.fontFamily, urls)
     return urls
   } catch (e) {
@@ -1183,16 +1183,16 @@ async function makeBookFor(bytes, name, kind) {
     // here, before the swap, instead of an open that never answers.
     if (typeof structuredClone !== 'function' || typeof Worker !== 'function') throw new Error('this WebView is too old to read PDF')
     const { makePDF, css } = formatModule('pdf')
-    const deadline = testPdfDeadline || openedDeadlineMs(bytes.length)
-    // A page's calls get a budget of their own (a heavy page on a slow phone). A worker terminated with the book on
-    // screen (a page past it) leaves blank pages: the hosts are told (`book-stopped`) and offer to open it again.
-    // Not for a book not (yet) on screen: a failed open says `open-failed`, a `describe` its own error.
+    // A worker silent for PDF_SILENCE_MS while it owes answers is terminated (the fork's watchdog: pdf.js answers one
+    // call at a time, so a wait in its queue is no sign of trouble). With the book on screen that leaves blank pages:
+    // the hosts are told (`book-stopped`, kept to be said again, `openFailed`) and offer to open it again. Not for a
+    // book not (yet) on screen: a failed open says `open-failed`, a `describe` its own error.
     let made = null
     const onFail = (e) => {
-      if (made && view?.book === made) post({ type: 'book-stopped', key: book.sha256, error: String(e?.message ?? e).slice(0, 200) })
+      if (made && view?.book === made) post(said(view).stopped = { type: 'book-stopped', key: book.sha256, error: String(e?.message ?? e).slice(0, 200) })
     }
     // A load that fails destroys its own loading task and worker (the fork's makePDF, #1203).
-    made = await makePDF(bytes, { css, worker: pdfWorker, deadline, pageDeadline: testPdfDeadline || PDF_PAGE_MS, onFail, params: { useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm } }).catch((e) => {
+    made = await makePDF(bytes, { css, worker: pdfWorker, silence: testPdfSilence || PDF_SILENCE_MS, onFail, params: { useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm } }).catch((e) => {
       throw e?.name === 'PasswordException' ? new Error('this PDF is password-protected and cannot be opened') : e
     })
     // One page per screen, never foliate's two-page spreads: within a spread a page step or goTo shows the
@@ -1256,7 +1256,7 @@ class PdfCMaps {
   async fetch({ name }) {
     const b64 = formatModule('pdfcmaps')[name]
     if (!b64) throw new Error(`unknown CMap ${String(name).slice(0, 40)}`)
-    return { cMapData: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), isCompressed: true }
+    return { cMapData: fromBase64(b64), isCompressed: true }
   }
 }
 
@@ -1268,14 +1268,28 @@ class PdfCMaps {
 class PdfWasm {
   async fetch({ filename }) {
     if (filename !== 'openjpeg.wasm') throw new Error(`no ${String(filename).slice(0, 40)}`)
-    return Uint8Array.from(atob(formatModule('pdfwasm')[filename]), (c) => c.charCodeAt(0))
+    return fromBase64(formatModule('pdfwasm')[filename])
   }
 }
 
 /** pdf.js's worker (#1204): a Worker per PDF from one blob: URL of the carried `pdfworker` text (CSP worker-src blob:). */
 let pdfWorkerUrl = null
-let testPdfDeadline = 0
-const pdfWorker = () => new Worker(pdfWorkerUrl ??= URL.createObjectURL(new Blob([self.__TS_FORMATS?.pdfworker ?? ''], { type: 'text/javascript' })))
+let testPdfSilence = 0
+const pdfWorker = () => {
+  // No carried worker (a page built without it): said at once, not after the watchdog.
+  const src = self.__TS_FORMATS?.pdfworker
+  if (!src) throw new Error('the PDF reader could not start')
+  return new Worker(pdfWorkerUrl ??= URL.createObjectURL(new Blob([src], { type: 'text/javascript' })))
+}
+
+/** A carried chunk's base64 as bytes (fonts, cMaps, wasm). */
+const fromBase64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+
+/**
+ * What a view said that the hosts may need again (#1557 `toc`, #1204 `book-stopped`): a host drops both while a newer
+ * open is in flight, and takes the view back when that open fails (openTracker.mjs standby), so `openFailed` says them again.
+ */
+const said = (v) => (v.tsSaid ??= {})
 
 /** A book no view will show again: its own `destroy` (a pdf.js document, blob: URLs). Never throws. */
 function destroy(b) {
@@ -1490,7 +1504,7 @@ async function open(bytes, name, kind, mine) {
     await view.updateTOC()
     if (mine !== viewSeq) return
     const at = view.lastLocation?.section?.current
-    post({ type: 'toc', key: book.sha256, toc: flat(b.toc ?? []), tocIndex: Number.isInteger(at) ? view.getProgressOf(at)?.tocItem?.id ?? null : null })
+    post(said(view).toc = { type: 'toc', key: book.sha256, toc: flat(b.toc ?? []), tocIndex: Number.isInteger(at) ? view.getProgressOf(at)?.tocItem?.id ?? null : null })
   }).catch((e) => log('warn', `contents: ${e?.message ?? e}`))
   return true
 }
@@ -1749,7 +1763,13 @@ function endSelection() {
   selectionSent = null
 }
 
-const openFailed = (name, error) => post({ type: 'open-failed', name, error })
+const openFailed = (name, error) => {
+  post({ type: 'open-failed', name, error })
+  // The view still on screen (a superseded open failed, before any swap): what it said that its host dropped meanwhile.
+  const { toc, stopped } = view?.tsSaid ?? {}
+  if (toc) post(toc)
+  if (stopped) post(stopped)
+}
 
 /**
  * One `opened` or one `open-failed` per call — unless a newer openUrl took over first: then neither, except a
@@ -1907,8 +1927,8 @@ window.__fol = {
   __testRestoreDelay: (ms) => { testRestoreDelay = ms },
   // Test-only: the next opens find out where their contents lead `ms` later (#1316: an open never waits for it).
   __testHoldChapters: (ms) => { testHoldChapters = ms },
-  // #1204: a PDF's deadline for the next opens (0: the host's `opened` deadline for its size).
-  __testPdfDeadline: (ms) => { testPdfDeadline = ms },
+  // #1204: a PDF worker's silence budget for the next opens (0: PDF_SILENCE_MS).
+  __testPdfSilence: (ms) => { testPdfSilence = ms },
   // #1260: the whole settings object, read through settings.mjs (closed lists, a clamped size): nothing of the
   // host's reaches the CSS as it came. Applied live; before `opened` it sets what the next open uses.
   settings: (raw) => { look = readSettings(raw); applyLook(); return look },

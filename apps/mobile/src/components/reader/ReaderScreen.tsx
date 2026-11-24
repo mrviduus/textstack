@@ -20,10 +20,10 @@ import { capabilitiesFor } from '../../lib/capabilities'
 import type { BookNotes, BookRow } from '../../lib/reader/localLibrary'
 import { downloadBook, openBookHost, syncLibrary, tryAgainBook, type SyncHost } from '../../lib/reader/sync'
 import { DESCRIBE_MS, PAGE_WEBVIEW_PROPS, pageSource } from './pageWebView'
-import { createOpenTracker, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
+import { createOpenTracker, isBookKey, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
 import { createMovedTracker } from '../../../../../packages/reader/src/movedTracker.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../../packages/reader/src/sessionTracker.mjs'
-import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, stoppedBook, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
+import { createDeadlines, createOverdueStrikes, READY_DEADLINE_MS, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
 import { hostError } from '../../lib/reader/hostErrors'
 import { holdOpenSession } from '../../lib/reader/openSession'
 import { syncOpenedToc } from '../../lib/reader/openedToc'
@@ -550,7 +550,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     }, (e) => (retry ? refreshNotes(false) : fail('notes')(e)))
   }
   /** A page message for the open book (its `key`, the page's lower-case sha256). */
-  const isOpenKey = (key: string) => openShaRef.current !== null && key.toLowerCase() === openShaRef.current
+  const isOpenKey = (key: string) => isBookKey(key, openShaRef.current)
   /** The reader's choice (a highlight or bookmark in its sheet, a deep link, a search result): saved where it lands. */
   const goHighlight = (h: { cfi: string }) => {
     startHostMove()
@@ -1251,14 +1251,15 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
             // Shown: a remount of the route opens at the book, not the sheet again.
             router.setParams({ contents: undefined })
           }
-          contentsOnOpen.current = false
+          // #1557: a PDF's contents come after `opened`, as `toc`: the request waits for them.
+          if (m.format !== 'pdf' || entries.length) contentsOnOpen.current = false
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
       }
       case 'book-stopped':
         // #1204: only for the book on screen; Retry (a new page load) opens it again.
-        if (stoppedBook(m, openShaRef.current)) setStopped(true)
+        if (isBookKey(m.key, openShaRef.current)) setStopped(true)
         return
       case 'toc': {
         // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
@@ -1267,6 +1268,12 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
         setToc(u.toc)
         tocIndex.current = u.tocIndex
         setProgress.current((p) => p && { ...p, tocIndex: u.tocIndex })
+        // The `contents` param for a PDF (#1557): its contents are here now.
+        if (contentsOnOpen.current && u.toc.length) {
+          setTocOpen(true)
+          router.setParams({ contents: undefined })
+        }
+        contentsOnOpen.current = false
         return
       }
       case 'described': {
@@ -1672,6 +1679,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   const hasNotices = !!(overdue || stopped || linkFailed || openError || error || offer)
   const dismissNotices = () => {
     setLinkFailed(false)
+    setStopped(false)
     setError(null)
     setOpenError(null)
     setOffer(null)

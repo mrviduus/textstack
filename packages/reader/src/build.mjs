@@ -34,8 +34,9 @@ const FOLIATE_REPO = process.env.FOLIATE_REPO || 'https://github.com/mrviduus/fo
 // #1204/#1557 (branch pdf-worker-wasm-1204): the bytes handed to pdf.js once (`data`), a host-made worker per document
 // terminated past a deadline, OpenJPEG's wasm vendored, the outline after open (`getTOC`, `view.updateTOC`), a page's
 // blob: URL kept until its frame has loaded it; a page's calls on a budget of their own (`pageDeadline`), a terminated worker
-// reported (`onFail`).
-const FOLIATE_SHA = '0e6e7e3cd5053caa88e9598962f5ae91ef10cdd1'
+// reported (`onFail`); then (#1579 review) one watchdog on the worker's silence instead of per-call timers (`silence`), a
+// render no longer wanted cancelled.
+const FOLIATE_SHA = '69d8cab3353e0075a821c1537dd0acefe8e95633'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // the retired reader engine's 64 KB budget.
@@ -161,7 +162,9 @@ const FOLIATE_SHA = '0e6e7e3cd5053caa88e9598962f5ae91ef10cdd1'
 // open's, deadlines.mjs; `__testPdfDeadline`), OpenJPEG's wasm from its chunk (`PdfWasm`), the bytes handed over once, the outline
 // after `opened` (`toc`, `view.updateTOC`; describe asks for it).
 // +318 (#1204 review): a page's own budget (PDF_PAGE_MS) and `book-stopped` when the worker of the book on screen is terminated.
-const BUDGET = 350937
+// −99 (#1579 review): one silence watchdog (PDF_SILENCE_MS) for the deadlines; `toc` and `book-stopped` said again after a
+// newer open fails (`said`); a missing worker chunk fails at once; one base64 helper (`fromBase64`).
+const BUDGET = 350838
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -173,12 +176,13 @@ const BUDGET = 350937
 // pdf −1,231,045 / pdfworker +1,234,278 (#1204): pdf.worker.mjs moved to a chunk of its own, run in a Worker (polyfills first
 // there too, MINIFIED); the fork's worker, deadline, bytes-once, lazy outline and per-load page URLs. Together +3,233.
 // pdf +98 (#1204 review): the fork's `pageDeadline` and `onFail`, a render the terminated worker never answers ends quietly.
+// pdf +279 (#1579 review): the fork's silence watchdog in place of per-call timers; a render no longer wanted cancelled.
 // pdfwasm (#1204) = OpenJPEG's openjpeg.wasm (250009 bytes) as base64 + its two BSD notices, run only for a JPEG 2000 image.
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
 // dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
 // notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
 // serif: Literata's four full Latin/Cyrillic faces and OFL notice, plus the Latin-only brand font's four (English in TextStack).
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478534, pdfworker: 1234278, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478813, pdfworker: 1234278, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'readerPage.generated.ts')

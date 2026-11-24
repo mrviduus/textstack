@@ -292,3 +292,37 @@ describe('ReaderHost section controls', () => {
     expect(next()!.textContent).toBe('Part Two ›')
   })
 })
+
+describe('ReaderHost contents asked for on open (#1557)', () => {
+  /** `openContents` (the route's `?contents=1`), the book opened as `format` with `toc` in its `opened`. */
+  function openedAsked(format: string, toc: unknown[], shown = vi.fn()) {
+    render(<MemoryRouter><ReaderHost book={{ bytes: new ArrayBuffer(8), name: 'a.pdf' }} idleHeading="idle" openContents onContentsShown={shown} /></MemoryRouter>)
+    vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(((m: { call: string; args: unknown[] }) => { posted.push(m) }) as never)
+    fromPage({ type: 'ready' })
+    fromPage({ type: 'opened', format, title: 'Scan', toc, book: { sha256: 'aa', size: 8, name: '1/a.pdf' } })
+    return shown
+  }
+
+  it('aPdf_ItsOutlineComesAfterOpened_TheContentsOpenWhenItDoes', () => {
+    const shown = openedAsked('pdf', [])
+    expect(dialog()).toBeNull()
+    fromPage({ type: 'toc', key: 'aa', toc: TOC, tocIndex: 0 })
+    expect(entries().map((b) => b.textContent)).toEqual(['Part One', 'The Pond', 'The Woods', 'Part Two'])
+    expect(shown).toHaveBeenCalledTimes(1)
+  })
+
+  it('aPdfWithNoOutline_NothingOpens_AndALaterOneDoesNot', () => {
+    const shown = openedAsked('pdf', [])
+    fromPage({ type: 'toc', key: 'aa', toc: [], tocIndex: null })
+    fromPage({ type: 'toc', key: 'aa', toc: TOC, tocIndex: 0 })
+    expect(dialog()).toBeNull()
+    expect(shown).not.toHaveBeenCalled()
+  })
+
+  it('anEpubWithNoContents_TheRequestEndsAtOpened', () => {
+    const shown = openedAsked('epub', [])
+    fromPage({ type: 'toc', key: 'aa', toc: TOC, tocIndex: 0 })
+    expect(dialog()).toBeNull()
+    expect(shown).not.toHaveBeenCalled()
+  })
+})

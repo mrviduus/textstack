@@ -10,4 +10,5 @@ export interface OpenTracker<O, M extends OpenedMessage> {
   restored(m: { key?: string }): boolean
   showsPosition(): boolean
 }
+export function isBookKey(key: unknown, openKey: string | null): boolean
 export function createOpenTracker<O, M extends OpenedMessage = OpenedMessage>(): OpenTracker<O, M>

@@ -58,10 +58,13 @@ describe.skipIf(!vendored)('the fork PDF reader (makePDF)', () => {
     expect((fake.params!.worker as { opts: unknown }).opts).toEqual({ port: fake.webWorker })
   })
 
-  it('aParseThatNeverAnswers_FailsAtTheDeadline_AndItsWorkerIsTerminated', async () => {
+  /** The worker says something (any message: an answer, a page's operator chunk), as pdf.js's port would hear it. */
+  const speaks = () => fake.webWorker.addEventListener.mock.calls.filter(([t]) => t === 'message').forEach(([, f]) => f())
+
+  it('aParseThatNeverAnswers_GoesSilent_AndIsTerminatedAfterTheSilence', async () => {
     vi.useFakeTimers()
     fakePdfjs(fake, { load: never() })
-    const open = makePDF(new Uint8Array(4), { deadline: 5000 })
+    const open = makePDF(new Uint8Array(4), { silence: 5000 })
     const failed = expect(open).rejects.toThrow('this PDF took too long to read')
     await vi.advanceTimersByTimeAsync(4999)
     expect(fake.webWorker.terminate).not.toHaveBeenCalled()
@@ -70,10 +73,39 @@ describe.skipIf(!vendored)('the fork PDF reader (makePDF)', () => {
     expect(fake.webWorker.terminate).toHaveBeenCalled()
   })
 
+  it('aBusyWorkerThatKeepsTalking_IsKept_LongPastTheSilence_ThenSilentIsTerminated', async () => {
+    vi.useFakeTimers()
+    fakePdfjs(fake, { load: never() })
+    const open = makePDF(new Uint8Array(4), { silence: 5000 })
+    open.catch(() => {})
+    // A long parse that keeps sending (operator chunks, images): 60 s with a word every 4 s.
+    for (let t = 0; t < 15; t++) {
+      await vi.advanceTimersByTimeAsync(4000)
+      speaks()
+    }
+    expect(fake.webWorker.terminate).not.toHaveBeenCalled()
+    // Then nothing at all.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fake.webWorker.terminate).toHaveBeenCalled()
+  })
+
+  it('callsQueuedBehindASlowOne_AreNotChargedForTheirWait', async () => {
+    vi.useFakeTimers()
+    // pdf.js's worker answers one call at a time: each page 4 s after the one before.
+    let free = 0
+    const queued = (i: number) => { free += 4000; const at = free; return new Promise((done) => setTimeout(() => done(page(i)), at)) }
+    fakePdfjs(fake, { getPage: queued })
+    const book = await makePDF(new Uint8Array(4), { silence: 5000 })
+    const loads = [0, 1, 2, 3, 4].map((i) => book.sections[i].load())
+    await vi.advanceTimersByTimeAsync(20_000)
+    for (const l of loads) await expect(l).resolves.toMatchObject({ src: expect.stringMatching(/^blob:/) })
+    expect(fake.webWorker.terminate).not.toHaveBeenCalled()
+  })
+
   it('aRenderThatNeverAnswers_KillsTheBook_EveryLaterCallFailsAtOnce', async () => {
     vi.useFakeTimers()
     fakePdfjs(fake, { getPage: never })
-    const book = await makePDF(new Uint8Array(4), { deadline: 5000 })
+    const book = await makePDF(new Uint8Array(4), { silence: 5000 })
     const first = expect(book.sections[0].load()).rejects.toThrow('took too long')
     await vi.advanceTimersByTimeAsync(5000)
     await first
@@ -83,48 +115,60 @@ describe.skipIf(!vendored)('the fork PDF reader (makePDF)', () => {
     await expect(book.getTOC()).rejects.toThrow('took too long')
   })
 
-  it('aHeavyPage_GetsThePageBudget_NotTheOpensDeadline', async () => {
-    vi.useFakeTimers()
-    const slow = (i: number) => new Promise((done) => setTimeout(() => done(page(i)), 20_000))
-    fakePdfjs(fake, { getPage: slow })
-    const book = await makePDF(new Uint8Array(4), { deadline: 5000, pageDeadline: 60_000 })
-    const loaded = book.sections[0].load()
-    await vi.advanceTimersByTimeAsync(20_000)
-    await expect(loaded).resolves.toMatchObject({ src: expect.stringMatching(/^blob:/) })
-    expect(fake.webWorker.terminate).not.toHaveBeenCalled()
-  })
-
-  it('aWorkerTerminatedAfterTheBookIsMade_IsReportedOnce_ItsRendersFailQuietly', async () => {
-    vi.useFakeTimers()
-    const onFail = vi.fn()
-    let renders = 0
-    const drawn = (i: number) => ({ ...page(i), render: () => ({ promise: (renders++ ? never() : Promise.resolve()) }) })
-    fakePdfjs(fake, { getPage: (i: number) => Promise.resolve(drawn(i)) })
+  /** A page document as foliate's frame holds it (`attached`: its frame is still in the document). */
+  const frameDoc = (attached = true) => ({ defaultView: attached ? {} : null, documentElement: { style: { setProperty() {} } }, querySelector: () => ({ replaceChildren() {}, replaceWith() {} }), adoptNode: (n: unknown) => n })
+  const withDom = async (run: () => Promise<void>) => {
     ;(globalThis as any).document = { createElement: () => ({ getContext: () => ({}) }), querySelectorAll: () => [] }
     ;(globalThis as any).devicePixelRatio = 1
-    try {
-      const book = await makePDF(new Uint8Array(4), { deadline: 5000, pageDeadline: 60_000, onFail })
-      const { onZoom } = await book.sections[0].load()
-      const frame = { documentElement: { style: { setProperty() {} } }, querySelector: () => ({ replaceChildren() {}, replaceWith() {} }), adoptNode: (n: unknown) => n }
-      renders = 1
-      const rendering = onZoom({ doc: frame, scale: 1 })
-      await vi.advanceTimersByTimeAsync(60_000)
-      // The render the dead worker never answers resolves quietly (no unhandled rejection): onFail says it, once.
-      await expect(rendering).resolves.toBeUndefined()
-      expect(onFail).toHaveBeenCalledTimes(1)
-      expect(onFail.mock.calls[0][0].message).toBe('this PDF took too long to read')
-      await expect(book.sections[1].load()).rejects.toThrow('took too long')
-      expect(onFail).toHaveBeenCalledTimes(1)
-    } finally {
+    try { await run() } finally {
       delete (globalThis as any).document
       delete (globalThis as any).devicePixelRatio
     }
-  })
+  }
+
+  it('aWorkerTerminatedAfterTheBookIsMade_IsReportedOnce_ItsRendersFailQuietly', () => withDom(async () => {
+    vi.useFakeTimers()
+    const onFail = vi.fn()
+    fakePdfjs(fake, { getPage: (i: number) => Promise.resolve({ ...page(i), render: () => ({ promise: never() }) }) })
+    const book = await makePDF(new Uint8Array(4), { silence: 5000, onFail })
+    const { onZoom } = await book.sections[0].load()
+    const rendering = onZoom({ doc: frameDoc(), scale: 1 })
+    await vi.advanceTimersByTimeAsync(5000)
+    // The render the dead worker never answers resolves quietly (no unhandled rejection): onFail says it, once.
+    await expect(rendering).resolves.toBeUndefined()
+    expect(onFail).toHaveBeenCalledTimes(1)
+    expect(onFail.mock.calls[0][0].message).toBe('this PDF took too long to read')
+    await expect(book.sections[1].load()).rejects.toThrow('took too long')
+    expect(onFail).toHaveBeenCalledTimes(1)
+  }))
+
+  it('aRenderOfAPageTurnedAway_IsCancelledWhenTheNextStarts_QuietlyAndTheWorkerKept', () => withDom(async () => {
+    const tasks: { cancel: ReturnType<typeof vi.fn>; promise: Promise<void> }[] = []
+    const renderer = () => {
+      let reject!: (e: unknown) => void
+      const promise = new Promise<void>((_, no) => { reject = no })
+      const task = { promise, cancel: vi.fn(() => reject(Object.assign(new Error('Rendering cancelled'), { name: 'RenderingCancelledException' }))) }
+      tasks.push(task)
+      return task
+    }
+    fakePdfjs(fake, { getPage: (i: number) => Promise.resolve({ ...page(i), render: renderer }) })
+    const book = await makePDF(new Uint8Array(4), { silence: 5000 })
+    const [a, b] = [await book.sections[0].load(), await book.sections[1].load()]
+    const left = frameDoc()
+    const first = a.onZoom({ doc: left, scale: 1 })
+    // Page 1's frame leaves the document (a turn), page 2's starts drawing.
+    left.defaultView = null
+    void b.onZoom({ doc: frameDoc(), scale: 1 })
+    expect(tasks[0].cancel).toHaveBeenCalled()
+    expect(tasks[1].cancel).not.toHaveBeenCalled()
+    await expect(first).resolves.toBeUndefined()
+    expect(fake.webWorker.terminate).not.toHaveBeenCalled()
+  }))
 
   it('answersInTime_NothingIsTerminated_EvenLongAfter', async () => {
     vi.useFakeTimers()
     fakePdfjs(fake)
-    const book = await makePDF(new Uint8Array(4), { deadline: 5000 })
+    const book = await makePDF(new Uint8Array(4), { silence: 5000 })
     await book.sections[0].load()
     await vi.advanceTimersByTimeAsync(60_000)
     expect(fake.webWorker.terminate).not.toHaveBeenCalled()
@@ -132,9 +176,9 @@ describe.skipIf(!vendored)('the fork PDF reader (makePDF)', () => {
 
   it('aWorkerThatCannotStart_FailsTheOpenAtOnce', async () => {
     fakePdfjs(fake, { load: never() })
-    const open = makePDF(new Uint8Array(4), { deadline: 60_000 })
+    const open = makePDF(new Uint8Array(4), { silence: 60_000 })
     await vi.waitFor(() => expect(fake.webWorker.addEventListener).toHaveBeenCalledWith('error', expect.any(Function)))
-    fake.webWorker.addEventListener.mock.calls[0][1]()
+    fake.webWorker.addEventListener.mock.calls.find(([t]) => t === 'error')[1]()
     await expect(open).rejects.toThrow('could not start')
     expect(fake.webWorker.terminate).toHaveBeenCalled()
   })

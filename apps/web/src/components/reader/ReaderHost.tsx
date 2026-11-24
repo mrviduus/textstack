@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom'
 import { CHAPTER_TEXT_MS, createDiscussLocks, createDiscuss, fillBookMeta, runDiscuss, syncTocIfMissing, syncApi, type PagePosition, type FileDetails } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
-import { createOpenTracker, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
+import { createOpenTracker, isBookKey, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
 import { READER_FRAME_PATH } from '../../../../../packages/reader/src/framePath.mjs'
-import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, stoppedBook, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
+import { createDeadlines, openedDeadlineMs, READY_DEADLINE_MS, type Overdue } from '../../../../../packages/reader/src/deadlines.mjs'
 import { readSelection } from '../../../../../packages/reader/src/selection.mjs'
 import { readDescribed } from '../../../../../packages/reader/src/describe.mjs'
 import { DESCRIBE_MS } from '../../lib/describeBook'
@@ -56,6 +56,8 @@ import { createReaderSync, type ReaderSync, type SaveStatus, type SyncTarget } f
 export interface HostBook { bytes: ArrayBuffer; name: string; sync?: SyncTarget }
 /** The page's `opened` message, as far as hosts read it. */
 export interface HostOpenedMessage {
+  /** `epub` / `mobi` / `fb2` / `cbz` / `pdf` (a PDF's contents come later, as `toc`). */
+  format?: string
   title?: string
   author?: string
   annotatable?: boolean
@@ -672,7 +674,8 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
         setTocOpen(true)
         onContentsShownRef.current?.()
       }
-      contentsOnOpen.current = false
+      // #1557: a PDF's contents come after `opened`, as `toc`: the request waits for them.
+      if (m.format !== 'pdf' || entries.length) contentsOnOpen.current = false
       setBookLanguage(readLang(m) ?? 'en')
       setMarksLanguage(savesWords(m) ? readLang(m) ?? 'en' : null)
       setTtsLanguage(ttsLang(m.lang, 'en'))
@@ -713,7 +716,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
         }
         case 'book-stopped':
           // #1204: only for the book on screen; Retry (a fresh frame) opens it again.
-          if (stoppedBook(m, openedSha.current)) setStopped(true)
+          if (isBookKey(m?.key, openedSha.current)) setStopped(true)
           return
         case 'toc': {
           // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
@@ -721,6 +724,12 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           if (!u) return
           setToc(u.toc)
           setTocIndex(u.tocIndex)
+          // `openContents` for a PDF (#1557): its contents are here now.
+          if (contentsOnOpen.current && u.toc.length) {
+            setTocOpen(true)
+            onContentsShownRef.current?.()
+          }
+          contentsOnOpen.current = false
           return
         }
         case 'open-failed': {

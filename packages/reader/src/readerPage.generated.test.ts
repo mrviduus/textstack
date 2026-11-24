@@ -190,7 +190,8 @@ describe('readerPageHtml', () => {
     expect(pdf.indexOf('getOrInsertComputed')).toBeLessThan(pdf.indexOf('isEvalSupported:!1'))
     expect(worker.indexOf('getOrInsertComputed')).toBeLessThan(worker.search(/globalThis\.pdfjsWorker\s*=/))
     expect(html).toContain('if (typeof structuredClone !== "function" || typeof Worker !== "function") throw new Error("this WebView is too old to read PDF");')
-    expect(html).toMatch(/new Worker\(pdfWorkerUrl \?\?= URL\.createObjectURL\(new Blob\(\[\(\((\w+) = self\.__TS_FORMATS\) == null \? void 0 : \1\.pdfworker\) \?\? ""\], \{ type: "text\/javascript" \}\)\)\)/)
+    // A page without its carried worker says so at once, never waits out the watchdog (#1204 review).
+    expect(html).toMatch(/const src = \((\w+) = self\.__TS_FORMATS\) == null \? void 0 : \1\.pdfworker;\s*if \(!src\) throw new Error\("the PDF reader could not start"\);\s*return new Worker\(pdfWorkerUrl \?\?= URL\.createObjectURL\(new Blob\(\[src\], \{ type: "text\/javascript" \}\)\)\);/)
     // A book still on screen after its init answers `opened`; `restored` names its book.
     expect(html).toMatch(/await view\.init\(\{ showTextStart: true \}\);\s*if \(mine !== viewSeq\) return false;/)
     expect(html).toContain('post({ type: "restored", key: book.sha256, ...result })')
@@ -199,10 +200,9 @@ describe('readerPageHtml', () => {
       expect(js).toContain('Licensed under the Apache License, Version 2.0')
     }
     // The page: the bytes themselves (#1557), its worker, the open's deadline; wasm and cMaps from its own chunks, no URL for anything.
-    expect(html).toMatch(/made = await makePDF\(bytes, \{ css(?:: \w+)?, worker: pdfWorker, deadline, pageDeadline: testPdfDeadline \|\| PDF_PAGE_MS, onFail, params: \{ useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm \} \}\)/)
+    expect(html).toMatch(/made = await makePDF\(bytes, \{ css(?:: \w+)?, worker: pdfWorker, silence: testPdfSilence \|\| PDF_SILENCE_MS, onFail, params: \{ useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm \} \}\)/)
     // #1204 review: a terminated worker with its book on screen is said to the hosts, never for a book not on screen.
-    expect(html).toContain('if (made && (view == null ? void 0 : view.book) === made) post({ type: "book-stopped", key: book.sha256,')
-    expect(html).toContain('const deadline = testPdfDeadline || openedDeadlineMs(bytes.length);')
+    expect(html).toContain('if (made && (view == null ? void 0 : view.book) === made) post(said(view).stopped = { type: "book-stopped", key: book.sha256,')
     // #1204: OpenJPEG's wasm, base64, with its two notices; asked for by name, nothing else.
     const wasm = chunk('pdfwasm')
     expect(wasm).toMatch(/"openjpeg\.wasm": ?"AGFzbQ[A-Za-z0-9+/=]+"/)

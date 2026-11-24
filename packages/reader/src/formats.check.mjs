@@ -4,7 +4,7 @@
 // AZW3 and a combo (its KF8 half) open and draw; CBZ has no text features and saves and restores its page by name;
 // a fraction-only position (#1187) restores without saving; an HTML clip opens only with the host's format, sanitized; PDF opens, pages, saves and resumes by `pdf-page` and
 // never takes a CFI; `describe` reads every format's details and cover beside the open book; a DRM, damaged, entity-declaring or unknown file is refused, leaving the open book reading;
-// a hostile PDF neither runs script nor leaves the file; a decompression bomb fails at its deadline while the page answers
+// a hostile PDF neither runs script nor leaves the file; a decompression bomb fails at the watchdog while the page answers
 // (#1204: pdf.js in a Worker); a JPEG 2000 image draws (OpenJPEG's wasm); a PDF's outline comes after `opened` (#1557);
 // an older WebView still reads a PDF or says why not.
 // The reader's features (selection, search, highlights, bookmarks, chrome) are not this check's: their modules'
@@ -266,6 +266,12 @@ try {
   await call('window.__fol.goTo({ page: 4 })')
   const onFour = await waitFor(from, (x) => x.type === 'relocate' && x.index === 3, 'relocate to page 4').catch(() => null)
   check(onFour?.tocIndex === 1, `and the place's entry follows it (page 4: ${onFour?.tocIndex})`)
+  // #1557 review: a newer open that fails leaves this book on screen; a host that dropped its `toc` meanwhile (the newer
+  // open in flight) takes it back, so the page says it again after the `open-failed`.
+  const refused = await open('tsplain.txt')
+  const again = messages.slice(refused.from).findIndex((x) => x.type === 'toc' && x.key === tocMsg?.key)
+  check(refused.type === 'open-failed' && again > messages.slice(refused.from).findIndex((x) => x.type === 'open-failed'),
+    `after a newer open fails, the book still on screen says its \`toc\` again (${refused.type}, at ${again})`)
   // #1204: a JPEG 2000 image is drawn (OpenJPEG's wasm, carried in the page, compiled under 'wasm-unsafe-eval').
   check(!(await loaded()).split(',').includes('pdfwasm'), 'no wasm chunk has run for a PDF without a JPEG 2000 image')
   m = await open('tsjpx.pdf')
@@ -384,30 +390,30 @@ try {
   const handed = messages.slice(from).filter((x) => x.type === 'openLink').map((x) => x.href)
   check(handed.length === 2 && handed[0].startsWith(`${evil}/gotor.pdf`) && handed[1] === `${evil}/uri`, `only the two http links are handed to the host, never followed (${handed.join(', ')})`)
 
-  // #1204: pdf.js parses in a Worker: a decompression bomb (1 GiB of XMP in 2 KB) keeps that worker busy, not the
-  // page; past its deadline (shortened here, by default the host's `opened` deadline for the file) the worker is
-  // terminated and the open fails, the book on screen still reading.
+  // #1204: pdf.js parses in a Worker: a decompression bomb (1 GiB of XMP in 2 KB) keeps that worker busy and silent, not
+  // the page; past the watchdog's silence (shortened here, PDF_SILENCE_MS by default) the worker is terminated and the
+  // open fails, the book on screen still reading.
   console.log('pdf bomb')
   writeFileSync(resolve(dir, 'tsbomb.pdf'), bombPdf())
   m = await open('tsformat.pdf')
-  await call('window.__fol.__testPdfDeadline(1000)')
+  await call('window.__fol.__testPdfSilence(1000)')
   await call('window.__gap = 0; window.__tick = performance.now(); window.__ticker = setInterval(() => { const t = performance.now(); window.__gap = Math.max(window.__gap, t - window.__tick); window.__tick = t }, 20)')
   const bombAt = Date.now()
   const bomb = await open('tsbomb.pdf')
   const bombMs = Date.now() - bombAt
   const gap = await call('clearInterval(window.__ticker), Math.round(window.__gap)')
-  await call('window.__fol.__testPdfDeadline(0)')
-  check(bomb.type === 'open-failed' && /took too long/.test(bomb.error) && bombMs < 1000 + 5000, `the bomb fails at its deadline (${bomb.type}: ${bomb.error}, ${bombMs} ms)`)
+  await call('window.__fol.__testPdfSilence(0)')
+  check(bomb.type === 'open-failed' && /took too long/.test(bomb.error) && bombMs < 1000 + 5000, `the bomb fails at the watchdog's silence (${bomb.type}: ${bomb.error}, ${bombMs} ms)`)
   check(!messages.slice(bomb.from).some((x) => x.type === 'book-stopped'), 'a failed open says `open-failed` only, never `book-stopped`')
   check(gap < 500, `and the page answers all the while (longest gap between 20 ms ticks: ${gap} ms)`)
   check(!!(await turnSaves('a store after the bomb')), 'the PDF open before it still turns and saves')
   m = await open('tsformat.pdf')
   // Drawn before the next open (an open over a page still rendering cancels it: a page error).
   check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `a PDF opens and draws after it (${m.type})`)
-  // #1204 review: a page that never finishes drawing after `opened` (the bomb as page 2's content) terminates the worker at
-  // its page budget (PDF_PAGE_MS; shortened here) and the hosts are told, `book-stopped` for that book; the page answers.
+  // #1204 review: a page that never finishes drawing after `opened` (the bomb as page 2's content) leaves the worker silent:
+  // the watchdog (PDF_SILENCE_MS; shortened here) terminates it and the hosts are told, `book-stopped` for that book.
   writeFileSync(resolve(dir, 'tsbombpage.pdf'), bombPagePdf())
-  await call('window.__fol.__testPdfDeadline(1000)')
+  await call('window.__fol.__testPdfSilence(1000)')
   m = await open('tsbombpage.pdf')
   await call('window.__gap = 0; window.__tick = performance.now(); window.__ticker = setInterval(() => { const t = performance.now(); window.__gap = Math.max(window.__gap, t - window.__tick); window.__tick = t }, 20)')
   from = messages.length
@@ -416,9 +422,9 @@ try {
   const stopped = await waitFor(from, (x) => x.type === 'book-stopped', 'book-stopped').catch(() => null)
   const stoppedMs = Date.now() - turnAt
   const pageGap = await call('clearInterval(window.__ticker), Math.round(window.__gap)')
-  await call('window.__fol.__testPdfDeadline(0)')
+  await call('window.__fol.__testPdfSilence(0)')
   check(m.type === 'opened' && stopped?.key === m.book.sha256 && /took too long/.test(stopped?.error) && stoppedMs < 1000 + 5000,
-    `a page past its budget after \`opened\` says \`book-stopped\` for its book (${m.type}; ${JSON.stringify(stopped)}, ${stoppedMs} ms)`)
+    `a page that never finishes after \`opened\` says \`book-stopped\` for its book (${m.type}; ${JSON.stringify(stopped)}, ${stoppedMs} ms)`)
   check(pageGap < 500 && messages.slice(from).filter((x) => x.type === 'book-stopped').length === 1, `once, and the page answers all the while (longest gap: ${pageGap} ms)`)
   m = await open('tsformat.pdf')
   check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `the next PDF opens and draws (${m.type})`)

@@ -6,8 +6,7 @@ export const OPENED_FLOOR_MS: number
 export const OPENED_MS_PER_MB: number
 export const OPENED_CAP_MS: number
 export const DOWNLOAD_STALL_MS: number
-export const PDF_PAGE_MS: number
-export function stoppedBook(m: unknown, key: string | null): boolean
+export const PDF_SILENCE_MS: number
 export function openedDeadlineMs(bytes: number | null | undefined): number
 export interface Deadlines {
   waitReady(ms: number): void

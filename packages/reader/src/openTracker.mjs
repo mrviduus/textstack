@@ -15,6 +15,15 @@
 // A pick copies its file into staging/ before it opens (#1273): `pick()` returns whether that pick is still the
 // latest intent. Any later open, later pick or the screen's end (`dispose()`) supersedes it; the host then drops
 // its staged file instead of opening it over the book opened meanwhile.
+/**
+ * Whether a page message's `key` (a book's sha256) names the book the host took (`openKey`; null: none). Case ignored
+ * (Android keeps it lower-cased). One rule for every keyed message a host takes for the book on screen only (#1557 `toc`,
+ * #1204 `book-stopped`, Android's own).
+ */
+export function isBookKey(key, openKey) {
+  return typeof key === 'string' && typeof openKey === 'string' && key.toLowerCase() === openKey.toLowerCase()
+}
+
 export function createOpenTracker() {
   let intent = 0
   let current = null
