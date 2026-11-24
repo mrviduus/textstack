@@ -34,7 +34,7 @@ public sealed partial class McpToolCatalog
             BuildListMyVocabulary(api),
             BuildAddVocabularyWords(api),
             BuildUpdateVocabularyWord(api),
-            BuildDeleteVocabularyWord(api),
+            BuildDeleteTool("delete_vocabulary_word", "Delete a vocabulary word", "word", "list_my_vocabulary", api.DeleteWordAsync),
             BuildSaveMyHighlight(api),
             BuildListMyBookHighlights(api),
             BuildSaveInsight(api),
@@ -45,7 +45,7 @@ public sealed partial class McpToolCatalog
             BuildShareChapter(api),
             BuildSaveCheckpoint(api),
             BuildListCheckpoints(api),
-            BuildDeleteCheckpoint(api),
+            BuildDeleteTool("delete_checkpoint", "Delete a discussion checkpoint", "checkpoint", "list_checkpoints", api.DeleteCheckpointAsync),
             BuildGetSharedChapter(api),
         };
         _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
@@ -539,29 +539,34 @@ public sealed partial class McpToolCatalog
         }
         """).RootElement;
 
-    private McpToolDescriptor BuildDeleteVocabularyWord(TextStackApiClient api) => new()
-    {
-        Name = "delete_vocabulary_word",
-        Title = "Delete a vocabulary word",
-        ReadOnly = false,
-        Destructive = true,
-        Idempotent = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("delete_vocabulary_word"),
-        InputSchema = IdOnlySchema,
-        Handler = (args, ct) =>
+    /// <summary>
+    /// A delete by id (<c>delete_vocabulary_word</c>, <c>delete_checkpoint</c>): idempotent, so the endpoint's own
+    /// <c>not_found</c> answers <c>deleted: false</c>, never an error (<see cref="NotFoundOnDelete"/>).
+    /// </summary>
+    private McpToolDescriptor BuildDeleteTool(
+        string name, string title, string what, string listTool, Func<Guid, CancellationToken, Task<ApiResult<JsonElement>>> delete) => new()
         {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "id")
-                || !ArgReader.TryRequiredGuid(obj, "id", out var id, out err))
-                return Task.FromResult(Error(err));
-
-            return InvokeAsync("delete_vocabulary_word", ct, async () =>
+            Name = name,
+            Title = title,
+            ReadOnly = false,
+            Destructive = true,
+            Idempotent = true,
+            Description = global::Contracts.Mcp.McpManifestCatalog.Describe(name),
+            InputSchema = IdOnlySchema,
+            Handler = (args, ct) =>
             {
-                var result = await api.DeleteWordAsync(id, ct);
-                if (result.Code == "not_found") return NotFoundOnDelete(id, "word", "list_my_vocabulary");
-                return Refused("delete_vocabulary_word", result) ?? Text(JsonSerializer.Serialize(new { id, deleted = true }));
-            });
-        },
-    };
+                if (!ArgReader.TryObject(args, out var obj, out var err, "id")
+                    || !ArgReader.TryRequiredGuid(obj, "id", out var id, out err))
+                    return Task.FromResult(Error(err));
+
+                return InvokeAsync(name, ct, async () =>
+                {
+                    var result = await delete(id, ct);
+                    if (result.Code == "not_found") return NotFoundOnDelete(id, what, listTool);
+                    return Refused(name, result) ?? Text(JsonSerializer.Serialize(new { id, deleted = true }));
+                });
+            },
+        };
 
     // Match the web reader's HighlightColor palette (offlineDb.ts) — no "orange".
     private static readonly string[] HighlightColors = ["yellow", "green", "blue", "pink"];
@@ -1035,7 +1040,6 @@ public sealed partial class McpToolCatalog
         {
             id,
             deleted = false,
-            found = false,
             message = $"no {what} with this id; ids come from {listTool}",
         }));
 

@@ -249,28 +249,4 @@ public sealed partial class McpToolCatalog
             });
         },
     };
-
-    private McpToolDescriptor BuildDeleteCheckpoint(TextStackApiClient api) => new()
-    {
-        Name = "delete_checkpoint",
-        Title = "Delete a discussion checkpoint",
-        ReadOnly = false,
-        Destructive = true,
-        Idempotent = true,
-        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("delete_checkpoint"),
-        InputSchema = IdOnlySchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "id")
-                || !ArgReader.TryRequiredGuid(obj, "id", out var id, out err))
-                return Task.FromResult(Error(err));
-
-            return InvokeAsync("delete_checkpoint", ct, async () =>
-            {
-                var result = await api.DeleteCheckpointAsync(id, ct);
-                if (result.Code == "not_found") return NotFoundOnDelete(id, "checkpoint", "list_checkpoints");
-                return Refused("delete_checkpoint", result) ?? Text(JsonSerializer.Serialize(new { id, deleted = true }));
-            });
-        },
-    };
 }
