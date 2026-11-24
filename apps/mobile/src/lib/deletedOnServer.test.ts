@@ -23,4 +23,10 @@ describe('book screen wiring', () => {
     expect(page).toMatch(/case 'offline':\s*case 'failed':\s*setLoadError\(view\)/)
     expect(page).not.toContain('else if (rehydrated)')
   })
+
+  it('readButton_BookWithProgressButNoChapter_SaysContinue', () => {
+    // #1532: a V2 place (a PDF at 50%) names no chapter, so how far in decides too.
+    expect(page).toContain('const started = !!continueSlug || (bookPct ?? 0) > 0')
+    expect(page).toContain("{started ? 'Continue Reading' : 'Start Reading'}")
+  })
 })

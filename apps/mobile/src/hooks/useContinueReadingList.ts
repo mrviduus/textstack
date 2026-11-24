@@ -9,14 +9,17 @@ import type {
   UserBookDto,
   ReadingProgressDto,
 } from '@textstack/shared'
-import { getAllLocalProgress, getAllUserBookLocalProgress } from '../lib/progressStorage'
+import { getAllLocalProgress } from '../lib/progressStorage'
+
+const NO_LOCAL_USER_BOOKS = new Map<string, UserBookProgressLite>()
 
 /**
  * In-progress books, most recently active first.
  *
  * Takes the server data the Library screen has already loaded and only fetches
- * what it cannot: the two AsyncStorage maps holding progress written while
- * offline. `ContinueReadingCard` (the old home-screen card) re-fetched library,
+ * what it cannot: the catalog's AsyncStorage map of progress written while
+ * offline. Uploads have no local map here: offline, the Library builds their
+ * rows from the V2 local library with its places (#1532). `ContinueReadingCard` (the old home-screen card) re-fetched library,
  * progress and user-books itself on every focus — three network round-trips to
  * render one card, on a screen that had just made the same three calls.
  *
@@ -28,22 +31,14 @@ export function useContinueReadingList(
   progressMap: Record<string, ReadingProgressDto>,
   userBooks: UserBookDto[],
 ): ContinueReadingPick[] {
-  const [local, setLocal] = useState<{
-    catalog: Map<string, LocalProgressLite>
-    userBook: Map<string, UserBookProgressLite>
-  }>({ catalog: new Map(), userBook: new Map() })
+  const [catalog, setCatalog] = useState<Map<string, LocalProgressLite>>(() => new Map())
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false
       ;(async () => {
-        // Each map is read independently — a corrupt entry in one store must
-        // not blank the other half of the list.
-        const [catalog, userBook] = await Promise.all([
-          getAllLocalProgress().catch(() => new Map<string, LocalProgressLite>()),
-          getAllUserBookLocalProgress().catch(() => new Map<string, UserBookProgressLite>()),
-        ])
-        if (!cancelled) setLocal({ catalog, userBook })
+        const local = await getAllLocalProgress().catch(() => new Map<string, LocalProgressLite>())
+        if (!cancelled) setCatalog(local)
       })()
       return () => { cancelled = true }
     }, []),
@@ -57,9 +52,9 @@ export function useContinueReadingList(
       library,
       serverProgress: Object.values(progressMap),
       userBooks,
-      localCatalogMap: local.catalog,
-      localUserBookMap: local.userBook,
+      localCatalogMap: catalog,
+      localUserBookMap: NO_LOCAL_USER_BOOKS,
     }),
-    [library, progressMap, userBooks, local],
+    [library, progressMap, userBooks, catalog],
   )
 }

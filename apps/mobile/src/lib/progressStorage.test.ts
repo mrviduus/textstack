@@ -5,11 +5,7 @@ import {
   getLocalProgress,
   getAllLocalProgress,
   clearAllLocalProgress,
-  saveUserBookLocalProgress,
-  getAllUserBookLocalProgress,
-  getUserBookLocalProgress,
   markLocalProgressSynced,
-  markUserBookLocalProgressSynced,
   getUserBookIsPdf,
   setUserBookIsPdf,
   type LocalProgress,
@@ -101,7 +97,7 @@ describe('getAllLocalProgress', () => {
     // They share a key prefix by coincidence; mixing them would feed a
     // book-percent-only record into the catalog merge.
     await saveLocalProgress('ed-1', progress())
-    await saveUserBookLocalProgress('ub-1', { bookPercent: 0.5, updatedAt: 1 })
+    await AsyncStorage.setItem('reading.progress.userbook.ub-1', JSON.stringify({ bookPercent: 0.5, updatedAt: 1 }))
     const all = await getAllLocalProgress()
     expect([...all.keys()]).toEqual(['ed-1'])
   })
@@ -115,33 +111,6 @@ describe('getAllLocalProgress', () => {
 
   it('is empty on a fresh install', async () => {
     expect((await getAllLocalProgress()).size).toBe(0)
-  })
-})
-
-describe('getAllUserBookLocalProgress', () => {
-  it('returns only user-book rows', async () => {
-    await saveUserBookLocalProgress('ub-1', { bookPercent: 0.5, updatedAt: 1 })
-    await saveLocalProgress('ed-1', progress())
-    const all = await getAllUserBookLocalProgress()
-    expect([...all.keys()]).toEqual(['ub-1'])
-    expect(all.get('ub-1')?.bookPercent).toBe(0.5)
-  })
-})
-
-describe('saveUserBookLocalProgress — keepPage (H1)', () => {
-  it('a reflow save of a PDF book keeps the stored page', async () => {
-    // The PDF viewer resumes from `page`. A text-space save dropping it reopened the book at page 1.
-    await saveUserBookLocalProgress('ub-1', { bookPercent: 0.4, updatedAt: 1, chapterSlug: null, page: 16 })
-    await saveUserBookLocalProgress('ub-1', { updatedAt: 2, chapterSlug: 'c-2', scrollOffset: 300 }, { keepPage: true })
-    const stored = await getUserBookLocalProgress('ub-1')
-    expect(stored?.page).toBe(16)
-    expect(stored?.chapterSlug).toBe('c-2')
-  })
-
-  it('without keepPage every field is still assigned, never carried forward', async () => {
-    await saveUserBookLocalProgress('ub-1', { updatedAt: 1, page: 16 })
-    await saveUserBookLocalProgress('ub-1', { updatedAt: 2, chapterSlug: 'c-2' })
-    expect((await getUserBookLocalProgress('ub-1'))?.page).toBeUndefined()
   })
 })
 
@@ -160,20 +129,21 @@ describe('clearAllLocalProgress', () => {
     // Progress leaking across accounts on a shared device is a privacy bug,
     // not just a correctness one.
     await saveLocalProgress('ed-1', progress())
-    await saveUserBookLocalProgress('ub-1', { bookPercent: 0.5, updatedAt: 1 })
+    // An older build's upload record (#1532: nothing writes it now) goes too.
+    await AsyncStorage.setItem('reading.progress.userbook.ub-1', JSON.stringify({ bookPercent: 0.5, updatedAt: 1 }))
     await setUserBookIsPdf('ub-1', true)
     await AsyncStorage.setItem('textstack-theme', 'dark')
 
     await clearAllLocalProgress()
 
     expect((await getAllLocalProgress()).size).toBe(0)
-    expect((await getAllUserBookLocalProgress()).size).toBe(0)
+    expect(await AsyncStorage.getItem('reading.progress.userbook.ub-1')).toBeNull()
     expect(await getUserBookIsPdf('ub-1')).toBeNull()
     expect(await AsyncStorage.getItem('textstack-theme')).toBe('dark')
   })
 })
 
-describe('markLocalProgressSynced / markUserBookLocalProgressSynced', () => {
+describe('markLocalProgressSynced', () => {
   it('flags the acknowledged write', async () => {
     await saveLocalProgress('ed-1', progress({ updatedAt: 5 }))
     await markLocalProgressSynced('ed-1', 5)
@@ -191,16 +161,5 @@ describe('markLocalProgressSynced / markUserBookLocalProgressSynced', () => {
     await markLocalProgressSynced('ed-1', 5)
     await saveLocalProgress('ed-1', progress({ updatedAt: 6, bookPercent: undefined }))
     expect((await getLocalProgress('ed-1'))?.synced).toBeUndefined()
-  })
-
-  it('works for uploads and keeps the record intact', async () => {
-    await saveUserBookLocalProgress('ub-1', { bookPercent: 0.4, updatedAt: 7, page: 12, chapterSlug: null })
-    await markUserBookLocalProgressSynced('ub-1', 7)
-    expect(await getUserBookLocalProgress('ub-1')).toEqual({ bookPercent: 0.4, updatedAt: 7, page: 12, chapterSlug: null, synced: true })
-  })
-
-  it('no record → no-op', async () => {
-    await markUserBookLocalProgressSynced('missing', 1)
-    expect(await getUserBookLocalProgress('missing')).toBeNull()
   })
 })

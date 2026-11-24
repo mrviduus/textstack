@@ -4,9 +4,8 @@ import { forgetChapterPositions } from './positionHandoff'
 // Catalog (edition) progress keys. Kept as-is for backwards compatibility
 // with installed users — changing the prefix would lose their progress.
 const KEY_PREFIX = 'reading.progress.'
-// Separate keyspace for user-uploaded books — the server stores only
-// chapter-level percent for these, so we cache book-percent locally so
-// ContinueReadingCard can render the same "% of book" UX as catalog books.
+// The old per-upload progress record. Nothing writes it since the V2 reader keeps its places in the
+// local library (#1532); kept so the sign-out wipe still removes an older build's rows.
 // NOTE: this prefix begins with KEY_PREFIX as a string. Every read that
 // filters by KEY_PREFIX MUST explicitly exclude USERBOOK_KEY_PREFIX, or
 // it will pick up user-book entries with the wrong shape. We isolate that
@@ -103,10 +102,6 @@ export function markLocalProgressSynced(editionId: string, updatedAt: number): P
   return markSynced(`${KEY_PREFIX}${editionId}`, updatedAt)
 }
 
-export function markUserBookLocalProgressSynced(bookId: string, updatedAt: number): Promise<void> {
-  return markSynced(`${USERBOOK_KEY_PREFIX}${bookId}`, updatedAt)
-}
-
 /**
  * Wipe every locally-cached reading-progress row. Called on sign-out so
  * user A's last page never leaks to user B when they sign in on the same
@@ -128,7 +123,6 @@ export async function clearAllLocalProgress(): Promise<void> {
   }
 }
 
-// Not under USERBOOK_KEY_PREFIX: getAllUserBookLocalProgress lists that prefix as progress rows.
 const USERBOOK_PDF_PREFIX = 'reading.userbook-is-pdf.'
 const USERBOOK_V2_PREFIX = 'reading.userbook-v2-state.'
 
@@ -179,110 +173,6 @@ export async function setUserBookIsPdf(bookId: string, isPdf: boolean): Promise<
   }
 }
 
-/** Per-user-book cache. Two jobs:
- *
- *  1. `bookPercent` for ContinueReadingCard, which is all this held originally —
- *     the server stores chapter-level percent for uploads, so "% of book" has to
- *     be computed by the reader and remembered here.
- *  2. Everything needed to REOPEN the book where it was left, for a book being
- *     read offline. The server is the resume authority whenever it can be
- *     reached; these fields are what the reader falls back to when `GET
- *     /me/books/{id}/progress` cannot be made at all. Without them an offline
- *     reader reopened every downloaded book at chapter one.
- */
-export interface UserBookLocalProgress {
-  /** 0..1 across the whole book. Optional because the reader does not know it
-   *  until the chapter list resolves — which, offline, can be after the first
-   *  save. Omitted means "keep what is already stored", never "reset to zero". */
-  bookPercent?: number | null
-  /** Epoch ms, this device's clock — see `LocalProgress.updatedAt`. */
-  updatedAt: number
-  /** The server acknowledged this exact write — see `LocalProgress.synced`. */
-  synced?: boolean
-  /** Chapter last read. Null/absent for a PDF read in Original layout. */
-  chapterSlug?: string | null
-  /** How far through THAT chapter (0..1) — the chapter-space twin of bookPercent. */
-  chapterPercent?: number
-  /** Pixel scroll offset inside the chapter. */
-  scrollOffset?: number
-  /** Serialised TextPosition (see @textstack/shared textPosition) — the only
-   *  resume coordinate that survives a reflow, so it is tried first. */
-  positionJson?: string
-  /** 1-based page, when the book was last read as an Original-layout PDF. */
-  page?: number
-}
-
-/** Persist an upload's local progress.
- *
- *  `bookPercent` is carried forward when omitted, for the same reason it is in
- *  `saveLocalProgress`: callers pass `undefined` to mean "not known right now",
- *  which is every save made before the chapter list resolves — and offline,
- *  every save. Every OTHER field is assigned, never carried forward: a stale
- *  chapter slug left beside a fresh page number is a record that contradicts
- *  itself, which is the failure the position model exists to end. */
-export async function saveUserBookLocalProgress(
-  bookId: string,
-  data: UserBookLocalProgress,
-  /** `keepPage`: a text-space save of a PDF book (read as text) — the one exception to the rule
-   *  above. `page` belongs to the Original viewer, and dropping it reopened the PDF at page 1. */
-  opts?: { keepPage?: boolean },
-): Promise<void> {
-  try {
-    let toWrite = data
-    const keepPage = opts?.keepPage && data.page === undefined
-    if (data.bookPercent == null || keepPage) {
-      const prev = await getUserBookLocalProgress(bookId)
-      if (data.bookPercent == null && prev && typeof prev.bookPercent === 'number') {
-        toWrite = { ...toWrite, bookPercent: prev.bookPercent }
-      }
-      if (keepPage && typeof prev?.page === 'number') toWrite = { ...toWrite, page: prev.page }
-    }
-    await AsyncStorage.setItem(`${USERBOOK_KEY_PREFIX}${bookId}`, JSON.stringify(toWrite))
-  } catch {
-    // Out of space — non-fatal; reader still saves to server.
-  }
-}
-
-export async function getUserBookLocalProgress(bookId: string): Promise<UserBookLocalProgress | null> {
-  try {
-    const raw = await AsyncStorage.getItem(`${USERBOOK_KEY_PREFIX}${bookId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed.updatedAt !== 'number') return null
-    return parsed as UserBookLocalProgress
-  } catch {
-    return null
-  }
-}
-
-/** A stored row that is known to carry a book-percent. The map below filters
- *  out the ones that do not, so its callers — the resume card and the discover
- *  card, both of which exist to render that number — never have to re-check. */
-export type UserBookProgressWithPercent = UserBookLocalProgress & { bookPercent: number }
-
-export async function getAllUserBookLocalProgress(): Promise<Map<string, UserBookProgressWithPercent>> {
-  const map = new Map<string, UserBookProgressWithPercent>()
-  try {
-    const keys = await AsyncStorage.getAllKeys()
-    const ubKeys = keys.filter(k => k.startsWith(USERBOOK_KEY_PREFIX))
-    if (ubKeys.length === 0) return map
-    const pairs = await AsyncStorage.multiGet(ubKeys)
-    for (const [k, v] of pairs) {
-      if (!v) continue
-      try {
-        const parsed = JSON.parse(v)
-        if (!parsed || typeof parsed.bookPercent !== 'number' || typeof parsed.updatedAt !== 'number') continue
-        map.set(k.slice(USERBOOK_KEY_PREFIX.length), parsed as UserBookProgressWithPercent)
-      } catch {
-        // Skip corrupted entry — next save overwrites it.
-      }
-    }
-  } catch {
-    // Storage unavailable.
-  }
-  return map
-}
-
 /** Load all cached progress records keyed by editionId. Used by home/continue-reading. */
 export async function getAllLocalProgress(): Promise<Map<string, LocalProgress>> {
   const map = new Map<string, LocalProgress>()
@@ -323,11 +213,10 @@ export async function getAllLocalProgress(): Promise<Map<string, LocalProgress>>
 export async function rekeyUserBookProgress(books: Record<string, string>): Promise<void> {
   try {
     for (const [from, to] of Object.entries(books)) {
-      for (const prefix of [USERBOOK_KEY_PREFIX, USERBOOK_PDF_PREFIX]) {
-        const value = await AsyncStorage.getItem(prefix + from)
-        if (value == null) continue
-        await AsyncStorage.setItem(prefix + to, value)
-        await AsyncStorage.removeItem(prefix + from)
+      const value = await AsyncStorage.getItem(USERBOOK_PDF_PREFIX + from)
+      if (value != null) {
+        await AsyncStorage.setItem(USERBOOK_PDF_PREFIX + to, value)
+        await AsyncStorage.removeItem(USERBOOK_PDF_PREFIX + from)
       }
       await AsyncStorage.removeItem(USERBOOK_V2_PREFIX + from)
     }

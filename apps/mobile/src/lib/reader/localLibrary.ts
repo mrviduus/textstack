@@ -180,6 +180,12 @@ export interface StateRow {
   completed_at: string | null
 }
 
+/** A book's last place on this device: `fraction` of the book (0..1), `at` epoch ms when the page took it (null: not said). */
+export interface BookPlace {
+  fraction: number
+  at: number | null
+}
+
 export interface AnnotationRow {
   id: string
   book_id: string
@@ -502,6 +508,16 @@ export function createLocalLibrary(db: Db) {
           format: (local ? b.format : b.server_format) ?? null,
         }
       })
+    }),
+
+    /** Each book's place here as a fraction of the book, and when the page took it: the Library's and book page's progress offline (#1532). */
+    progress: () => job(async () => {
+      const out = new Map<string, BookPlace>()
+      for (const r of await all<{ book_id: string; position: string }>('SELECT book_id, position FROM reading_state WHERE position IS NOT NULL')) {
+        const p = parse<PagePosition>(r.position)
+        if (typeof p?.fraction === 'number') out.set(r.book_id, { fraction: p.fraction, at: p.at ?? null })
+      }
+      return out
     }),
 
     /** Whether a book on this device already holds these bytes. */

@@ -23,7 +23,6 @@ import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
 import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
 import { failedLoadView } from '../../src/lib/deletedOnServer'
-import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
 import { DownloadButton } from '../../src/components/library/DownloadButton'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
@@ -33,28 +32,22 @@ import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
 import { useCoverSource } from '../../src/hooks/useCoverSource'
 
 /**
- * Everything this screen needs, read off the device: the book whose file is here (the V2 local library),
- * and the last position the reader wrote locally. Null when the file is not on this device (or on web).
+ * Everything this screen needs, read off the device: the book whose file is here and its last place
+ * (the V2 local library, #1532). Null when the file is not on this device (or on web).
  */
 async function rehydrateFromDevice(bookId: string): Promise<{
   book: UserBookDetailResponse
   progress: { chapterSlug: string | null; percent: number | null; locator: string | null } | null
 } | null> {
   try {
-    const here = (await deviceLocalLibrary().books()).find(b => b.id === bookId && b.local)
+    const lib = deviceLocalLibrary()
+    const here = (await lib.books()).find(b => b.id === bookId && b.local)
     if (!here) return null
-    const local = await getUserBookLocalProgress(bookId)
+    const place = (await lib.progress()).get(bookId)
     return {
       book: cachedUserBookDetail(here),
-      progress: local
-        ? {
-            chapterSlug: local.chapterSlug ?? null,
-            percent: typeof local.bookPercent === 'number' ? local.bookPercent : null,
-            // The same `page:<N>` shape the server would have returned, so
-            // `resumeChapterSlug` and `storedBookPercent` read it unchanged.
-            locator: typeof local.page === 'number' ? `page:${local.page}` : null,
-          }
-        : null,
+      // The V2 reader resumes from its own place; the screen needs only how far in.
+      progress: place ? { chapterSlug: null, percent: place.fraction, locator: null } : null,
     }
   } catch (err) {
     console.warn('Offline user-book rehydrate failed:', err)
@@ -377,6 +370,8 @@ export default function UserBookDetailScreen() {
   // locator had been corrupted into chapter space.
   const bookPct = storedBookPercent(savedProgress)
   const progressPct = bookPct != null ? Math.round(bookPct * 100) : 0
+  // #1532: a V2 place names no chapter (a PDF at 50% has no slug), so how far in counts too.
+  const started = !!continueSlug || (bookPct ?? 0) > 0
 
   return (
     <>
@@ -486,8 +481,8 @@ export default function UserBookDetailScreen() {
                   router.push(`/my-books/read/${id}/${slug}`)
                 }}
               >
-                <Ionicons name={continueSlug ? 'play' : 'book'} size={18} color="#fff" />
-                <Text style={styles.readBtnText}>{continueSlug ? 'Continue Reading' : 'Start Reading'}</Text>
+                <Ionicons name={started ? 'play' : 'book'} size={18} color="#fff" />
+                <Text style={styles.readBtnText}>{started ? 'Continue Reading' : 'Start Reading'}</Text>
               </TouchableOpacity>
             </AssistantMenu>
             {/* The book's own contents, in the reader (its Contents sheet opens with the book). */}

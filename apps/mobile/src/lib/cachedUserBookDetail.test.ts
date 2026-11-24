@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { cachedUserBookDetail } from './cachedUserBookDetail'
+import { rankContinueReading } from '@textstack/shared'
+import { cachedUserBook, cachedUserBookDetail } from './cachedUserBookDetail'
 import type { LibraryBook } from './reader/hostStorage'
+import { createLocalLibrary } from './reader/localLibrary'
+import { memoryDb } from './reader/sqliteShim'
 
 const onDevice: LibraryBook = {
   id: 'book-1', sha256: 'a'.repeat(64), size: 1000, title: 'Designing Data-Intensive Applications',
@@ -20,5 +23,28 @@ describe('cachedUserBookDetail', () => {
     expect(book.description).toBeNull()
     expect(book.coverPath).toBeNull()
     expect(book.chapters).toEqual([])
+  })
+})
+
+describe('cachedUserBook (#1532)', () => {
+  it('cachedUserBook_ReadToAThirdThenOfflineColdStart_RowShowsProgressAndContinue', async () => {
+    const db = memoryDb()
+    const SHA = 'cd'.repeat(32)
+    let n = 0
+    const newId = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
+    const reading = createLocalLibrary(db)
+    await reading.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+    const at = Date.now() - 60_000
+    const position = { cfi: 'epubcfi(/6/14!/4/2/1:0)', quote: 'q', index: 6, fraction: 0.3, at }
+    await reading.writeEntry(SHA, JSON.stringify({ v: 1, book: { sha256: SHA, size: 10, name: 'b.epub' }, position, highlights: [] }), newId)
+
+    // The app killed: a new process opens the same database, no account and no network involved.
+    const lib = createLocalLibrary(db)
+    const [book] = (await lib.books()).filter((b) => b.local)
+    const row = cachedUserBook(book, (await lib.progress()).get(book.id))
+
+    expect(row).toMatchObject({ id: book.id, progressPercent: 0.3, progressUpdatedAt: new Date(at).toISOString() })
+    const [pick] = rankContinueReading({ library: [], serverProgress: [], userBooks: [row], localCatalogMap: new Map(), localUserBookMap: new Map() })
+    expect(pick).toMatchObject({ type: 'userbook', id: book.id, percent: 0.3 })
   })
 })
