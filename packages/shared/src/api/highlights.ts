@@ -50,10 +50,6 @@ type CoverKey = Pick<HighlightListItem, 'userBookId' | 'userBookCoverVersion'>
 export const highlightCoverUrl = (h: CoverKey): string | null =>
   h.userBookId && h.userBookCoverVersion ? coverUrl(h.userBookId, h.userBookCoverVersion) : null
 
-/** Of two highlights of one book, the one with the newer cover version: a page loaded later may carry a newer cover. */
-export const newerCover = <T extends CoverKey>(a: T, b: T): T =>
-  b.userBookCoverVersion && (!a.userBookCoverVersion || Date.parse(b.userBookCoverVersion) > Date.parse(a.userBookCoverVersion)) ? b : a
-
 export interface HighlightListResponse {
   items: HighlightListItem[]
   totalCount: number

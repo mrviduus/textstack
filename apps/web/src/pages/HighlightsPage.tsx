@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { getAllHighlights, type HighlightListItem } from '../api/userData'
-import { highlightCoverUrl, newerCover } from '@textstack/shared'
+import { highlightCoverUrl } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
@@ -95,7 +95,8 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
         bookMap.set(bookId, group)
         groups.push(group)
       }
-      group.cover = newerCover(group.cover, h)
+      // The last fetched wins: a page loaded later carries the server's newest cover, or none (#1580).
+      group.cover = h
       group.highlights.push(h)
     }
     return groups

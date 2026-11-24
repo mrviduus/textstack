@@ -3,7 +3,7 @@ import { View, Text, SectionList, StyleSheet, TouchableOpacity, TextInput, Activ
 import { useRouter, Stack } from 'expo-router'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
-import { highlightsApi, highlightCoverUrl, newerCover, isOfflineError } from '@textstack/shared'
+import { highlightsApi, highlightCoverUrl, isOfflineError } from '@textstack/shared'
 import type { HighlightListItem } from '@textstack/shared'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
@@ -117,7 +117,8 @@ export default function HighlightsScreen() {
       const bookTitle = h.editionTitle || h.userBookTitle || (h.deletedBookTitle ? `${h.deletedBookTitle} (deleted)` : 'Unknown Book')
       const group = groups.get(bookKey) ?? { title: bookTitle, cover: h, items: [] }
       // The newest cover version of the book's highlights: a page loaded later may carry a newer one (#1580).
-      group.cover = newerCover(group.cover, h)
+      // The last fetched wins: a page loaded later carries the server's newest cover, or none (#1580).
+      group.cover = h
       group.items.push(h)
       groups.set(bookKey, group)
     }

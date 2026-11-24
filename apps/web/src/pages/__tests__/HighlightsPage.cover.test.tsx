@@ -59,13 +59,19 @@ describe('HighlightsPage cover', () => {
     await waitFor(() => expect(container.querySelector('img')?.getAttribute('src')).toBe(syncApi.coverUrl('b1', '2026-11-25T10:00:00Z')))
   })
 
-  it('book whose later highlight carries a newer version shows the newest cover', async () => {
-    const container = await renderCovers([
+  it('a book cover follows its last fetched highlight: a newer cover, or none once removed', async () => {
+    // Pages arrive in order; a later one carries the server's newest state of the book.
+    const newer = await renderCovers([
       item({ id: 'h1', userBookCoverVersion: '2026-11-24T09:30:15Z' }),
       item({ id: 'h2', userBookCoverVersion: '2026-11-25T10:00:00.5+00:00' }),
-      item({ id: 'h3', userBookCoverVersion: null }),
     ])
-    expect(container.querySelectorAll('img')).toHaveLength(1)
-    expect(container.querySelector('img')?.getAttribute('src')).toBe(syncApi.coverUrl('b1', '2026-11-25T10:00:00.5+00:00'))
+    expect(newer.querySelectorAll('img')).toHaveLength(1)
+    expect(newer.querySelector('img')?.getAttribute('src')).toBe(syncApi.coverUrl('b1', '2026-11-25T10:00:00.5+00:00'))
+
+    const removed = await renderCovers([
+      item({ id: 'h3', userBookCoverVersion: '2026-11-24T09:30:15Z' }),
+      item({ id: 'h4', userBookCoverVersion: null }),
+    ])
+    expect(removed.querySelector('img')).toBeNull()
   })
 })
