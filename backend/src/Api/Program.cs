@@ -162,8 +162,8 @@ if (!Directory.Exists(storagePath))
 {
     Directory.CreateDirectory(storagePath);
 }
-// Must stay before UseStaticFiles: of a reader's upload folder only the cover is public; the book
-// and its images go through owner-checked /me/books/{id}/file and /assets (UserStoragePolicy).
+// Must stay before UseStaticFiles: nothing under users/, library/ or uploads/ is public; book bytes
+// and covers go through owner-checked /me/v2 (UserStoragePolicy).
 app.Use(async (ctx, next) =>
 {
     if (Api.Extensions.UserStoragePolicy.IsBlocked(ctx.Request.Path))

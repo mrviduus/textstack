@@ -1,4 +1,3 @@
-using Application.Common;
 using Application.Common.Interfaces;
 
 namespace Infrastructure.Services;
@@ -43,48 +42,6 @@ public class LocalFileStorageService : IFileStorageService
         await content.CopyToAsync(fileStream, ct);
 
         return relativePath;
-    }
-
-    public async Task<string> SaveUserFileAsync(Guid userId, Guid userBookId, string fileName, Stream content, CancellationToken ct = default)
-    {
-        // Path: users/{userId[0:2]}/{userId}/books/{userBookId}/{fileName}
-        var relativePath = Path.Combine("users", userId.ToString()[..2], userId.ToString(), "books", userBookId.ToString(), fileName);
-        var fullPath = Path.Combine(_rootPath, relativePath);
-        EnsureInside(Path.Combine(_rootPath, "users", userId.ToString()[..2], userId.ToString(), "books", userBookId.ToString()), fullPath);
-
-        var directory = Path.GetDirectoryName(fullPath)!;
-        if (!Directory.Exists(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        await using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await content.CopyToAsync(fileStream, ct);
-
-        return relativePath;
-    }
-
-    public Task<bool> MoveUserBookDirectoryAsync(Guid fromUserId, Guid toUserId, Guid userBookId, CancellationToken ct = default)
-    {
-        var from = Path.Combine(_rootPath, UserStoragePaths.BookDirectory(fromUserId, userBookId));
-        if (!Directory.Exists(from)) return Task.FromResult(false);
-        var to = Path.Combine(_rootPath, UserStoragePaths.BookDirectory(toUserId, userBookId));
-        Directory.CreateDirectory(Path.GetDirectoryName(to)!);
-        Directory.Move(from, to); // throws if the target exists — the caller logs and keeps the old paths
-        return Task.FromResult(true);
-    }
-
-    public Task DeleteUserBookDirectoryAsync(Guid userId, Guid userBookId, CancellationToken ct = default)
-    {
-        var relativePath = UserStoragePaths.BookDirectory(userId, userBookId);
-        var fullPath = Path.Combine(_rootPath, relativePath);
-
-        if (Directory.Exists(fullPath))
-        {
-            Directory.Delete(fullPath, recursive: true);
-        }
-
-        return Task.CompletedTask;
     }
 
     public Task DeleteUserDirectoryAsync(Guid userId, CancellationToken ct = default)

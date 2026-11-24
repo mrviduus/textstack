@@ -1,5 +1,4 @@
 import type { UserBookProgressDto } from '@textstack/shared'
-import { API_BASE } from './client'
 import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
@@ -188,11 +187,8 @@ export function unmarkUserBookComplete(id: string): Promise<MarkOutcome> {
 }
 
 export function getUserBookCoverUrl(coverPath: string | null | undefined): string | undefined {
-  if (!coverPath) return undefined
-  // A V2 cover is already a URL (the API's cover route), not a storage path: absolute in dev,
-  // `/api/...` in production where the API base is relative. Legacy storage paths never start with '/'.
-  if (/^https?:\/\//.test(coverPath) || coverPath.startsWith('/')) return coverPath
-  return `${API_BASE}/storage/${coverPath}`
+  // A cover is already a URL (the API's owner-checked cover route, sync.ts); /storage serves no upload (#956).
+  return coverPath || undefined
 }
 
 /** URL of the book's current file (Range-enabled), cookie-authed same-origin. */
