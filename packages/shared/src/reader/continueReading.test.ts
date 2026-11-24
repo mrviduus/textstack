@@ -569,7 +569,8 @@ describe('rankContinueReading — this device reopened an older book', () => {
   it('the reopened book heads Continue, ahead of one read later elsewhere', () => {
     const older = ub({ id: 'reopened', progressUpdatedAt: '2026-05-01T00:00:00Z' })
     const newer = ub({ id: 'newer', progressUpdatedAt: '2026-05-10T00:00:00Z' })
-    expect(head(inputs({ userBooks: [newer, older], openedAt: { reopened: Date.parse('2026-05-11T00:00:00Z') } }))?.id).toBe('reopened')
-    expect(head(inputs({ userBooks: [newer, older] }))?.id).toBe('newer')
+    const headId = (i: ContinueReadingInputs) => { const h = head(i); return h?.type === 'userbook' ? h.id : null }
+    expect(headId(inputs({ userBooks: [newer, older], openedAt: { reopened: Date.parse('2026-05-11T00:00:00Z') } }))).toBe('reopened')
+    expect(headId(inputs({ userBooks: [newer, older] }))).toBe('newer')
   })
 })

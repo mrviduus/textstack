@@ -90,7 +90,7 @@ describe('serverNow', () => {
 
   it('a fast device: after a response, now is the server clock; a cached copy measures nothing', async () => {
     vi.useFakeTimers({ now: server + 10 * 60_000 })
-    initApi({ baseUrl: 'http://api', getAccessToken: async () => null })
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => null, onUnauthorized: async () => null })
     await answer({ Date: new Date(server).toUTCString() })
     expect(serverNow()).toBe(server)
     await answer({ Date: new Date(server - 3_600_000).toUTCString(), 'Cache-Control': 'public, max-age=86400' })
