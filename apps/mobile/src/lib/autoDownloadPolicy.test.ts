@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { chooseAutoDownloads, mayAutoDownload, type AutoDownloadCandidate } from './autoDownloadPolicy'
-import { chooseNewlyDeleted } from './deletedOnServer'
 
 const book = (over: Partial<AutoDownloadCandidate> & { id: string }): AutoDownloadCandidate => ({
   status: 'Ready',
@@ -101,17 +100,5 @@ describe('chooseAutoDownloads — what it must not do', () => {
     // the app overruling the person using it.
     expect(chooseAutoDownloads([ready('kept'), ready('removed')], new Set(), new Set(['removed'])))
       .toEqual(['kept'])
-  })
-})
-
-describe('orphan sweep (#1193) — a marked orphan is not re-queued', () => {
-  it('chooseAutoDownloads_MarkedOrphanUncachedAndUndeclined_NotQueued', () => {
-    // The sweep's inputs: the orphan is local, absent from the listing, not cached-as-whole and not
-    // declined (marking never touches the declined list). Only `books` feeds the queue.
-    const books = [book({ id: 'kept' })]
-    const local = new Map([['kept', 'legacy'], ['gone', 'legacy']] as const)
-    const marked = chooseNewlyDeleted({ local, listed: new Set(books.map(b => b.id)), from: 'legacy', marked: new Set() })
-    expect(marked).toEqual(['gone'])
-    expect(chooseAutoDownloads(books, new Set(), new Set())).toEqual(['kept'])
   })
 })

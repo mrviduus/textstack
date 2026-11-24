@@ -1,7 +1,7 @@
 import { Platform } from 'react-native'
 import { APP_HEADERS, freshAccessToken } from './api'
 import { bookFileName } from './bookFileName'
-import { getCachedOriginalUri } from './originalFileCache'
+import { retainedFileUri } from './reader/deviceDownload'
 import type { OriginalFormat } from './originalFilePolicy'
 import { userBooksApi } from './userBooksApi'
 
@@ -21,8 +21,8 @@ import { userBooksApi } from './userBooksApi'
  * never touches the network** — the file is on the device; asking the server for
  * it again would be the same absurdity the offline work exists to remove.
  *
- * The copy into the cache directory is only about the name: the stored original
- * is `<bookId>.pdf`, and a share sheet shows the file name to whatever app
+ * The copy into the cache directory is only about the name: the retained file
+ * is `books/<sha256>.epub` whatever its format (#1527), and a share sheet shows the file name to whatever app
  * receives it. A local copy is cheap and costs no data; re-downloading to get a
  * nicer name would not be.
  */
@@ -55,8 +55,7 @@ export async function shareOriginalFile(
   title: string | null,
   format: OriginalFormat,
 ): Promise<ShareOriginalOutcome> {
-  // Native only, required lazily — same reason as `originalFileCache.ts`: this
-  // app also builds for web (the e2e suite runs against it) and there is no
+  // Native only, required lazily: this app also builds for web (the e2e suite runs against it) and there is no
   // file sharing there.
   if (Platform.OS === 'web') return { status: 'failed' }
   const { File, Paths } = require('expo-file-system') as typeof import('expo-file-system')
@@ -69,10 +68,12 @@ export async function shareOriginalFile(
     if (destination.exists) destination.delete()
   } catch { /* best effort — the copy or download below will report the real problem */ }
 
-  const cached = await getCachedOriginalUri(bookId, format)
+  // The Download (#1527): offline, a downloaded book shares from the device and never asks for a token.
+  const cached = await retainedFileUri(bookId).catch(() => null)
   if (cached) {
     try {
-      new File(cached).copy(destination)
+      // Async (a Promise): unawaited, the size check below read an empty file and said "not found".
+      await new File(cached).copy(destination)
     } catch (err) {
       console.warn('[share] local copy failed:', err)
       return { status: 'failed' }

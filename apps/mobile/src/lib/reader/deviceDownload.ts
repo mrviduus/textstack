@@ -40,6 +40,14 @@ export async function booksOnDevice(): Promise<Set<string>> {
   return new Set((await deviceLocalLibrary().books()).filter((b) => b.local).map((b) => b.id))
 }
 
+/** The `file://` URI of the book's retained file (the Download, `books/<sha256>.epub`), or null: not on this device. */
+export async function retainedFileUri(bookId: string): Promise<string | null> {
+  if (Platform.OS === 'web') return null
+  const here = (await deviceLocalLibrary().books()).find((b) => b.id === bookId && b.local)
+  const file = here ? hostFile(bookFile(here.sha256)) : null
+  return file?.exists ? file.uri : null
+}
+
 /**
  * The book's file retained here, as opening it would (`downloadBook`). `pull` runs first when the device's
  * library does not know the book's server file yet (a sync pass). Resolves to whether the file is here now.

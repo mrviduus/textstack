@@ -19,13 +19,10 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
 import { getAllUserBookLocalProgress, type UserBookProgressWithPercent } from '../../src/lib/progressStorage'
-import { clearDeletedOnServer, listDeletedOnServer } from '../../src/lib/deletedOnServer'
-import { markUnlistedLeftovers } from '../../src/lib/localLeftovers'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
 import { LibraryViewSheet } from '../../src/components/library/LibraryViewSheet'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
 import { LibrarySearch } from '../../src/components/library/LibrarySearch'
-import { DeletedDownloadsRow } from '../../src/components/library/DeletedDownloadsRow'
 import { LibraryStatusTabs } from '../../src/components/library/LibraryStatusTabs'
 import { useLibrarySort } from '../../src/hooks/useLibrarySort'
 import { useLibraryStatus } from '../../src/hooks/useLibraryStatus'
@@ -59,8 +56,6 @@ export default function LibraryScreen() {
   const { query, debouncedQuery, setQuery, clear: clearQuery } = useLibrarySearch('library')
   const [userBooks, setUserBooks] = useState<UserBookDto[]>([])
   const [loading, setLoading] = useState(true)
-  // Bumped when a load marks books deleted, so the deleted-books row re-reads (#1193).
-  const [marksVersion, setMarksVersion] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   // Why the list is empty, when it is. Without this the screen cannot tell
   // "you have no books" from "I could not ask", and it showed the first-run
@@ -90,17 +85,6 @@ export default function LibraryScreen() {
       if (myGen !== loadGenRef.current) return // superseded or unmounted
       setUserBooks(books)
       setLoadError(null)
-      // Listed by the server, so not deleted: a false mark (V2 store reset, legacy fallback) heals on
-      // any online load; a live book hidden offline is the worse failure (#1174). Accepted race: a list
-      // that predates a recorded 404 un-marks a deleted book, which then shows offline again until its
-      // screen next sees the 404.
-      clearDeletedOnServer(books.map(b => b.id)).catch(() => {})
-      // And what it lacks is deleted (#1193 item 3), on any network: only copies from the store that
-      // listed, never after a V2 reset (#1191) or a superseding load. Bytes stay (#1164).
-      const stale = () => syncEpoch() !== epoch || myGen !== loadGenRef.current
-      markUnlistedLeftovers(new Set(books.map(b => b.id)), 'v2', stale)
-        .then(ids => { if (ids.length > 0 && !stale()) setMarksVersion(v => v + 1) })
-        .catch(e => console.warn('Marking deleted books failed:', e))
     } catch (e) {
       if (myGen !== loadGenRef.current) return
       // The V2 store was reset mid-load (account switch, guest → account): the list is the new
@@ -114,16 +98,11 @@ export default function LibraryScreen() {
       // the list is partial rather than pretending it is whole.
       if (offline) {
         try {
-          const [onDevice, localProgress, deleted] = await Promise.all([
+          const [onDevice, localProgress] = await Promise.all([
             deviceLocalLibrary().books().then(bs => bs.filter(b => b.local)),
             getAllUserBookLocalProgress().catch(() => new Map<string, UserBookProgressWithPercent>()),
-            listDeletedOnServer(),
           ])
           if (myGen !== loadGenRef.current) return
-          // A server-deleted book (#1174) is not offered offline, from the device
-          // list or from `prev` (a book marked during this session), so it has no
-          // Continue pill either. Its bytes stay until the reader removes them:
-          // DeletedDownloadsRow below the list, or the book's not-found screen (#1193).
           setUserBooks(prev => (prev.length > 0 ? prev : onDevice.map(c => ({
             id: c.id,
             title: c.title,
@@ -144,7 +123,7 @@ export default function LibraryScreen() {
               : null,
             progressChapterSlug: localProgress.get(c.id)?.chapterSlug ?? null,
             hasOriginalPdf: false,
-          }))).filter(b => !deleted.has(b.id)))
+          }))))
         } catch { /* cache unavailable — the banner still explains the empty list */ }
       }
     } finally {
@@ -244,7 +223,6 @@ export default function LibraryScreen() {
           buttonLabel={t('common.retry')}
           onButtonPress={() => { setLoading(true); loadData() }}
         />
-        <DeletedDownloadsRow listedIds={[]} refreshKey={marksVersion} />
       </View>
     )
   }
@@ -257,7 +235,6 @@ export default function LibraryScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <FirstBookState />
-        <DeletedDownloadsRow listedIds={[]} refreshKey={marksVersion} />
       </View>
     )
   }
@@ -341,8 +318,6 @@ export default function LibraryScreen() {
         onRefresh={onRefresh}
         viewMode={viewMode}
         listHeader={listHeader}
-        // Under the list, whatever the filters: it is about the device, not the shelf (#1193).
-        listFooter={<DeletedDownloadsRow listedIds={userBooks.map(b => b.id)} refreshKey={marksVersion} />}
         resumeList={resumeList}
       />
       {sheetMounted && <LibraryViewSheet

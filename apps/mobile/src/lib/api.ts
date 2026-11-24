@@ -139,9 +139,8 @@ export async function onUnauthorized(opts?: { quiet?: boolean }): Promise<string
  * `File.downloadFileAsync` reports every failure as a thrown error with no
  * status, so a 401 from it is indistinguishable from the device being offline —
  * there is no "retry after the refresh" to fall back on. Refreshing before
- * spending is the only order that works, and both file callers
- * (`originalFileCache.ts`, `shareOriginal.ts`) had grown their own identical
- * copy of it.
+ * spending is the only order that works, and the file callers
+ * (`reader/deviceDownload.ts`, `shareOriginal.ts`) share this one copy of it.
  */
 export async function freshAccessToken(): Promise<string | null> {
   const token = await getAccessToken()

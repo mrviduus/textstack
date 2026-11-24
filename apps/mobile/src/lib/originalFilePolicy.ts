@@ -1,37 +1,10 @@
 /**
- * The rules about a stored original, with nothing imported.
- *
- * Split from `originalFileCache.ts` for the same reason `epubFileName.ts` is
- * its own module: the cache pulls in `react-native` and the API client, and the
- * Vitest project only covers pure `src/lib` modules. The two decisions worth a
- * test — where the file lives, and when to ask before spending mobile data —
- * live here where they can have one.
+ * Rules about a book's file and the device's caches, with nothing imported, so the Vitest project
+ * (pure `src/lib` modules) can test them: when to ask before spending mobile data, and which cache
+ * entries to evict (the TTS sweep, `deviceStorage.ts`).
  */
 
 export type OriginalFormat = 'pdf' | 'epub'
-
-/** Directory name under `Paths.document`. Shared with the sign-out wipe. */
-export const ORIGINALS_DIR = 'originals'
-
-/** Suffix of a download still in flight. Renamed onto the real name on success,
- *  so a half-written file is never mistaken for a readable book. */
-export const PART_SUFFIX = '.part'
-
-/**
- * `<bookId>.<ext>` — the on-disk name for one upload's original.
- *
- * Pure so the reader, the download loop and the sign-out wipe cannot disagree
- * about where the file is. The id is a server GUID and needs no escaping; the
- * check is here so that stops being an assumption if the shape ever changes —
- * a `..` or a slash arriving in an id would otherwise write outside the
- * directory.
- */
-export function originalFileName(bookId: string, format: OriginalFormat): string {
-  if (!/^[A-Za-z0-9_-]+$/.test(bookId)) {
-    throw new Error(`originalFileName: unsafe book id ${JSON.stringify(bookId)}`)
-  }
-  return `${bookId}.${format}`
-}
 
 /** Over this, downloading on a metered connection is worth one question.
  *  Roughly half the 21 MB reference document: below it the prompt costs more
@@ -107,27 +80,6 @@ export function chooseEvictions(
  * 110 and then advises "Tap Retry", which cannot help. The web side already
  * distinguishes them (`QuotaExceededError` → stop, "Storage full").
  */
-/**
- * The 2 GB budget does not weigh a server-deleted book's kept bytes (owner decision 2026-11-11). A
- * marked book (#1174) keeps its bytes until the reader removes them (#1164): its original is neither
- * counted nor evicted, its rows not counted. The Profile figure still shows the real total on disk.
- */
-export function withoutKeptDeleted<T extends { bookId: string }>(entries: T[], keptDeleted: ReadonlySet<string>): T[] {
-  return entries.filter(e => !keptDeleted.has(e.bookId))
-}
-
-/** The bytes the auto-download budget gates on: the chapter database less the kept rows, plus the
- *  originals that are not kept-deleted. */
-export function budgetedBytes(input: {
-  dbBytes: number
-  keptRowBytes: number
-  originals: { bookId: string; bytes: number }[]
-  keptDeleted: ReadonlySet<string>
-}): number {
-  const originals = withoutKeptDeleted(input.originals, input.keptDeleted).reduce((sum, e) => sum + e.bytes, 0)
-  return Math.max(0, input.dbBytes - input.keptRowBytes) + originals
-}
-
 export function isOutOfSpaceError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err ?? '')
   return /SQLITE_FULL|ENOSPC|disk is full|No space left|QuotaExceeded/i.test(message)

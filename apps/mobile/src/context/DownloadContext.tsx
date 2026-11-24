@@ -3,12 +3,10 @@ import { AppState } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { uuid } from 'expo-modules-core'
 import { userBooksApi } from '../lib/userBooksApi'
-import { dropChapterCache } from '../lib/offlineDb'
-import { deleteAllOriginals, deleteOriginal } from '../lib/originalFileCache'
+import { dropChapterCache, dropOriginalsCache } from '../lib/offlineDb'
 import { chooseAutoDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
 import { offlineStorageBytes } from '../lib/deviceStorage'
 import { forgetDeclinedDownloads, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
-import { clearDeletedOnServer, forgetDeletedOnServer } from '../lib/deletedOnServer'
 import { booksOnDevice, retainBook } from '../lib/reader/deviceDownload'
 import { deviceLocalLibrary } from '../lib/reader/deviceLibrary'
 import { syncLibrary } from '../lib/reader/sync'
@@ -25,10 +23,6 @@ interface DownloadContextValue {
   download: (bookId: string) => Promise<boolean>
   /** Reads `onDevice` again (the reader may have fetched a book meanwhile). */
   refreshOnDevice: () => Promise<void>
-  /** A server-deleted book's leftovers on this device (a stored original) removed. Throws if it could not. */
-  removeUserBookDownload: (bookId: string) => Promise<void>
-  /** Several at once; continues past a failure. Resolves to how many failed. */
-  removeUserBookDownloads: (bookIds: string[]) => Promise<number>
   /** Fetch anything of the reader's own that is not on the device yet. */
   syncOfflineLibrary: () => Promise<void>
 }
@@ -40,8 +34,6 @@ const DownloadContext = createContext<DownloadContextValue>({
   downloading: NONE,
   download: async () => false,
   refreshOnDevice: async () => {},
-  removeUserBookDownload: async () => {},
-  removeUserBookDownloads: async () => 0,
   syncOfflineLibrary: async () => {},
 })
 
@@ -65,21 +57,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     setOnDevice(await booksOnDevice())
   }, [])
 
-  // Once per start: the legacy chapter cache goes (#1522), then what is on the device is read.
+  // Once per start: the legacy chapter cache (#1522) and PDF originals cache (#1527) go, then what is on the device is read.
   useEffect(() => {
     dropChapterCache().catch(err => console.warn('[downloads] dropping the chapter cache failed:', err))
+    dropOriginalsCache().catch(err => console.warn('[downloads] dropping the originals cache failed:', err))
     refreshOnDevice().catch(err => console.warn('[downloads] reading the device library failed:', err))
   }, [refreshOnDevice])
 
   // Sign-out (explicit, or a terminal refresh failure): the V2 library and its files are wiped by the
-  // sign-out itself (`wipeDeviceLibrary`); the stored originals are this account's private files too.
-  // Fire-and-forget — a failed wipe must not block the sign-out.
+  // sign-out itself (`wipeDeviceLibrary`). Fire-and-forget — a failed wipe must not block the sign-out.
   useEffect(() => {
     if (wasAuthenticatedRef.current && !isAuthenticated) {
-      deleteAllOriginals().catch(err => console.warn('Clearing stored originals failed:', err))
-      // The two id sets name this account's books: gone with it (#1192).
+      // The declined set names this account's books: gone with it (#1192).
       forgetDeclinedDownloads().catch(() => {})
-      forgetDeletedOnServer().catch(() => {})
       setOnDevice(NONE)
       setDownloading(NONE)
     }
@@ -111,25 +101,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     void undeclineDownload(bookId)
     return fetchFile(bookId, true)
   }, [fetchFile])
-
-  const removeUserBookDownloads = useCallback(async (bookIds: string[]) => {
-    let failed = 0
-    for (const bookId of bookIds) {
-      try {
-        await deleteOriginal(bookId, 'pdf')
-        // Nothing of it left on the device, so nothing left to warn about (#1174).
-        await clearDeletedOnServer([bookId])
-      } catch (err) {
-        failed++
-        console.warn(`Removing the download of ${bookId} failed:`, err)
-      }
-    }
-    return failed
-  }, [])
-
-  const removeUserBookDownload = useCallback(async (bookId: string) => {
-    if (await removeUserBookDownloads([bookId]) > 0) throw new Error(`Could not remove ${bookId}`)
-  }, [removeUserBookDownloads])
 
   /**
    * The library fetches itself: the reader's own books arrive on Wi-Fi without being asked.
@@ -236,8 +207,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         downloading,
         download,
         refreshOnDevice,
-        removeUserBookDownload,
-        removeUserBookDownloads,
         syncOfflineLibrary,
       }}
     >
