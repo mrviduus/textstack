@@ -10,16 +10,14 @@ import { uuid } from 'expo-modules-core'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
 import {
-  syncApi, ApiError, isOfflineError, SYNC_OFF, placeToLocator, createSha256,
+  syncApi, ApiError, isOfflineError, SYNC_OFF, createSha256,
   shelfFileSummary, isShelfBook, resumeChapterOf, createBooks, uploadFile, FileUploadError,
-  type Book, type FileChapters, type Annotation, type Word, type ReadingState, type ReadingStateWrite, type SyncSwitch,
-  type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookDetailResponse, type ClientFormat, type FileDetails,
+  type Book, type FileChapters, type Annotation, type Word, type ReadingState, type SyncSwitch,
+  type UserBookProgressDto, type UserBookDto, type UserBookDetailResponse, type ClientFormat, type FileDetails,
 } from '@textstack/shared'
 
 export { FileUploadError }
-export type { ProgressWrite }
 import { createSingleFlight } from './singleFlight'
-import { getUserBookSyncState, setUserBookSyncState } from './progressStorage'
 
 // ---- The probe ----------------------------------------------------------------------------------
 
@@ -178,54 +176,21 @@ export const syncEpoch = () => epoch
 
 /**
  * The shared V2 book client (`@textstack/shared` books) on this app's store; `whileCurrent` is its
- * epoch guard (#1151). A reading state is kept in the store and, its revision, beside the local
- * progress (survives a restart); concurrent library pulls share one pull AND its cleanup (#1140).
+ * epoch guard (#1151). A reading state is kept in the store; concurrent library pulls share one pull AND its cleanup (#1140).
  */
 const client = createBooks({
   books,
   chapters,
   epoch: syncEpoch,
-  keepState: (s) => {
-    syncStore.states.set(s.bookId, s)
-    // ponytail: started in the checked tick, but the setItem itself can still land after the sign-out
-    // wipe (clearAllLocalProgress is fire-and-forget); serialize V2 state writes with the wipe if that shows.
-    return setUserBookSyncState(s.bookId, { revision: s.revision, fileId: s.fileId, bookFraction: s.bookFraction })
-  },
-  forgetState: (id) => {
-    syncStore.states.delete(id)
-    return setUserBookSyncState(id, null)
-  },
-  progressBody,
+  keepState: (s) => syncStore.states.set(s.bookId, s),
+  forgetState: (id) => syncStore.states.delete(id),
   pullFlight: (pull) => pullFlight.run(pull),
 })
 export const {
   resetSince, whileCurrent, pullBooks, liveBook, bookChapters, removeBook,
-  originalFileUrl, saveProgress, completeBook, uncompleteBook,
+  originalFileUrl, completeBook, uncompleteBook,
 } = client
 const { rememberState: remember, toProgress } = client
-
-/**
- * A write's body from the stored revision (no network when one is stored: the reading path). A state
- * on a superseded file is not written on: the write is a first write on the current one (as web).
- */
-async function progressBody(bookId: string, data: ProgressWrite): Promise<ReadingStateWrite | null> {
-  const stored = await getUserBookSyncState(bookId)
-  const current = books.get(bookId)?.currentFile?.id ?? (stored ? undefined : (await liveBook(bookId)).currentFile?.id)
-  const onStored = !!stored && (!current || stored.fileId === current)
-  const known = onStored ? stored! : { revision: null, fileId: current, bookFraction: undefined }
-  const currentLocator = placeToLocator(data)
-  if (!known.fileId || !currentLocator) return null
-  const now = Date.now()
-  return {
-    expectedRevision: known.revision,
-    fileId: known.fileId,
-    currentLocator,
-    // No percent yet (the chapter list has not loaded): the fraction last read, never 0 over it.
-    bookFraction: Math.min(1, Math.max(0, data.percent ?? known.bookFraction ?? 0)),
-    // The device's stamp of the write, never later than now (MAX_CLIENT_SKEW_MS is the server's bound).
-    clientRecordedAt: new Date(Math.min(Date.parse(data.updatedAt ?? '') || now, now)).toISOString(),
-  }
-}
 
 const isPdf = (b: Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasContent
 

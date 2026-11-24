@@ -192,10 +192,8 @@ export default function UserBookDetailScreen() {
   // server already held `page:24`. All three are one stale `savedProgress`.
   //
   // Only the progress is re-fetched, not the book: the book's own fields do not
-  // change by reading it, and the repo already draws this exact line —
-  // `useContinueReadingList` recomputes on focus with the note that "the only
-  // thing that changes these values is the user leaving the reader, which is a
-  // focus event". Same cancellation shape as there.
+  // change by reading it; the only thing that changes the progress is the user
+  // leaving the reader, which is a focus event.
   //
   // Not on the first focus: the load effect has just fetched the progress, and
   // asking again here was a second GET on every open.

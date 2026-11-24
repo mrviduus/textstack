@@ -2,12 +2,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { listDeclinedDownloads, declineDownload, undeclineDownload, updateIdSet, forgetDeclinedDownloads } from './declinedDownloads'
+import { listDeclinedDownloads, undeclineDownload, updateIdSet, forgetDeclinedDownloads } from './declinedDownloads'
 import { applyMergeMap } from './merge'
 
 vi.mock('./sync', () => ({ syncOn: async () => false }))
 
 beforeEach(() => (AsyncStorage as unknown as { __reset(): void }).__reset())
+
+/** An older build's Remove (nothing declines now, #1551). */
+const declineDownload = (id: string) => updateIdSet('offline:declined', ids => ids.add(id))
 
 /** `updateIdSet` serialises read-modify-write per key, so overlapping updates all apply (#1174). */
 describe('declined downloads', () => {

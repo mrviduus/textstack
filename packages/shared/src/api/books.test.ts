@@ -19,7 +19,6 @@ describe('the shared V2 book client', () => {
     epoch: () => epoch,
     keepState: () => {},
     forgetState: () => {},
-    progressBody: async () => ({ expectedRevision: 1, fileId: 'f1', currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 2 } }, bookFraction: 0.1, clientRecordedAt: '2026-11-02T00:00:00Z' }),
     ...extra,
   })
 
@@ -98,26 +97,6 @@ describe('the shared V2 book client', () => {
     await first
     await expect(joined).rejects.toMatchObject({ status: 404 })
     expect(afterPull).toHaveBeenCalledTimes(1) // it joined, it did not pull again
-  })
-
-  it('saveV2Progress_StaleRevision_KeepsTheAdoptedPlace', async () => {
-    const current = state('b1', 5, { currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 9 } } })
-    fakeApi({ 'PUT /me/v2/books/b1/reading-state': [conflict('stale_revision', { current })] }, API)
-    const keepAdopted = vi.fn()
-    expect(await client({ keepAdopted }).saveProgress('b1', { chapterSlug: null, locator: 'page:2' })).toEqual({ adopted: expect.objectContaining({ locator: 'page:9' }) })
-    expect(keepAdopted).toHaveBeenCalledWith(expect.objectContaining({ revision: 5 }), expect.objectContaining({ locator: 'page:9' }))
-  })
-
-  it('saveV2Progress_ResetWhileAdoptResolvesItsChapter_DropsAndKeepsNothing', async () => {
-    const current = state('b1', 5, { currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' } })
-    const keepAdopted = vi.fn()
-    const outcome = await resetMidCall(reset, {
-      'PUT /me/v2/books/b1/reading-state': conflict('stale_revision', { current }),
-      'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0],
-      'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [] } },
-    }, () => client({ keepAdopted }).saveProgress('b1', { chapterSlug: null, locator: 'page:2' }), '/chapters')
-    expect(outcome).toBe('dropped')
-    expect(keepAdopted).not.toHaveBeenCalled()
   })
 
   it('completeV2Book_StateOnCurrentFile_ReadsNoToc', async () => {

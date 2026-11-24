@@ -20,6 +20,6 @@ export { SYNC_OFF, SessionChangedError, shelfFileSummary, isShelfBook, resumeCha
 export { createVocabulary, toVocabWord } from './vocabulary'
 export type { VocabularyPlatform, WordSaveInput } from './vocabulary'
 export { createBooks } from './books'
-export type { BooksPlatform, ProgressWrite, MarkOutcome } from './books'
+export type { BooksPlatform, MarkOutcome } from './books'
 export { uploadFile, FileUploadError, UploadNotOnServer, formatOfName, mb, UPLOAD_EXTENSIONS } from './upload'
 export type { FileDetails, FileUploadIo, UploadPart, UploadResult, ClientFormat } from './upload'
