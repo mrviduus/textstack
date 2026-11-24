@@ -231,7 +231,12 @@ the Android host stages and retains every format as `*.epub`, the web host opens
     PDF took too long to read"), while the page keeps answering. A busy worker that keeps answering is kept. A render
     no longer wanted (its frame left the document, or a newer render of the same page) is cancelled when another
     starts (`RenderTask.cancel`), so the page wanted now does not queue behind it. The host's own `opened` deadline
-    is unchanged: a bomb in the load shows the host's "taking too long" first, then `open-failed`. Before the swap that is the open's `open-failed` (a decompression bomb in
+    is unchanged: a bomb in the load shows the host's "taking too long" first, then `open-failed`.
+    A page that fails to draw for any reason but a cancel is the book stopped too (`book-stopped` with the reason), never
+    a blank page nobody hears of: pdf.js draws past what it can ignore, so a page that still fails is one the worker
+    could not do; past its memory, pdf.js ignores the out-of-memory in the drawing and rejects the page's text ("Array
+    buffer allocation failed"), and the worker, having answered, never goes silent. A worker `error` or `messageerror`
+    after the load stops the book at once. Before the swap that is the open's `open-failed` (a decompression bomb in
     the load); with the book on screen the page sends `book-stopped` (once) instead of leaving blank pages, and the
     hosts say the book stopped responding, with Retry (a new page load, the book opened again). A worker that cannot
     start fails the open at once, and so does a page built without its `pdfworker` chunk. `__testPdfSilence(ms)` (test

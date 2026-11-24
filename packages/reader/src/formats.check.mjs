@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt } from './bookOriginRoute.mjs'
-import { bombPagePdf, bombPdf, fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
+import { bombPagePdf, bombPdf, oomPagePdf, fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
 import { chromium, drive, hostPage as harnessPage } from './pageHarness.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
@@ -428,6 +428,20 @@ try {
   check(pageGap < 500 && messages.slice(from).filter((x) => x.type === 'book-stopped').length === 1, `once, and the page answers all the while (longest gap: ${pageGap} ms)`)
   m = await open('tsformat.pdf')
   check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `the next PDF opens and draws (${m.type})`)
+  // #1204 (emulator): a page past the worker's memory, at the default silence. pdf.js ignores the out-of-memory in the page's
+  // drawing and rejects its text: the worker answered, so no watchdog; the failed page is the book stopped, never a blank
+  // page nobody hears of, and no error goes unhandled.
+  writeFileSync(resolve(dir, 'tsoompage.pdf'), oomPagePdf())
+  m = await open('tsoompage.pdf')
+  from = messages.length
+  const oomErrors = pageErrors
+  call('window.__fol.next()')
+  const oom = await waitFor(from, (x) => x.type === 'book-stopped', 'book-stopped (out of memory)').catch(() => null)
+  check(m.type === 'opened' && oom?.key === m.book.sha256 && /could not be drawn: .*allocation failed/.test(oom?.error) && pageErrors === oomErrors
+    && !messages.slice(from).some((x) => x.type === 'log' && x.level === 'error'),
+  `a page past the worker's memory says \`book-stopped\` with the reason, nothing unhandled (${m.type}; ${oom?.error ?? 'no notice'})`)
+  m = await open('tsformat.pdf')
+  check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `and the next PDF opens and draws (${m.type})`)
 
   console.log('alignment')
   writeAlignmentEpub(resolve(dir, 'tsalignment.epub'))

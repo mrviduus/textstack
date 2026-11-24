@@ -326,3 +326,19 @@ describe('ReaderHost contents asked for on open (#1557)', () => {
     expect(shown).not.toHaveBeenCalled()
   })
 })
+
+describe('ReaderHost messages right after opened (#1204, #1557; the Android race)', () => {
+  it('tocAndBookStopped_TheMomentAfterOpened_AreTakenForThatBook', () => {
+    opened([])
+    fromPage({ type: 'toc', key: 'aa', toc: TOC, tocIndex: 1 })
+    fromPage({ type: 'book-stopped', key: 'aa', error: 'this page could not be drawn: Array buffer allocation failed' })
+    expect(screen.getByTestId('v2-next-section').textContent).toBe('The Woods ›')
+    expect(screen.getByTestId('v2-stopped')).toBeTruthy()
+  })
+
+  it('bookStopped_ForAnotherBook_Dropped', () => {
+    opened([])
+    fromPage({ type: 'book-stopped', key: 'bb', error: 'x' })
+    expect(screen.queryByTestId('v2-stopped')).toBeNull()
+  })
+})

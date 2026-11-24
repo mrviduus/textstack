@@ -328,8 +328,16 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
    */
   const [openSha, setOpenShaState] = useState<string | null>(null)
   const openShaRef = useRef<string | null>(null)
+  /**
+   * The book the page has on screen, set at once when its `opened` is taken. `openShaRef` follows only after the store is
+   * read and the restore sent (it also keys sync and highlights); the page's `toc` and `book-stopped` can come before that
+   * (a small PDF's outline right after `opened`), so they are matched by this one (#1204, #1557).
+   */
+  const shownShaRef = useRef<string | null>(null)
   const setOpenSha = (sha: string | null) => {
     openShaRef.current = sha
+    // Cleared with it (a new open, the book closed); set before it, when `opened` is taken.
+    if (sha === null) shownShaRef.current = null
     setOpenShaState(sha)
   }
   const [place] = useState(createMovedTracker)
@@ -1099,6 +1107,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   const takeOpened = (t: Take<Opening, any>) => {
     for (const o of t.dropped) if (isStaged(o.file) && o.file !== t.open.file) readerStorage().dropStaged(o.file).catch(fail('drop'))
     opening.current = t.open
+    shownShaRef.current = sessionKey(t.opened.book?.sha256)
     saveSession(sessions.bind(sessionKey(t.opened.book?.sha256), Date.now()))
     setReflowable(t.opened.reflowable !== false)
     setFormat(typeof t.opened.format === 'string' ? t.opened.format : null)
@@ -1259,11 +1268,11 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
       }
       case 'book-stopped':
         // #1204: only for the book on screen; Retry (a new page load) opens it again.
-        if (isBookKey(m.key, openShaRef.current)) setStopped(true)
+        if (isBookKey(m.key, shownShaRef.current)) setStopped(true)
         return
       case 'toc': {
         // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
-        const u = readTocMessage(m, openShaRef.current)
+        const u = readTocMessage(m, shownShaRef.current)
         if (!u) return
         setToc(u.toc)
         tocIndex.current = u.tocIndex

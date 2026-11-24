@@ -35,8 +35,8 @@ const FOLIATE_REPO = process.env.FOLIATE_REPO || 'https://github.com/mrviduus/fo
 // terminated past a deadline, OpenJPEG's wasm vendored, the outline after open (`getTOC`, `view.updateTOC`), a page's
 // blob: URL kept until its frame has loaded it; a page's calls on a budget of their own (`pageDeadline`), a terminated worker
 // reported (`onFail`); then (#1579 review) one watchdog on the worker's silence instead of per-call timers (`silence`), a
-// render no longer wanted cancelled.
-const FOLIATE_SHA = '69d8cab3353e0075a821c1537dd0acefe8e95633'
+// render no longer wanted cancelled; a page that fails to draw, or a worker that dies, the book stopped.
+const FOLIATE_SHA = 'be4abb9c1a4f6225f506e0c1bdfaf7cd2b8d543a'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // the retired reader engine's 64 KB budget.
@@ -177,12 +177,13 @@ const BUDGET = 350838
 // there too, MINIFIED); the fork's worker, deadline, bytes-once, lazy outline and per-load page URLs. Together +3,233.
 // pdf +98 (#1204 review): the fork's `pageDeadline` and `onFail`, a render the terminated worker never answers ends quietly.
 // pdf +279 (#1579 review): the fork's silence watchdog in place of per-call timers; a render no longer wanted cancelled.
+// pdf +116 (#1579 emulator): a page that fails to draw, or a worker that dies after the load, is the book stopped.
 // pdfwasm (#1204) = OpenJPEG's openjpeg.wasm (250009 bytes) as base64 + its two BSD notices, run only for a JPEG 2000 image.
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
 // dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
 // notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
 // serif: Literata's four full Latin/Cyrillic faces and OFL notice, plus the Latin-only brand font's four (English in TextStack).
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478813, pdfworker: 1234278, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478929, pdfworker: 1234278, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'readerPage.generated.ts')

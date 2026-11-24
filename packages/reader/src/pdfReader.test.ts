@@ -165,6 +165,29 @@ describe.skipIf(!vendored)('the fork PDF reader (makePDF)', () => {
     expect(fake.webWorker.terminate).not.toHaveBeenCalled()
   }))
 
+  it('aPageThatFailsToDraw_ARealError_IsTheBookStopped_ReportedOnce_NeverABlankNobodyHears', () => withDom(async () => {
+    const onFail = vi.fn()
+    // As pdf.js answers a page past the worker's memory: the drawing (errors ignored) resolves, its text rejects.
+    const oom = Object.assign(new Error('Array buffer allocation failed'), { name: 'UnknownErrorException' })
+    fakePdfjs(fake, { getPage: (i: number) => Promise.resolve({ ...page(i), render: () => ({ promise: Promise.reject(oom) }) }) })
+    const book = await makePDF(new Uint8Array(4), { silence: 60_000, onFail })
+    const { onZoom } = await book.sections[0].load()
+    await expect(onZoom({ doc: frameDoc(), scale: 1 })).resolves.toBeUndefined()
+    expect(onFail).toHaveBeenCalledTimes(1)
+    expect(onFail.mock.calls[0][0].message).toBe('this page could not be drawn: Array buffer allocation failed')
+    expect(fake.webWorker.terminate).toHaveBeenCalled()
+  }))
+
+  it('aWorkerThatDiesAfterTheLoad_IsTheBookStopped_AtOnce', async () => {
+    const onFail = vi.fn()
+    fakePdfjs(fake)
+    await makePDF(new Uint8Array(4), { silence: 60_000, onFail })
+    for (const [type, f] of fake.webWorker.addEventListener.mock.calls) if (type === 'messageerror') f()
+    expect(onFail).toHaveBeenCalledTimes(1)
+    expect(onFail.mock.calls[0][0].message).toBe('the PDF reader stopped')
+    expect(fake.webWorker.terminate).toHaveBeenCalled()
+  })
+
   it('answersInTime_NothingIsTerminated_EvenLongAfter', async () => {
     vi.useFakeTimers()
     fakePdfjs(fake)
