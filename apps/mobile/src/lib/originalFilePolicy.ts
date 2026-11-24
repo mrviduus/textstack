@@ -4,7 +4,25 @@
  * entries to evict (the TTS sweep, `deviceStorage.ts`).
  */
 
-export type OriginalFormat = 'pdf' | 'epub'
+/** iOS routes the share sheet by UTI, and without the right one it offers no app that can open the file.
+ *  Android uses the MIME type. By the file's format (the six the reader reads). */
+const SHARE_TYPES: Record<string, { mimeType: string; uti: string }> = {
+  epub: { mimeType: 'application/epub+zip', uti: 'org.idpf.epub-container' },
+  pdf: { mimeType: 'application/pdf', uti: 'com.adobe.pdf' },
+  mobi: { mimeType: 'application/x-mobipocket-ebook', uti: 'public.data' },
+  azw3: { mimeType: 'application/vnd.amazon.mobi8-ebook', uti: 'public.data' },
+  fb2: { mimeType: 'application/x-fictionbook+xml', uti: 'public.xml' },
+  cbz: { mimeType: 'application/vnd.comicbook+zip', uti: 'public.zip-archive' },
+}
+
+/**
+ * The extension and types a shared book file goes out with: its real format (#1553), so a MOBI is not
+ * named `.epub`. A format not known here (null: neither the device nor the last pull said) shares as an EPUB.
+ */
+export function shareTypeOf(format: string | null | undefined): { extension: string; mimeType: string; uti: string } {
+  const extension = format && SHARE_TYPES[format] ? format : 'epub'
+  return { extension, ...SHARE_TYPES[extension] }
+}
 
 /** Over this, downloading on a metered connection is worth one question.
  *  Roughly half the 21 MB reference document: below it the prompt costs more

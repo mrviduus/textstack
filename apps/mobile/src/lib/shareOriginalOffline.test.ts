@@ -18,7 +18,7 @@ describe('shareOriginalFile', () => {
   const source = readFileSync(SOURCE, 'utf8')
 
   it('shareOriginalFile_DownloadedBook_LooksOnTheDeviceBeforeAskingForAToken', () => {
-    const cacheLookup = source.indexOf('retainedFileUri(')
+    const cacheLookup = source.indexOf('retainedFile(')
     const tokenCall = source.indexOf('freshAccessToken(')
     expect(cacheLookup).toBeGreaterThan(-1)
     expect(tokenCall).toBeGreaterThan(cacheLookup)

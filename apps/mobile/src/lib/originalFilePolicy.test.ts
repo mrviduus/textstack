@@ -3,8 +3,10 @@ import {
   CELLULAR_WARN_BYTES,
   chooseEvictions,
   isOutOfSpaceError,
+  shareTypeOf,
   shouldConfirmOnCellular,
 } from './originalFilePolicy'
+import { bookFileName } from './bookFileName'
 
 describe('shouldConfirmOnCellular', () => {
   it('never asks on wifi, whatever the size', () => {
@@ -81,5 +83,16 @@ describe('isOutOfSpaceError', () => {
     expect(isOutOfSpaceError(new Error('401 Unauthorized'))).toBe(false)
     expect(isOutOfSpaceError(null)).toBe(false)
     expect(isOutOfSpaceError(undefined)).toBe(false)
+  })
+})
+
+describe('shareTypeOf (#1553)', () => {
+  it('shareTypeOf_DownloadedMobiAndFb2_ShareSheetGetsTheirOwnExtensionAndType', () => {
+    const mobi = shareTypeOf('mobi')
+    expect(bookFileName('Dune', 'b1', mobi.extension)).toBe('Dune.mobi')
+    expect(mobi.mimeType).toBe('application/x-mobipocket-ebook')
+    expect(shareTypeOf('fb2')).toMatchObject({ extension: 'fb2', mimeType: 'application/x-fictionbook+xml' })
+    // Neither the device nor the last pull knows the format: an EPUB, as before.
+    expect(shareTypeOf(null)).toMatchObject({ extension: 'epub', mimeType: 'application/epub+zip' })
   })
 })
