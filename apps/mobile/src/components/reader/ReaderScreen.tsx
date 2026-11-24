@@ -1019,8 +1019,8 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     )
   }
 
-  /** A book only the server has: fetched on demand, then opened. */
-  const download = (b: LibraryBook): Promise<boolean> => {
+  /** A book only the server has: fetched on demand, then opened (at a deep link's `highlight`, if given: #1364). */
+  const download = (b: LibraryBook, highlight?: string | null): Promise<boolean> => {
     setOpenError(null)
     // As a pick's copy (#1273): a book opened while this one downloads is not replaced; the download stays in the library.
     const current = tracker.pick()
@@ -1029,7 +1029,11 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
         // #1526: a Download of the same book that landed first leaves this one nothing to add; its file opens all the same.
         if (!ok && !(await deviceLocalLibrary().hasLocalBytes(b.sha256))) return false
         await refreshBooks()
-        if (current()) open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
+        if (current()) {
+          open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
+          // After `open`, which clears any earlier one.
+          if (highlight) pendingHighlight.current = highlight
+        }
         return true
       },
       (e: unknown) => {
@@ -1543,8 +1547,8 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   }, [notes, highlightList, bookmarks])
 
   // #1312: the dev route's deep link (the highlights screen): the book, opened once, then the highlight.
-  // M5 (#1031): the reader route names it `bookId`; a book only the server has is downloaded first (its highlight link
-  // is then dropped by that open). Not in the library after a sync pass, or its download failed: an error with Retry.
+  // M5 (#1031): the reader route names it `bookId`; a book only the server has is downloaded first (its open then takes
+  // the highlight, #1364). Not in the library after a sync pass, or its download failed: an error with Retry.
   const linked = useRef(false)
   const [linkFailed, setLinkFailed] = useState(false)
   useEffect(() => {
@@ -1564,13 +1568,14 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     contentsOnOpen.current = params.contents === '1'
     // This device opened it: "Recently opened" sorts it first, with no server write (a reopen moves no place).
     AsyncStorage.getItem(OPENED_AT_KEY).then((j) => AsyncStorage.setItem(OPENED_AT_KEY, withOpened(j, b.id))).catch(() => {})
+    const highlight = typeof params.highlight === 'string' ? params.highlight : null
     if (!b.local) {
-      download(b).then((ok) => { if (!ok) setLinkFailed(true) })
+      download(b, highlight).then((ok) => { if (!ok) setLinkFailed(true) })
       return
     }
     open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
     // After `open`, which clears any earlier one.
-    pendingHighlight.current = typeof params.highlight === 'string' ? params.highlight : null
+    pendingHighlight.current = highlight
   }, [books, linkedBook, syncPasses])
   const retryLink = () => {
     linked.current = false
