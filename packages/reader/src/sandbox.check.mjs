@@ -10,7 +10,6 @@
 //   (pnpm -C apps/web check:reader-sandbox; once: pnpm -C apps/web exec playwright install chromium)
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,11 +17,10 @@ import { BOOK_ORIGIN, bookUrl, servedFile } from './bookOrigin.mjs'
 import { PAGE_URL, routeBookOrigin } from './bookOriginRoute.mjs'
 import { formatsOf, hostileVectors, writeHostileEpub, writeHostileFb2, writeHostileMobi } from './fixtures.mjs'
 import { HOSTILE_KF8 } from './kf8fixture.mjs'
+import { chromium, drive, hostPage } from './pageHarness.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
-// apps/web's Playwright, as build.mjs takes apps/web's esbuild: no new dependency.
-const { chromium } = createRequire(resolve(here, '../../../apps/web/package.json'))('@playwright/test')
 
 const OPEN_TIMEOUT_MS = 15000
 // Any single page call. A hung step is reported as an escape, never as a pass.
@@ -166,9 +164,8 @@ const routeEvil = (context) => context.route(`${evil.url}/**`, (route) => {
   return route.fulfill({ status: 200, contentType: 'text/plain', body: '' })
 })
 
-// Before any page script, in every frame: the host bridge (top only) and a log of what the CSP blocked.
-function hostShim() {
-  if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) }
+// Before any page script, in every frame (after the host bridge, pageHarness.mjs): a log of what the CSP blocked.
+function cspLog() {
   window.__csp = []
   addEventListener('securitypolicyviolation', (e) => window.__csp.push(`${e.effectiveDirective} ${e.blockedURI}`), true)
 }
@@ -206,7 +203,7 @@ async function run(browser, evil, dir, file, mutate, scope = false) {
   try {
     await routeBookOrigin(context, dir, fileFor(dir))
     await routeEvil(context)
-    await openHostile(await context.newPage(), evil.url, dir, file, scope)
+    await openHostile(context, evil.url, dir, file, scope)
   } catch (e) {
     result.errors.add(`run: ${e.message.split('\n')[0]}`)
   } finally {
@@ -214,25 +211,16 @@ async function run(browser, evil, dir, file, mutate, scope = false) {
   }
 }
 
-async function openHostile(page, evil, dir, file, scope) {
+async function openHostile(context, evil, dir, file, scope) {
   const { escaped, blocked, errors } = result
   const messages = []
+  const page = await hostPage(context, { messages, onMessage: (m) => { if (m.type === 'log' && m.level === 'error') errors.add(`page log: ${m.msg}`) } })
   page.on('pageerror', (e) => errors.add(`pageerror: ${e.message}`))
-  await page.exposeFunction('__toHost', (json) => {
-    const m = JSON.parse(json)
-    messages.push(m)
-    if (m.type === 'log' && m.level === 'error') errors.add(`page log: ${m.msg}`)
-  })
-  await page.addInitScript(hostShim)
+  await page.addInitScript(cspLog)
   await bounded(page.goto(PAGE_URL), 'loading the page')
 
-  const waitFor = async (match, what) => {
-    for (const t0 = Date.now(); Date.now() - t0 < OPEN_TIMEOUT_MS; await page.waitForTimeout(50)) {
-      const m = messages.find(match)
-      if (m) return m
-    }
-    throw new Error(`timed out waiting for ${what}`)
-  }
+  const driver = drive(page, messages, OPEN_TIMEOUT_MS)
+  const waitFor = (match, what) => driver.waitFor(0, match, what)
   await waitFor((m) => m.type === 'ready', 'ready')
   await bounded(page.evaluate(({ url, name }) => window.__fol.openUrl(url, name), { url: bookUrl(servedName(file)), name: file }), 'openUrl')
   const opened = await waitFor((m) => m.type === 'opened' || m.type === 'open-failed', 'opened')

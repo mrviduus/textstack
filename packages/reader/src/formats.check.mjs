@@ -11,16 +11,15 @@
 //   node --experimental-strip-types formats.check.mjs      (pnpm -C apps/web check:reader-formats)
 import { randomBytes } from 'node:crypto'
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
+import { PAGE_URL, bookAt } from './bookOriginRoute.mjs'
 import { fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
+import { chromium, drive, hostPage as harnessPage } from './pageHarness.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const { chromium } = createRequire(resolve(here, '../../../apps/web/package.json'))('@playwright/test')
 const TIMEOUT_MS = 15000
 
 const failures = []
@@ -29,13 +28,7 @@ const check = (ok, what) => { console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`);
 const dir = mkdtempSync(resolve(tmpdir(), 'ts-v2-formats-'))
 const browser = await chromium.launch()
 /** A page with the book origin routed to `dir`, as the Android interceptor serves it; host messages land in `got`. */
-const hostPage = async (got, opts) => {
-  const p = await browser.newPage(opts)
-  await routeBookOrigin(p, dir)
-  await p.exposeFunction('__toHost', (json) => got.push(JSON.parse(json)))
-  await p.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
-  return p
-}
+const hostPage = (got, opts) => harnessPage(browser, { dir, messages: got, ...opts })
 try {
   writeFormatFixtures(dir)
   for (const f of ['tssynthetic-kf8.azw3', 'tssynthetic-combo.mobi']) copyFileSync(resolve(here, 'synthetic', f), resolve(dir, f))
@@ -77,41 +70,11 @@ try {
   await page.addInitScript(() => addEventListener('securitypolicyviolation', (e) => (top.__violations ??= []).push(`${e.violatedDirective} ${e.blockedURI}`)))
   await page.goto(PAGE_URL)
 
-  /** The first message from `from` on that matches. */
-  const waitFor = async (from, match, what) => {
-    for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(50)) {
-      const m = messages.slice(from).find(match)
-      if (m) return m
-    }
-    throw new Error(`timed out waiting for ${what}`)
-  }
-  const call = (js) => page.evaluate(js)
+  const { call, waitFor, shown, framesValue, open: openUrl } = drive(page, messages, TIMEOUT_MS)
   const loaded = () => call('Object.keys(window.__tsFormats).filter(k => !["serif", "sans", "dyslexic"].includes(k)).sort().join(",")')
   const storeFrom = (from, what) => waitFor(from, (x) => x.type === 'store', what).then((s) => JSON.parse(s.json)).catch(() => null)
   /** Opens `file`; resolves with `opened` or `open-failed`, after `restored` for an opened book. */
-  const open = async (file, stored = null, format = null) => {
-    const from = messages.length
-    const stale = new Set(page.frames())
-    await call(`window.__fol.openUrl(${JSON.stringify(bookAt(file))}, ${JSON.stringify(file)}, ${JSON.stringify(format)})`)
-    const m = await waitFor(from, (x) => (x.type === 'opened' || x.type === 'open-failed') && (x.book?.name ?? x.name) === file, `${file} to open`)
-    if (m.type === 'opened') {
-      await call(`window.__fol.restore(${JSON.stringify(stored)})`)
-      m.restored = await waitFor(from, (x) => x.type === 'restored', `${file} restored`)
-    }
-    return { ...m, from, stale }
-  }
-  /** Polls the section frames (blob:), but those in `stale` (an earlier book's), until one passes `probe`, run inside it. */
-  const shown = async (probe, stale = new Set()) => {
-    for (const t0 = Date.now(); Date.now() - t0 < TIMEOUT_MS; await page.waitForTimeout(100)) {
-      for (const f of page.frames().filter((f) => f.url().startsWith('blob:') && !stale.has(f))) if (await f.evaluate(probe).catch(() => false)) return true
-    }
-    return false
-  }
-  /** The first truthy `probe` result in a section frame, else null. */
-  const framesValue = async (probe) => {
-    for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) { const v = await f.evaluate(probe).catch(() => null); if (v) return v }
-    return null
-  }
+  const open = (file, stored = null, format = null) => openUrl(bookAt(file), file, stored, format)
   /** The text of the book `m` opened, in a frame made after its open (a stale one from the previous book never passes). */
   const showsText = (m) => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'), m.stale)
   const turnSaves = async (what) => { const from = messages.length; call('window.__fol.next()'); return storeFrom(from, what) }
