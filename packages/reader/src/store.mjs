@@ -78,12 +78,14 @@ export function sha256(bytes) {
  * The same digest, handing the page back to the browser every SLICE bytes: an 80 MB book is seconds of
  * hashing, and doing it in one go freezes the WebView before anything has rendered.
  */
-export async function sha256Yielding(bytes, yieldNow = () => new Promise((ok) => setTimeout(ok, 0))) {
+// `stale`: asked after each slice; true = a newer open started, so stop and return null (#1177).
+export async function sha256Yielding(bytes, yieldNow = () => new Promise((ok) => setTimeout(ok, 0)), stale = () => false) {
   const st = hashState(bytes)
   for (let from = 0; from < st.whole; from += SLICE) {
     const to = Math.min(from + SLICE, st.whole)
     for (let at = from; at < to; at += BLOCK) compress(st.H, st.W, st.dv, at)
     await yieldNow()
+    if (stale()) return null
   }
   return digest(st, bytes)
 }

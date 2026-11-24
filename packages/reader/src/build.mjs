@@ -149,7 +149,8 @@ const FOLIATE_SHA = '772af5050b11a7f3d767412242e6613463da9efd'
 // progress.js resolves TOC entries in parallel.
 // +407: saved words' translations get room above them (line height +0.4 while some show) and show their first meaning.
 // +162: the serif faces come in two families (TextStack, then Literata).
-const BUDGET = 348222
+// +167: a newer open aborts the previous download and stops its hash (#1177).
+const BUDGET = 348389
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

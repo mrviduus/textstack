@@ -112,7 +112,7 @@ describe('readerPageHtml', () => {
     // Sniffing still precedes the view swap: a refused file leaves the shown book reading and saving.
     // #1069: request order is assigned before reading, and stale read callbacks cannot open a book.
     expect(html).toMatch(/function openFor\(bytes, name, mine, fileFormat\) \{\s*let kind;\s*try \{\s*kind = fileFormat === \"html\" \? \"html\" : sniffFormat\(bytes\);\s*\} catch \((\w+)\) \{\s*return openFailed\(name, [^;]*;\s*\}\s*return open\(bytes, name, kind, mine\)/)
-    expect(html).toMatch(/openUrl: \(url, name, fileFormat = null\) => \{\s*const mine = \+\+openSeq;\s*const \w+ = new XMLHttpRequest\(\)/)
+    expect(html).toMatch(/openUrl: \(url, name, fileFormat = null\) => \{\s*const mine = \+\+openSeq;\s*openXhr == null \? void 0 : openXhr\.abort\(\);\s*const \w+ = openXhr = new XMLHttpRequest\(\)/)
     expect(html).toMatch(/\w+\.onload = \(\) => \{\s*if \(mine !== openSeq\) return;/)
     expect(html).toMatch(/function highlightSelection\(color = "yellow", quotation = false\) \{[\s\S]{0,800}?if \(!entry\) return log\("warn"/)
     // The open seq only goes up: a failed open answers `open-failed` and hands nothing back.
