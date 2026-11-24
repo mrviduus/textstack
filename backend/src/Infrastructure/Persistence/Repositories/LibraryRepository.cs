@@ -17,14 +17,14 @@ public sealed partial class LibraryRepository(AppDataSource dataSource) : ILibra
 {
     // These column lists must agree: the first two for RETURNING, the third for the join.
     private const string BookColumns =
-        "id, user_id, title, author, language, description, genre, published_year, tags, cover_key, origin, checkpoint_saving_enabled, revision, created_at, updated_at, removed_at";
+        "id, user_id, title, author, language, description, genre, published_year, tags, cover_key, cover_updated_at, origin, checkpoint_saving_enabled, revision, created_at, updated_at, removed_at";
     private const string FileColumns =
         "id, user_id, book_id, sha256, byte_size, original_name, format, page_count, toc, toc IS NOT NULL AS has_toc, server_storage_key, content_removed_at, is_current, created_at";
     // A book and its current file in one row; the file half is all null for a book with no file,
     // which Dapper maps to a null CurrentFile. No toc (up to 256 KB a row), only has_toc: the feed never ships it, GetFileAsync reads it.
     private const string BookWithCurrentFile = """
         SELECT b.id, b.user_id, b.title, b.author, b.language, b.description, b.genre, b.published_year, b.tags,
-               b.cover_key, b.origin, b.checkpoint_saving_enabled, b.revision, b.created_at, b.updated_at, b.removed_at,
+               b.cover_key, b.cover_updated_at, b.origin, b.checkpoint_saving_enabled, b.revision, b.created_at, b.updated_at, b.removed_at,
                f.id, f.user_id, f.book_id, f.sha256, f.byte_size, f.original_name, f.format, f.page_count, f.toc IS NOT NULL AS has_toc,
                f.server_storage_key, f.content_removed_at, f.is_current, f.created_at
 

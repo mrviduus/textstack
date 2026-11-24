@@ -102,6 +102,8 @@ export interface Book {
   tags: string[]
   checkpointSavingEnabled: boolean
   hasCover: boolean
+  /** When the cover was stored (#1584): its cache version. Absent from a server before #1584 (then `updatedAt`). */
+  coverVersion?: string | null
   revision: number
   createdAt: string
   updatedAt: string
@@ -511,9 +513,12 @@ export async function getContent(
 export const putCover = (bookId: string, bytes: Blob | ArrayBuffer | Uint8Array, contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
   authFetch<Book>(`${book(bookId)}/cover`, { method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes as BodyInit })
 export const readingStateUrl = (bookId: string) => `${getApiConfig().baseUrl}${book(bookId)}/reading-state`
-/** The cover; `updatedAt` busts the year-long cache after a change. */
-export const coverUrl = (bookId: string, updatedAt: string) =>
-  `${getApiConfig().baseUrl}${book(bookId)}/cover?v=${encodeURIComponent(updatedAt)}`
+/** The cover; `version` (the cover's, #1584) busts the year-long cache after a change. */
+export const coverUrl = (bookId: string, version: string) =>
+  `${getApiConfig().baseUrl}${book(bookId)}/cover?v=${encodeURIComponent(version)}`
+/** A library book's cover URL, keyed by the cover's own version (a TOC sync or an edit moves `updatedAt`, not the cover); null without one. */
+export const bookCoverUrl = (b: Pick<Book, 'id' | 'hasCover' | 'coverVersion' | 'updatedAt'>): string | null =>
+  b.hasCover ? coverUrl(b.id, b.coverVersion ?? b.updatedAt) : null
 
 export const getChapters = (bookId: string, fileId: string) => authFetch<FileChapters>(`${file(bookId, fileId)}/chapters`)
 /** ADR-033 P3: the file's TOC (shared `tocForServer`'s entries), overwritten; 204. */

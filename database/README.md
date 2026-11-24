@@ -23,6 +23,7 @@ database/
     0008_transitional_table_comments  book_chapters / ingestion_jobs comments: kept at M6 (D8)
     0009_bare_cfi_position      a reading position may be a bare epub-cfi (mark-read's book start, ADR-033 P4)
     0010_drop_book_chapters_and_ingestion_jobs  both transitional tables dropped; book_files.toc commented (ADR-033 P5)
+    0011_book_cover_updated_at  books.cover_updated_at: a cover's own cache version, apart from updated_at (#1584)
   tests/invariants.sql          ADR-031's schema rules, checked against a migrated database
   tests/roundtrip.sh            CI check of the runner and every migration
 ```

@@ -5,7 +5,7 @@ using Contracts.Sync;
 
 namespace TextStack.UnitTests;
 
-// #1580: the highlights page shows a book's cover from the URL the library builds (syncApi.coverUrl(id, updatedAt)),
+// #1580: the highlights page shows a book's cover from the URL the library builds (syncApi.coverUrl(id, coverVersion), #1584),
 // so the same cover is fetched and cached once and shows offline where the library cached it.
 public class HighlightCoverTests
 {
@@ -41,14 +41,14 @@ public class HighlightCoverTests
     }
 
     [Fact]
-    public void ToHighlightDto_CoverVersion_SerialisesExactlyLikeTheLibrarysUpdatedAt()
+    public void ToHighlightDto_CoverVersion_SerialisesExactlyLikeTheLibrarysCoverVersion()
     {
         var book = new BookDto(Guid.NewGuid(), "A Book", null, null, null, null, null, [], false, true, 1,
-            DateTimeOffset.UnixEpoch, Version, null, null);
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, null, null, Version);
 
         var highlight = JsonSerializer.SerializeToElement(CompatEndpoints.ToHighlightDto(Highlight(false, Version)), JsonSerializerOptions.Web);
         var library = JsonSerializer.SerializeToElement(book, JsonSerializerOptions.Web);
 
-        Assert.Equal(library.GetProperty("updatedAt").GetString(), highlight.GetProperty("userBookCoverVersion").GetString());
+        Assert.Equal(library.GetProperty("coverVersion").GetString(), highlight.GetProperty("userBookCoverVersion").GetString());
     }
 }

@@ -28,7 +28,8 @@ public sealed record ChangeFeedDto<T>(IReadOnlyList<T> Items, string? Cursor, bo
 public sealed record BookDto(
     Guid Id, string Title, string? Author, string? Language, string? Description, string? Genre, int? PublishedYear,
     string[] Tags, bool CheckpointSavingEnabled, bool HasCover, long Revision,
-    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? RemovedAt, BookFileDto? CurrentFile);
+    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? RemovedAt, BookFileDto? CurrentFile,
+    DateTimeOffset? CoverVersion = null);
 
 /// <summary>
 /// No <c>toc</c>: the file's TOC is read from <c>GET …/chapters</c> (ADR-033 P3), so feed rows stay small;

@@ -194,6 +194,25 @@ public class LibraryContentRepositoryTests(PostgresFixture db)
     }
 
     // Account delete reads one reader's keys; the orphan sweep reads every reader's.
+    // #1584: a client caches the cover for a year under its version, so only a new cover moves it, not the book's other writes.
+    [Fact]
+    public async Task SetCoverAsync_AReaderSetsACoverThenTheTocSyncs_TheCoverVersionMovesOnlyWithTheCover()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        Assert.Null(book.CoverUpdatedAt);
+
+        var covered = (await _repo.SetCoverAsync(book.UserId, book.Id, $"library/{book.UserId}/{book.Id}/cover.jpg", Ct))!;
+        Assert.NotNull(covered.CoverUpdatedAt);
+
+        Assert.True(await _repo.SetTocAsync(book.UserId, book.Id, book.CurrentFile!.Id, """[{"label":"One","href":"c1.xhtml"}]""", Ct));
+        var afterToc = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
+        Assert.True(afterToc.UpdatedAt > covered.UpdatedAt);
+        Assert.Equal(covered.CoverUpdatedAt, afterToc.CoverUpdatedAt);
+
+        var recovered = (await _repo.SetCoverAsync(book.UserId, book.Id, $"library/{book.UserId}/{book.Id}/cover.png", Ct))!;
+        Assert.True(recovered.CoverUpdatedAt > covered.CoverUpdatedAt);
+    }
+
     [Fact]
     public async Task ListStorageKeysAsync_AReaderWithAStoredFileAndACover_NamesBothAndTheSweepSeesEveryReadersKeys()
     {
