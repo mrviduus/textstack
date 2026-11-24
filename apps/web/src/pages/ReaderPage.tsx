@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, isOfflineError, OPENED_AT_KEY, syncApi, withOpened } from '@textstack/shared'
 import { readItem, writeItem } from '../lib/safeLocalStorage'
@@ -37,7 +37,16 @@ export function ReaderPage() {
   // #1312: a link to one highlight (the highlights page, audit §2.1): the book jumps there once it is drawn.
   const [search, setSearch] = useSearchParams()
   /** Once jumped there, the link's parameter goes (replaced, no history entry): a reload reopens at the saved place. */
-  const dropParam = (name: string) => setSearch((p) => { const n = new URLSearchParams(p); n.delete(name); return n }, { replace: true })
+  // #1385: from the latest drop, not this render's params (the router's functional update reads those), so two
+  // drops in one tick (highlight + contents) never restore each other's.
+  const latestSearch = useRef(search)
+  latestSearch.current = search
+  const dropParam = (name: string) => {
+    const n = new URLSearchParams(latestSearch.current)
+    n.delete(name)
+    latestSearch.current = n
+    setSearch(n, { replace: true })
+  }
   const highlightShown = () => dropParam('highlight')
   const { language } = useLanguage()
   const { t } = useTranslation()

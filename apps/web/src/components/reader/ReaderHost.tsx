@@ -1207,6 +1207,14 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           A second origin: docs/internal/v2/v2-reader-web-hosting.md. */}
       {/* Sibling keys are namespaced: frameLoad and searchBook both start at 0 (#1586). */}
       <iframe key={`frame-${frameLoad}`} ref={frame} id={BOOK_ID} title={t('v2Reader.frameTitle')} sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
+      {/* #1385: touch, bars hidden (moved off screen): a tap where a bar was shows the bars instead of reaching the
+          book, where it would turn the page. Desktop needs none: a mouse move shows them. */}
+      {barsHidden && !mouse && reading && !lightboxOpen && (
+        <>
+          <div className="v2-reader__reveal v2-reader__reveal--top" data-testid="v2-reveal-top" aria-hidden="true" onClick={showBars} />
+          <div className="v2-reader__reveal v2-reader__reveal--bottom" data-testid="v2-reveal-bottom" aria-hidden="true" onClick={showBars} />
+        </>
+      )}
       <footer ref={footer} className="reader-footer" onFocus={showBars} inert={lightboxOpen}>
         {reading && <SectionNav toc={toc} tocIndex={tocIndex} onGo={goToc} />}
         <div className="reader-footer__info v2-reader__footer">

@@ -69,6 +69,18 @@ describe('ReaderPage', () => {
     await vi.waitFor(() => expect(liveBook).toHaveBeenCalledWith('bk-1'))
   })
 
+  // #1385: the highlight and the contents both shown in one tick drop both parameters; neither drop restores the other.
+  it('highlightAndContentsShownInOneTick_DropsBothParameters', async () => {
+    renderPage('/en/library/my/bk-1/read?highlight=h1&contents=1')
+    await vi.waitFor(() => expect(hostProps).toHaveBeenLastCalledWith(expect.objectContaining({ highlightId: 'h1', openContents: true })))
+    const p = hostProps.mock.lastCall![0] as { onHighlightShown: () => void; onContentsShown: () => void }
+    act(() => {
+      p.onHighlightShown()
+      p.onContentsShown()
+    })
+    expect(hostProps).toHaveBeenLastCalledWith(expect.objectContaining({ highlightId: null, openContents: false }))
+  })
+
   it('beforeTheProbe_RendersNothing', () => {
     syncSwitch.mockReturnValue(new Promise(() => {}))
     renderPage()
