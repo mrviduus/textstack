@@ -11,7 +11,7 @@ import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.ven
 import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
 import { SELECTION_SETTLE_MS, rangeToLocator, textNodes } from './text'
 import { mergeOverlay } from './overlays.mjs'
-import { STAGE_COLORS, readMarkWords, sameMark, wordMarksIn } from './wordMarks.mjs'
+import { STAGE_COLORS, readMarkWords, sameMark, shortGloss, wordMarksIn } from './wordMarks.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../shared/src/reader/fractionPosition'
 import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, isQuotation, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
@@ -203,7 +203,7 @@ function applyLook() {
       applyFontFamily(doc, look)
     }
   }
-  view?.renderer?.setStyles?.(settingsCss(look, fontUrl()))
+  view?.renderer?.setStyles?.(settingsCss(look, fontUrl(), showGlosses))
 }
 
 const SVG = 'http://www.w3.org/2000/svg'
@@ -225,7 +225,7 @@ function glossOf(rects, text, el) {
   t.setAttribute('text-anchor', 'middle')
   t.setAttribute('fill', 'currentColor')
   t.setAttribute('style', `font-style: italic; font-size: ${(fs * 0.42).toFixed(1)}px; opacity: .75`)
-  t.textContent = text
+  t.textContent = shortGloss(text)
   g.append(t)
   return g
 }
@@ -1910,6 +1910,7 @@ window.__fol = {
     const glosses = !!show !== showGlosses
     vocab = readMarkWords(words)
     showGlosses = !!show
+    if (glosses) applyLook()
     if (!view || !annotatable) return
     for (const c of view.renderer?.getContents?.() ?? []) markSection(c, glosses)
   },

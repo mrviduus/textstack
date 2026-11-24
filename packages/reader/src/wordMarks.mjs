@@ -41,6 +41,9 @@ export function wordMarksIn(root, words) {
   return matchWords(root, words, nodes).map((m) => ({ range: at(m.start, m.end - m.start), word: m.item }))
 }
 
+/** A label as drawn above its word: its first meaning, before a comma, semicolon, slash or bracket ("a (b)" → "a"). */
+export const shortGloss = (text) => text.split(/[,;/(（]/)[0].trim() || text.trim()
+
 /** Whether two marks draw the same (a section re-marked keeps what did not change). */
 export const sameMark = (a, b) => !!a && !!b && a.stage === b.stage && a.gloss === b.gloss
 

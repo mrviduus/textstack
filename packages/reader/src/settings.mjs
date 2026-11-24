@@ -17,6 +17,8 @@ export const THEMES = {
   dark: { bg: '#1a1a1a', fg: '#e0e0e0' },
 }
 export const DEFAULTS = Object.freeze({ fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'book', theme: 'light' })
+/** The least line height while saved words show their translation above them (`glosses`): room for the label between lines. */
+export const GLOSS_LINE_HEIGHT = 2
 /** Where each host keeps the reader's choices (localStorage / AsyncStorage), as JSON. */
 export const SETTINGS_KEY = 'v2reader.settings'
 
@@ -71,10 +73,12 @@ const DARK_PLATE = '#f0f0f0'
  * URLs for the chosen embedded font family (regular/bold/italic/bold italic). Section text takes the chosen
  * family through fonts.mjs. Text blocks take the line height; OpenDyslexic
  * replaces every font (it is an accessibility setting), and dark recolours everything (black text would vanish).
- * Explicit alignment is applied by alignment.mjs so publisher inline !important cannot override it.
+ * Explicit alignment is applied by alignment.mjs so publisher inline !important cannot override it. `glosses`: saved
+ * words' translations show, so lines are at least GLOSS_LINE_HEIGHT apart.
  */
-export function settingsCss(raw, fontUrl) {
+export function settingsCss(raw, fontUrl, glosses = false) {
   const s = readSettings(raw)
+  const lineHeight = glosses ? Math.max(s.lineHeight, GLOSS_LINE_HEIGHT) : s.lineHeight
   const { bg, fg } = THEMES[s.theme]
   const dyslexic = s.fontFamily === 'dyslexic'
   const urls = typeof fontUrl === 'string' ? { regular: fontUrl } : fontUrl
@@ -83,7 +87,7 @@ export function settingsCss(raw, fontUrl) {
     return typeof url === 'string' && /^blob:[\w:/.-]+$/.test(url)
       ? `@font-face { font-family: "${FACE_FAMILY[s.fontFamily]}"; src: url(${url}) format("woff2"); font-weight: ${weight}; font-style: ${style}; }\n` : ''
   }).join('')
-  return `${face}html, body { font-size: ${s.fontSize}px !important; line-height: ${s.lineHeight} !important; font-family: ${FAMILY_CSS[s.fontFamily]} !important; color: ${fg} !important; background: ${bg} !important; }
+  return `${face}html, body { font-size: ${s.fontSize}px !important; line-height: ${lineHeight} !important; font-family: ${FAMILY_CSS[s.fontFamily]} !important; color: ${fg} !important; background: ${bg} !important; }
 p, li, blockquote, dd { line-height: inherit !important; }${
     dyslexic ? '\nbody * { font-family: inherit !important; }' : ''}${
     s.theme === 'dark' ? `\nbody * { color: inherit !important; background-color: transparent !important; }\na:any-link { color: #8ab4f8 !important; }

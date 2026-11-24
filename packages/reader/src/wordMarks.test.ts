@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { MAX_GLOSS, MAX_WORD, MAX_WORDS, STAGE_COLORS, readGlosses, readMarkWords, sameMark, stageOf, withGlosses, wordMarksIn } from './wordMarks.mjs'
+import { MAX_GLOSS, MAX_WORD, MAX_WORDS, STAGE_COLORS, readGlosses, readMarkWords, sameMark, shortGloss, stageOf, withGlosses, wordMarksIn } from './wordMarks.mjs'
 import { langOf, markWordsOf, ofBook, wordId } from './vocabWords.mjs'
 
 describe('the gloss setting (legacy showInlineTranslations)', () => {
@@ -114,5 +114,15 @@ describe('vocabWords: the book\'s language', () => {
     const key = (w: string) => w.toLowerCase()
     expect(wordId(key, 'Die', 'de')).toBe(wordId(key, 'die', 'DE-at'))
     expect(wordId(key, 'die', 'de')).not.toBe(wordId(key, 'die', 'en'))
+  })
+})
+
+describe('a translation over its word', () => {
+  it('shows the first meaning only, so it stays over its own word', () => {
+    expect(shortGloss('заменённый (устаревший)')).toBe('заменённый')
+    expect(shortGloss('подчёркивать, выделять')).toBe('подчёркивать')
+    expect(shortGloss('продукт; изделие')).toBe('продукт')
+    expect(shortGloss('продукт')).toBe('продукт')
+    expect(shortGloss('(устар.) ветхий')).toBe('(устар.) ветхий')
   })
 })
