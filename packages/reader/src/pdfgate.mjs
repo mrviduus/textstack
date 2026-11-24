@@ -68,7 +68,7 @@ async function gate(file) {
       : /JPX|Jpx|OpenJPEG|wasm/i.test(t) ? 'jpx/wasm' : /image|JBIG|CCITT|DCT/i.test(t) ? 'image' : 'other'
     r.warnings[k] = (r.warnings[k] ?? 0) + 1
   })
-  // The longest main-thread task: pdf.js runs its worker on this thread, so a long parse or render is input lag.
+  // The longest main-thread task: pdf.js parses in a Worker (#1204), so this is the page's own share (drawing, layers).
   await page.addInitScript(() => {
     if (window !== top) return
     window.__longest = 0
