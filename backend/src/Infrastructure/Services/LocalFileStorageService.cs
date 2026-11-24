@@ -55,7 +55,7 @@ public class LocalFileStorageService : IFileStorageService
             Directory.Delete(userPath, recursive: true);
         }
 
-        // Prune empty shard parent (hygiene — не fail'им если race/permission).
+        // Prune the empty shard parent (hygiene; a race or a permission error is not a failure).
         var shardPath = Path.Combine(_rootPath, "users", shardPrefix);
         try
         {
@@ -66,7 +66,7 @@ public class LocalFileStorageService : IFileStorageService
         }
         catch
         {
-            // Best-effort; race с другим delete / permission issue — не критично.
+            // Best-effort: a race with another delete or a permission issue is not critical.
         }
 
         return Task.CompletedTask;

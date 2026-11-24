@@ -155,7 +155,7 @@ public static partial class ServiceCollectionExtensions
                     : RateLimitPartition.GetNoLimiter("reader"));
             // Insights (POST /me/v2/books/{id}/insights) — the write-back an outside assistant makes after a
             // reading session. Cheap for us (one row, no inference), so the cap is not about cost:
-            // it is about a runaway agent loop rewriting a book's конспект thousands of times. 60/min
+            // it is about a runaway agent loop rewriting a book's study summary thousands of times. 60/min
             // clears a model working chapter by chapter through a long book in one pass and stops a
             // loop dead.
             //
