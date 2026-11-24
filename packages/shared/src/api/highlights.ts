@@ -1,4 +1,5 @@
 import { authFetch, buildQuery } from './client'
+import { coverUrl } from './sync'
 
 export interface PublicHighlight {
   id: string
@@ -40,8 +41,18 @@ export interface HighlightListItem {
   /** Set only when the book was deleted: the title it had (#982). */
   deletedBookTitle: string | null
   /** The cover's version (the library's `updatedAt`) when the book has one: `syncApi.coverUrl(userBookId, it)` (#1580). */
-  userBookCoverVersion?: string | null
+  userBookCoverVersion: string | null
 }
+
+type CoverKey = Pick<HighlightListItem, 'userBookId' | 'userBookCoverVersion'>
+
+/** A highlight's book cover, the library's own URL (same cache key, #1580); null without one. */
+export const highlightCoverUrl = (h: CoverKey): string | null =>
+  h.userBookId && h.userBookCoverVersion ? coverUrl(h.userBookId, h.userBookCoverVersion) : null
+
+/** Of two highlights of one book, the one with the newer cover version: a page loaded later may carry a newer cover. */
+export const newerCover = <T extends CoverKey>(a: T, b: T): T =>
+  b.userBookCoverVersion && (!a.userBookCoverVersion || Date.parse(b.userBookCoverVersion) > Date.parse(a.userBookCoverVersion)) ? b : a
 
 export interface HighlightListResponse {
   items: HighlightListItem[]

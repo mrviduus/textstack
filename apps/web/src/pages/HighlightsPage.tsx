@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { getAllHighlights, type HighlightListItem } from '../api/userData'
-import { syncApi } from '@textstack/shared'
+import { highlightCoverUrl, newerCover } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
@@ -17,7 +17,8 @@ const PAGE_SIZE = 50
 interface BookGroup {
   bookId: string
   bookTitle: string
-  coverUrl: string | null
+  /** The highlight carrying the book's newest cover version (#1580). */
+  cover: HighlightListItem
   isUserBook: boolean
   highlights: HighlightListItem[]
 }
@@ -76,26 +77,29 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   })
 
   // Group by book
-  const groups: BookGroup[] = []
-  const bookMap = new Map<string, BookGroup>()
-  for (const h of highlights) {
-    // A deleted book has no id left; its kept title tells its highlights apart from another's.
-    const bookId = h.userBookId || h.editionId || (h.deletedBookTitle ? `deleted:${h.deletedBookTitle}` : 'unknown')
-    let group = bookMap.get(bookId)
-    if (!group) {
-      group = {
-        bookId,
-        bookTitle: h.userBookTitle || h.editionTitle || (h.deletedBookTitle ? `${h.deletedBookTitle} (deleted)` : 'Unknown Book'),
-        // Keyed as the library's cover, so it is fetched and cached once (#1580).
-        coverUrl: h.userBookId && h.userBookCoverVersion ? syncApi.coverUrl(h.userBookId, h.userBookCoverVersion) : null,
-        isUserBook: !!h.userBookId,
-        highlights: [],
+  const groups = useMemo(() => {
+    const groups: BookGroup[] = []
+    const bookMap = new Map<string, BookGroup>()
+    for (const h of highlights) {
+      // A deleted book has no id left; its kept title tells its highlights apart from another's.
+      const bookId = h.userBookId || h.editionId || (h.deletedBookTitle ? `deleted:${h.deletedBookTitle}` : 'unknown')
+      let group = bookMap.get(bookId)
+      if (!group) {
+        group = {
+          bookId,
+          bookTitle: h.userBookTitle || h.editionTitle || (h.deletedBookTitle ? `${h.deletedBookTitle} (deleted)` : 'Unknown Book'),
+          cover: h,
+          isUserBook: !!h.userBookId,
+          highlights: [],
+        }
+        bookMap.set(bookId, group)
+        groups.push(group)
       }
-      bookMap.set(bookId, group)
-      groups.push(group)
+      group.cover = newerCover(group.cover, h)
+      group.highlights.push(h)
     }
-    group.highlights.push(h)
-  }
+    return groups
+  }, [highlights])
 
   const toggleBook = (bookId: string) => {
     setCollapsedBooks(prev => {
@@ -172,14 +176,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
                   className="highlights-page__book-header"
                   onClick={() => toggleBook(group.bookId)}
                 >
-                  {group.coverUrl && (
-                    <img
-                      className="highlights-page__book-cover"
-                      src={group.coverUrl}
-                      alt=""
-                      onError={(e) => { e.currentTarget.style.display = 'none' }}
-                    />
-                  )}
+                  <BookCover url={highlightCoverUrl(group.cover)} />
                   <div className="highlights-page__book-info">
                     <span className="highlights-page__book-title">{group.bookTitle}</span>
                     <span className="highlights-page__book-count">
@@ -250,4 +247,11 @@ export function highlightReaderPath(h: HighlightListItem): string | null {
   if (h.userBookId && h.userChapterSlug) return `/library/my/${h.userBookId}/read/${h.userChapterSlug}?direct=1&highlight=${h.id}`
   if (h.userBookId) return `/library/my/${h.userBookId}/read?direct=1&highlight=${h.id}`
   return null
+}
+
+/** A book's cover; one that fails to load hides for that URL only, so a newer version renders again (#1580). */
+function BookCover({ url }: { url: string | null }) {
+  const [failed, setFailed] = useState<string | null>(null)
+  if (!url || url === failed) return null
+  return <img className="highlights-page__book-cover" src={url} alt="" onError={() => setFailed(url)} />
 }
