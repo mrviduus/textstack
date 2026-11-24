@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt, routeBookOrigin } from './bookOriginRoute.mjs'
-import { fb2, hostilePdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
+import { fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -106,6 +106,11 @@ try {
       for (const f of page.frames().filter((f) => f.url().startsWith('blob:') && !stale.has(f))) if (await f.evaluate(probe).catch(() => false)) return true
     }
     return false
+  }
+  /** The first truthy `probe` result in a section frame, else null. */
+  const framesValue = async (probe) => {
+    for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) { const v = await f.evaluate(probe).catch(() => null); if (v) return v }
+    return null
   }
   /** The text of the book `m` opened, in a frame made after its open (a stale one from the previous book never passes). */
   const showsText = (m) => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'), m.stale)
@@ -214,6 +219,16 @@ try {
     `opened as pdf: 5 pages, fixed layout, textual, not annotatable (${m.format}, ${m.sections}, ${m.annotatable}${m.error ? `, ${m.error}` : ''})`)
   check((await loaded()).split(',').includes('pdf'), 'the PDF reader ran on the first PDF')
   check(await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx')), 'page 1 is drawn with a text layer')
+  // #1203: foliate's fixed layout re-renders a PDF page on every resize; the layers are replaced, never added to.
+  const layers = () => framesValue(() => document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx')
+    && `${document.querySelectorAll('.textLayer').length}/${document.querySelectorAll('.annotationLayer').length}/${document.querySelectorAll('.textLayer span').length}`)
+  const layersBefore = await layers()
+  await page.setViewportSize({ width: 400, height: 740 })
+  await page.waitForTimeout(1000)
+  await page.setViewportSize({ width: 420, height: 760 })
+  await page.waitForTimeout(1000)
+  const layersAfter = await layers()
+  check(layersBefore?.startsWith('1/1/') && layersAfter === layersBefore, `a resize re-renders page 1 without adding a layer or a span (text/annotation/spans ${layersBefore} → ${layersAfter})`)
   from = messages.length
   call('window.__fol.highlightSelection()')
   await waitFor(from, (x) => x.type === 'log' && /no highlights on a PDF yet/.test(x.msg), 'pdf highlight refused').catch(() => null)
@@ -226,6 +241,30 @@ try {
   check(await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 2. Sphinx')), 'and page 2 is drawn')
   m = await open('tsformat.pdf', JSON.stringify({ ...pdfStored, position: { cfi: 'epubcfi(/6/4)', quote: 'Page 2', index: 1, fraction: 0.4, at: 1 } }))
   check(m.restored.position === 'wrong position kind, stayed at start', `a CFI position on a PDF is not applied (${m.restored.position})`)
+  // #1203: a Named action or a ResetForm link (pdf.js asks the link service for getAnchorUrl) loses no link on its page.
+  writeFileSync(resolve(dir, 'tslinks.pdf'), pdf(1, { title: 'TS LINKS', annots: [[
+    '<< /Type /Annot /Subtype /Link /Rect [40 700 560 720] /Border [0 0 0] /A << /S /URI /URI (https://example.tst/a) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [40 660 560 680] /Border [0 0 0] /A << /S /Named /N /NextPage >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [40 620 560 640] /Border [0 0 0] /A << /S /ResetForm >> >>',
+  ]] }))
+  m = await open('tslinks.pdf')
+  check(m.type === 'opened' && await shown(() => document.querySelectorAll('.annotationLayer section a').length === 3
+    && !!document.querySelector('.annotationLayer a[href="https://example.tst/a"]'), m.stale), 'a page with a Named action and a ResetForm link draws all three of its links')
+  // #1203: the last four visited pages are kept; an older one's blob: URL is revoked and the page rebuilt on a revisit.
+  m = await open('tsformat.pdf')
+  await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale)
+  const pageUrl = () => page.frames().find((f) => f.url().startsWith('blob:') && !m.stale.has(f))?.url()
+  const first = pageUrl()
+  for (let i = 2; i <= 5; i++) {
+    const at = messages.length
+    await call('window.__fol.next()')
+    await waitFor(at, (x) => x.type === 'relocate' && x.index === i - 1, `relocate to page ${i}`).catch(() => null)
+  }
+  const fetches = (url) => call(`fetch(${JSON.stringify(url)}).then(() => true, () => false)`)
+  const last = pageUrl()
+  check(!!first && first !== last && await fetches(last) && !(await fetches(first)), `after five pages, page 1's blob: URL is revoked, page 5's is not (${!!first}, ${first !== last})`)
+  await call('document.querySelector("foliate-view").goTo(0)')
+  check(await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), 'and page 1 is rebuilt and drawn on a revisit')
   check(!(await loaded()).split(',').includes('pdfcmaps'), 'no cMap chunk has run for a Latin PDF')
   m = await open('tscjk.pdf')
   check(m.type === 'opened' && await shown(() => document.querySelector('.textLayer')?.textContent.includes('中文')), `a CJK PDF on a predefined cMap opens and draws its text (${m.type})`)

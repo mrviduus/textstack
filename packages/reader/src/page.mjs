@@ -1178,16 +1178,8 @@ async function makeBookFor(bytes, name, kind) {
     // stand in for: refused here, before the swap, instead of an open that never answers.
     if (typeof structuredClone !== 'function') throw new Error('this WebView is too old to read PDF')
     const { makePDF, css } = formatModule('pdf')
-    // makePDF calls pdf.js's getDocument before its first await and keeps no loading task: the page takes
-    // it there (globalThis.pdfjsLib is a plain object), so a load that fails can be destroyed (#1128 S5).
-    const lib = globalThis.pdfjsLib
-    const getDocument = lib.getDocument
-    let task = null
-    lib.getDocument = (params) => (task = getDocument.call(lib, params))
-    let made
-    try { made = makePDF(new File([bytes], name), { css, params: { useWasm: false, CMapReaderFactory: PdfCMaps } }) } finally { lib.getDocument = getDocument }
-    const book = await made.catch((e) => {
-      task?.destroy()
+    // A load that fails destroys its own loading task (the fork's makePDF, #1203).
+    const book = await makePDF(new File([bytes], name), { css, params: { useWasm: false, CMapReaderFactory: PdfCMaps } }).catch((e) => {
       throw e?.name === 'PasswordException' ? new Error('this PDF is password-protected and cannot be opened') : e
     })
     // One page per screen, never foliate's two-page spreads: within a spread a page step or goTo shows the

@@ -95,7 +95,7 @@ pnpm -C apps/web check:reader-formats   # CI: every format opens as Formats says
 node packages/reader/src/build.mjs --repro   # + .vendor/readerPage.repro.html (test only)
 ```
 
-- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `686afc4200006874a24071a6a57510e027a4cc32`
+- **foliate-js fork** `https://github.com/mrviduus/foliate-js` @ `772af5050b11a7f3d767412242e6613463da9efd`
   (branch `textstack-pin` = upstream `78914aef` 2026-05-01 + our commits, ADR-032), cloned into the gitignored
   `.vendor/`. Every build checks out the pin and resets the tree (`git checkout -- .`); an untracked file in
   that tree fails the build by name (delete `.vendor/` to rebuild from the pin). A bump is a PR that re-runs
@@ -120,7 +120,9 @@ node packages/reader/src/build.mjs --repro   # + .vendor/readerPage.repro.html (
   jump sent no `relocate`, #1297); `686afc4` search (#1315): `view.search` takes a `limit` (matching, registering
   and drawing stop at it; none: as before), each hit carries the contents entry it is under (`label`), a section
   that throws is skipped and reported (`{ index, error }`), and `makeExcerpt` keeps the middle of a hit over three
-  or more text nodes.
+  or more text nodes; #1203 (PDF): `b454e48` the link service's `getAnchorUrl` and other no-ops, `ef55599`
+  `render()` replaces its layers, `c622201` the last four pages kept and older ones released, `3093e34` a failed
+  load destroys its own task, `772af50` `TOCProgress` resolves entries in parallel.
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. view.js's own format imports, PDF and TTS are
   stubbed out of the page; MOBI/FB2/CBZ/PDF come in as format readers (Formats). The fork's `search.js` is in the
@@ -183,8 +185,7 @@ the Android host stages and retains every format as `*.epub`, the web host opens
     unrestorable). The hosts keep such an answer aside (`openTracker.mjs`) and take it if the newer open fails.
   - *What is destroyed when* (each book's own `destroy()`; `view.close()` does not call it): the replaced book
     at the swap; a build superseded by a newer open, before it could swap in; a build with no sections; a PDF
-    load that fails (its pdf.js loading task: `makePDF` keeps none, so the page takes it from `getDocument`,
-    which `makePDF` calls before its first await).
+    load that fails (the fork's `makePDF` destroys its own pdf.js loading task, #1203).
   - *The flush:* at the swap a save still debounced (400 ms) for the book on screen is written at once, under
     that book's own key (`saves.flush()`), before anything of the new book exists: a turn made just before
     another book opens is kept, and never written under the new book.
@@ -252,18 +253,16 @@ the Android host stages and retains every format as `*.epub`, the web host opens
     password-protected PDF is refused (see above), not opened with a password. A hostile PDF can burn CPU or
     memory on the UI thread (a freeze, not an escape): **a decompression bomb freezes the main thread** (no
     guard: 1 MB → 12 s on desktop); bounding it needs the fork's PDF reader to pass pdf.js a stream/image size
-    cap (or parse in a real Worker), not a page change. **Links on a page are lost when that page has a Named
-    action, a ResetForm or an attachment link:** pdf.js's annotation layer calls `linkService.getAnchorUrl`,
-    which the fork's `pdf.js` link service lacks, so the layer throws and draws none of that page's links;
-    the fork's link service needs `getAnchorUrl` (and the other no-op methods pdf.js calls).
-    Found by the S5 review, not fixed (fork work): **visited pages are never released** (the fork's `makePDF`
-    caches every rendered page's `blob:` document, never revokes the URLs nor calls `page.cleanup()`); **the
-    fork's `render()` is not idempotent**: each zoom/resize callback renders into the same text and annotation
-    layers again, duplicating spans and links (2 → 4 spans on one resize); **the PDF's bytes are held 2–3 times** (the page's read buffer, the `File` made of it, pdf.js's own
-    chunks); **the outline is resolved serially before `opened`** (foliate's TOC progress awaits every entry);
-    **the page takes pdf.js's loading task from `getDocument`** because `makePDF` keeps none, which depends on
-    `makePDF` calling it before its first await (the fork should destroy its own task on failure); **three
-    copies of the page-driving harness** (`formats.check.mjs`, `sandbox.check.mjs`, `pdfgate.mjs`).
+    cap (or parse in a real Worker), not a page change. Still open (#1203): **the PDF's bytes are held 2–3 times**
+    (the page's read buffer, the `File` made of it, pdf.js's own chunks); **three copies of the page-driving
+    harness** (`formats.check.mjs`, `sandbox.check.mjs`, `pdfgate.mjs`).
+  - *Fork fixes (#1203):* the link service has `getAnchorUrl` and pdf.js's other `IPDFLinkService` methods as
+    no-ops (a Named action, ResetForm or attachment link no longer loses the page's links); `render()` builds its
+    own text and annotation layers and only the latest one replaces the old (a resize never duplicates them);
+    `makePDF` keeps the last four loaded pages, an older one's `blob:` URL revoked and `page.cleanup()` called,
+    rebuilt on a revisit; a failed load destroys its own loading task; foliate's TOC progress resolves the outline
+    entries in parallel (still all before `opened`, no longer one round trip after another). `formats.check.mjs`
+    checks the links, a resize and the page release; the refusal and outline rows cover the other two.
   - *Older WebViews:* the pdf.js 5.5 modern build calls `Map`/`WeakMap.prototype.getOrInsertComputed`,
     `Promise.withResolvers`, `Promise.try`, `AbortSignal.any`, `Uint8Array.prototype.toHex`/`toBase64`,
     `Uint8Array.fromBase64`, `ArrayBuffer.prototype.transferToFixedLength`, `URL.parse`, `Array.prototype.findLast`,
