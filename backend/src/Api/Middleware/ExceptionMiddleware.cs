@@ -25,6 +25,17 @@ public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddlewa
 
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
+        // Headers already sent (e.g. an SSE stream from /explain): no error body can follow. Log the
+        // real error and drop the connection, or setting StatusCode throws and hides it (#1520).
+        if (context.Response.HasStarted)
+        {
+            // The client left (closed the stream): nothing went wrong on our side.
+            if (!context.RequestAborted.IsCancellationRequested)
+                logger.LogError(exception, "Unhandled exception after the response started");
+            context.Abort();
+            return;
+        }
+
         // A V2 client has one error parser: an unbindable body is its invalid_payload too.
         if (exception is BadHttpRequestException bad && context.Request.Path.StartsWithSegments("/me/v2"))
         {
