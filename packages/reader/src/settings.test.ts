@@ -136,6 +136,17 @@ describe('v2 reader settings stylesheet', () => {
     }
   })
 
+  it('settingsCss_Serif_EnglishInTheBrandFaceCyrillicFromLiterata', () => {
+    // TextStack has Latin only: listed first, Literata behind it fills every letter it lacks.
+    const faces = { regular: BLOB, bold: BLOB, italic: BLOB, boldItalic: BLOB, brand_regular: BLOB, brand_bold: BLOB, brand_italic: BLOB, brand_boldItalic: BLOB }
+    const css = settingsCss({ fontFamily: 'serif' }, faces)
+    expect(css.match(/font-family: "TextStack";/g)).toHaveLength(4)
+    expect(css.match(/font-family: "Literata";/g)).toHaveLength(4)
+    expect(css).toContain('font-family: "TextStack", "Literata", Georgia')
+    // Sans takes no brand face, even offered one.
+    expect(settingsCss({ fontFamily: 'sans' }, faces)).not.toContain('"TextStack";')
+  })
+
   it.each([['https://evil.tst/f.woff2'], ['data:font/woff2;base64,AAAA'], ['blob:x) } body { display: none } @font-face { src: url(blob:y'], [`${BLOB}"`], [null], [undefined], [{}]])('settingsCss_FontUrl%s_NotABlobUrl_NoFace', (url) => {
     const css = settingsCss({ fontFamily: 'dyslexic' }, url as never)
     expect(css).not.toContain('@font-face')
