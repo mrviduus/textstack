@@ -46,12 +46,15 @@ export async function booksOnDevice(): Promise<Set<string>> {
   return new Set((await deviceLocalLibrary().books()).filter((b) => b.local).map((b) => b.id))
 }
 
-/** The `file://` URI of the book's retained file (the Download, `books/<sha256>.epub`), or null: not on this device. */
-export async function retainedFileUri(bookId: string): Promise<string | null> {
+/**
+ * The book's retained file (the Download, `books/<sha256>.epub` whatever its format): its `file://` URI and the
+ * format the device knows it by (null: not known). Null: not on this device.
+ */
+export async function retainedFile(bookId: string): Promise<{ uri: string; format: string | null } | null> {
   if (Platform.OS === 'web') return null
   const here = (await deviceLocalLibrary().books()).find((b) => b.id === bookId && b.local)
   const file = here ? hostFile(bookFile(here.sha256)) : null
-  return file?.exists ? file.uri : null
+  return file?.exists ? { uri: file.uri, format: here!.format ?? null } : null
 }
 
 /**

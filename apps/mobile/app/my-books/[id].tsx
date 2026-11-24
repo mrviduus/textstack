@@ -300,10 +300,7 @@ export default function UserBookDetailScreen() {
     if (!id || fileBusy) return
     setFileBusy(true)
     try {
-      // Uploads are EPUB or PDF and nothing else (`UserBookService.DetectFormat`
-      // rejects the rest), so the one flag the payload carries settles it.
-      const format = book?.hasOriginalPdf === true ? 'pdf' : 'epub'
-      const outcome = await shareOriginalFile(id, book?.title ?? null, format)
+      const outcome = await shareOriginalFile(id, book?.title ?? null)
       switch (outcome.status) {
         case 'shared':
           break

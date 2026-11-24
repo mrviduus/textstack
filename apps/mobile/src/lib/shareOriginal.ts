@@ -1,8 +1,9 @@
 import { Platform } from 'react-native'
 import { APP_HEADERS, freshAccessToken } from './api'
 import { bookFileName } from './bookFileName'
-import { retainedFileUri } from './reader/deviceDownload'
-import type { OriginalFormat } from './originalFilePolicy'
+import { retainedFile } from './reader/deviceDownload'
+import { shareTypeOf } from './originalFilePolicy'
+import { syncStore } from './sync'
 import { userBooksApi } from './userBooksApi'
 
 /**
@@ -43,17 +44,9 @@ export type ShareOriginalOutcome =
  *  without hashing twenty megabytes on the device. */
 const MIN_PLAUSIBLE_BYTES = 1024
 
-/** iOS routes the share sheet by UTI, and without the right one it offers no app
- *  that can open the file. Android uses the MIME type. */
-const FORMAT_TYPES: Record<OriginalFormat, { mimeType: string; uti: string }> = {
-  pdf: { mimeType: 'application/pdf', uti: 'com.adobe.pdf' },
-  epub: { mimeType: 'application/epub+zip', uti: 'org.idpf.epub-container' },
-}
-
 export async function shareOriginalFile(
   bookId: string,
   title: string | null,
-  format: OriginalFormat,
 ): Promise<ShareOriginalOutcome> {
   // Native only, required lazily: this app also builds for web (the e2e suite runs against it) and there is no
   // file sharing there.
@@ -61,19 +54,21 @@ export async function shareOriginalFile(
   const { File, Paths } = require('expo-file-system') as typeof import('expo-file-system')
   const Sharing = require('expo-sharing') as typeof import('expo-sharing')
 
-  const destination = new File(Paths.cache, bookFileName(title, bookId, format))
+  // The Download (#1527): offline, a downloaded book shares from the device and never asks for a token.
+  const cached = await retainedFile(bookId).catch(() => null)
+  // The file's real format (#1553): the device's, else the last library pull's.
+  const { extension, mimeType, uti } = shareTypeOf(cached?.format ?? syncStore.books.get(bookId)?.currentFile?.format)
+  const destination = new File(Paths.cache, bookFileName(title, bookId, extension))
   // A leftover from a previous share would otherwise be handed out again — and
   // `copy` onto an existing path fails rather than overwriting.
   try {
     if (destination.exists) destination.delete()
   } catch { /* best effort — the copy or download below will report the real problem */ }
 
-  // The Download (#1527): offline, a downloaded book shares from the device and never asks for a token.
-  const cached = await retainedFileUri(bookId).catch(() => null)
   if (cached) {
     try {
       // Async (a Promise): unawaited, the size check below read an empty file and said "not found".
-      await new File(cached).copy(destination)
+      await new File(cached.uri).copy(destination)
     } catch (err) {
       console.warn('[share] local copy failed:', err)
       return { status: 'failed' }
@@ -111,7 +106,6 @@ export async function shareOriginalFile(
     return { status: 'saved', uri: destination.uri }
   }
 
-  const { mimeType, uti } = FORMAT_TYPES[format]
   try {
     await Sharing.shareAsync(destination.uri, {
       mimeType,
