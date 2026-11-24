@@ -934,6 +934,17 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   pointer-events: none;
 }
 
+/* #1385: where the hidden bars were (touch): a tap there shows them (ReaderHost). Above the frame, below the bars. */
+.v2-reader__reveal {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 56px;
+  z-index: 40;
+}
+.v2-reader__reveal--top { top: 0; }
+.v2-reader__reveal--bottom { bottom: var(--cookie-banner-height, 0px); }
+
 /* Smooth transitions for bars */
 .reader-footer {
   transition: transform 0.3s ease, opacity 0.3s ease;
