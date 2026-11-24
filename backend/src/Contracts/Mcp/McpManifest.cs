@@ -132,7 +132,7 @@ public static class McpManifestCatalog
             + "the sections that apply: readerThoughts (what the READER thought, attributed accurately), "
             + "assistantSuggestions (yours, kept apart from theirs), conclusions, openQuestions; leave out empty ones, at "
             + "least one is needed. Optionally chapterKey, and sharedChapterId from share_chapter (a share of that same "
-            + "chapter; sharedChapterId needs chapterKey). Checkpoints are append-only: a new one never overwrites an earlier one. Pass operationId: a new "
+            + "chapter; sharedChapterId needs chapterKey). A new checkpoint never overwrites an earlier one. Pass operationId: a new "
             + "UUID for each save, the same one when retrying it, so a retry replays instead of saving twice. Saving never "
             + "advances reading progress. Only a successful result means it was saved; on an error, tell the reader it "
             + "was not."),
@@ -144,7 +144,8 @@ public static class McpManifestCatalog
             + "page. These are the reader's PAST thoughts: keep them apart from what is said now."),
         new("delete_checkpoint",
             "Delete one saved discussion checkpoint by its id, from list_checkpoints (WRITE on their own account — "
-            + "requires authentication; only the user's own). Only when the reader asks to remove it: it cannot be undone."),
+            + "requires authentication; only the user's own). Only when the reader asks to remove it: it cannot be undone. "
+            + "An id that no longer exists answers deleted too, so retrying is safe; take ids from list_checkpoints, never guess them."),
         new("get_shared_chapter",
             "Read one chapter the reader shared from the TextStack reader for this discussion (requires authentication; "
             + "only the user's own shares). Pass shareId: the id after \"share\" in the message's id line, or the id "

@@ -3,7 +3,7 @@ namespace Domain.Discussion;
 /// <summary>
 /// One saved stage of a discussion about a book (V2 table <c>discussion_checkpoints</c>, ADR-031):
 /// what was discussed, what the reader thought, what the assistant suggested, what was concluded and
-/// what is still open. Append-only: a new stage is a new row, older thoughts are never rewritten
+/// what is still open. A new stage is a new row, older thoughts are never rewritten (only deleted on request)
 /// (docs/internal/v2/mcp-discussion-checkpoints.md).
 /// </summary>
 public class DiscussionCheckpoint

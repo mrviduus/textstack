@@ -578,20 +578,23 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     }
 
     [Fact]
-    public async Task DeleteCheckpoint_OwnAndUnknownCheckpoint_DeletesOneAndSaysWhereIdsComeFrom()
+    public async Task DeleteCheckpoint_OwnThenAlreadyGone_BothAnswerDeleted_ServerFailureIsAnError()
     {
         await using var client = await ConnectSharedAsync();
-        var unknown = Guid.NewGuid().ToString();
+        var gone = Guid.NewGuid().ToString(); // the server's 404: a retry after a lost 204, or an id not the reader's
 
         var deleted = await CallAsync(client, "delete_checkpoint", Args(("id", StubBackend.CheckpointId)));
         var sent = shared.Harness.Stub.Last("v2_delete_checkpoint")!;
-        var missing = await CallAsync(client, "delete_checkpoint", Args(("id", unknown)));
+        var retried = await CallAsync(client, "delete_checkpoint", Args(("id", gone)));
+        var failed = await CallAsync(client, "delete_checkpoint", Args(("id", StubBackend.FailingCheckpointId)));
 
         AssertOk(deleted);
         Assert.Equal(("DELETE", $"/me/v2/checkpoints/{StubBackend.CheckpointId}"), (sent.Method, sent.PathAndQuery));
         Assert.Equal((StubBackend.CheckpointId, true), (Json(deleted).GetProperty("id").GetString(), Json(deleted).GetProperty("deleted").GetBoolean()));
-        Assert.True(missing.IsError);
-        Assert.Equal("delete_checkpoint: no such checkpoint; get ids from list_checkpoints", TextOf(missing));
+        AssertOk(retried);
+        Assert.Equal((gone, true), (Json(retried).GetProperty("id").GetString(), Json(retried).GetProperty("deleted").GetBoolean()));
+        Assert.True(failed.IsError);
+        Assert.Equal("delete_checkpoint refused: upstream answered 500", TextOf(failed));
     }
 
     private const string CheckpointBody = """ "topic": "The letter", "language": "en", "chapterKey": "ch02.xhtml", "readerThoughts": ["It reads like a confession.", "Second"], "openQuestions": ["Who wrote it?"] """;

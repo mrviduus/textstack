@@ -526,7 +526,8 @@ public sealed partial class McpToolCatalog
         },
     };
 
-    private static readonly JsonElement DeleteVocabularyWordSchema = JsonDocument.Parse(
+    /// <summary>One required <c>id</c> (UUID): the delete tools' input.</summary>
+    private static readonly JsonElement IdOnlySchema = JsonDocument.Parse(
         """
         {
           "type": "object",
@@ -546,7 +547,7 @@ public sealed partial class McpToolCatalog
         Destructive = true,
         Idempotent = true,
         Description = global::Contracts.Mcp.McpManifestCatalog.Describe("delete_vocabulary_word"),
-        InputSchema = DeleteVocabularyWordSchema,
+        InputSchema = IdOnlySchema,
         Handler = (args, ct) =>
         {
             if (!ArgReader.TryObject(args, out var obj, out var err, "id")

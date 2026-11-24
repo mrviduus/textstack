@@ -30,9 +30,9 @@ The server exposes 18 tools, every one on your own account: sign in first (see
 | `get_book_progress` | How far you have got in one book, and the chapter you stopped in. | User |
 | `set_book_progress` | Record that you finished a chapter — including one you read or listened to somewhere else. | User |
 | `share_chapter` | Snapshot one chapter for a discussion; returns the share id `save_checkpoint` takes. | User |
-| `save_checkpoint` | Save one checkpoint of a discussion (the reader's thoughts, the assistant's suggestions, conclusions, open questions). Append-only. | User |
+| `save_checkpoint` | Save one checkpoint of a discussion (the reader's thoughts, the assistant's suggestions, conclusions, open questions). A new one never overwrites an earlier one. | User |
 | `list_checkpoints` | Read a book's checkpoints, oldest first, paged. | User |
-| `delete_checkpoint` | Delete one checkpoint by `id` (from `list_checkpoints`). | User |
+| `delete_checkpoint` | Delete one checkpoint by `id` (from `list_checkpoints`); an id already gone answers deleted, so a retry is safe. | User |
 | `get_shared_chapter` | Read a chapter the reader shared from the reader's Discuss, in parts when long. | User |
 
 Every enabled tool is always listed regardless of whether you're signed in — only a

@@ -99,6 +99,7 @@ internal static class McpBridgeCore
         + "Call list_checkpoints for the book first, to continue from the reader's earlier thoughts. When a topic yields "
         + "a conclusion or an open question, and the reader opted in or asked, save it with save_checkpoint, passing the "
         + "share's chapterKey and its id as sharedChapterId. "
+        + "Delete a checkpoint with delete_checkpoint only when the reader asks to remove it. "
         + "When the reader asks what a word means, or you explain one they clearly did not know, remember it. Offer those "
         + "words once, together, when the topic winds down (\"Save quiver, vicinity to your TextStack vocabulary?\"), "
         + "skipping any list_my_vocabulary already has. Only on yes, call add_vocabulary_words with the sentence from the "
