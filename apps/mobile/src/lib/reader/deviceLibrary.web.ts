@@ -13,6 +13,7 @@ export function deviceLocalLibrary(): LocalLibrary {
 
 export const filesRoot = androidOnly
 export const makeFileDirs = (): void => {}
+export const sweepStaging = (): void => {}
 export const clearDeviceFiles = (): void => {}
 export const deviceLibraryBytes = (): number => 0
 export const deviceSignOutLoss = async (): Promise<SignOutLoss> => NOTHING_LOST

@@ -37,6 +37,27 @@ export function makeFileDirs() {
 }
 
 /**
+ * When this process started, as far as staging can tell: every staged name (`staging/<ms>.epub`,
+ * `staging/dl-<ms>.epub`) is written by code that imports this module, so its `Date.now()` is never earlier.
+ */
+const STARTED = Date.now()
+
+/**
+ * #1526: what an earlier process left in `staging/` (an open, download or upload it never finished) deleted;
+ * this process's own entries are live (a Download or an upload still writing) and stay. An entry whose name
+ * carries no time is an earlier build's: deleted. ponytail: wall-clock based; a clock set back mid-process
+ * only leaves a stale file for the next start.
+ */
+export function sweepStaging() {
+  const staging = new (fs().Directory)(filesRoot(), 'staging')
+  if (!staging.exists) return
+  for (const entry of staging.list()) {
+    const ms = Number(/\d+/.exec(entry.name)?.[0])
+    if (!(ms >= STARTED)) entry.delete()
+  }
+}
+
+/**
  * Everything under the root deleted, its directories made again whenever this ran (a failure of either
  * step is retried whole by the next call) so the host's next write finds them: the one place the
  * files are wiped. A wipe may create the three empty directories; measuring never does.
