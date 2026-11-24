@@ -39,6 +39,8 @@ export interface HighlightListItem {
   userChapterSlug: string | null
   /** Set only when the book was deleted: the title it had (#982). */
   deletedBookTitle: string | null
+  /** The cover's version (the library's `updatedAt`) when the book has one: `syncApi.coverUrl(userBookId, it)` (#1580). */
+  userBookCoverVersion?: string | null
 }
 
 export interface HighlightListResponse {

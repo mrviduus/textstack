@@ -62,6 +62,6 @@ public interface IAnnotationRepository
 public sealed record AnnotationListItem(
     Guid Id, string SelectedText, string AnchorJson, string Color, string? NoteText, DateTimeOffset CreatedAt,
     Guid BookId, string BookTitle, bool BookRemoved, Guid? ChapterId, string? ChapterTitle, string? ChapterKey,
-    DateTimeOffset? BookCoverVersion = null);
+    DateTimeOffset? BookCoverVersion);
 
 public sealed record AnnotationPage(int TotalCount, IReadOnlyList<AnnotationListItem> Items);

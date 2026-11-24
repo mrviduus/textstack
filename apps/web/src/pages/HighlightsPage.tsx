@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { getAllHighlights, type HighlightListItem } from '../api/userData'
-import { API_BASE } from '../api/client'
+import { syncApi } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
@@ -17,7 +17,7 @@ const PAGE_SIZE = 50
 interface BookGroup {
   bookId: string
   bookTitle: string
-  coverPath: string | null
+  coverUrl: string | null
   isUserBook: boolean
   highlights: HighlightListItem[]
 }
@@ -86,7 +86,8 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
       group = {
         bookId,
         bookTitle: h.userBookTitle || h.editionTitle || (h.deletedBookTitle ? `${h.deletedBookTitle} (deleted)` : 'Unknown Book'),
-        coverPath: h.userBookCoverPath || h.editionCoverPath || null,
+        // Keyed as the library's cover, so it is fetched and cached once (#1580).
+        coverUrl: h.userBookId && h.userBookCoverVersion ? syncApi.coverUrl(h.userBookId, h.userBookCoverVersion) : null,
         isUserBook: !!h.userBookId,
         highlights: [],
       }
@@ -171,11 +172,12 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
                   className="highlights-page__book-header"
                   onClick={() => toggleBook(group.bookId)}
                 >
-                  {group.coverPath && (
+                  {group.coverUrl && (
                     <img
                       className="highlights-page__book-cover"
-                      src={`${API_BASE}${group.coverPath}`}
+                      src={group.coverUrl}
                       alt=""
+                      onError={(e) => { e.currentTarget.style.display = 'none' }}
                     />
                   )}
                   <div className="highlights-page__book-info">

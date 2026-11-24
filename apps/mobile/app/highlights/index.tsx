@@ -3,7 +3,7 @@ import { View, Text, SectionList, StyleSheet, TouchableOpacity, TextInput, Activ
 import { useRouter, Stack } from 'expo-router'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
-import { highlightsApi, getApiConfig, isOfflineError } from '@textstack/shared'
+import { highlightsApi, syncApi, isOfflineError } from '@textstack/shared'
 import type { HighlightListItem } from '@textstack/shared'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
@@ -37,7 +37,7 @@ const COLOR_FILTERS = [
 interface BookSection {
   title: string
   count: number
-  coverPath: string | null
+  coverUrl: string | null
   data: HighlightListItem[]
 }
 
@@ -108,19 +108,20 @@ export default function HighlightsScreen() {
 
   // Group by book
   const sections = useMemo<BookSection[]>(() => {
-    const groups = new Map<string, { title: string; coverPath: string | null; items: HighlightListItem[] }>()
+    const groups = new Map<string, { title: string; coverUrl: string | null; items: HighlightListItem[] }>()
     for (const h of highlights) {
       // A deleted book has no id left; its kept title tells its highlights apart from another's.
       const bookKey = h.editionId || h.userBookId || (h.deletedBookTitle ? `deleted:${h.deletedBookTitle}` : '_none')
       const bookTitle = h.editionTitle || h.userBookTitle || (h.deletedBookTitle ? `${h.deletedBookTitle} (deleted)` : 'Unknown Book')
-      const coverPath = h.editionCoverPath || h.userBookCoverPath || null
-      if (!groups.has(bookKey)) groups.set(bookKey, { title: bookTitle, coverPath, items: [] })
+      // Keyed as the library's cover, so it is fetched and cached once (#1580).
+      const coverUrl = h.userBookId && h.userBookCoverVersion ? syncApi.coverUrl(h.userBookId, h.userBookCoverVersion) : null
+      if (!groups.has(bookKey)) groups.set(bookKey, { title: bookTitle, coverUrl, items: [] })
       groups.get(bookKey)!.items.push(h)
     }
     return Array.from(groups.values()).map(g => ({
       title: g.title,
       count: g.items.length,
-      coverPath: g.coverPath,
+      coverUrl: g.coverUrl,
       data: collapsedBooks.has(g.title) ? [] : g.items,
     }))
   }, [highlights, collapsedBooks])
@@ -192,7 +193,7 @@ export default function HighlightsScreen() {
         activeOpacity={0.7}
       >
         <Ionicons name={isCollapsed ? 'chevron-forward' : 'chevron-down'} size={16} color={colors.textSecondary} />
-        {section.coverPath && <SectionCover path={section.coverPath} style={styles.sectionCover} />}
+        {section.coverUrl && <SectionCover url={section.coverUrl} style={styles.sectionCover} />}
         <Text style={[styles.sectionTitle, { color: colors.text }]} numberOfLines={1}>{section.title}</Text>
         <Text style={[styles.sectionCount, { color: colors.textSecondary }]}>{section.count}</Text>
       </TouchableOpacity>
@@ -317,8 +318,8 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: fonts.sans, fontSize: 14, textAlign: 'center', paddingVertical: 40, paddingHorizontal: 32 },
 })
 
-/** A book's cover: an owner-checked `/me/v2/books/{id}/cover` path under the API, loaded with the Bearer (#1573). */
-function SectionCover({ path, style }: { path: string; style: object }) {
-  const [source, onError] = useCoverSource(`${getApiConfig().baseUrl}${path}`)
+/** A book's cover: the owner-checked `syncApi.coverUrl`, loaded with the Bearer (#1573). */
+function SectionCover({ url, style }: { url: string; style: object }) {
+  const [source, onError] = useCoverSource(url)
   return source ? <Image source={source} style={style} contentFit="cover" onError={onError} /> : null
 }
