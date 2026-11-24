@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt } from './bookOriginRoute.mjs'
-import { bombPagePdf, bombPdf, oomPagePdf, fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
+import { bombPagePdf, bombPdf, fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
 import { chromium, drive, hostPage as harnessPage } from './pageHarness.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
@@ -77,6 +77,49 @@ try {
     return alsoClone
       ? () => check(answer?.type === 'open-failed' && /too old to read PDF/.test(answer.error), `old WebView: without structuredClone a PDF is refused with a clear message (${answer?.type ?? 'no answer'}: ${answer?.error})`)
       : () => check(answer?.type === 'opened' && drawn && stripped === 1, `old WebView: without the polyfilled APIs (page and worker) a PDF still opens and draws (${answer?.type ?? 'no answer'}${answer?.error ? `, ${answer.error}` : ''}, ${stripped} worker)`)
+  }
+
+  /**
+   * #1204 (emulator): a phone's memory, on any machine. Each Worker the page makes runs behind a shim that refuses any
+   * ArrayBuffer over 64 MiB with the error a phone gives ("Array buffer allocation failed"); then page 2's bomb (1 GiB as
+   * its content) runs out of memory in pdf.js's decode, at the default silence. pdf.js ignores that in the page's drawing
+   * and rejects the page's text: the worker answered, so no watchdog. The failed page must be the book stopped, never a
+   * blank page nobody hears of, and nothing goes unhandled.
+   */
+  const lowMemory = async () => {
+    const got = []
+    const low = await hostPage(got, { viewport: { width: 420, height: 760 } })
+    let errors = 0
+    low.on('pageerror', () => errors++)
+    await low.addInitScript(() => {
+      const shim = () => {
+        const refuse = (T) => new Proxy(T, { construct(t, args, nt) {
+          if (typeof args[0] === 'number' && args[0] > 64 << 20) throw new RangeError('Array buffer allocation failed')
+          return Reflect.construct(t, args, nt)
+        } })
+        self.ArrayBuffer = refuse(ArrayBuffer)
+        self.Uint8Array = refuse(Uint8Array)
+      }
+      const W = window.Worker
+      window.Worker = function (url, options) {
+        const x = new XMLHttpRequest()
+        x.open('GET', url, false)
+        x.send()
+        return new W(URL.createObjectURL(new Blob([`(${shim})();\n${x.responseText}`], { type: 'text/javascript' })), options)
+      }
+    })
+    await low.goto(PAGE_URL)
+    const { call: lowCall, waitFor: lowWait, open: lowOpen } = drive(low, got, TIMEOUT_MS)
+    await lowWait(0, (x) => x.type === 'ready', 'ready')
+    const opened = await lowOpen(bookAt('tsbombpage.pdf'), 'tsbombpage.pdf')
+    const from = got.length
+    lowCall('window.__fol.next()')
+    const stopped = await lowWait(from, (x) => x.type === 'book-stopped', 'book-stopped (out of memory)').catch(() => null)
+    await low.waitForTimeout(500) // an unhandled rejection after it has had its turn
+    const logged = got.slice(from).filter((x) => x.type === 'log' && x.level === 'error').length
+    await low.close()
+    return () => check(opened.type === 'opened' && stopped?.key === opened.book?.sha256 && /could not be drawn: .*allocation failed/.test(stopped?.error) && !errors && !logged,
+      `a page past a phone's memory says \`book-stopped\` with the reason, nothing unhandled (${opened.type}; ${stopped?.error ?? 'no notice'}; ${errors} page errors, ${logged} error logs)`)
   }
 
   const messages = []
@@ -428,20 +471,6 @@ try {
   check(pageGap < 500 && messages.slice(from).filter((x) => x.type === 'book-stopped').length === 1, `once, and the page answers all the while (longest gap: ${pageGap} ms)`)
   m = await open('tsformat.pdf')
   check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `the next PDF opens and draws (${m.type})`)
-  // #1204 (emulator): a page past the worker's memory, at the default silence. pdf.js ignores the out-of-memory in the page's
-  // drawing and rejects its text: the worker answered, so no watchdog; the failed page is the book stopped, never a blank
-  // page nobody hears of, and no error goes unhandled.
-  writeFileSync(resolve(dir, 'tsoompage.pdf'), oomPagePdf())
-  m = await open('tsoompage.pdf')
-  from = messages.length
-  const oomErrors = pageErrors
-  call('window.__fol.next()')
-  const oom = await waitFor(from, (x) => x.type === 'book-stopped', 'book-stopped (out of memory)').catch(() => null)
-  check(m.type === 'opened' && oom?.key === m.book.sha256 && /could not be drawn: .*allocation failed/.test(oom?.error) && pageErrors === oomErrors
-    && !messages.slice(from).some((x) => x.type === 'log' && x.level === 'error'),
-  `a page past the worker's memory says \`book-stopped\` with the reason, nothing unhandled (${m.type}; ${oom?.error ?? 'no notice'})`)
-  m = await open('tsformat.pdf')
-  check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `and the next PDF opens and draws (${m.type})`)
 
   console.log('alignment')
   writeAlignmentEpub(resolve(dir, 'tsalignment.epub'))
@@ -542,6 +571,8 @@ try {
   }
 
   for (const alsoClone of [false, true]) (await oldWebView(alsoClone))()
+  console.log('pdf low memory')
+  ;(await lowMemory())()
 
   // Every page error, last so every block above is covered; refusals log theirs as `open: …`.
   for (const x of messages) if (x.type === 'log' && x.level === 'error' && !/^open: /.test(x.msg)) check(false, `page error: ${x.msg.split('\n')[0]}`)
