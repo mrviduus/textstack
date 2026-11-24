@@ -87,7 +87,7 @@ describe('the V2 library', () => {
       'GET /me/v2/reading/changes': [...feed(state('b1', 1, { currentLocator: cfi })), ...feed(state('b1', 1, { currentLocator: cfi }))],
     })
     expect((await getShelfBooks())[0].progressChapterSlug).toBeNull()
-    syncStore.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 100 }, { chapterKey: 'two', chapterNumber: 2, title: 'Two', wordCount: 100 }] })
+    syncStore.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One' }, { chapterKey: 'two', chapterNumber: 2, title: 'Two' }] })
     expect((await getShelfBooks())[0].progressChapterSlug).toBe('two')
     expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
   })
@@ -262,14 +262,14 @@ describe('the V2 reading state', () => {
     expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ fileId: 'f-new', expectedRevision: null })
   })
 
-  it('reads a pdf-page place back as page:N, and an epub-cfi by its fraction over the word counts', async () => {
+  it('reads a pdf-page place back as page:N, and an epub-cfi by its fraction over the TOC entries', async () => {
     fakeApi({
       ...library,
       'GET /me/v2/books/b1/reading-state': [
         { status: 200, body: state('b1', 1, { currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 12 } } }) },
         { status: 200, body: state('b1', 1, { currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' } }) },
       ],
-      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one', wordCount: 100 }, { chapterKey: 'two', wordCount: 100 }] } }],
+      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one' }, { chapterKey: 'two' }] } }],
     })
     expect(await readBookProgress('b1')).toMatchObject({ chapterSlug: null, locator: 'page:12' })
     expect(await readBookProgress('b1')).toMatchObject({ chapterSlug: 'two', positionJson: null, percent: 0.7 })
@@ -278,7 +278,7 @@ describe('the V2 reading state', () => {
   it('marks a book read with completedAt on its place, and unread by a reset', async () => {
     const calls = fakeApi({
       ...library,
-      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one', wordCount: 1 }] } }],
+      'GET /me/v2/books/b1/files/f1/chapters': [{ status: 200, body: { items: [{ chapterKey: 'one' }] } }],
       'GET /me/v2/books/b1/reading-state': [{ status: 200, body: state('b1', 4) }],
       [put]: [{ status: 200, body: state('b1', 5) }],
       'POST /me/v2/books/b1/reading-state/reset': [{ status: 200, body: state('b1', 6) }],
@@ -297,7 +297,7 @@ describe('an answer that outlives a sign-out (syncStore.reset, #1155)', () => {
   })
 
   const library = { 'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0] }
-  const chapters = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [{ chapterKey: 'one', chapterNumber: 0, title: 'One', wordCount: null }] } } }
+  const chapters = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [{ chapterKey: 'one', chapterNumber: 0, title: 'One' }] } } }
   const put = { 'PUT /me/v2/books/b1/reading-state': { status: 200, body: state('b1', 1) } }
   const write = { chapterSlug: 'two', percent: 0.5, positionJson: JSON.stringify(position) }
   const underReset = <T>(routes: Record<string, Answer>, op: () => Promise<T>, hold?: string) =>

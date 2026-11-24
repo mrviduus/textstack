@@ -153,10 +153,26 @@ public sealed partial class LibraryRepository
     public async Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct) =>
         (await QueryBooksAsync(SetCheckpointSaving, new { userId, bookId, enabled }, null, ct)).SingleOrDefault();
 
-    private const string SetToc = "UPDATE book_files SET toc = CAST(@toc AS jsonb) WHERE user_id = @userId AND book_id = @bookId AND id = @fileId";
+    // The feed carries the current file's hasToc and chapterCount, so a TOC that changes on it bumps the
+    // book's updated_at (never its revision: no metadata edit is refused for it). The same TOC again bumps nothing.
+    private const string SetToc = """
+        WITH f AS (
+            UPDATE book_files SET toc = CAST(@toc AS jsonb)
+            FROM (SELECT toc AS old_toc FROM book_files WHERE user_id = @userId AND book_id = @bookId AND id = @fileId) old
+            WHERE user_id = @userId AND book_id = @bookId AND id = @fileId
+            RETURNING is_current, old.old_toc IS DISTINCT FROM CAST(@toc AS jsonb) AS changed
+        ), b AS (
+            UPDATE books SET updated_at = now()
+            WHERE user_id = @userId AND id = @bookId AND EXISTS (SELECT FROM f WHERE is_current AND changed)
+        )
+        SELECT count(*) FROM f
+        """;
 
-    public Task<bool> SetTocAsync(Guid userId, Guid bookId, Guid fileId, string toc, CancellationToken ct) =>
-        ChangesOneAsync(SetToc, new { userId, bookId, fileId, toc }, ct);
+    public async Task<bool> SetTocAsync(Guid userId, Guid bookId, Guid fileId, string toc, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(SetToc, new { userId, bookId, fileId, toc }, cancellationToken: ct)) > 0;
+    }
 
     private const string MarkRemoved = """
         UPDATE books SET removed_at = now(), updated_at = now()

@@ -233,7 +233,7 @@ public sealed record UserBookDetailJson(
 
 // A TOC entry; Depth and Fraction (where it starts, 0-1) come only from the reader's TOC (ADR-033).
 public sealed record UserChapterSummaryJson(
-    Guid Id, int ChapterNumber, string? Slug, string Title, int? Depth, decimal? Fraction);
+    Guid Id, int ChapterNumber, string? Slug, string Title, int Depth, decimal Fraction);
 
 public sealed record BookInsightJson(
     Guid Id,

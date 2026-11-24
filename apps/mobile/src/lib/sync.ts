@@ -244,9 +244,6 @@ const isPdf = (b: Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasC
 
 const coverOf = (b: Book) => (b.hasCover ? syncApi.coverUrl(b.id, b.updatedAt) : null)
 
-const totalWords = (toc: FileChapters) =>
-  toc.items.some((c) => c.wordCount != null) ? toc.items.reduce((s, c) => s + (c.wordCount ?? 0), 0) : null
-
 /**
  * The uploads list: live books only, each with its status and the reader's place — two feed pulls,
  * no per-book call: the feed's file carries its status and chapter count; `/chapters` is the reader's.
@@ -299,11 +296,11 @@ export async function getUserBook(id: string): Promise<UserBookDetailResponse> {
     coverPath: coverOf(b),
     genre: b.genre,
     publishedYear: b.publishedYear,
-    totalWordCount: totalWords(toc),
+    totalWordCount: null,
     status: shelfFileSummary(b.currentFile).status,
     errorMessage: null,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.
-    chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: c.wordCount })),
+    chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: null })),
     toc: null,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,

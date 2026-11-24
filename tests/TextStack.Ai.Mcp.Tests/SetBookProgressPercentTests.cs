@@ -64,7 +64,7 @@ public class SetBookProgressPercentTests : IAsyncLifetime
     [Fact]
     public async Task SetBookProgress_BookWhoseTocTheReaderHasNotSynced_IsRefusedWithWhatToDo()
     {
-        var result = await SetAsync(StubBackend.UnopenedBookId, "one");
+        var result = await SetAsync(StubBackend.NoTocBookId, "one");
 
         Assert.True(result.IsError);
         Assert.Contains("open the book once", TextOf(result));

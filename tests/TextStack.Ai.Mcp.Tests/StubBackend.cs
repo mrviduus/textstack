@@ -127,10 +127,9 @@ public sealed class StubBackend : IAsyncDisposable
         {
             await RecordAsync("v2_chapters", ctx);
             var book = Books.Single(b => b.Id == (string)ctx.Request.RouteValues["bookId"]!);
-            // The reader's TOC (depth, fraction, no word count), or a transitional extraction's (a word count only).
-            var items = book.Chapters.Select((c, i) => c.Fraction is { } f
-                ? $$"""{ "chapterKey": "{{c.Key}}", "chapterNumber": {{i}}, "title": "{{c.Title}}", "wordCount": null, "depth": {{c.Depth}}, "fraction": {{f.ToString(System.Globalization.CultureInfo.InvariantCulture)}} }"""
-                : $$"""{ "chapterKey": "{{c.Key}}", "chapterNumber": {{i + 1}}, "title": "{{c.Title}}", "wordCount": 3000 }""");
+            // The reader's TOC: each entry's depth and where it starts in the book.
+            var items = book.Chapters.Select((c, i) =>
+                $$"""{ "chapterKey": "{{c.Key}}", "chapterNumber": {{i}}, "title": "{{c.Title}}", "depth": {{c.Depth}}, "fraction": {{c.Fraction.ToString(System.Globalization.CultureInfo.InvariantCulture)}} }""");
             await WriteJsonAsync(ctx, $$"""{ "items": [{{string.Join(",", items)}}] }""");
         });
         _app.MapGet("/me/v2/annotations/changes", async ctx =>
@@ -346,8 +345,7 @@ public sealed class StubBackend : IAsyncDisposable
 
     // ── canned camelCase bodies (Contracts.Sync DTOs) ──────────────────────────────
 
-    // Fraction null: a transitional extraction's entry, which the reader's TOC has not replaced yet.
-    private sealed record StubChapter(string Key, string Title, decimal? Fraction, int Depth = 0);
+    private sealed record StubChapter(string Key, string Title, decimal Fraction, int Depth = 0);
 
     private sealed record StubBook(string Id, string FileId, string Title, string Author, string Tags, StubChapter[] Chapters)
     {
@@ -370,7 +368,7 @@ public sealed class StubBackend : IAsyncDisposable
     private static readonly StubBook[] Books =
     [
         new(UserBookId, UserFileId, "Designing Data-Intensive Applications", "Martin Kleppmann", """["systems"]""", DdiaChapters),
-        new(UnopenedBookId, "f0000000-0000-4000-8000-000000000002", "The Mom Test", "Rob Fitzpatrick", "[]", [new("one", "One", null)]),
+        new(UnopenedBookId, "f0000000-0000-4000-8000-000000000002", "The Mom Test", "Rob Fitzpatrick", "[]", [new("one", "One", 0m)]),
         new(RefusingBookId, "f0000000-0000-4000-8000-000000000003", "A Book Whose Position Is Refused", "A. Writer", "[]", DdiaChapters),
         new(FrontMatterBookId, "f0000000-0000-4000-8000-000000000004", "A Book With Front Matter", "A. N. Other", "[]",
         [
