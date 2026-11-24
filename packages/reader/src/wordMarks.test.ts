@@ -118,11 +118,13 @@ describe('vocabWords: the book\'s language', () => {
 })
 
 describe('a translation over its word', () => {
-  it('shows the first meaning only, so it stays over its own word', () => {
+  it('readMarkWords_GlossWithSeveralMeanings_KeepsTheFirstSoTheLabelStaysOverItsWord', () => {
+    expect(readMarkWords([{ word: 'superseded', gloss: 'заменённый (устаревший)' }])[0].gloss).toBe('заменённый')
     expect(shortGloss('заменённый (устаревший)')).toBe('заменённый')
     expect(shortGloss('подчёркивать, выделять')).toBe('подчёркивать')
     expect(shortGloss('продукт; изделие')).toBe('продукт')
     expect(shortGloss('продукт')).toBe('продукт')
     expect(shortGloss('(устар.) ветхий')).toBe('(устар.) ветхий')
+    expect(shortGloss('км/ч')).toBe('км/ч')
   })
 })

@@ -11,7 +11,7 @@ import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.ven
 import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
 import { SELECTION_SETTLE_MS, rangeToLocator, textNodes } from './text'
 import { mergeOverlay } from './overlays.mjs'
-import { STAGE_COLORS, readMarkWords, sameMark, shortGloss, wordMarksIn } from './wordMarks.mjs'
+import { STAGE_COLORS, readMarkWords, sameMark, wordMarksIn } from './wordMarks.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { isFractionOnly } from '../../shared/src/reader/fractionPosition'
 import { emptyEntry, entryFor, foldText, isPdfPage, isPosition, isQuotation, quoteOf, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
@@ -81,6 +81,8 @@ let testBreakBookmarks = false
 /** #1271: the reader's saved words (wordMarks.mjs `readMarkWords`), as the host last sent them, and whether their glosses show. */
 let vocab = []
 let showGlosses = false
+/** Whether lines are spaced for glosses: shown, and some saved word has one. */
+let glossRoom = false
 /** #1272: the CFI of the range the host is speaking (`speaking`), drawn underlined until it says it ended; or null. */
 let spokenCfi = null
 /** This file's identity and its entry. No save until the stored one is restored. */
@@ -203,7 +205,7 @@ function applyLook() {
       applyFontFamily(doc, look)
     }
   }
-  view?.renderer?.setStyles?.(settingsCss(look, fontUrl(), showGlosses))
+  view?.renderer?.setStyles?.(settingsCss(look, fontUrl(), glossRoom))
 }
 
 const SVG = 'http://www.w3.org/2000/svg'
@@ -225,7 +227,7 @@ function glossOf(rects, text, el) {
   t.setAttribute('text-anchor', 'middle')
   t.setAttribute('fill', 'currentColor')
   t.setAttribute('style', `font-style: italic; font-size: ${(fs * 0.42).toFixed(1)}px; opacity: .75`)
-  t.textContent = shortGloss(text)
+  t.textContent = text
   g.append(t)
   return g
 }
@@ -1910,7 +1912,8 @@ window.__fol = {
     const glosses = !!show !== showGlosses
     vocab = readMarkWords(words)
     showGlosses = !!show
-    if (glosses) applyLook()
+    const room = showGlosses && vocab.some((w) => w.gloss)
+    if (room !== glossRoom) { glossRoom = room; applyLook() }
     if (!view || !annotatable) return
     for (const c of view.renderer?.getContents?.() ?? []) markSection(c, glosses)
   },

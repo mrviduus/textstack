@@ -147,8 +147,8 @@ const FOLIATE_SHA = '772af5050b11a7f3d767412242e6613463da9efd'
 // +2,472: the contents the server keeps, sent in `described` (ADR-033 P3, chapters.mjs `tocEntries`).
 // −276 (#1203 pin bump): the page no longer wraps pdf.js's getDocument (the fork destroys a failed load's task);
 // progress.js resolves TOC entries in parallel.
-// +273: saved words' translations get room above them (line height at least 2 while they show) and show their first meaning.
-const BUDGET = 347926
+// +407: saved words' translations get room above them (line height +0.4 while some show) and show their first meaning.
+const BUDGET = 348060
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

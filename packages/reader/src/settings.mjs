@@ -17,8 +17,8 @@ export const THEMES = {
   dark: { bg: '#1a1a1a', fg: '#e0e0e0' },
 }
 export const DEFAULTS = Object.freeze({ fontSize: 20, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'book', theme: 'light' })
-/** The least line height while saved words show their translation above them (`glosses`): room for the label between lines. */
-export const GLOSS_LINE_HEIGHT = 2
+/** Added to the chosen line height while saved words show their translation above them (`glosses`): room for the label. */
+export const GLOSS_LINE_GAP = 0.4
 /** Where each host keeps the reader's choices (localStorage / AsyncStorage), as JSON. */
 export const SETTINGS_KEY = 'v2reader.settings'
 
@@ -74,11 +74,11 @@ const DARK_PLATE = '#f0f0f0'
  * family through fonts.mjs. Text blocks take the line height; OpenDyslexic
  * replaces every font (it is an accessibility setting), and dark recolours everything (black text would vanish).
  * Explicit alignment is applied by alignment.mjs so publisher inline !important cannot override it. `glosses`: saved
- * words' translations show, so lines are at least GLOSS_LINE_HEIGHT apart.
+ * words' translations show, so lines are GLOSS_LINE_GAP further apart.
  */
 export function settingsCss(raw, fontUrl, glosses = false) {
   const s = readSettings(raw)
-  const lineHeight = glosses ? Math.max(s.lineHeight, GLOSS_LINE_HEIGHT) : s.lineHeight
+  const lineHeight = glosses ? +(s.lineHeight + GLOSS_LINE_GAP).toFixed(2) : s.lineHeight
   const { bg, fg } = THEMES[s.theme]
   const dyslexic = s.fontFamily === 'dyslexic'
   const urls = typeof fontUrl === 'string' ? { regular: fontUrl } : fontUrl

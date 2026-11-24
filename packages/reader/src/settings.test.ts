@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALIGNS, DEFAULTS, FAMILIES, GLOSS_LINE_HEIGHT, FONT_MAX, FONT_MIN, LINE_HEIGHTS, THEMES, choose, parseChosen, readChosen, readSettings, settingsCss } from './settings.mjs'
+import { ALIGNS, DEFAULTS, FAMILIES, FONT_MAX, FONT_MIN, LINE_HEIGHTS, THEMES, choose, parseChosen, readChosen, readSettings, settingsCss } from './settings.mjs'
 
 const BLOB = 'blob:https://appassets.androidplatform.net/3f2c1a9e-0000-4000-8000-1234567890ab'
 
@@ -91,9 +91,10 @@ describe('v2 reader settings stylesheet', () => {
   })
 
   it('settingsCss_TranslationsShown_LinesMakeRoomForTheLabelAboveEachWord', () => {
-    // A reader with inline translations on gets lines far enough apart for the label; a looser choice is kept.
-    expect(settingsCss(DEFAULTS, null, true)).toContain(`line-height: ${GLOSS_LINE_HEIGHT} !important`)
-    expect(settingsCss({ lineHeight: 1.8 }, null, true)).toContain(`line-height: ${Math.max(1.8, GLOSS_LINE_HEIGHT)} !important`)
+    // A reader with inline translations on gets room for the label over the line height they chose, which still counts.
+    expect(settingsCss(DEFAULTS, null, true)).toContain('line-height: 2 !important')
+    expect(settingsCss({ lineHeight: 1.65 }, null, true)).toContain('line-height: 2.05 !important')
+    expect(settingsCss({ lineHeight: 1.8 }, null, true)).toContain('line-height: 2.2 !important')
     expect(settingsCss(DEFAULTS, null, false)).toContain('line-height: 1.6 !important')
   })
 

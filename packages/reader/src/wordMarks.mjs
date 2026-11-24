@@ -23,7 +23,7 @@ export function readMarkWords(raw) {
   const out = []
   for (const w of raw.slice(-MAX_WORDS)) {
     if (!w || typeof w !== 'object' || typeof w.word !== 'string' || !w.word.trim() || w.word.length > MAX_WORD) continue
-    const gloss = typeof w.gloss === 'string' && w.gloss.trim() && w.gloss.length <= MAX_GLOSS ? w.gloss.trim() : null
+    const gloss = typeof w.gloss === 'string' && w.gloss.trim() && w.gloss.length <= MAX_GLOSS ? shortGloss(w.gloss) : null
     out.push({ word: w.word, stage: stageOf(w.stage), gloss })
   }
   return out
@@ -41,8 +41,8 @@ export function wordMarksIn(root, words) {
   return matchWords(root, words, nodes).map((m) => ({ range: at(m.start, m.end - m.start), word: m.item }))
 }
 
-/** A label as drawn above its word: its first meaning, before a comma, semicolon, slash or bracket ("a (b)" → "a"). */
-export const shortGloss = (text) => text.split(/[,;/(（]/)[0].trim() || text.trim()
+/** A saved word's label as drawn above it: its first meaning, before a comma, semicolon or bracket ("a (b)" → "a"). */
+export const shortGloss = (text) => text.split(/[,;(]/)[0].trim() || text.trim()
 
 /** Whether two marks draw the same (a section re-marked keeps what did not change). */
 export const sameMark = (a, b) => !!a && !!b && a.stage === b.stage && a.gloss === b.gloss
