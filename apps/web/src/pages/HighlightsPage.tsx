@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
-import { getAllHighlights, type HighlightListItem } from '../api/userData'
-import { highlightCoverUrl } from '@textstack/shared'
+import { highlightCoverUrl, highlightsApi, type HighlightListItem } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
@@ -41,7 +40,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
     try {
       setLoading(true)
       const newOffset = reset ? 0 : offset
-      const result = await getAllHighlights({
+      const result = await highlightsApi.getAllHighlights({
         limit: PAGE_SIZE,
         offset: newOffset,
         sort: 'newest',
@@ -250,9 +249,17 @@ export function highlightReaderPath(h: HighlightListItem): string | null {
   return null
 }
 
-/** A book's cover; one that fails to load hides for that URL only, so a newer version renders again (#1580). */
+/**
+ * A book's cover; one that fails to load hides for that URL only, so a newer version renders again (#1580). Back online,
+ * it is tried again (#1584): a network blip never hides it until a reload.
+ */
 function BookCover({ url }: { url: string | null }) {
   const [failed, setFailed] = useState<string | null>(null)
+  useEffect(() => {
+    const retry = () => setFailed(null)
+    window.addEventListener('online', retry)
+    return () => window.removeEventListener('online', retry)
+  }, [])
   if (!url || url === failed) return null
   return <img className="highlights-page__book-cover" src={url} alt="" onError={() => setFailed(url)} />
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { highlightReaderPath } from '../HighlightsPage'
-import type { HighlightListItem } from '../../api/userData'
+import type { HighlightListItem } from '@textstack/shared'
 
 const h = (over: Partial<HighlightListItem>) => ({
   id: 'h1', editionId: null, editionSlug: null, chapterSlug: null, userBookId: null, userChapterSlug: null, ...over,

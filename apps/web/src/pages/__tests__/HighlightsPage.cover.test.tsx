@@ -5,7 +5,7 @@ import { syncApi } from '@textstack/shared'
 import '../../api/client' // initApi, as the app does on load
 import { HighlightsPage } from '../HighlightsPage'
 import { emitDataChange } from '../../lib/dataEvents'
-import type { HighlightListItem } from '../../api/userData'
+import type { HighlightListItem } from '@textstack/shared'
 
 const item = (over: Partial<HighlightListItem>) => ({
   id: 'h1', selectedText: 'quote', anchorJson: '{}', color: 'yellow', noteText: null, createdAt: '2026-11-24T00:00:00Z',
@@ -16,9 +16,10 @@ const item = (over: Partial<HighlightListItem>) => ({
 }) as HighlightListItem
 
 const items = vi.hoisted(() => ({ list: [] as HighlightListItem[] }))
-vi.mock('../../api/userData', () => ({
-  getAllHighlights: async () => ({ items: items.list, totalCount: items.list.length }),
-}))
+vi.mock('@textstack/shared', async (importOriginal) => {
+  const shared = await importOriginal<typeof import('@textstack/shared')>()
+  return { ...shared, highlightsApi: { ...shared.highlightsApi, getAllHighlights: async () => ({ items: items.list, totalCount: items.list.length }) } }
+})
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true }) }))
 vi.mock('../../context/LanguageContext', () => ({
   useLanguage: () => ({ language: 'en', getLocalizedPath: (p: string) => `/en${p}` }),
@@ -47,6 +48,17 @@ describe('HighlightsPage cover', () => {
     const container = await renderCovers([item({ userBookCoverVersion: '2026-11-24T09:30:15Z' })])
     fireEvent.error(container.querySelector('img')!)
     expect(container.querySelector('img')).toBeNull()
+  })
+
+  // #1584: a network blip, not a broken cover: back online, the same URL is tried again without a reload.
+  it('cover that failed while offline renders again when the browser is back online', async () => {
+    const container = await renderCovers([item({ userBookCoverVersion: '2026-11-24T09:30:15Z' })])
+    fireEvent.error(container.querySelector('img')!)
+    expect(container.querySelector('img')).toBeNull()
+
+    act(() => { window.dispatchEvent(new Event('online')) })
+
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(syncApi.coverUrl('b1', '2026-11-24T09:30:15Z'))
   })
 
   it('failed cover with a new version for the same book renders again', async () => {

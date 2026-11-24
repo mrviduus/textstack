@@ -113,7 +113,7 @@ export default function HighlightsScreen() {
     const groups = new Map<string, { title: string; cover: HighlightListItem; items: HighlightListItem[] }>()
     for (const h of highlights) {
       // A deleted book has no id left; its kept title tells its highlights apart from another's.
-      const bookKey = h.editionId || h.userBookId || (h.deletedBookTitle ? `deleted:${h.deletedBookTitle}` : '_none')
+      const bookKey = h.userBookId || h.editionId || (h.deletedBookTitle ? `deleted:${h.deletedBookTitle}` : '_none')
       const bookTitle = h.editionTitle || h.userBookTitle || (h.deletedBookTitle ? `${h.deletedBookTitle} (deleted)` : 'Unknown Book')
       const group = groups.get(bookKey) ?? { title: bookTitle, cover: h, items: [] }
       // The newest cover version of the book's highlights: a page loaded later may carry a newer one (#1580).

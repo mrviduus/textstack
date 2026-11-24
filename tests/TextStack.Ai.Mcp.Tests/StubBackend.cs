@@ -57,7 +57,9 @@ public sealed class StubBackend : IAsyncDisposable
     public const string MissingV2WordId = "00000000-0000-4000-8000-000000000404";
     public int FeedStatus { get; set; } = StatusCodes.Status200OK;
 
-    private static string SyncError(string code, string message) => $$"""{ "code": "{{code}}", "message": "{{message}}", "revision": null, "current": null }""";
+    // #1584: the real body (the contract's record, serialized as the API does), so a renamed field fails these tests.
+    private static string SyncError(string code, string message) =>
+        System.Text.Json.JsonSerializer.Serialize(new Contracts.Sync.SyncError(code, message), System.Text.Json.JsonSerializerOptions.Web);
 
     private readonly WebApplication _app;
     private readonly Dictionary<string, RecordedRequest> _records = new(StringComparer.Ordinal);
