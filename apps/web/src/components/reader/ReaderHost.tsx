@@ -1205,7 +1205,8 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           AND its /api session cookie. The shell itself is public (it carries no data, nginx serves it to
           anyone); what is gated is the route that hands it a book: the reader's own `/me/v2` session.
           A second origin: docs/internal/v2/v2-reader-web-hosting.md. */}
-      <iframe key={frameLoad} ref={frame} id={BOOK_ID} title={t('v2Reader.frameTitle')} sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
+      {/* Sibling keys are namespaced: frameLoad and searchBook both start at 0 (#1586). */}
+      <iframe key={`frame-${frameLoad}`} ref={frame} id={BOOK_ID} title={t('v2Reader.frameTitle')} sandbox="allow-scripts allow-same-origin" src={FRAME_SRC} className="v2-reader__frame" />
       <footer ref={footer} className="reader-footer" onFocus={showBars} inert={lightboxOpen}>
         {reading && <SectionNav toc={toc} tocIndex={tocIndex} onGo={goToc} />}
         <div className="reader-footer__info v2-reader__footer">
@@ -1262,7 +1263,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
         bookmarks={bookmarksTab}
       />
       {/* Opened only from its button (a searchable book on screen); a new open closes it. */}
-      <SearchDrawer key={searchBook} open={searchOpen} search={search} onQuery={askSearch} onGo={goHighlight} onClose={() => setSearchOpen(false)} />
+      <SearchDrawer key={`search-${searchBook}`} open={searchOpen} search={search} onQuery={askSearch} onGo={goHighlight} onClose={() => setSearchOpen(false)} />
     </main>
   )
 }
