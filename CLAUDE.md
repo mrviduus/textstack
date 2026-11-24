@@ -221,7 +221,7 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 - **Mobile reading needs neither a token nor a network** — the reader opens the book's file retained on the device (`apps/mobile/src/lib/reader/hostStorage.ts`) and its local library (`localLibrary.ts`); sync runs beside it. Nothing on the reading path may need an account.
 - **A `.web.ts` twin mirrors every export** of its native module (`apps/mobile/src/lib/offlineDb.web.ts`, `reader/deviceLibrary.web.ts`), or the web bundle (which mobile e2e runs against) fails to resolve.
 - **Guest = a real session.** `isAuthenticated` is `user !== null`; account-only questions go through `capabilitiesFor(user)` (`packages/shared/src/lib/capabilities.ts`, re-exported by mobile `capabilities.ts`), never inline `user?.isGuest` (ADR-014).
-- **MCP has 17 tools; the count is asserted in four tests** (`McpManifestDriftTests`, `McpStdioSmokeTests`, `McpOverTheWireTests`, `McpManifestEndpointTests`) and descriptions live once in `backend/src/Contracts/Mcp/McpManifest.cs` — change all together.
+- **MCP has 18 tools; the count is asserted in four tests** (`McpManifestDriftTests`, `McpStdioSmokeTests`, `McpOverTheWireTests`, `McpManifestEndpointTests`) and descriptions live once in `backend/src/Contracts/Mcp/McpManifest.cs` — change all together.
 - **ARM64: compiled `Regex`, never `[GeneratedRegex]`** (SIGILL bug).
 - **Docs, comments, ADRs, commits, PRs: English only.** Cyrillic is allowed only as real input data (tests, fixtures, seed migrations, translation examples).
 - **Never deploy by SSH.** Deploy = merge to `main`; break-glass `gh workflow run deploy.yml`.

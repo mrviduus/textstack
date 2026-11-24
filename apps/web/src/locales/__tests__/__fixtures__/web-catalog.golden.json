@@ -334,7 +334,7 @@
   "mcp.title": "Connect TextStack to your AI assistant",
   "mcp.tools.getMyBook": "Fetch one of your uploaded books: metadata and chapter list; to discuss a chapter, share it from the reader (requires sign-in).",
   "mcp.tools.getMyInsights": "Read back everything already worked out about a book, in reading order (requires sign-in).",
-  "mcp.tools.heading": "The 17 tools",
+  "mcp.tools.heading": "The 18 tools",
   "mcp.tools.getMyReading": "List the books you are reading and where you are in each (requires sign-in).",
   "mcp.tools.getBookProgress": "Get your reading progress in one book (requires sign-in).",
   "mcp.tools.setBookProgress": "Record a chapter you finished elsewhere — audiobook, paper — so the reader resumes at the next one (requires sign-in).",
@@ -1067,5 +1067,6 @@
   "mcp.tools.shareChapter": "Share one chapter of a book you uploaded into the discussion (requires sign-in).",
   "mcp.tools.getSharedChapter": "Read a chapter you shared from the reader (requires sign-in).",
   "mcp.tools.saveCheckpoint": "Save a checkpoint of a discussion about a book you uploaded (requires sign-in).",
-  "mcp.tools.listCheckpoints": "List the checkpoints saved about a book you uploaded, oldest first (requires sign-in)."
+  "mcp.tools.listCheckpoints": "List the checkpoints saved about a book you uploaded, oldest first (requires sign-in).",
+  "mcp.tools.deleteCheckpoint": "Delete one saved discussion checkpoint (requires sign-in)."
 }

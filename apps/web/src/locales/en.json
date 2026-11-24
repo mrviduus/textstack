@@ -329,7 +329,7 @@
       "toolInstallLabel": "terminal"
     },
     "tools": {
-      "heading": "The 17 tools",
+      "heading": "The 18 tools",
       "lead": "What your AI assistant can do once connected:",
       "searchMyLibrary": "Search the books you uploaded — your own library, not the public catalog (requires sign-in).",
       "getMyBook": "Fetch one of your uploaded books: metadata and chapter list; to discuss a chapter, share it from the reader (requires sign-in).",
@@ -347,7 +347,8 @@
       "shareChapter": "Share one chapter of a book you uploaded into the discussion (requires sign-in).",
       "getSharedChapter": "Read a chapter you shared from the reader (requires sign-in).",
       "saveCheckpoint": "Save a checkpoint of a discussion about a book you uploaded (requires sign-in).",
-      "listCheckpoints": "List the checkpoints saved about a book you uploaded, oldest first (requires sign-in)."
+      "listCheckpoints": "List the checkpoints saved about a book you uploaded, oldest first (requires sign-in).",
+      "deleteCheckpoint": "Delete one saved discussion checkpoint (requires sign-in)."
     },
     "steps": {
       "heading": "Local tool: sign in in 3 steps",

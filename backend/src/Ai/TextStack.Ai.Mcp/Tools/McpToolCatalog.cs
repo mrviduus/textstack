@@ -45,6 +45,7 @@ public sealed partial class McpToolCatalog
             BuildShareChapter(api),
             BuildSaveCheckpoint(api),
             BuildListCheckpoints(api),
+            BuildDeleteCheckpoint(api),
             BuildGetSharedChapter(api),
         };
         _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);

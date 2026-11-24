@@ -85,6 +85,7 @@ export function McpLandingPage() {
     { name: 'get_shared_chapter', desc: t('mcp.tools.getSharedChapter') },
     { name: 'save_checkpoint', desc: t('mcp.tools.saveCheckpoint') },
     { name: 'list_checkpoints', desc: t('mcp.tools.listCheckpoints') },
+    { name: 'delete_checkpoint', desc: t('mcp.tools.deleteCheckpoint') },
   ]
 
   return (

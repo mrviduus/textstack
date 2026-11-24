@@ -26,4 +26,8 @@ public sealed partial class TextStackApiClient
             + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
         return SendAsync<object>(HttpMethod.Get, url, null, ct);
     }
+
+    /// <summary><c>DELETE /me/v2/checkpoints/{id}</c>: 204, or the server's 404 for an id not the caller's.</summary>
+    public Task<ApiResult<JsonElement>> DeleteCheckpointAsync(Guid id, CancellationToken ct) =>
+        SendAsync<object>(HttpMethod.Delete, $"/me/v2/checkpoints/{id}", null, ct);
 }

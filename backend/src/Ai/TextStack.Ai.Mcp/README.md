@@ -5,7 +5,7 @@ library to Claude Desktop, Cursor, or any [Model Context Protocol](https://model
 client. Search your books, discuss the chapters you share, and manage your highlights and
 vocabulary straight from your AI assistant.
 
-It exposes **17 tools**:
+It exposes **18 tools**:
 
 | Tool | What it does |
 |------|--------------|
@@ -25,6 +25,7 @@ It exposes **17 tools**:
 | `share_chapter` | Snapshot one chapter for a discussion (requires sign-in) |
 | `save_checkpoint` | Save one checkpoint of a discussion (requires sign-in) |
 | `list_checkpoints` | Read a book's discussion checkpoints (requires sign-in) |
+| `delete_checkpoint` | Delete one discussion checkpoint by id (requires sign-in) |
 | `get_shared_chapter` | Read a chapter shared from the reader's Discuss (requires sign-in) |
 
 ## Install

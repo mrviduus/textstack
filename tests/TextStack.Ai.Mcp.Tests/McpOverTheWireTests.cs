@@ -57,7 +57,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
     // ── connecting: who the server is, what it offers, who may open a session ──────
 
     [Fact]
-    public async Task Connect_WithAToken_IntroducesTextstackAndListsExactlyTheSeventeenToolsWithHonestHints()
+    public async Task Connect_WithAToken_IntroducesTextstackAndListsExactlyTheEighteenToolsWithHonestHints()
     {
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
@@ -72,12 +72,12 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
 
         // The tool count is asserted here and in three other tests (CLAUDE.md): change all together.
         Assert.Equal(
-            ["add_vocabulary_words", "delete_vocabulary_word", "get_book_progress", "get_my_book", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_vocabulary", "save_checkpoint", "save_insight", "save_my_highlight", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
+            ["add_vocabulary_words", "delete_checkpoint", "delete_vocabulary_word", "get_book_progress", "get_my_book", "get_my_insights", "get_my_reading", "get_shared_chapter", "list_checkpoints", "list_my_book_highlights", "list_my_vocabulary", "save_checkpoint", "save_insight", "save_my_highlight", "search_my_library", "set_book_progress", "share_chapter", "update_vocabulary_word"],
             listed.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
         Assert.Equal(Contracts.Mcp.McpManifestCatalog.Tools.Count, listed.Count);
 
         // Directory review: every tool carries a title and honest hints.
-        string[] writes = ["save_my_highlight", "save_insight", "set_book_progress", "add_vocabulary_words", "update_vocabulary_word", "delete_vocabulary_word", "share_chapter", "save_checkpoint"];
+        string[] writes = ["save_my_highlight", "save_insight", "set_book_progress", "add_vocabulary_words", "update_vocabulary_word", "delete_vocabulary_word", "share_chapter", "save_checkpoint", "delete_checkpoint"];
         var tools = listed.Select(t => t.ProtocolTool).ToList();
         foreach (var tool in tools)
         {
@@ -575,6 +575,23 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         Assert.Equal((StubBackend.CheckpointId, "ch02.xhtml", "Earlier thought"),
             (entry.GetProperty("id").GetString(), entry.GetProperty("chapterKey").GetString(), entry.GetProperty("readerThoughts")[0].GetString()));
         Assert.Equal((false, JsonValueKind.Null), (Json(lastPage).GetProperty("hasMore").GetBoolean(), Json(lastPage).GetProperty("cursor").ValueKind));
+    }
+
+    [Fact]
+    public async Task DeleteCheckpoint_OwnAndUnknownCheckpoint_DeletesOneAndSaysWhereIdsComeFrom()
+    {
+        await using var client = await ConnectSharedAsync();
+        var unknown = Guid.NewGuid().ToString();
+
+        var deleted = await CallAsync(client, "delete_checkpoint", Args(("id", StubBackend.CheckpointId)));
+        var sent = shared.Harness.Stub.Last("v2_delete_checkpoint")!;
+        var missing = await CallAsync(client, "delete_checkpoint", Args(("id", unknown)));
+
+        AssertOk(deleted);
+        Assert.Equal(("DELETE", $"/me/v2/checkpoints/{StubBackend.CheckpointId}"), (sent.Method, sent.PathAndQuery));
+        Assert.Equal((StubBackend.CheckpointId, true), (Json(deleted).GetProperty("id").GetString(), Json(deleted).GetProperty("deleted").GetBoolean()));
+        Assert.True(missing.IsError);
+        Assert.Equal("delete_checkpoint: no such checkpoint; get ids from list_checkpoints", TextOf(missing));
     }
 
     private const string CheckpointBody = """ "topic": "The letter", "language": "en", "chapterKey": "ch02.xhtml", "readerThoughts": ["It reads like a confession.", "Second"], "openQuestions": ["Who wrote it?"] """;
