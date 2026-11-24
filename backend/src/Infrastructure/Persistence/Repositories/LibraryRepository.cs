@@ -84,7 +84,6 @@ public sealed partial class LibraryRepository(AppDataSource dataSource) : ILibra
 
     // The feed alone carries the current file's chapter count: the entries of the reader's TOC (null when none,
     // or not an array), so a shelf needs no /chapters call per book. Appended to the file half.
-    // ponytail: a TOC write does not bump updated_at (as with has_toc), so a cursor pull sees the count on the book's next change.
     private const string SelectChanged = BookWithCurrentFile + """
                , CASE WHEN jsonb_typeof(f.toc) = 'array' THEN NULLIF(jsonb_array_length(f.toc), 0) END AS chapter_count
 

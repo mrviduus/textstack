@@ -41,7 +41,7 @@ public sealed class ChapterReadService(IBookAccess library) : IChapterLookup
         if (file.Toc is null || Toc(file.Toc, "toc") is not null) return null;
         using var written = JsonDocument.Parse(file.Toc);
         return written.RootElement.EnumerateArray()
-            .Select((e, i) => new ChapterHeadingDto(e.GetProperty("key").GetString()!, i, e.GetProperty("title").GetString()!, null,
+            .Select((e, i) => new ChapterHeadingDto(e.GetProperty("key").GetString()!, i, e.GetProperty("title").GetString()!,
                 e.GetProperty("depth").GetInt32(), e.GetProperty("fraction").GetDecimal()))
             .ToList();
     }

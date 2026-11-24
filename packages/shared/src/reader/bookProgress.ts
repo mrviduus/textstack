@@ -114,7 +114,7 @@ export function computeBookProgress(
  * place it cannot resolve (a V2 reader's `epub-cfi`, ADR-031). ponytail: proportional on word
  * counts; a chapter without a count weighs the average.
  */
-export function chapterAtFraction(items: { chapterKey: string; wordCount: number | null }[], fraction: number): string | null {
+export function chapterAtFraction(items: { chapterKey: string; wordCount?: number | null }[], fraction: number): string | null {
   if (items.length === 0) return null
   const known = items.filter((c) => c.wordCount != null)
   const average = known.length ? known.reduce((s, c) => s + c.wordCount!, 0) / known.length : 1

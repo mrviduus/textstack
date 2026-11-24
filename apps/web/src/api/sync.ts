@@ -113,9 +113,6 @@ const { rememberState, toProgress } = bookClient
 
 const isPdf = (b: Book) => b.currentFile?.format === 'pdf' && b.currentFile.hasContent
 
-const totalWords = (toc: FileChapters) =>
-  toc.items.some((c) => c.wordCount != null) ? toc.items.reduce((s, c) => s + (c.wordCount ?? 0), 0) : null
-
 /** The fields the shelf row and the book page share. */
 function baseBook(b: Book) {
   return {
@@ -163,10 +160,10 @@ export async function getBookDetail(id: string): Promise<UserBookDetail> {
   return {
     ...baseBook(b),
     status: shelfFileSummary(b.currentFile).status,
-    totalWordCount: totalWords(toc),
+    totalWordCount: null,
     publishedYear: b.publishedYear,
     // The chapter key is the chapter's id and slug on V2: highlights and vocabulary name it.
-    chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: c.wordCount })),
+    chapters: toc.items.map((c) => ({ id: c.chapterKey, chapterNumber: c.chapterNumber, slug: c.chapterKey, title: c.title, wordCount: null })),
     toc: null,
     updatedAt: b.updatedAt,
     completedAt: state?.completedAt ?? null,

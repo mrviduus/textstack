@@ -54,13 +54,9 @@ public sealed record StorageQuotaDto(long Used, long Limit);
 
 /// <summary>
 /// An entry of a file's table of contents, from the reader's TOC (ADR-033). <see cref="ChapterNumber"/> orders, never displays.
-/// <see cref="Depth"/> and <see cref="Fraction"/> (where the entry starts in the book, 0–1); <see cref="WordCount"/> is always
-/// null (the reader counts no words), kept in the wire shape clients read.
+/// <see cref="Depth"/> and <see cref="Fraction"/> (where the entry starts in the book, 0–1).
 /// </summary>
-public sealed record ChapterHeadingDto(
-    string ChapterKey, int ChapterNumber, string Title, int? WordCount,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Depth = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? Fraction = null);
+public sealed record ChapterHeadingDto(string ChapterKey, int ChapterNumber, string Title, int Depth, decimal Fraction);
 
 /// <summary>A file version's chapters: the reader's TOC, empty until a reader syncs it.</summary>
 public sealed record FileChaptersDto(IReadOnlyList<ChapterHeadingDto> Items);

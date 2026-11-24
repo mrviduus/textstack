@@ -139,7 +139,7 @@ public class LibrarySyncServiceTests(PostgresFixture db)
         Assert.Equal((204, 404), (written.Status, foreign.Status));
         var list = Assert.IsType<FileChaptersDto>((await chapters.ListAsync(book.UserId, book.Id, superseded, Ct)).Body);
         Assert.Equal([("toc-1", 0, "Chapter I", 0, 0m), ("toc-0", 1, "Prologue", 1, 0.25m)],
-            list.Items.Select(c => (c.ChapterKey, c.ChapterNumber, c.Title, c.Depth ?? -1, c.Fraction ?? -1m)));
+            list.Items.Select(c => (c.ChapterKey, c.ChapterNumber, c.Title, c.Depth, c.Fraction)));
         Assert.Null((await library.GetFileAsync(other.UserId, other.Id, other.CurrentFile.Id, Ct))!.Toc);
         Assert.Equal((true, false), ((await library.GetFileAsync(book.UserId, book.Id, superseded, Ct))!.HasToc, (await library.GetAsync(other.UserId, other.Id, Ct))!.CurrentFile!.HasToc));
     }

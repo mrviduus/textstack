@@ -170,14 +170,14 @@ describe('mobile v2', () => {
       'GET /reading/changes': [...feed(state('b1', 1, { currentLocator: cfi })), ...feed(state('b1', 1, { currentLocator: cfi }))],
     })
     expect((await getUserBooks())[0].progressChapterSlug).toBeNull()
-    syncStore.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One', wordCount: 100 }, { chapterKey: 'two', chapterNumber: 2, title: 'Two', wordCount: 100 }] })
+    syncStore.chapters.set('f1', { items: [{ chapterKey: 'one', chapterNumber: 1, title: 'One' }, { chapterKey: 'two', chapterNumber: 2, title: 'Two' }] })
     expect((await getUserBooks())[0].progressChapterSlug).toBe('two')
     expect(calls.some((c) => c.path.includes('/chapters'))).toBe(false)
   })
 
   // #1151: per-book writes made after an await drop when the store was reset meanwhile.
   it('a chapters fetch answered after syncStore.reset caches nothing', async () => {
-    const one = { chapterKey: 'one', chapterNumber: 0, title: 'One', wordCount: null }
+    const one = { chapterKey: 'one', chapterNumber: 0, title: 'One' }
     const toc = await resetMidCall({ 'GET /books/b/files/f-ch/chapters': { status: 200, body: { items: [one] } } },
       () => bookChapters(book('b', 'f-ch') as never))
     expect(toc).toEqual({ items: [] })

@@ -964,11 +964,11 @@ public sealed partial class McpToolCatalog
                 if (book is null) return Error($"set_book_progress failed: no uploaded book '{id}'");
 
                 var chapters = book.Chapters ?? [];
+                if (chapters.Count == 0)
+                    return Error($"set_book_progress failed: '{book.Title}' has no table of contents from the reader yet; {NoTocYet}");
                 var at = IndexOfChapter(chapters.Select(c => c.Slug), chapterSlug);
                 if (at < 0)
                     return Error($"set_book_progress failed: no chapter '{chapterSlug}' in '{book.Title}'; get_my_book lists its chapter slugs");
-                if (chapters[at].Fraction is null)
-                    return Error($"set_book_progress failed: '{book.Title}' has no table of contents from the reader yet; {NoTocYet}");
 
                 var (resumeAt, percent, finished) = AfterFinishing(chapters, at);
                 var resumeSlug = chapters[resumeAt].Slug;
@@ -1014,7 +1014,7 @@ public sealed partial class McpToolCatalog
     {
         for (var next = at + 1; next < chapters.Count; next++)
             if (chapters[next].Depth <= chapters[at].Depth)
-                return (next, (double)chapters[next].Fraction!.Value, false);
+                return (next, (double)chapters[next].Fraction, false);
         return (at, 1, true);
     }
 

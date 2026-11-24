@@ -324,12 +324,11 @@ export interface RecordedReview {
   word: Word
 }
 
-/** An entry of the reader's TOC (ADR-033). `chapterNumber` orders, never displays; `wordCount` is always null. */
+/** An entry of the reader's TOC (ADR-033). `chapterNumber` orders, never displays. */
 export interface ChapterHeading {
   chapterKey: string
   chapterNumber: number
   title: string
-  wordCount: number | null
 }
 
 /** A file's chapters: the reader's TOC, empty until a reader syncs it. */

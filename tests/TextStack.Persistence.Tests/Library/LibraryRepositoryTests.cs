@@ -195,18 +195,23 @@ public class LibraryRepositoryTests(PostgresFixture db)
     }
 
     [Fact]
-    public async Task ListChangedAsync_ReaderSyncsTheToc_FeedCarriesItsEntryCount()
+    public async Task ListChangedAsync_ReaderSyncsTheToc_NextPullFromTheCursorCarriesItsEntryCount()
     {
         var book = await db.NewReaderWithBookAsync();
         var (user, file) = (book.UserId, book.CurrentFile!.Id);
+        const string toc = """[{"key":"a","title":"A","depth":0,"fraction":0},{"key":"b","title":"B","depth":1,"fraction":0.5}]""";
 
-        var fresh = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
-        Assert.Null(fresh.ChapterCount);
+        var fresh = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct));
+        Assert.Equal((false, null), (fresh.CurrentFile!.HasToc, fresh.CurrentFile.ChapterCount));
 
-        Assert.True(await _repo.SetTocAsync(user, book.Id, file,
-            """[{"key":"a","title":"A","depth":0,"fraction":0},{"key":"b","title":"B","depth":1,"fraction":0.5}]""", Ct));
-        var read = Assert.Single(await _repo.ListChangedAsync(user, DateTimeOffset.UnixEpoch, Guid.Empty, 10, Ct)).CurrentFile!;
-        Assert.Equal(2, read.ChapterCount);
+        // A device that already pulled the book sees the TOC on its next pull, without the book changing otherwise.
+        Assert.True(await _repo.SetTocAsync(user, book.Id, file, toc, Ct));
+        var pulled = Assert.Single(await _repo.ListChangedAsync(user, fresh.UpdatedAt, fresh.Id, 10, Ct));
+        Assert.Equal((true, 2, book.Revision), (pulled.CurrentFile!.HasToc, pulled.CurrentFile.ChapterCount, pulled.Revision));
+
+        // The same TOC again is a no-op: written, but nothing for the feed.
+        Assert.True(await _repo.SetTocAsync(user, book.Id, file, toc, Ct));
+        Assert.Empty(await _repo.ListChangedAsync(user, pulled.UpdatedAt, pulled.Id, 10, Ct));
 
         // Only the feed reads the count.
         Assert.Null((await _repo.GetAsync(user, book.Id, Ct))!.CurrentFile!.ChapterCount);

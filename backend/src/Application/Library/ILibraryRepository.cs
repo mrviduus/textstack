@@ -73,7 +73,8 @@ public interface ILibraryRepository
 
     /// <summary>
     /// Overwrites one file version's TOC (ADR-033 P3: derived, unversioned, last writer wins; current or
-    /// superseded, removed book or not). Moves no <c>updated_at</c>: the feed does not carry it. False when not the user's.
+    /// superseded, removed book or not). A change to the current file's TOC bumps <c>updated_at</c> (the feed carries
+    /// <c>hasToc</c> and the chapter count), never <c>revision</c>. False when not the user's.
     /// </summary>
     Task<bool> SetTocAsync(Guid userId, Guid bookId, Guid fileId, string toc, CancellationToken ct);
 
