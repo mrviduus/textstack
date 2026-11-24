@@ -201,15 +201,6 @@
       "list": "List",
       "done": "Done"
     },
-    "deletedOnDevice": {
-      "summary": "{n} {noun} still on this device",
-      "one": "deleted book",
-      "many": "deleted books",
-      "remove": "Remove",
-      "confirmTitle": "Remove from this device?",
-      "confirmBody": "These books were deleted from your account. Once removed, they cannot be downloaded again.",
-      "failed": "Couldn't remove {n} {noun}. Try again."
-    },
     "offline": {
       "title": "You're offline",
       "body": "Your library will be here as soon as you reconnect.",
@@ -223,9 +214,7 @@
   "myBooks": {
     "deleted": {
       "title": "This book was deleted",
-      "body": "It was deleted from your account on the server. The downloaded copy is still on this device.",
-      "bodyNoCopy": "It was deleted from your account on the server.",
-      "removeDownload": "Remove download from this device"
+      "bodyNoCopy": "It was deleted from your account on the server."
     },
     "upload": {
       "formats": "Supported formats: EPUB, MOBI, AZW3, FB2, CBZ, PDF"

@@ -49,7 +49,7 @@ export function DeviceStorageRow() {
       </View>
 
       <Text style={[styles.detail, { color: colors.textSecondary }]}>
-        {`Books ${formatBytes(report.originalsBytes + report.libraryBytes)}`}
+        {`Books ${formatBytes(report.libraryBytes)}`}
         {report.ttsBytes > 0 ? ` · Speech ${formatBytes(report.ttsBytes)}` : ''}
       </Text>
 

@@ -17,8 +17,8 @@ const SOURCE = resolve(__dirname, 'shareOriginal.ts')
 describe('shareOriginalFile', () => {
   const source = readFileSync(SOURCE, 'utf8')
 
-  it('looks on the device before asking for a token', () => {
-    const cacheLookup = source.indexOf('getCachedOriginalUri(')
+  it('shareOriginalFile_DownloadedBook_LooksOnTheDeviceBeforeAskingForAToken', () => {
+    const cacheLookup = source.indexOf('retainedFileUri(')
     const tokenCall = source.indexOf('freshAccessToken(')
     expect(cacheLookup).toBeGreaterThan(-1)
     expect(tokenCall).toBeGreaterThan(cacheLookup)

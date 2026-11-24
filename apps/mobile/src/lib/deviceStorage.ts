@@ -1,17 +1,13 @@
 import { Platform } from 'react-native'
-import { budgetedBytes, chooseEvictions, type CacheEntry } from './originalFilePolicy'
-import { listOriginalSizes, originalsTotalBytes } from './originalFileCache'
-import { listDeletedOnServer } from './deletedOnServer'
+import { chooseEvictions, type CacheEntry } from './originalFilePolicy'
 import { deviceLibraryBytes } from './reader/deviceLibrary'
 
 /**
  * What the app is holding on this device, and how to get some of it back.
  *
- * There was no such accounting at all. Two file caches exist and neither had
- * ever been measured or trimmed: the stored originals (new, budgeted in
- * `originalFileCache.ts`) and the TTS audio cache, which `useTts.ts` fills with
- * one mp3 per distinct (word, language, speed) and **deletes from only on a
- * failed download**. It grows monotonically for the life of the install and
+ * There was no such accounting at all. The TTS audio cache had never been
+ * measured or trimmed: `useTts.ts` fills it with one mp3 per distinct (word,
+ * language, speed) and **deletes from it only on a failed download**. It grows monotonically for the life of the install and
  * shrinks only when Android reclaims the whole cache directory under pressure.
  *
  * The server-side equivalent has been doing this properly for a year —
@@ -32,8 +28,6 @@ export const TTS_CACHE_DIR = 'tts'
 export const TTS_CACHE_BUDGET_BYTES = 200 * 1024 * 1024
 
 export interface DeviceStorageReport {
-  /** Uploaded originals kept for offline reading. */
-  originalsBytes: number
   /** Cached text-to-speech audio. */
   ttsBytes: number
   /** The V2 reader's book files under `<documents>/v2/` (#1070). Its database is not counted, as the legacy one is not. */
@@ -68,13 +62,10 @@ async function directoryBytes(dir: ReturnType<typeof ttsDirectory>): Promise<num
  *  an error state, and 0 reads as "nothing", which is the honest answer when
  *  the directory cannot be read. */
 export async function measureDeviceStorage(): Promise<DeviceStorageReport> {
-  if (Platform.OS === 'web') return { originalsBytes: 0, ttsBytes: 0, libraryBytes: 0, totalBytes: 0 }
-  const [originalsBytes, ttsBytes] = await Promise.all([
-    originalsTotalBytes(),
-    directoryBytes(ttsDirectory()),
-  ])
+  if (Platform.OS === 'web') return { ttsBytes: 0, libraryBytes: 0, totalBytes: 0 }
+  const ttsBytes = await directoryBytes(ttsDirectory())
   const libraryBytes = deviceLibraryBytes()
-  return { originalsBytes, ttsBytes, libraryBytes, totalBytes: originalsBytes + ttsBytes + libraryBytes }
+  return { ttsBytes, libraryBytes, totalBytes: ttsBytes + libraryBytes }
 }
 
 /**
@@ -142,25 +133,9 @@ export async function clearTtsCache(): Promise<number> {
   }
 }
 
-/**
- * Everything the offline library occupies: the V2 reader's retained book files **and** stored originals.
- *
- * `originalsTotalBytes()` alone was the wrong number to budget against. It counts PDF originals, and
- * nothing else — so an automatic sweep measuring against it would fetch every book until a write failed
- * with the device full. The book files are the bulk of that library, so they are on the scale too.
- */
+/** Everything the offline library occupies: the V2 reader's retained book files (what the auto-download budget gates on). */
 export async function offlineStorageBytes(): Promise<number> {
   if (Platform.OS === 'web') return 0
   // Never throws; an unreadable directory under-reports, which only makes the budget more generous.
-  const dbBytes = deviceLibraryBytes()
-  // A server-deleted book's kept original is off the budget (owner 2026-11-11); Profile's
-  // `measureDeviceStorage` still reports the real total.
-  try {
-    const keptDeleted = await listDeletedOnServer()
-    const originals = await listOriginalSizes()
-    return budgetedBytes({ dbBytes, keptRowBytes: 0, originals, keptDeleted })
-  } catch {
-    // Same stance as above: an unreadable part under-reports, never blocks.
-    return (await originalsTotalBytes()) + dbBytes
-  }
+  return deviceLibraryBytes()
 }

@@ -19,11 +19,10 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { shareOriginalFile } from '../../src/lib/shareOriginal'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
-import { hasLocalLeftovers } from '../../src/lib/localLeftovers'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
 import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
-import { markDeletedOnServer, clearDeletedOnServer, isDeletedOnServer, failedLoadView } from '../../src/lib/deletedOnServer'
+import { failedLoadView } from '../../src/lib/deletedOnServer'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
 import { DownloadButton } from '../../src/components/library/DownloadButton'
@@ -118,12 +117,9 @@ export default function UserBookDetailScreen() {
   const reconnects = useReconnectCount()
   const [savedProgress, setSavedProgress] = useState<{ chapterSlug: string | null; percent: number | null; locator: string | null } | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const { onDevice, downloading, download, refreshOnDevice, removeUserBookDownload } = useDownload()
+  const { onDevice, downloading, download, refreshOnDevice } = useDownload()
   // Its file is on the device (the V2 local library): what "Downloaded" means.
   const cached = !!id && onDevice.has(id)
-  /** Any local rows at all, partial download included: what "Remove download"
-   *  on a server-deleted book offers to free (#1174). */
-  const [anyLocalCopy, setAnyLocalCopy] = useState(false)
   /** Rendering the device's copy because the server could not be reached. */
   const [offlineMode, setOfflineMode] = useState(false)
   const [fileBusy, setFileBusy] = useState(false)
@@ -156,39 +152,25 @@ export default function UserBookDetailScreen() {
         if (p) setSavedProgress({ chapterSlug: p.chapterSlug, percent: p.percent, locator: p.locator ?? null })
         setLoadError(null)
         setOfflineMode(false)
-        // The server has it, so an earlier 404 no longer holds (#1174).
-        clearDeletedOnServer([id]).catch(() => {})
       } catch (e) {
         // Confirmed 404: the upload was deleted on the server (#1164). Say so
-        // instead of presenting the cached copy as live. The local bytes stay.
-        // Remembered (#1174), so a later load that fails offline does not bring
-        // the cached copy back as current.
+        // instead of presenting the cached copy as live.
         const notFound = e instanceof ApiError && e.status === 404
         if (notFound) console.warn('User book not found:', e)
         else logLoadError('Failed to load user book:', e)
         if (!live()) return
-        // Marked only when something on this device would otherwise show as live (#1174).
-        const onDevice = notFound && await hasLocalLeftovers(id)
-        if (!live()) return
-        if (onDevice) await markDeletedOnServer(id)
-        const tombstoned = !notFound && await isDeletedOnServer(id)
-        if (!live()) return
         // Unreachable server, but the book may be on the device. Render the
         // downloaded copy rather than the "couldn't load" screen — this is the
         // whole point of having downloaded it.
-        const rehydrated = notFound || tombstoned ? null : await rehydrateFromDevice(id)
+        const rehydrated = notFound ? null : await rehydrateFromDevice(id)
         if (!live()) return
-        const view = failedLoadView({ notFound, tombstoned, hasCopy: rehydrated !== null, offline: isOfflineError(e) })
+        const view = failedLoadView({ notFound, hasCopy: rehydrated !== null, offline: isOfflineError(e) })
         switch (view) {
-          case 'notfound': {
-            const leftovers = notFound ? onDevice : await hasLocalLeftovers(id)
-            if (!live()) return
+          case 'notfound':
             setBook(null)
             setOfflineMode(false)
-            setAnyLocalCopy(leftovers)
             setLoadError('notfound')
             break
-          }
           case 'cached':
             setBook(rehydrated!.book)
             setSavedProgress(rehydrated!.progress)
@@ -266,16 +248,6 @@ export default function UserBookDetailScreen() {
           setDeleting(true)
           try {
             await userBooksApi.deleteUserBook(id)
-            // The copy on THIS device goes with it. Deleting the book server-side
-            // used to leave its downloaded original sitting in the app's
-            // document directory — tens of megabytes of the reader's own private
-            // file, belonging to a book that no longer exists, with nothing left
-            // in the UI that could ever remove it. Found on a device, because
-            // "Remove download" and "Delete book" are different buttons and only
-            // the first one cleaned up.
-            await removeUserBookDownload(id).catch(err => {
-              console.warn('Clearing the local copy of a deleted book failed:', err)
-            })
             // Don't reset `deleting` on success — the screen unmounts on router.back()
             // and any lingering state change would warn. (P2-2)
             router.back()
@@ -369,26 +341,15 @@ export default function UserBookDetailScreen() {
       <>
         <Stack.Screen options={{ headerShown: true, title: '' }} />
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-          {/* 'notfound' keeps Retry: offline it can rest on an earlier 404, which
-              a successful load undoes. */}
+          {/* 'notfound' keeps Retry: a successful load undoes it. */}
           <EmptyState
             icon={loadError === 'notfound' ? 'help-circle-outline' : loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
             title={loadError === 'notfound' ? t('myBooks.deleted.title') : loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
             subtitle={loadError === 'notfound'
-              ? (anyLocalCopy ? t('myBooks.deleted.body') : t('myBooks.deleted.bodyNoCopy'))
+              ? t('myBooks.deleted.bodyNoCopy')
               : loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
             buttonLabel={t('common.retry')}
             onButtonPress={() => { setLoading(true); setAttempt(a => a + 1) }}
-            // The book page is gone, so this is the only way left to free its bytes.
-            secondaryLabel={loadError === 'notfound' && anyLocalCopy ? t('myBooks.deleted.removeDownload') : undefined}
-            onSecondaryPress={() => {
-              removeUserBookDownload(id!)
-                .then(() => { setAnyLocalCopy(false); router.back() })
-                .catch(err => {
-                  console.warn('Removing the local copy of a deleted book failed:', err)
-                  showToast({ message: "Couldn't remove the download. Try again.", variant: 'error', duration: 2600 })
-                })
-            }}
           />
         </View>
       </>

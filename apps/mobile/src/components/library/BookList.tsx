@@ -32,14 +32,13 @@ interface Props {
   onRefresh: () => void
   viewMode: ViewMode
   listHeader: React.ReactNode
-  listFooter?: React.ReactNode
   /** In-progress books, most recent first. [0] gets the filled Continue; the rest are outlines. */
   resumeList: ContinueReadingPick[]
 }
 
 export function BookList({
   entries,
-  refreshing, onRefresh, viewMode, listHeader, listFooter, resumeList,
+  refreshing, onRefresh, viewMode, listHeader, resumeList,
 }: Props) {
   const router = useRouter()
   const { colors } = useTheme()
@@ -95,7 +94,6 @@ export function BookList({
       numColumns={numColumns}
       keyExtractor={entryKey}
       ListHeaderComponent={<View>{listHeader}</View>}
-      ListFooterComponent={listFooter ? <View>{listFooter}</View> : null}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       contentContainerStyle={[viewMode === 'grid' ? styles.gridContent : styles.listContent, { paddingBottom: bottomPad }]}
       columnWrapperStyle={viewMode === 'grid' ? { gap: 10 } : undefined}
