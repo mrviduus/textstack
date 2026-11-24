@@ -70,7 +70,10 @@ export default function LibraryScreen() {
   // Set to -1 on unmount so trailing resolutions are dropped (B-10).
   // Must sit above the early returns below — it is a hook, and `loading` /
   // `!isAuthenticated` both bail out before the render body.
-  const resumeList = useContinueReadingList(NO_CATALOG, NO_CATALOG_PROGRESS, userBooks)
+  /** This device's opens of uploads (the V2 reader marks them): "Recently opened" and Continue (#1385) without a server write. Read on focus. */
+  const [openedAt, setOpenedAt] = useState<Record<string, number>>({})
+  useFocusEffect(useCallback(() => { AsyncStorage.getItem(OPENED_AT_KEY).then((j) => setOpenedAt(parseOpenedAt(j))).catch(() => {}) }, []))
+  const resumeList = useContinueReadingList(NO_CATALOG, NO_CATALOG_PROGRESS, userBooks, openedAt)
 
   const loadGenRef = useRef(0)
   useEffect(() => () => { loadGenRef.current = -1 }, [])
@@ -142,9 +145,6 @@ export default function LibraryScreen() {
   // `loading` dep here loaded twice per open: the flag flipping false re-created
   // this callback while focused, which re-ran it (6 requests instead of 3).
   useFocusEffect(useCallback(() => { loadData() }, [loadData]))
-  /** This device's opens of uploads (the V2 reader marks them): "Recently opened" without a server write. Read on focus. */
-  const [openedAt, setOpenedAt] = useState<Record<string, number>>({})
-  useFocusEffect(useCallback(() => { AsyncStorage.getItem(OPENED_AT_KEY).then((j) => setOpenedAt(parseOpenedAt(j))).catch(() => {}) }, []))
 
   const onRefresh = async () => {
     setRefreshing(true)

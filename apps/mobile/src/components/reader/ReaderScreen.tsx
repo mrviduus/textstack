@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, ttsHasVoice, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
+import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, serverNow, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, ttsHasVoice, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -347,8 +347,11 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   const [toc, setToc] = useState<TocEntry[]>([])
   const tocIndex = useRef<number | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
-  /** `?contents=1` (the book page's Contents): the sheet opens once the linked book is open, if it has contents. */
-  const contentsOnOpen = useRef(false)
+  /**
+   * `?contents=1` (the book page's Contents): the sheet opens once the linked book is open, if it has contents. The file
+   * it is for (#1385): another book's open or a failed download disarms it.
+   */
+  const contentsOnOpen = useRef<string | null>(null)
   /** A new open or a closed book: the previous book's contents go. */
   const clearToc = () => {
     setToc([])
@@ -1070,6 +1073,8 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     // A deep link's highlight belongs to its book: another book's open drops it; this book opened again (the reopen on a
     // page's `ready`, #1312 review) keeps it.
     if (target.file !== opening.current?.file) pendingHighlight.current = null
+    // #1385: so is a deep link's contents.
+    if (target.file !== contentsOnOpen.current) contentsOnOpen.current = null
     // The previous book's speech ends with it (its mark goes with the page's swap).
     listener.stop()
     // A superseded open's staged file is dropped once another book is taken (`takeOpened`): until then the
@@ -1255,13 +1260,13 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
           // Untrusted: only what readToc takes.
           const entries = readToc(m)
           setToc(entries)
-          if (contentsOnOpen.current && entries.length) {
+          if (contentsOnOpen.current === t.open.file && entries.length) {
             setTocOpen(true)
             // Shown: a remount of the route opens at the book, not the sheet again.
             router.setParams({ contents: undefined })
           }
           // #1557: a PDF's contents come after `opened`, as `toc`: the request waits for them.
-          if (m.format !== 'pdf' || entries.length) contentsOnOpen.current = false
+          if (m.format !== 'pdf' || entries.length) contentsOnOpen.current = null
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
         return
@@ -1278,11 +1283,11 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
         tocIndex.current = u.tocIndex
         setProgress.current((p) => p && { ...p, tocIndex: u.tocIndex })
         // The `contents` param for a PDF (#1557): its contents are here now.
-        if (contentsOnOpen.current && u.toc.length) {
+        if (contentsOnOpen.current === opening.current?.file && u.toc.length) {
           setTocOpen(true)
           router.setParams({ contents: undefined })
         }
-        contentsOnOpen.current = false
+        contentsOnOpen.current = null
         return
       }
       case 'described': {
@@ -1484,6 +1489,11 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
    * next pass, still carrying `completedAt` (sent with every write while it stands).
    */
   const openBook = openSha ? books.find((b) => b.local && b.sha256 === openSha) : undefined
+  // #1385: this device opened it (its page said `opened`, whatever path opened it): "Recently opened" and Continue sort
+  // it first, with no server write (a reopen moves no place).
+  useEffect(() => {
+    if (openBook) AsyncStorage.getItem(OPENED_AT_KEY).then((j) => AsyncStorage.setItem(OPENED_AT_KEY, withOpened(j, openBook.id, serverNow()))).catch(() => {})
+  }, [openBook?.id])
   /** The chapter whose run found no assistant connected: its connect sheet shows. */
   const connecting = Object.entries(discussStates).find(([, st]) => st.phase === 'connect')?.[0] ?? null
   const finishBook = () => {
@@ -1598,12 +1608,14 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     linked.current = true
     setLinkFailed(false)
     // Before the download path returns: its open takes it too.
-    contentsOnOpen.current = params.contents === '1'
-    // This device opened it: "Recently opened" sorts it first, with no server write (a reopen moves no place).
-    AsyncStorage.getItem(OPENED_AT_KEY).then((j) => AsyncStorage.setItem(OPENED_AT_KEY, withOpened(j, b.id))).catch(() => {})
+    contentsOnOpen.current = params.contents === '1' ? bookFile(b.sha256) : null
     const highlight = typeof params.highlight === 'string' ? params.highlight : null
     if (!b.local) {
-      download(b, highlight).then((ok) => { if (!ok) setLinkFailed(true) })
+      download(b, highlight).then((ok) => {
+        if (ok) return
+        setLinkFailed(true)
+        if (contentsOnOpen.current === bookFile(b.sha256)) contentsOnOpen.current = null
+      })
       return
     }
     open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })

@@ -1,4 +1,4 @@
-export { initApi, getApiConfig, getStorageUrl, authFetch, authFetchResponse, publicFetch, ApiError, isOfflineError, buildQuery, jsonBody } from './client'
+export { initApi, getApiConfig, getStorageUrl, authFetch, authFetchResponse, publicFetch, ApiError, isOfflineError, buildQuery, jsonBody, serverNow } from './client'
 export type { ApiConfig } from './client'
 
 export * as authApi from './auth'

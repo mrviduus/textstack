@@ -134,9 +134,16 @@ export function parseOpenedAt(json: string | null): Record<string, number> {
   }
 }
 
-/** The stored marks with `bookId` opened at `now`, as JSON to store. ponytail: one entry per book ever opened, never pruned. */
-export function withOpened(json: string | null, bookId: string, now = Date.now()): string {
-  return JSON.stringify({ ...parseOpenedAt(json), [bookId]: now })
+/** Marks kept: the most recent opens; an older one only ever ranked a book read long ago. */
+export const MAX_OPENED_MARKS = 200
+
+/**
+ * The stored marks with `bookId` opened at `now`, as JSON to store: the newest `MAX_OPENED_MARKS`. `now` on the
+ * server's clock (#1385): the marks rank beside the server's `progressUpdatedAt`, so a skewed device clock never misorders.
+ */
+export function withOpened(json: string | null, bookId: string, now: number): string {
+  const marks = Object.entries({ ...parseOpenedAt(json), [bookId]: now })
+  return JSON.stringify(Object.fromEntries(marks.sort((a, b) => b[1] - a[1]).slice(0, MAX_OPENED_MARKS)))
 }
 
 /** True while an upload is still being parsed, or failed. Catalog books are

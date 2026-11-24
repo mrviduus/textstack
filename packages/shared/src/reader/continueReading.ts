@@ -61,6 +61,8 @@ export interface ContinueReadingInputs {
   localCatalogMap: Map<string, LocalProgressLite>
   /** userBookId → UserBookProgressLite */
   localUserBookMap: Map<string, UserBookProgressLite>
+  /** #1385: this device's opens (book id → ms, server clock: `withOpened`); a reopen with no page turn is the latest activity. */
+  openedAt?: Record<string, number>
 }
 
 /**
@@ -85,7 +87,7 @@ export interface ContinueReadingInputs {
  * stable, which matches the previous strictly-greater-than comparison.
  */
 export function rankContinueReading(input: ContinueReadingInputs): ContinueReadingPick[] {
-  const { library, serverProgress, userBooks, localCatalogMap, localUserBookMap } = input
+  const { library, serverProgress, userBooks, localCatalogMap, localUserBookMap, openedAt = {} } = input
 
   // Index server progress by editionId for O(1) lookup.
   const progressMap = new Map<string, ReadingProgressDto>()
@@ -99,7 +101,7 @@ export function rankContinueReading(input: ContinueReadingInputs): ContinueReadi
   }
 
   for (const ub of userBooks) {
-    const pick = pickUserBook(ub, localUserBookMap.get(ub.id))
+    const pick = pickUserBook(ub, localUserBookMap.get(ub.id), openedAt[ub.id])
     if (pick) picks.push(pick)
   }
 
@@ -171,7 +173,7 @@ function pickCatalog(
   }
 }
 
-function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined): ContinueReadingPick | null {
+function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined, openedAtMs = 0): ContinueReadingPick | null {
   if (ub.status.toLowerCase() !== 'ready') return null
   if (!ub.progressPercent || ub.progressPercent >= 1) return null
   if (!ub.progressUpdatedAt) return null
@@ -202,7 +204,7 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
     // the other does not is how #496 turned into #500 turned into #501.
     chapterSlug: localPos ? localPos.chapterSlug : resumeChapterSlug(ub.progressChapterSlug, ub.progressLocator, null),
     locator: localPos ? localPos.locator : ub.progressLocator ?? null,
-    updatedAtMs: ubMs,
+    updatedAtMs: Math.max(ubMs, openedAtMs),
   }
 }
 

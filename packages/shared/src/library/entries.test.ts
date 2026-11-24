@@ -12,6 +12,7 @@ import {
   sortEntries,
   parseOpenedAt,
   withOpened,
+  MAX_OPENED_MARKS,
   FINISHED_THRESHOLD,
   type LibraryEntry,
 } from './entries'
@@ -225,6 +226,15 @@ describe('sortEntries', () => {
     ]
     const marks = parseOpenedAt(withOpened('{"x": "junk"}', 'reopened', Date.parse('2026-08-01T00:00:00Z')))
     expect(sortEntries(entries, 'recent', noProgress, marks).map(entryKey)).toEqual(['upload:reopened', 'upload:newer'])
+  })
+
+  it('opening more books than the marks keep forgets the oldest opens', () => {
+    let json: string | null = null
+    for (let i = 0; i <= MAX_OPENED_MARKS; i++) json = withOpened(json, `b${i}`, 1_000 + i)
+    const marks = parseOpenedAt(json)
+    expect(Object.keys(marks)).toHaveLength(MAX_OPENED_MARKS)
+    expect(marks.b0).toBeUndefined()
+    expect(marks[`b${MAX_OPENED_MARKS}`]).toBe(1_000 + MAX_OPENED_MARKS)
   })
 
   it('falls back to created time for a book never opened', () => {
