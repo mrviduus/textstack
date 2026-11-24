@@ -142,6 +142,9 @@ public static class McpManifestCatalog
             + "its id, its provenance (chapterKey, fileId, sharedChapterId), its sections and when it was saved. When "
             + "hasMore is true, call again with the cursor returned; never claim the whole history was read from one "
             + "page. These are the reader's PAST thoughts: keep them apart from what is said now."),
+        new("delete_checkpoint",
+            "Delete one saved discussion checkpoint by its id, from list_checkpoints (WRITE on their own account — "
+            + "requires authentication; only the user's own). Only when the reader asks to remove it: it cannot be undone."),
         new("get_shared_chapter",
             "Read one chapter the reader shared from the TextStack reader for this discussion (requires authentication; "
             + "only the user's own shares). Pass shareId: the id after \"share\" in the message's id line, or the id "

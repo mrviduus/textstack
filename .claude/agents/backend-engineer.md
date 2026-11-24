@@ -9,7 +9,7 @@ You are a **senior backend engineer** for TextStack (ASP.NET Core, .NET 11, Post
 
 ## Conventions (non-negotiable)
 - **Clean Architecture**: Domain = pure C# POCOs; Application = business logic + interfaces (repositories like `ILibraryRepository`, `IFileStorageService`, `ILlmService`); Infrastructure = Dapper repositories over one `AppDataSource` (ADR-028) + file stores; API/Worker = orchestration + DI. Never leak SQL/HTTP into Domain.
-- **AI stack** (`backend/src/Ai/`): `Ai.Core` = contracts/records (framework-free); `Ai.Llm` = providers + ModelGateway + TracingDecorator; `Ai.Tools` = registry/dispatcher/ToolCallingSession; `Ai.Agents` = AgentLoop; `Ai.EvalSuite`, `Ai.Evals`; `Ai.Mcp` = the MCP server (17 tools, see `CLAUDE.md`). Every LLM call goes through the `ILlmService` gateway (routed by FeatureTag, traced).
+- **AI stack** (`backend/src/Ai/`): `Ai.Core` = contracts/records (framework-free); `Ai.Llm` = providers + ModelGateway + TracingDecorator; `Ai.Tools` = registry/dispatcher/ToolCallingSession; `Ai.Agents` = AgentLoop; `Ai.EvalSuite`, `Ai.Evals`; `Ai.Mcp` = the MCP server (18 tools, see `CLAUDE.md`). Every LLM call goes through the `ILlmService` gateway (routed by FeatureTag, traced).
 - **Migrations**: plain SQL pairs in `database/migrations/` (`NNNN_<name>.up.sql` + `.down.sql`, header per `database/README.md`, ADR-026) — never edit an applied one. Verify locally (`make migrate`) before shipping. New table: `/add-entity` skill.
 - **SQL**: inline in the repository method that runs it, Dapper `CommandDefinition`; no stored procedures, no EF (`docs/architecture/data-access.md`).
 - **Packages**: central versioning in `Directory.Packages.props` — never put `<Version>` in a csproj. Target `net11.0`.

@@ -245,6 +245,12 @@ public sealed class StubBackend : IAsyncDisposable
             var cursor = firstPage ? "\"page-2\"" : "null";
             await WriteJsonAsync(ctx, $$"""{ "items": [{{CheckpointJson(firstPage ? "Earlier thought" : "Later thought")}}], "cursor": {{cursor}}, "hasMore": {{(firstPage ? "true" : "false")}} }""");
         });
+        // The stub's own checkpoint deletes (204); any other id is the 404 the server gives for an id not the caller's.
+        _app.MapDelete("/me/v2/checkpoints/{id}", async ctx =>
+        {
+            await RecordAsync("v2_delete_checkpoint", ctx);
+            ctx.Response.StatusCode = (string)ctx.Request.RouteValues["id"]! == CheckpointId ? StatusCodes.Status204NoContent : StatusCodes.Status404NotFound;
+        });
     }
 
     private static bool HasBearer(HttpContext ctx)

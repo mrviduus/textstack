@@ -23,7 +23,7 @@ flowchart LR
     subgraph home["Home server · ports on 127.0.0.1"]
         nginx["nginx :80 · only ingress<br/>SPA + reader frame"]
         api["api :8080<br/>ASP.NET Core · .NET 11<br/>REST · OAuth 2.1 · hosted jobs"]
-        mcp["mcp-server :8090<br/>17 tools · HTTP bridge"]
+        mcp["mcp-server :8090<br/>18 tools · HTTP bridge"]
         worker["worker<br/>retention · file sweeps"]
         db[("Postgres 16 · textstack_v2<br/>queues = tables")]
         fs[("data/library · data/storage<br/>book files · covers<br/>+ tts/translate/explain caches")]
