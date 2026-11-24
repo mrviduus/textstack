@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { uploadUserBook } from '../../api/userBooks'
 import { emit } from '../../lib/telemetry/myBooks'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
+import { ACCEPT_ATTR, isUploadableFile } from '../../lib/uploadFileValidation'
 import { useTranslation } from '../../hooks/useTranslation'
 import { uploadErrorMessage } from '../../api/sync'
 
@@ -21,6 +22,12 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
 
   const handleUpload = useCallback(async (file: File) => {
     setError(null)
+
+    // A drop (or the picker's "All files") skips `accept`: refuse what the reader cannot open.
+    if (!isUploadableFile(file)) {
+      setError(t('upload.dropzone.invalid'))
+      return
+    }
 
     // Pre-upload sanity check: a PDF picked mid-download is truncated and would
     // not open. Block before spending the upload (server also 400s it).
@@ -91,7 +98,7 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
       >
         <input
           type="file"
-          accept=".epub,.pdf"
+          accept={ACCEPT_ATTR}
           onChange={handleFileSelect}
           disabled={isUploading}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: isUploading ? 'not-allowed' : 'pointer', zIndex: 2 }}

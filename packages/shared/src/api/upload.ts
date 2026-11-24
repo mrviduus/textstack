@@ -33,6 +33,8 @@ export class UploadNotOnServer extends Error {
 
 export type ClientFormat = FileWrite['format']
 const FORMATS: readonly string[] = ['epub', 'pdf', 'mobi', 'azw3', 'fb2', 'cbz']
+/** The extensions a picker offers: the formats the server stores and the reader opens, plus `.fbz` (a zipped FB2). */
+export const UPLOAD_EXTENSIONS: readonly string[] = [...FORMATS, 'fbz']
 
 /** A file's format by its extension (`.fbz` is an FB2); anything else is sent as `epub`, as before. */
 export function formatOfName(name: string): ClientFormat {

@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { uploadUserBook } from '../../api/userBooks'
 import { uploadErrorMessage } from '../../api/sync'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
+import { ACCEPT_ATTR, isUploadableFile } from '../../lib/uploadFileValidation'
 import { POPULAR_LANGUAGES, getLanguage } from '@textstack/shared'
 import { getFlagUrl } from '../../data/flags'
 
@@ -40,6 +41,10 @@ export function HeroSection() {
   const handleUpload = async (file: File) => {
     if (uploading) return
     setUploadError(null)
+    if (!isUploadableFile(file)) {
+      setUploadError(t('upload.dropzone.invalid'))
+      return
+    }
     // Pre-upload sanity check: block a truncated PDF (picked mid-download)
     // before spending the upload. Server also 400s it.
     if (!(await pdfFilePassesSanityCheck(file))) {
@@ -148,7 +153,7 @@ export function HeroSection() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".epub,.pdf"
+              accept={ACCEPT_ATTR}
               style={{ display: 'none' }}
               onChange={handleFileChange}
             />

@@ -12,8 +12,8 @@ describe('isUploadableFile', () => {
   it('accepts .pdf by extension', () => {
     expect(isUploadableFile(file('paper.pdf'))).toBe(true)
   })
-  it('rejects .fb2 (FB2 dropped)', () => {
-    expect(isUploadableFile(file('novel.fb2'))).toBe(false)
+  it('accepts the other formats the reader opens: mobi, azw3, fb2, fbz, cbz', () => {
+    for (const n of ['a.mobi', 'a.azw3', 'a.fb2', 'a.fbz', 'a.cbz']) expect(isUploadableFile(file(n))).toBe(true)
   })
   it('accepts uppercase extensions', () => {
     expect(isUploadableFile(file('BOOK.EPUB'))).toBe(true)
@@ -30,8 +30,9 @@ describe('isUploadableFile', () => {
   it('rejects file with no extension', () => {
     expect(isUploadableFile(file('noext'))).toBe(false)
   })
-  it('accepts when extension missing but mimetype matches', () => {
-    expect(isUploadableFile(file('weirdname', 'application/pdf'))).toBe(true)
+  it('rejects a file without a known extension whatever its mimetype (the format comes from the name)', () => {
+    expect(isUploadableFile(file('weirdname', 'application/pdf'))).toBe(false)
+    expect(isUploadableFile(file('archive.zip', 'application/zip'))).toBe(false)
   })
 })
 

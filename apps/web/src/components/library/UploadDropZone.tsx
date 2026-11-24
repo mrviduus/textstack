@@ -39,8 +39,6 @@ export function UploadDropZone() {
     setQueue([])
   }, [])
 
-  const subtitle = 'EPUB or PDF'
-
   return (
     <>
       <div
@@ -56,7 +54,7 @@ export function UploadDropZone() {
           </svg>
         </div>
         <h2 className="upload-dropzone__title">{t('library.empty.uploads.title')}</h2>
-        <p className="upload-dropzone__subtitle">{subtitle}</p>
+        <p className="upload-dropzone__subtitle">{t('upload.dropzone.subtitle')}</p>
         <button
           type="button"
           className="upload-dropzone__cta"
