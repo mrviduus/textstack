@@ -9,16 +9,13 @@
 // either (pdf.js's can quote a font or object name): only a class.
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
 import { BOOK_ORIGIN } from './bookOrigin.mjs'
-import { PAGE_URL, routeBookOrigin } from './bookOriginRoute.mjs'
+import { PAGE_URL } from './bookOriginRoute.mjs'
+import { chromium, drive, hostPage } from './pageHarness.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const { chromium } = createRequire(resolve(here, '../../../apps/web/package.json'))('@playwright/test')
 const STEP_MS = 90_000
 
 const args = process.argv.slice(2)
@@ -54,11 +51,13 @@ const rows = []
 
 async function gate(file) {
   const r = { size: statSync(file).size, pages: null, openMs: null, firstPageMs: null, inked: null, forward: null, last: null, textLayer: null, textPage: null, selection: null, resume: null, heapMB: null, longTaskMs: null, warnings: {}, errors: [] }
-  const page = await browser.newPage({ viewport: { width: 420, height: 760 } })
-  // The corpus file is the one book served; its path never enters a URL.
-  await routeBookOrigin(page, dir, (u) => (u === `${BOOK_ORIGIN}/v2/books/gate.pdf` ? file : null))
   const messages = []
   const errors = new Set()
+  // The corpus file is the one book served; its path never enters a URL.
+  const page = await hostPage(browser, {
+    viewport: { width: 420, height: 760 }, dir, fileFor: (u) => (u === `${BOOK_ORIGIN}/v2/books/gate.pdf` ? file : null), messages,
+    onMessage: (m) => { if (m.type === 'log' && m.level === 'error') errors.add(classOf(m.msg)) },
+  })
   page.on('pageerror', (e) => errors.add(classOf(`${e.name}: ${e.message}`)))
   page.on('crash', () => errors.add('renderer-crash'))
   // pdf.js's own warnings, by class only (their text can name a font or object of the document).
@@ -69,12 +68,6 @@ async function gate(file) {
       : /JPX|Jpx|OpenJPEG|wasm/i.test(t) ? 'jpx/wasm' : /image|JBIG|CCITT|DCT/i.test(t) ? 'image' : 'other'
     r.warnings[k] = (r.warnings[k] ?? 0) + 1
   })
-  await page.exposeFunction('__toHost', (json) => {
-    const m = JSON.parse(json)
-    messages.push(m)
-    if (m.type === 'log' && m.level === 'error') errors.add(classOf(m.msg))
-  })
-  await page.addInitScript(() => { if (window === top) window.ReactNativeWebView = { postMessage: (json) => window.__toHost(json) } })
   // The longest main-thread task: pdf.js runs its worker on this thread, so a long parse or render is input lag.
   await page.addInitScript(() => {
     if (window !== top) return
@@ -88,31 +81,20 @@ async function gate(file) {
     heap = Math.max(heap, metrics.find((x) => x.name === 'JSHeapUsedSize')?.value ?? 0)
   }).catch(() => {}), 200)
 
-  const waitFor = async (from, match, what) => {
-    for (const t0 = Date.now(); Date.now() - t0 < STEP_MS; await page.waitForTimeout(50)) {
-      const m = messages.slice(from).find(match)
-      if (m) return m
-    }
-    throw new Error(`timed out waiting for ${what}`)
-  }
+  const driver = drive(page, messages, STEP_MS)
+  const { call, waitFor, framesValue } = driver
   /** The section frame on screen: canvas drawn, and whether its text layer has any text. */
-  const shownPage = async () => {
-    for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) {
-      const s = await f.evaluate(() => {
-        if (getComputedStyle(frameElement.parentElement).display === 'none') return null
-        const c = document.querySelector('#canvas canvas')
-        let inked = false
-        if (c?.width && c.height) {
-          // Any pixel that is not near-white, on a grid: the page shows something (not only a blank sheet).
-          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-          for (let i = 0; i < d.length && !inked; i += 4 * 97) inked = d[i + 3] > 0 && (d[i] < 200 || d[i + 1] < 200 || d[i + 2] < 200)
-        }
-        return { drawn: !!c && c.width > 0 && c.height > 0, inked, text: !!document.querySelector('.textLayer')?.textContent.trim() }
-      }).catch(() => null)
-      if (s) return s
+  const shownPage = () => framesValue(() => {
+    if (getComputedStyle(frameElement.parentElement).display === 'none') return null
+    const c = document.querySelector('#canvas canvas')
+    let inked = false
+    if (c?.width && c.height) {
+      // Any pixel that is not near-white, on a grid: the page shows something (not only a blank sheet).
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      for (let i = 0; i < d.length && !inked; i += 4 * 97) inked = d[i + 3] > 0 && (d[i] < 200 || d[i + 1] < 200 || d[i + 2] < 200)
     }
-    return null
-  }
+    return { drawn: !!c && c.width > 0 && c.height > 0, inked, text: !!document.querySelector('.textLayer')?.textContent.trim() }
+  })
   const drawn = async (ms = STEP_MS) => {
     for (const t0 = Date.now(); Date.now() - t0 < ms; await page.waitForTimeout(100)) if ((await shownPage())?.drawn) return true
     return false
@@ -125,18 +107,10 @@ async function gate(file) {
     }
     return poll()
   }
-  const call = (js) => page.evaluate(js)
-  const url = `${BOOK_ORIGIN}/v2/books/gate.pdf`
   const open = async (stored) => {
-    const from = messages.length
-    const t0 = Date.now()
-    await call(`window.__fol.openUrl(${JSON.stringify(url)}, 'gate')`)
-    const m = await waitFor(from, (x) => x.type === 'opened' || x.type === 'open-failed', 'opened')
+    const m = await driver.open(`${BOOK_ORIGIN}/v2/books/gate.pdf`, 'gate', stored)
     if (m.type === 'open-failed') throw new Error(`open-failed: ${m.error}`)
-    const openMs = Date.now() - t0
-    await call(`window.__fol.restore(${JSON.stringify(stored)})`)
-    const restored = await waitFor(from, (x) => x.type === 'restored', 'restored')
-    return { m, from, t0, openMs, restored }
+    return m
   }
 
   try {
@@ -144,7 +118,7 @@ async function gate(file) {
     await waitFor(0, (x) => x.type === 'ready', 'ready')
     // Open → page 1 drawn.
     const o = await open(null)
-    r.pages = o.m.sections
+    r.pages = o.sections
     r.openMs = o.openMs
     r.firstPageMs = (await drawn()) ? Date.now() - o.t0 : null
     // The canvas is replaced as the render finishes: give it a moment before reading pixels.
