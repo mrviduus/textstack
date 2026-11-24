@@ -45,7 +45,7 @@ describe('readerPageHtml', () => {
   it('csp_MatchesAdr029Decision4_AndPrecedesTheOnlyScript', () => {
     const html = readerPageHtml(NONCE)
     expect(html.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1]).toBe(
-      `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'`,
+      `default-src 'none'; script-src 'nonce-${NONCE}' 'wasm-unsafe-eval'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; worker-src blob:; connect-src blob: data:; form-action 'none'; base-uri 'none'`,
     )
     expect(html.indexOf('Content-Security-Policy')).toBeLessThan(html.indexOf('<script'))
     expect(html.match(/<script/g)).toHaveLength(1)
@@ -55,7 +55,7 @@ describe('readerPageHtml', () => {
     const web = readerPageHtml(NONCE)
     const android = readerAndroidPageHtml(NONCE)
     expect(android.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1]).toBe(
-      `default-src 'none'; script-src 'nonce-${NONCE}'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'`,
+      `default-src 'none'; script-src 'nonce-${NONCE}' 'wasm-unsafe-eval'; style-src blob: 'unsafe-inline'; img-src blob: data:; font-src blob: data:; media-src blob: data:; frame-src blob:; worker-src blob:; connect-src blob: data: https://appassets.androidplatform.net/v2/books/ https://appassets.androidplatform.net/v2/staging/; form-action 'none'; base-uri 'none'`,
     )
     expect(android.replace(/connect-src [^;]*/, '')).toBe(web.replace(/connect-src [^;]*/, ''))
     expect(() => readerAndroidPageHtml('__READER_NONCE__')).toThrow()
@@ -154,10 +154,10 @@ describe('readerPageHtml', () => {
     // (nothing in them can end or bend the script element), and are run by page.mjs on first use
     // through a script element carrying the page's own nonce: no CSP directive is widened.
     const str = '"[^"\\\\]*(?:\\\\.[^"\\\\]*)*"'
-    const carried = html.match(new RegExp(`<script nonce="[^"]+">(var __TS_FORMATS = \\{mobi: ${str},\\nfb2: ${str},\\ncbz: ${str},\\npdf: ${str},\\npdfcmaps: ${str},\\ndyslexic: ${str},\\nserif: ${str},\\nsans: ${str}\\};\\n)`))?.[1]
+    const carried = html.match(new RegExp(`<script nonce="[^"]+">(var __TS_FORMATS = \\{mobi: ${str},\\nfb2: ${str},\\ncbz: ${str},\\npdf: ${str},\\npdfworker: ${str},\\npdfwasm: ${str},\\npdfcmaps: ${str},\\ndyslexic: ${str},\\nserif: ${str},\\nsans: ${str}\\};\\n)`))?.[1]
     expect(carried).toBeDefined()
     expect(carried).not.toContain('<')
-    for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfcmaps', 'dyslexic', 'serif', 'sans']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
+    for (const k of ['mobi', 'fb2', 'cbz', 'pdf', 'pdfwasm', 'pdfcmaps', 'dyslexic', 'serif', 'sans']) expect(carried).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?=`))
     expect(html).toMatch(/var NONCE = \(\w+ = document\.currentScript\) == null \? void 0 : \w+\.nonce;/)
     expect(html).toMatch(/(\w+)\.nonce = NONCE;\s*\1\.textContent = /)
     // A comic book has no text: its frames say the reader acted (#1313), post mouse moves, forward keys and post `tap` (where it landed,
@@ -175,23 +175,38 @@ describe('readerPageHtml', () => {
     expect(page).not.toContain('pdfjsWorker')
   })
 
-  it('pdfReader_WorkerOnTheMainThread_NoEvalNoWasmNothingFetched', () => {
-    // #1128 S5: the PDF reader evaluates pdf.js's worker first (it sets globalThis.pdfjsWorker, so pdf.js
-    // never asks for a Worker or import()s a URL), then the fork's pdf.js, which forces isEvalSupported off.
+  it('pdfReader_WorkerInAWorkerOfItsOwn_NoEvalWasmCarriedNothingFetched', () => {
+    // #1204: pdf.js's worker is a chunk of its own (`pdfworker`), run in a Worker from a blob: URL of its text, never on
+    // the page; the PDF reader carries pdf.js's main side and the fork's pdf.js, which forces isEvalSupported off.
     const html = readerPageHtml(NONCE)
-    const pdf: string = JSON.parse(html.match(/\npdf: ("(?:[^"\\]|\\.)*")/)![1])
-    expect(pdf).toMatch(/globalThis\.pdfjsWorker\s*=/)
-    expect(pdf.search(/globalThis\.pdfjsWorker\s*=/)).toBeLessThan(pdf.indexOf('isEvalSupported:!1'))
-    // S5 review: the runtime polyfills run before pdf.js; the page refuses a PDF where structuredClone is missing.
-    expect(pdf.indexOf('getOrInsertComputed')).toBeLessThan(pdf.search(/globalThis\.pdfjsWorker\s*=/))
-    expect(html).toContain('if (typeof structuredClone !== "function") throw new Error("this WebView is too old to read PDF");')
+    const chunk = (k: string): string => JSON.parse(html.match(new RegExp(`\\n${k}: ("(?:[^"\\\\]|\\\\.)*")`))![1])
+    const pdf = chunk('pdf')
+    const worker = chunk('pdfworker')
+    expect(pdf).not.toMatch(/globalThis\.pdfjsWorker\s*=/)
+    expect(worker).toMatch(/globalThis\.pdfjsWorker\s*=/)
+    expect(pdf).toContain('isEvalSupported:!1')
+    // S5 review: the runtime polyfills run before pdf.js, on the page and in the worker; the page refuses a PDF without
+    // structuredClone or Worker.
+    expect(pdf.indexOf('getOrInsertComputed')).toBeLessThan(pdf.indexOf('isEvalSupported:!1'))
+    expect(worker.indexOf('getOrInsertComputed')).toBeLessThan(worker.search(/globalThis\.pdfjsWorker\s*=/))
+    expect(html).toContain('if (typeof structuredClone !== "function" || typeof Worker !== "function") throw new Error("this WebView is too old to read PDF");')
+    expect(html).toMatch(/new Worker\(pdfWorkerUrl \?\?= URL\.createObjectURL\(new Blob\(\[\(\((\w+) = self\.__TS_FORMATS\) == null \? void 0 : \1\.pdfworker\) \?\? ""\], \{ type: "text\/javascript" \}\)\)\)/)
     // A book still on screen after its init answers `opened`; `restored` names its book.
     expect(html).toMatch(/await view\.init\(\{ showTextStart: true \}\);\s*if \(mine !== viewSeq\) return false;/)
     expect(html).toContain('post({ type: "restored", key: book.sha256, ...result })')
-    expect(pdf).toContain('Copyright 2024 Mozilla Foundation')
-    expect(pdf).toContain('Licensed under the Apache License, Version 2.0')
-    // The page: no wasm, cMaps from its own chunk, no URL for anything.
-    expect(html).toMatch(/makePDF\(new File\(\[bytes\], name\), \{ css(?:: \w+)?, params: \{ useWasm: false, CMapReaderFactory: PdfCMaps \} \}\)/)
+    for (const js of [pdf, worker]) {
+      expect(js).toContain('Copyright 2024 Mozilla Foundation')
+      expect(js).toContain('Licensed under the Apache License, Version 2.0')
+    }
+    // The page: the bytes themselves (#1557), its worker, the open's deadline; wasm and cMaps from its own chunks, no URL for anything.
+    expect(html).toMatch(/makePDF\(bytes, \{ css(?:: \w+)?, worker: pdfWorker, deadline, params: \{ useWasm: true, CMapReaderFactory: PdfCMaps, WasmFactory: PdfWasm \} \}\)/)
+    expect(html).toContain('const deadline = testPdfDeadline || openedDeadlineMs(bytes.length);')
+    // #1204: OpenJPEG's wasm, base64, with its two notices; asked for by name, nothing else.
+    const wasm = chunk('pdfwasm')
+    expect(wasm).toMatch(/"openjpeg\.wasm": ?"AGFzbQ[A-Za-z0-9+/=]+"/)
+    expect(wasm).toContain('Universite catholique de Louvain')
+    expect(wasm).toContain('Mozilla Foundation')
+    expect(html).toContain('if (filename !== "openjpeg.wasm") throw')
     expect(html).toMatch(/book\d*\.rendition\.spread = "none";/)
     const cmaps = JSON.parse(html.match(/\npdfcmaps: ("(?:[^"\\]|\\.)*")/)![1]) as string
     expect(cmaps).toContain('Adobe Systems Incorporated')

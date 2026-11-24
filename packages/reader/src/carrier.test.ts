@@ -48,9 +48,11 @@ describe('the committed page, as an HTML parser reads it', () => {
     const carrier = scripts[0].slice(0, scripts[0].indexOf('};\n') + 3)
     const ctx: { __TS_FORMATS?: Record<string, string> } = {}
     runInNewContext(carrier, ctx)
-    expect(Object.keys(ctx.__TS_FORMATS ?? {}).sort()).toEqual(['cbz', 'dyslexic', 'fb2', 'mobi', 'pdf', 'pdfcmaps', 'sans', 'serif'])
+    expect(Object.keys(ctx.__TS_FORMATS ?? {}).sort()).toEqual(['cbz', 'dyslexic', 'fb2', 'mobi', 'pdf', 'pdfcmaps', 'pdfwasm', 'pdfworker', 'sans', 'serif'])
     for (const [k, js] of Object.entries(ctx.__TS_FORMATS!)) {
       expect(() => new Script(js), k).not.toThrow()
+      // pdf.js's worker (#1204) runs in a Worker of its own, never on the page: it registers nothing there.
+      if (k === 'pdfworker') { expect(js).not.toContain('__tsFormats'); continue }
       // pdf is minified (build.mjs MINIFIED): no spaces around its `=`.
       expect(js, k).toMatch(new RegExp(`window\\.__tsFormats\\.${k} ?= ?\\{`))
     }

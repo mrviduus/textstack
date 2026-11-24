@@ -17,7 +17,9 @@ import { ANDROID_CSP, CSP, NONCE, formatsJs, html } from './carrier.mjs'
 // Pinned by SHA on our fork (ADR-032): upstream 78914aef (2026-05-01, no releases, unstable API)
 // + our patches as real commits. MIT © John Factotum. A bump is a PR that re-runs every ADR-029
 // Decision 6 check.
-const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
+// FOLIATE_REPO (env): another clone to fetch the pin from (a local path), for a fork commit not pushed yet. The SHA
+// still decides what is built, wherever it is fetched from.
+const FOLIATE_REPO = process.env.FOLIATE_REPO || 'https://github.com/mrviduus/foliate-js.git'
 // Branch textstack-pin: 78914aef + d73682a (paginator render-while-loading) + #1182: typed KF8 resource
 // blobs, KF8 sections through transformTarget, view relocate carries `reason`, PDF null outline
 // destination (upstream ce10f08), PDF nothing at import time (pdf.js is stubbed out of the page),
@@ -27,8 +29,11 @@ const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
 // drawing stop at it), each hit carries the contents entry it is under, a section that throws is skipped and
 // reported, and a hit over several text nodes keeps its middle; #1203 (branch pdf-adapter-fixes-1203): the PDF link
 // service has getAnchorUrl and the other IPDFLinkService no-ops, render() replaces its layers, the last four pages kept
-// (older ones revoked and cleaned up), a failed load destroys its own task, TOCProgress resolves entries in parallel.
-const FOLIATE_SHA = '772af5050b11a7f3d767412242e6613463da9efd'
+// (older ones revoked and cleaned up), a failed load destroys its own task, TOCProgress resolves entries in parallel;
+// #1204/#1557 (branch pdf-worker-wasm-1204): the bytes handed to pdf.js once (`data`), a host-made worker per document
+// terminated past a deadline, OpenJPEG's wasm vendored, the outline after open (`getTOC`, `view.updateTOC`), a page's
+// blob: URL kept until its frame has loaded it.
+const FOLIATE_SHA = 'b97691ee76614b08fa28a6d4c095fc8a6251cc74'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // the retired reader engine's 64 KB budget.
@@ -150,7 +155,10 @@ const FOLIATE_SHA = '772af5050b11a7f3d767412242e6613463da9efd'
 // +407: saved words' translations get room above them (line height +0.4 while some show) and show their first meaning.
 // +162: the serif faces come in two families (TextStack, then Literata).
 // +167: a newer open aborts the previous download and stops its hash (#1177).
-const BUDGET = 348389
+// +2,230 (#1204, #1557): pdf.js in a Worker per PDF (`pdfWorker`, a blob: URL of the carried `pdfworker`), its deadline (the
+// open's, deadlines.mjs; `__testPdfDeadline`), OpenJPEG's wasm from its chunk (`PdfWasm`), the bytes handed over once, the outline
+// after `opened` (`toc`, `view.updateTOC`; describe asks for it).
+const BUDGET = 350619
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -159,11 +167,14 @@ const BUDGET = 348389
 // + its two layer stylesheets, the one MINIFIED reader (keepNames; 1614390 without them, 3180221 unminified): the measured
 // size. pdf +1825 (#1128 S5 review): pdfPolyfills.mjs first (runtime APIs an older WebView lacks).
 // pdf +936 (#1203 pin bump): the link service's no-ops, layers replaced per render, pages released, a failed load's task destroyed.
+// pdf −1,231,045 / pdfworker +1,234,278 (#1204): pdf.worker.mjs moved to a chunk of its own, run in a Worker (polyfills first
+// there too, MINIFIED); the fork's worker, deadline, bytes-once, lazy outline and per-load page URLs. Together +3,233.
+// pdfwasm (#1204) = OpenJPEG's openjpeg.wasm (250009 bytes) as base64 + its two BSD notices, run only for a JPEG 2000 image.
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
 // dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
 // notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
 // serif: Literata's four full Latin/Cyrillic faces and OFL notice, plus the Latin-only brand font's four (English in TextStack).
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1709481, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478436, pdfworker: 1234278, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'readerPage.generated.ts')
@@ -211,6 +222,7 @@ const stubFormats = {
 // Imports resolve against this directory (the stdin entry has no file of its own).
 const fontChunk = (name, dir, files, notice = '') => `${notice}window.__tsFormats.${name} = ${JSON.stringify(Object.fromEntries(
   Object.entries(files).map(([face, file]) => [face, readFileSync(resolve(here, dir, file)).toString('base64')])))};`
+const pdfjsNotice = readFileSync(resolve(vendor, 'vendor/pdfjs/pdf.mjs'), 'utf8').match(/^\/\*\*([\s\S]*?)\*\//)[1].replace(/\*\//g, '* /')
 const FORMATS = {
   mobi: `import { MOBI } from './.vendor/foliate-js/mobi.js'
 import { unzlibSync } from './.vendor/foliate-js/vendor/fflate.js'
@@ -219,16 +231,26 @@ window.__tsFormats.mobi = { MOBI, unzlibSync }`,
 window.__tsFormats.fb2 = { makeFB2 }`,
   cbz: `import { makeComicBook } from './.vendor/foliate-js/comic-book.js'
 window.__tsFormats.cbz = { makeComicBook }`,
-  // pdfPolyfills.mjs first (runtime APIs an older WebView lacks; esbuild lowers syntax only). Then the worker: it sets globalThis.pdfjsWorker, so pdf.js runs it on the main thread ("fake worker")
-  // and never asks for a Worker or import()s a URL (no worker-src, no blob: script in the CSP). pdf.js's
+  // pdfPolyfills.mjs first (runtime APIs an older WebView lacks; esbuild lowers syntax only). pdf.js's worker is NOT
+  // here: it is `pdfworker`, run in a real Worker (#1204). pdf.js's
   // Apache-2.0 notice opens with @licstart, which esbuild does not keep when minifying: restated as a /*! */.
-  pdf: `/*! ${readFileSync(resolve(vendor, 'vendor/pdfjs/pdf.mjs'), 'utf8').match(/^\/\*\*([\s\S]*?)\*\//)[1].replace(/\*\//g, '* /')} */
+  pdf: `/*! ${pdfjsNotice} */
 import './pdfPolyfills.mjs'
-import './.vendor/foliate-js/vendor/pdfjs/pdf.worker.mjs'
 import { makePDF } from './.vendor/foliate-js/pdf.js'
 import text from './.vendor/foliate-js/vendor/pdfjs/text_layer_builder.css'
 import annotation from './.vendor/foliate-js/vendor/pdfjs/annotation_layer_builder.css'
 window.__tsFormats.pdf = { makePDF, css: text + '\\n' + annotation }`,
+  // pdf.js's worker (#1204), the polyfills first (a Worker has its own globals): never run on the page. page.mjs makes
+  // a blob: URL of this text and a Worker of it per PDF (CSP worker-src blob:), terminated with the book or past its
+  // deadline, so a parse that never ends (a decompression bomb) leaves the page answering.
+  pdfworker: `/*! ${pdfjsNotice} */
+import './pdfPolyfills.mjs'
+import './.vendor/foliate-js/vendor/pdfjs/pdf.worker.mjs'`,
+  // OpenJPEG's wasm (#1204; BSD-2-Clause, pdf.js's build of it BSD-2-Clause), base64: run only when a PDF has a JPEG 2000
+  // image. pdf.js's worker asks the page for it (PdfWasm in page.mjs, its WasmFactory): no URL, nothing fetched;
+  // compiling it is the CSP's 'wasm-unsafe-eval'.
+  pdfwasm: `/*! ${['LICENSE_PDFJS_OPENJPEG', 'LICENSE_OPENJPEG'].map((f) => readFileSync(resolve(vendor, 'vendor/pdfjs/wasm', f), 'utf8')).join('\n').replace(/\*\//g, '* /')} */
+window.__tsFormats.pdfwasm = { 'openjpeg.wasm': ${JSON.stringify(readFileSync(resolve(vendor, 'vendor/pdfjs/wasm/openjpeg.wasm')).toString('base64'))} }`,
   // pdf.js's predefined cMaps (Adobe, BSD-3-Clause), base64 by name: nothing outside the file is fetched,
   // so they ride in the page like a reader, run only when a PDF's font names one (CJK text).
   pdfcmaps: `/*! ${readFileSync(resolve(vendor, 'vendor/pdfjs/cmaps/LICENSE'), 'utf8').replace(/\*\//g, '* /')} */
@@ -247,8 +269,8 @@ window.__tsFormats.dyslexic = { woff2: ${JSON.stringify(readFileSync(resolve(her
     regular: 'SourceSans3-Regular.woff2', bold: 'SourceSans3-Bold.woff2', italic: 'SourceSans3-It.woff2', boldItalic: 'SourceSans3-BoldIt.woff2',
   }, `/*! ${readFileSync(resolve(here, '../../../apps/mobile/assets/fonts/SourceSans3-LICENSE.md'), 'utf8').replace(/\*\//g, '* /')} */\n`),
 }
-/** Minified (the only one): pdf.js is half its size so. keepNames: pdf.js reads `constructor.name`. */
-const MINIFIED = new Set(['pdf'])
+/** Minified (the only ones): pdf.js is half its size so. keepNames: pdf.js reads `constructor.name`. */
+const MINIFIED = new Set(['pdf', 'pdfworker'])
 
 const bundle = async (entry, minify = false) => (await build({
   ...(entry.endsWith('.mjs') ? { entryPoints: [resolve(here, entry)] } : { stdin: { contents: entry, resolveDir: here, sourcefile: 'format.mjs' } }),

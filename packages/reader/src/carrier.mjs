@@ -12,8 +12,11 @@
 import { BOOK_CONNECT_SRC } from './bookOrigin.mjs'
 
 export const NONCE = '__READER_NONCE__'
-const policy = (connect) => [`default-src 'none'`, `script-src 'nonce-${NONCE}'`, `style-src blob: 'unsafe-inline'`, `img-src blob: data:`,
-  `font-src blob: data:`, `media-src blob: data:`, `frame-src blob:`, `connect-src ${connect}`, `form-action 'none'`, `base-uri 'none'`].join('; ')
+// PDF (#1204): pdf.js parses in a Worker made from a blob: URL of the page's own carried text (worker-src blob:), so the
+// page can terminate a parse that never ends; 'wasm-unsafe-eval' compiles the wasm the page carries (OpenJPEG, JPEG 2000
+// images) and runs no script: a book's script still needs the nonce, and a book's document cannot make a Worker without one.
+const policy = (connect) => [`default-src 'none'`, `script-src 'nonce-${NONCE}' 'wasm-unsafe-eval'`, `style-src blob: 'unsafe-inline'`, `img-src blob: data:`,
+  `font-src blob: data:`, `media-src blob: data:`, `frame-src blob:`, `worker-src blob:`, `connect-src ${connect}`, `form-action 'none'`, `base-uri 'none'`].join('; ')
 /** The page's CSP as built (the web frame serves it): no host but its own blob:/data:. */
 export const CSP = policy('blob: data:')
 /** The Android page's CSP: the same plus the interceptor's two directories. */

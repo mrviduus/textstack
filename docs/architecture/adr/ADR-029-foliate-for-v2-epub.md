@@ -107,6 +107,12 @@ origin to book content, so it cannot inherit the production reader's safety argu
    not answer (veto in the PR): the two directories rather than one book at a time; staged picks served from
    `staging/` (no second copy); the main-frame bridge fixed in the same patch. Design and evidence:
    [v2-reader-android-bytes.md](../../internal/v2/v2-reader-android-bytes.md).
+   **Amended 2026-11-24 (owner decision, #1204; both hosts): `worker-src blob:` and `'wasm-unsafe-eval'`.** The CSP is now
+   `… script-src 'nonce-…' 'wasm-unsafe-eval'; … frame-src blob:; worker-src blob:; connect-src …` (the rest unchanged). pdf.js
+   parses in a Worker made from a `blob:` URL of the page's own carried text, so a PDF that never finishes parsing (a
+   decompression bomb) is terminated at a deadline instead of freezing the page; `'wasm-unsafe-eval'` compiles OpenJPEG's
+   wasm, carried in the page, so JPEG 2000 images draw. Nothing else is widened for them: a book's script still needs the
+   nonce, and without a script no Worker is made and no wasm compiled. [packages/reader/README.md](../../../packages/reader/README.md), Formats (PDF) and Sandbox.
 5. **Dev-only first.** One `__DEV__`-gated route (R2: `app/dev/epub-v2.tsx`); the release bundle
    contains no reader page and no route to it. No production route until every gate below passes.
 6. **Gates to leave dev-only** (prototype brief + plan R3/R4), recorded as an evidence table in

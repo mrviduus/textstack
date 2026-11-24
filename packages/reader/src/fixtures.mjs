@@ -301,9 +301,11 @@ const prose = (n) => Array.from({ length: n }, (_, i) => `Paragraph ${i + 1}. ${
  * raw action dictionary) runs on open in a reader that runs actions. `cjk`: one Type0 font on the
  * predefined UniGB-UCS2-H cMap, not embedded (without pdf.js's cMaps its text neither draws nor extracts).
  * `locked`: a Standard security handler whose /U no empty password matches (opening needs a password).
- * Offsets computed, so the xref is real.
+ * `jpx`: a JPEG 2000 codestream drawn at 200×200 pt on each page (pdf.js decodes it with OpenJPEG's wasm).
+ * `metadata`: the catalog's XMP stream, `{ filter, bytes }` raw (pdf.js decodes it whole while opening).
+ * Offsets computed, so the xref is real; binary stream bytes ride as latin1.
  */
-export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk = false, locked = false, lines = null, outline = [] } = {}) {
+export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk = false, locked = false, lines = null, outline = [], jpx = null, metadata = null } = {}) {
   const objs = []
   const add = (body) => objs.push(body) && objs.length
   const catalog = add('')
@@ -315,14 +317,19 @@ export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk
     add(`<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor ${objs.length + 2} 0 R >>`)
     add('<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>')
   }
+  const stream = (dict, data) => {
+    const bytes = typeof data === 'string' ? Buffer.from(data, 'latin1') : Buffer.from(data)
+    return `<<${dict ? ` ${dict}` : ''} /Length ${bytes.length} >>\nstream\n${bytes.toString('latin1')}\nendstream`
+  }
+  const image = jpx && add(stream('/Type /XObject /Subtype /Image /Width 16 /Height 16 /Filter /JPXDecode', jpx))
   const kids = []
   for (let n = 1; n <= pages; n++) {
     // CJK: U+4E2D U+6587 as UCS-2 code units.
     const text = cjk ? 'BT /F1 28 Tf 40 760 Td <4E2D6587> Tj ET'
       : `BT /F1 14 Tf 40 760 Td ${(lines ?? [`Page ${n}. Sphinx of black quartz, judge my vow.`, 'The quick brown fox jumps over the lazy dog.']).map((l) => `(${l}) Tj`).join(' 0 -20 Td ')} ET`
-    const content = add(`<< /Length ${text.length} >>\nstream\n${text}\nendstream`)
+    const content = add(stream('', image ? `${text} q 200 0 0 200 40 300 cm /Im1 Do Q` : text))
     const annotRefs = (annots[n - 1] ?? []).map((a) => `${add(a)} 0 R`)
-    kids.push(add(`<< /Type /Page /Parent ${tree} 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${content} 0 R${annotRefs.length ? ` /Annots [${annotRefs.join(' ')}]` : ''} >>`))
+    kids.push(add(`<< /Type /Page /Parent ${tree} 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 ${font} 0 R >>${image ? ` /XObject << /Im1 ${image} 0 R >>` : ''} >> /Contents ${content} 0 R${annotRefs.length ? ` /Annots [${annotRefs.join(' ')}]` : ''} >>`))
   }
   objs[tree - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${pages} >>`
   // `outline`: [{ title, dest: (pageRefs) => raw destination }], one flat level.
@@ -335,7 +342,8 @@ export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk
     })
     objs[outlines - 1] = `<< /Type /Outlines /First ${ids[0]} 0 R /Last ${ids.at(-1)} 0 R /Count ${ids.length} >>`
   }
-  objs[catalog - 1] = `<< /Type /Catalog /Pages ${tree} 0 R${outlines ? ` /Outlines ${outlines} 0 R` : ''}${openAction ? ` /OpenAction ${openAction}` : ''} >>`
+  const xmp = metadata && add(stream(`/Type /Metadata /Subtype /XML /Filter ${metadata.filter}`, metadata.bytes))
+  objs[catalog - 1] = `<< /Type /Catalog /Pages ${tree} 0 R${outlines ? ` /Outlines ${outlines} 0 R` : ''}${openAction ? ` /OpenAction ${openAction}` : ''}${xmp ? ` /Metadata ${xmp} 0 R` : ''} >>`
   const info = add(`<< /Title (${title}) /Author (Test Author) >>`)
   const encrypt = locked ? add(`<< /Filter /Standard /V 1 /R 2 /O <${'5a'.repeat(32)}> /U <${'a5'.repeat(32)}> /P -4 >>`) : 0
   let out = '%PDF-1.4\n'
@@ -346,6 +354,20 @@ export function pdf(pages, { title = 'TS PDF', annots = [], openAction = '', cjk
   out += `trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R /Info ${info} 0 R${locks} >>\nstartxref\n${xref}\n%%EOF\n`
   return Buffer.from(out, 'latin1')
 }
+
+/**
+ * #1204: a JPEG 2000 image, 16×16 of rgb(200, 30, 40), lossless. Made once with OpenJPEG 2.5.3 (its comment marker says
+ * so): `opj_compress -i red.ppm -o red.j2k -n 1`, red.ppm a 16×16 P6 of that colour. 229 bytes; no encoder is needed to
+ * run the checks.
+ */
+export const RED_J2K = Buffer.from('/0//UQAvAAAAAAAQAAAAEAAAAAAAAAAAAAAAEAAAABAAAAAAAAAAAAADBwEBBwEBBwEB/1IADAAAAAEBAAQEAAH/XAAEQED/ZAAlAAFDcmVhdGVkIGJ5IE9wZW5KUEVHIHZlcnNpb24gMi41LjP/kAAKAAAAAAB1AAH/k8fUPhFQVK/fR7K3AAAAAGEhL9rEQAAAwkJftpkAAAGEhL/B8g8UAFyv9JywPAAAAABhIS/fgYAUAFyv9JywPAAAAABhIS/axEAAAMJCX7aZAAABhIS/bTIAAAMJCX7aZAAABhIS/3//2Q==', 'base64')
+
+/**
+ * #1204: a decompression bomb, 2 KB on disk: its XMP metadata is 1 GiB of zeros deflated twice
+ * (`/Filter [/FlateDecode /FlateDecode]`), which pdf.js inflates whole while opening (3.5 s on a desktop Chromium).
+ * Making it takes 1.5 s and 1 GiB of memory.
+ */
+export const bombPdf = () => pdf(1, { title: 'TS BOMB', metadata: { filter: '[/FlateDecode /FlateDecode]', bytes: deflateSync(deflateSync(Buffer.alloc(1 << 30), { level: 9 }), { level: 9 }) } })
 
 /**
  * The hostile PDF (#1128 S5): every way a PDF asks a reader to run script or leave the file. A JavaScript
@@ -391,7 +413,7 @@ export function writeImageEpub(out, name = 'TS IMAGE') {
   })
 }
 
-/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsdup.epub (one href twice in its spine), tsimage.epub (#1265: images), tsfixedimg.epub (a pre-paginated image page), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tsoutline.pdf, tscjk.pdf, tslocked.pdf. */
+/** tscover.epub (a non-linear cover first), tsfixed.epub (pre-paginated text), tsdup.epub (one href twice in its spine), tsimage.epub (#1265: images), tsfixedimg.epub (a pre-paginated image page), tsthree.cbz, tsformat.epub, tsrtl.epub (spine rtl, English text), tshe.epub (Hebrew, no spine direction), tsformat.mobi, tsdrm.mobi (the same with the DRM flag), tsformat.fb2, tsformat.fbz, tsformat.cbz (2 pages), tsformat.pdf, tsoutline.pdf, tscjk.pdf, tslocked.pdf, tsjpx.pdf (#1204: a JPEG 2000 image). */
 export function writeFormatFixtures(dir) {
   // Its details and cover for `describe` (#1426): two authors, an HTML description, a cover image outside the spine.
   epub(resolve(dir, 'tsformat.epub'), 'TS EPUB', {
@@ -577,9 +599,10 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
   writeFileSync(resolve(dir, 'tslocked.pdf'), pdf(1, { title: 'TS LOCKED', locked: true }))
+  writeFileSync(resolve(dir, 'tsjpx.pdf'), pdf(1, { title: 'TS JPX', jpx: RED_J2K }))
   // ADR-033 P3: an outline to pages 1 and 4 of 5.
   writeFileSync(resolve(dir, 'tsoutline.pdf'), pdf(5, { title: 'TS OUTLINE', outline: [{ title: 'Start', dest: (p) => `[${p[0]} /Fit]` }, { title: 'Four', dest: (p) => `[${p[3]} /Fit]` }] }))
-  return ['tssearch.epub', 'tssvgspine.epub', 'tsformat.pdf', 'tsoutline.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  return ['tssearch.epub', 'tssvgspine.epub', 'tsformat.pdf', 'tsoutline.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tsjpx.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
