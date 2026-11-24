@@ -1,15 +1,12 @@
 namespace Api.Extensions;
 
 /// <summary>
-/// What of a reader's upload folder <c>/storage</c> may serve: only its cover.
+/// What <c>/storage</c> must never serve: anything under <c>users/</c>, <c>library/</c> or <c>uploads/</c>.
 ///
-/// <para>An upload lives at <c>users/{id[..2]}/{userId}/books/{userBookId}/</c> under the static root:
-/// <c>original.&lt;ext&gt;</c>, <c>cover.&lt;ext&gt;</c> and <c>assets/{id}.&lt;ext&gt;</c>. Both ids leave
-/// the API, so anyone holding them could download a private book (#913, ADR-024). The original's door
-/// is <c>GET /me/books/{id}/file</c> and the images' is <c>GET /me/books/{id}/assets/{assetId}</c>, both
-/// owner-checked. The cover stays public until it has an authenticated route: clients load it as an
-/// <c>&lt;img&gt;</c>, which cannot send a bearer. An allowlist, so a file added to the folder later is
-/// private by default. nginx carries the same rule (<c>infra/nginx/textstack.conf</c>).</para>
+/// <para><c>users/{id[..2]}/{userId}/books/{userBookId}/</c> held the old per-upload files (original,
+/// cover, assets). Nothing writes there any more: covers go through the owner-checked
+/// <c>GET /me/v2/books/{id}/cover</c> (#956), and files left on disk must not be public (#913, ADR-024).
+/// <c>/storage</c> keeps serving avatars. nginx carries the same rule (<c>infra/nginx/textstack.conf</c>).</para>
 ///
 /// <para>Compared by non-empty segments, so <c>/storage//users/…</c> cannot slip past: Kestrel does
 /// not merge slashes, and the static file provider would still find the file.</para>
@@ -39,21 +36,11 @@ public static class UserStoragePolicy
         var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length < 2 || !segments[0].Equals("storage", StringComparison.OrdinalIgnoreCase))
             return false;
-        // The V2 library's names (library/ books and covers, uploads/ parts; owner-only through /me/v2).
-        // #1110 moved the bytes to their own volume; the rule stays so a misplaced file (a symlink, a
-        // bind, a write after startup) is never public. Same rule: nginx.
-        if (segments[1].Equals("library", StringComparison.OrdinalIgnoreCase) || segments[1].Equals("uploads", StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (!segments[1].Equals("users", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        // users/{shard}/{userId}/books/{bookId}/cover.<ext> — nothing else under users/.
-        // Same shape nginx allows: cover.<letters/digits>, nothing like "cover.jpg.bak".
-        var isCover = segments.Length == 7
-            && segments[4].Equals("books", StringComparison.OrdinalIgnoreCase)
-            && segments[6].StartsWith("cover.", StringComparison.OrdinalIgnoreCase)
-            && segments[6].Length > "cover.".Length
-            && segments[6]["cover.".Length..].All(char.IsAsciiLetterOrDigit);
-        return !isCover;
+        // users/: the old upload folders (#956). library/, uploads/: the V2 library's names, owner-only
+        // through /me/v2; #1110 moved those bytes to their own volume, the rule stays so a misplaced file
+        // (a symlink, a bind, a write after startup) is never public. Same rule: nginx.
+        return segments[1].Equals("users", StringComparison.OrdinalIgnoreCase)
+            || segments[1].Equals("library", StringComparison.OrdinalIgnoreCase)
+            || segments[1].Equals("uploads", StringComparison.OrdinalIgnoreCase);
     }
 }
