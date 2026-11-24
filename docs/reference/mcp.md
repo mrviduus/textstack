@@ -25,7 +25,7 @@ The server exposes 18 tools, every one on your own account: sign in first (see
 | `list_my_vocabulary` | List your saved vocabulary words, optionally filtered by SRS stage or search. Each carries its `id`. | User |
 | `add_vocabulary_words` | Save up to 20 words (word, language, a native-language translation or — same language — a short definition, optional sentence and `bookTitle`), with a required `operationId` so a retry never saves twice. One result line per word (added / already saved / refused); a refused word does not stop the batch, a 429 does. | User |
 | `update_vocabulary_word` | Change a saved word's translation and/or definition by `id`. | User |
-| `delete_vocabulary_word` | Delete one saved word by `id`; an id with no word answers `deleted: false, found: false`, not an error. No bulk delete. | User |
+| `delete_vocabulary_word` | Delete one saved word by `id`; deleting it again answers `deleted: true` (a tombstone); an id with no word answers `deleted: false, found: false`, not an error. No bulk delete. | User |
 | `get_my_reading` | The shelf, with no arguments: what you are reading now, what you finished recently, every book. The only tool that needs no id — it is how the assistant finds one. | User |
 | `get_book_progress` | How far you have got in one book, and the chapter you stopped in. | User |
 | `set_book_progress` | Record that you finished a chapter — including one you read or listened to somewhere else. | User |

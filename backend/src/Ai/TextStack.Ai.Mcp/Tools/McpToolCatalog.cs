@@ -1036,7 +1036,7 @@ public sealed partial class McpToolCatalog
             id,
             deleted = false,
             found = false,
-            message = $"no {what} with this id: already deleted, or never existed; ids come from {listTool}",
+            message = $"no {what} with this id; ids come from {listTool}",
         }));
 
     private static CallToolResult Error(string message) => new()

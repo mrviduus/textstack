@@ -72,8 +72,8 @@ public static class McpManifestCatalog
         new("delete_vocabulary_word",
             "Remove one word from the user's vocabulary (WRITE on their own account — requires "
             + "authentication). Pass the word's id from list_my_vocabulary. Only when the user clearly asked for it; if "
-            + "you are inferring that they want it gone, confirm first. One word per call — there is no bulk delete. An id with no word answers deleted: false, "
-            + "found: false (already deleted, or never existed), not an error, so retrying is safe."),
+            + "you are inferring that they want it gone, confirm first. One word per call — there is no bulk delete. A word deleted before answers deleted: true again "
+            + "(it stays as a tombstone); an id with no word answers deleted: false, found: false, not an error."),
         new("save_my_highlight",
             "Highlight a passage in one of the books the user UPLOADED (WRITE on their own account — "
             + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "

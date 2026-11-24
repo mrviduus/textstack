@@ -601,7 +601,7 @@ public class McpOverTheWireTests(McpOverTheWireTests.SharedBridge shared) : IAsy
         AssertOk(notFound);
         var gone = Json(notFound);
         Assert.Equal((missing, false, false), (gone.GetProperty("id").GetString(), gone.GetProperty("deleted").GetBoolean(), gone.GetProperty("found").GetBoolean()));
-        Assert.Equal($"no {what} with this id: already deleted, or never existed; ids come from {listTool}", gone.GetProperty("message").GetString());
+        Assert.Equal($"no {what} with this id; ids come from {listTool}", gone.GetProperty("message").GetString());
         Assert.True(bare404.IsError);
         Assert.Equal($"{tool} refused: upstream answered 404", TextOf(bare404));
         Assert.True(failed.IsError);
