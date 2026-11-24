@@ -81,6 +81,8 @@ let testBreakBookmarks = false
 /** #1271: the reader's saved words (wordMarks.mjs `readMarkWords`), as the host last sent them, and whether their glosses show. */
 let vocab = []
 let showGlosses = false
+/** Whether lines are spaced for glosses: shown, and some saved word has one. */
+let glossRoom = false
 /** #1272: the CFI of the range the host is speaking (`speaking`), drawn underlined until it says it ended; or null. */
 let spokenCfi = null
 /** This file's identity and its entry. No save until the stored one is restored. */
@@ -203,7 +205,7 @@ function applyLook() {
       applyFontFamily(doc, look)
     }
   }
-  view?.renderer?.setStyles?.(settingsCss(look, fontUrl()))
+  view?.renderer?.setStyles?.(settingsCss(look, fontUrl(), glossRoom))
 }
 
 const SVG = 'http://www.w3.org/2000/svg'
@@ -1910,6 +1912,8 @@ window.__fol = {
     const glosses = !!show !== showGlosses
     vocab = readMarkWords(words)
     showGlosses = !!show
+    const room = showGlosses && vocab.some((w) => w.gloss)
+    if (room !== glossRoom) { glossRoom = room; applyLook() }
     if (!view || !annotatable) return
     for (const c of view.renderer?.getContents?.() ?? []) markSection(c, glosses)
   },

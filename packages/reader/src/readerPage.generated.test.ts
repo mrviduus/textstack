@@ -138,11 +138,11 @@ describe('readerPageHtml', () => {
     // The renderer exists only after view.open() resolved.
     // The renderer exists only after view.open() resolved; the fixed-layout one (CBZ) has no setStyles (#1128).
     // One place sets them (#1260, applyLook): at the open, on `settings`, and once before any book.
-    expect(html).toMatch(/view\.renderer\) == null \? void 0 : (\w+)\.setStyles\) == null \? void 0 : \w+\.call\(\1, settingsCss\(look, fontUrl\(\)\)\)/)
+    expect(html).toMatch(/view\.renderer\) == null \? void 0 : (\w+)\.setStyles\) == null \? void 0 : \w+\.call\(\1, settingsCss\(look, fontUrl\(\), glossRoom\)\)/)
     expect(html).toMatch(/view\.renderer\.setAttribute\("margin", "24px"\);\s*applyLook\(\);\s*await view\.init\(/)
     // #1260: whatever the host sends is read through settings.mjs before it is the page's, and before any CSS is built from it.
     expect(html).toMatch(/settings: \((\w+)\) => \{\s*look = readSettings\(\1\);\s*applyLook\(\);\s*return look;\s*\}/)
-    expect(html).toMatch(/function settingsCss\((\w+), fontUrl2?\) \{\s*const (\w+) = readSettings\(\1\);/)
+    expect(html).toMatch(/function settingsCss\((\w+), fontUrl2?, glosses = false\) \{\s*const (\w+) = readSettings\(\1\);/)
     // A position is reported restored only if the renderer really shows that section, a fraction's too (#1187).
     expect(html).toContain('result.position = arrivedAt(index) ? "restored" : "navigation failed, stayed at start"')
     expect(html).toContain('return resolved && arrivedAt(resolved.index) ? resolved.index : -1')

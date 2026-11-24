@@ -90,6 +90,14 @@ describe('v2 reader settings stylesheet', () => {
     expect(css).not.toContain('body *')
   })
 
+  it('settingsCss_TranslationsShown_LinesMakeRoomForTheLabelAboveEachWord', () => {
+    // A reader with inline translations on gets room for the label over the line height they chose, which still counts.
+    expect(settingsCss(DEFAULTS, null, true)).toContain('line-height: 2 !important')
+    expect(settingsCss({ lineHeight: 1.65 }, null, true)).toContain('line-height: 2.05 !important')
+    expect(settingsCss({ lineHeight: 1.8 }, null, true)).toContain('line-height: 2.2 !important')
+    expect(settingsCss(DEFAULTS, null, false)).toContain('line-height: 1.6 !important')
+  })
+
   it.each([['left'], ['center'], ['justify']])('settingsCss_%s_LeavesAlignmentToSectionOverrides', (textAlign) => {
     expect(settingsCss({ textAlign })).not.toContain('text-align')
   })
