@@ -27,6 +27,16 @@ export function readToc(m) {
 }
 
 /**
+ * #1557: a host's read of `toc` (a PDF's outline, sent after `opened`): `{ toc, tocIndex }` for the book on screen (`key`,
+ * the sha256 of the book the host took; case ignored), else null. `toc` as `readToc` takes it; `tocIndex` (the place's
+ * entry) a whole number, else null.
+ */
+export function readTocMessage(m, key) {
+  if (typeof key !== 'string' || typeof m?.key !== 'string' || m.key.toLowerCase() !== key.toLowerCase()) return null
+  return { toc: readToc(m), tocIndex: Number.isInteger(m.tocIndex) && m.tocIndex >= 0 ? m.tocIndex : null }
+}
+
+/**
  * The entries around the reader's place, of `readToc`'s list: `current` is the entry `tocIndex` names (null: none,
  * or that entry was dropped), `prev` and `next` the nearest entries before and after that place that lead somewhere
  * else: one with the current entry's href ("Part I" and "Chapter 1" on one file) is the same place, and going

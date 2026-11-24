@@ -66,7 +66,7 @@ import { colorOf, noteChange, readHighlightList, readHighlightRemoved, readHighl
 import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
 import { readBookmarkList, type BookmarkList } from '../../../../../packages/reader/src/bookmarks.mjs'
-import { readToc, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import { readToc, readTocMessage, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
 import { BookmarksSheet, HighlightsSheet, SectionNav, TocSheet } from './ReaderToc'
 import { SearchSheet } from './SearchSheet'
 import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type Search } from '../../../../../packages/reader/src/search.mjs'
@@ -1251,6 +1251,15 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
           contentsOnOpen.current = false
           takeOpened(t)
         } else console.log(`[v2] opened ${String(m.book?.name)} kept aside or dropped; current is ${opening.current?.file}`)
+        return
+      }
+      case 'toc': {
+        // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
+        const u = readTocMessage(m, openShaRef.current)
+        if (!u) return
+        setToc(u.toc)
+        tocIndex.current = u.tocIndex
+        setProgress.current((p) => p && { ...p, tocIndex: u.tocIndex })
         return
       }
       case 'described': {

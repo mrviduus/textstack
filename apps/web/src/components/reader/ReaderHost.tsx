@@ -22,7 +22,7 @@ import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type Chapte
 import { ChapterDiscuss, type DiscussState } from './ChapterDiscuss'
 import { syncStore } from '../../api/sync'
 import { listOAuthGrants } from '../../api/oauth'
-import { readToc, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
+import { readToc, readTocMessage, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../../packages/reader/src/sessionTracker.mjs'
 import { flushPendingSessions, queueReadingSession } from '../../hooks/useReadingSession'
 import { useAuth } from '../../context/AuthContext'
@@ -705,6 +705,14 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           if (!take) return
           deadlines.answered()
           takeOpened(take)
+          return
+        }
+        case 'toc': {
+          // #1557: a PDF's outline, after its `opened`. Untrusted: only what readTocMessage takes, for the book on screen.
+          const u = readTocMessage(m, openedSha.current)
+          if (!u) return
+          setToc(u.toc)
+          setTocIndex(u.tocIndex)
           return
         }
         case 'open-failed': {
