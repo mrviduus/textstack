@@ -268,10 +268,8 @@ public sealed partial class McpToolCatalog
             return InvokeAsync("delete_checkpoint", ct, async () =>
             {
                 var result = await api.DeleteCheckpointAsync(id, ct);
-                // A 404 is "already gone": a retry after a lost 204 reports the delete it made, not an error.
-                if (result.Status is not System.Net.HttpStatusCode.NotFound && Refused("delete_checkpoint", result) is { } refused)
-                    return refused;
-                return Text(JsonSerializer.Serialize(new { id, deleted = true }));
+                if (result.Code == "not_found") return NotFoundOnDelete(id, "checkpoint", "list_checkpoints");
+                return Refused("delete_checkpoint", result) ?? Text(JsonSerializer.Serialize(new { id, deleted = true }));
             });
         },
     };

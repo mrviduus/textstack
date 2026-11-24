@@ -557,8 +557,7 @@ public sealed partial class McpToolCatalog
             return InvokeAsync("delete_vocabulary_word", ct, async () =>
             {
                 var result = await api.DeleteWordAsync(id, ct);
-                if (result.Status is System.Net.HttpStatusCode.NotFound)
-                    return Error("delete_vocabulary_word: no such word; get ids from list_my_vocabulary");
+                if (result.Code == "not_found") return NotFoundOnDelete(id, "word", "list_my_vocabulary");
                 return Refused("delete_vocabulary_word", result) ?? Text(JsonSerializer.Serialize(new { id, deleted = true }));
             });
         },
@@ -1026,6 +1025,19 @@ public sealed partial class McpToolCatalog
     {
         Content = [new TextContentBlock { Text = text }],
     };
+
+    /// <summary>
+    /// A delete tool's answer to the endpoint's own <c>not_found</c> (a body code, not a bare 404): not an error, so a
+    /// retry after a lost response does not fail, but not "deleted" either, so a guessed id is never reported removed.
+    /// </summary>
+    private static CallToolResult NotFoundOnDelete(Guid id, string what, string listTool) =>
+        Text(JsonSerializer.Serialize(new
+        {
+            id,
+            deleted = false,
+            found = false,
+            message = $"no {what} with this id: already deleted, or never existed; ids come from {listTool}",
+        }));
 
     private static CallToolResult Error(string message) => new()
     {

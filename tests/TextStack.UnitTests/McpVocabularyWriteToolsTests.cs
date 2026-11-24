@@ -188,14 +188,12 @@ public class McpVocabularyWriteToolsTests
         Assert.Contains("нове", TextOf(result));
     }
 
-    [Theory]
-    [InlineData("update_vocabulary_word", """{ "id": "11111111-1111-1111-1111-111111111111", "definition": "d" }""")]
-    [InlineData("delete_vocabulary_word", """{ "id": "11111111-1111-1111-1111-111111111111" }""")]
-    public async Task VocabularyWordEdit_404_SaysWhereIdsComeFrom(string tool, string args)
+    [Fact]
+    public async Task UpdateVocabularyWord_404_SaysWhereIdsComeFrom()
     {
         var (catalog, _) = Build(Json("""{ "error": "not_found", "message": "The server has no such item." }""", HttpStatusCode.NotFound));
 
-        var result = await catalog.CallAsync(tool, Args(args), CancellationToken.None);
+        var result = await catalog.CallAsync("update_vocabulary_word", Args("""{ "id": "11111111-1111-1111-1111-111111111111", "definition": "d" }"""), CancellationToken.None);
 
         Assert.True(result.IsError);
         Assert.Contains("list_my_vocabulary", TextOf(result));

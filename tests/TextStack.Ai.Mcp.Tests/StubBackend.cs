@@ -208,6 +208,9 @@ public sealed class StubBackend : IAsyncDisposable
         _app.MapDelete("/me/v2/vocabulary/words/{id}", async ctx =>
         {
             await RecordAsync("v2_delete_word", ctx);
+            var id = (string)ctx.Request.RouteValues["id"]!;
+            if (await DeleteFailureAsync(ctx, id)) return;
+            if (id == MissingV2WordId) { await WriteJsonAsync(ctx, SyncError("not_found", "The server has no such item."), StatusCodes.Status404NotFound); return; }
             await WriteJsonAsync(ctx, CardJson((string)ctx.Request.RouteValues["id"]!, revision: 4, deletedAt: "\"2026-11-01T10:00:00.000Z\""));
         });
 
@@ -245,18 +248,25 @@ public sealed class StubBackend : IAsyncDisposable
             var cursor = firstPage ? "\"page-2\"" : "null";
             await WriteJsonAsync(ctx, $$"""{ "items": [{{CheckpointJson(firstPage ? "Earlier thought" : "Later thought")}}], "cursor": {{cursor}}, "hasMore": {{(firstPage ? "true" : "false")}} }""");
         });
-        // The stub's own checkpoint deletes (204), the failing one is a 500; any other id is the 404 the server gives
-        // for an id not the caller's (or already deleted).
+        // The stub's own checkpoint deletes (204); any other id is the endpoint's not_found (already deleted, or not
+        // the caller's), except the failure ids every delete route shares.
         _app.MapDelete("/me/v2/checkpoints/{id}", async ctx =>
         {
             await RecordAsync("v2_delete_checkpoint", ctx);
-            ctx.Response.StatusCode = (string)ctx.Request.RouteValues["id"]! switch
-            {
-                CheckpointId => StatusCodes.Status204NoContent,
-                FailingCheckpointId => StatusCodes.Status500InternalServerError,
-                _ => StatusCodes.Status404NotFound,
-            };
+            var id = (string)ctx.Request.RouteValues["id"]!;
+            if (id == CheckpointId) ctx.Response.StatusCode = StatusCodes.Status204NoContent;
+            else if (!await DeleteFailureAsync(ctx, id)) await WriteJsonAsync(ctx, SyncError("not_found", "The server has no such item."), StatusCodes.Status404NotFound);
         });
+    }
+
+    // What a delete route can answer besides its own outcomes: a bare 404 (a missing route, a wrong base URL) or a 500.
+    private static async Task<bool> DeleteFailureAsync(HttpContext ctx, string id)
+    {
+        if (id == BareNotFoundId) ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        else if (id == FailingDeleteId) ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        else return false;
+        await ctx.Response.CompleteAsync();
+        return true;
     }
 
     private static bool HasBearer(HttpContext ctx)
@@ -301,7 +311,8 @@ public sealed class StubBackend : IAsyncDisposable
     // V2 discussion scenarios: the ids the stub answers with, and a share id it refuses as another chapter's.
     public const string SharedChapterId = "5ba7ed00-0000-4000-8000-000000000001";
     public const string CheckpointId = "c4ec4000-0000-4000-8000-000000000001";
-    public const string FailingCheckpointId = "c4ec4000-0000-4000-8000-000000000500";
+    public const string BareNotFoundId = "de1e7e00-0000-4000-8000-000000000404";
+    public const string FailingDeleteId = "de1e7e00-0000-4000-8000-000000000500";
     public const string MismatchedShareId = "5ba7ed00-0000-4000-8000-000000000422";
     public const string LongShareId = "5ba7ed00-0000-4000-8000-0000000000a9";
     /// <summary>Three parts at the bridge's 40,000: 39,999 of 'a', a surrogate pair across the first cut, 'b' to 80,001, then "end".</summary>

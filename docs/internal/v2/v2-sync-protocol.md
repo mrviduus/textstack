@@ -317,7 +317,7 @@ accepted: two devices answering the same card offline both advance it.
 | `notes` | json array | yes | may be `[]`; the selected annotations as the client renders them |
 | `language` | string | no | |
 
-**Checkpoint** (`discussion_checkpoints`, append-only)
+**Checkpoint** (`discussion_checkpoints`; a row is never updated, only deleted on the reader's request)
 
 | Field | Type | Req | Rule |
 |---|---|---|---|
