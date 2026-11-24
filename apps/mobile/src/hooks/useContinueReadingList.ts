@@ -23,6 +23,7 @@ export function useContinueReadingList(
   library: UserLibraryItem[],
   progressMap: Record<string, ReadingProgressDto>,
   userBooks: UserBookDto[],
+  openedAt: Record<string, number>,
 ): ContinueReadingPick[] {
   // Memoised because the Library screen re-renders every 5s while an upload is
   // processing, and a fresh array identity would re-render every row and the
@@ -34,7 +35,8 @@ export function useContinueReadingList(
       userBooks,
       localCatalogMap: NO_LOCAL_CATALOG,
       localUserBookMap: NO_LOCAL_USER_BOOKS,
+      openedAt,
     }),
-    [library, progressMap, userBooks],
+    [library, progressMap, userBooks, openedAt],
   )
 }

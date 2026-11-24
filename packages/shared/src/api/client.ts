@@ -40,12 +40,24 @@ export function getApiConfig(): ApiConfig {
  * "offline" from "backend crashed" or "parse error".
  */
 async function safeFetch(input: string, init?: RequestInit): Promise<Response> {
+  let res: Response
   try {
-    return await fetch(input, init)
+    res = await fetch(input, init)
   } catch (e: unknown) {
     throw networkError(e)
   }
+  const at = Date.parse(res.headers?.get('date') ?? '')
+  if (Number.isFinite(at)) clockOffsetMs = at - Date.now()
+  return res
 }
+
+let clockOffsetMs = 0
+/**
+ * Now on the server's clock, as this device last measured it (#1385): the latest response's `Date` header (second
+ * resolution, latency ignored), so a device stamp compares with the server's `updatedAt`s. The device clock until a
+ * response is read, or where the header is hidden (a cross-origin dev server: not CORS-safelisted).
+ */
+export const serverNow = () => Date.now() + clockOffsetMs
 
 /** `e` as "the request never reached the server" (`isNetworkError`). */
 export function networkError(e: unknown): ApiError {
