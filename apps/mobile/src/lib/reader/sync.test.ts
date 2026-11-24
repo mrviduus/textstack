@@ -5,7 +5,7 @@
  * `whileCurrent` epoch guard), plus the pull merges, id re-keying, opt-in file sync and download.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { initApi, UploadNotOnServer, type OpenReader } from '@textstack/shared'
+import { ApiError, initApi, UploadNotOnServer, type OpenReader } from '@textstack/shared'
 import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
@@ -1820,16 +1820,15 @@ describe('V2 local library sync (R6)', () => {
       expect(back.highlights[0].color).toBe('green')
     })
 
-    // #1198: an outage is told by the status failing too; an entry's own 503 is counted (outbox failure stories below).
-    it('failures_OutageOrOfflineOrDroppedPass_NotCounted', async () => {
+    it('failures_OfflineOr503OrDroppedPass_NotCounted', async () => {
       const { lib, bookId } = await synced()
       await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
-      fakeApi({ 'GET /status': [{ status: 503 }], [`PUT /books/${bookId}/reading-state`]: [{ status: 503 }] })
+      fakeApi({ [`PUT /books/${bookId}/reading-state`]: [{ status: 503 }] })
       expect(await syncLibrary(lib, host())).toBe('failed')
       fakeApi({})
       const online = globalThis.fetch
       vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
-        if (init.method === 'PUT' || url.endsWith('/status')) throw new TypeError('Network request failed')
+        if (init.method === 'PUT') throw new TypeError('Network request failed')
         return online(url, init)
       }))
       expect(await syncLibrary(lib, host())).toBe('failed')
@@ -2190,9 +2189,9 @@ describe('V2 local library sync (R6)', () => {
       expect(await counts(lib)).toEqual([`state:${MAX_FAILURES}`])
     })
 
-    // #1198: one entry answering 503 while the server's status answers is that entry's own failure: counted, and the
-    // entries after it still go. The status failing too is an outage: the pass ends, nothing counted.
-    it('qa_oneEntryAnswers503_StatusAnswers_CountedAndTheRestPushed_StatusDown_PassEndsNothingCounted', async () => {
+    // Decision (fix round): any 503 is the server down, `v2_unavailable` or not: the pass ends, nothing is
+    // counted (counting would park a whole library in an outage); later entries wait for the next pass.
+    it('qa_oneEntryAnswers503WithoutV2Unavailable_PassEndsNothingCounted', async () => {
       const { lib, bookId } = await seeded()
       const SHA2 = 'cd'.repeat(32)
       await lib.addOpened({ sha256: SHA2, size: 10, title: 'U', author: '', originalName: 'u.epub', format: 'epub' }, newId)
@@ -2203,22 +2202,21 @@ describe('V2 local library sync (R6)', () => {
         [`PUT /books/${bookId}`]: [{ status: 503, body: { code: 'internal', message: 'upstream' } }],
         [`PUT /books/${other}`]: [ok(serverBook(other, (await lib.book(other))!.file_id!, {}, { sha256: SHA2 }), 201)],
       })
-      expect(await syncLibrary(lib, host())).toBe('failed')
-      expect(writes(calls).slice(0, 2)).toEqual([`PUT /books/${bookId}`, `PUT /books/${other}`])
-      expect(await counts(lib)).toEqual(['book:1', 'state:0', 'annotation:0'])
-
-      const down = fakeApi({ 'GET /status': [{ status: 503 }], [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }], [`PUT /books/${bookId}`]: [{ status: 503 }] })
-      expect(await syncLibrary(lib, host())).toBe('failed')
-      expect(writes(down)).toEqual([`PUT /books/${bookId}`])
-      expect(await counts(lib)).toEqual(['book:1', 'state:0', 'annotation:0'])
+      for (let i = 0; i < 3; i++) expect(await syncLibrary(lib, host())).toBe('failed')
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`, `PUT /books/${bookId}`, `PUT /books/${bookId}`])
+      expect(await counts(lib)).toEqual(['book:0', 'book:0', 'state:0', 'annotation:0'])
     })
 
     // #1198: a failing upload is counted per book: at the limit it waits for the next session or "Try again", and
-    // the outbox is untouched (the book's writes still go).
-    it('qa_fileSyncUploadFailing_CountedPerBook_StopsAtTheLimit_NextSessionOrTryAgainRetries', async () => {
+    // the outbox is untouched (the book's writes still go). An outage (a 503) ends the pass and is never counted.
+    it('qa_fileSyncUploadFailing_CountedPerBook_StopsAtTheLimit_OutageNotCounted_NextSessionOrTryAgainRetries', async () => {
       const { lib, bookId } = await synced()
       await lib.setFileSync(true)
       fakeApi({})
+      const outage = vi.fn(async () => { throw new ApiError(503, 'paused') })
+      await passes(lib, MAX_FAILURES + 2, host({ upload: outage }))
+      expect(outage).toHaveBeenCalledTimes(MAX_FAILURES + 2)
+
       const upload = vi.fn(async () => { throw new Error('upload 500') })
       await passes(lib, MAX_FAILURES + 2, host({ upload }))
       expect(upload).toHaveBeenCalledTimes(MAX_FAILURES)

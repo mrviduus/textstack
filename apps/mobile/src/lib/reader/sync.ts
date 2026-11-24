@@ -4,8 +4,8 @@
  * feeds from their cursors, page by page, push the outbox kind by kind (books → states → sessions → annotations), pull the
  * vocabulary feed the reader's marks read offline (#1271: after the pushes, its failure the pass's own only),
  * then — only with file sync on — send the bytes the server lacks. Opportunistic: the reading path
- * never waits for it. Offline or the server down ends the pass (an entry's 503 asks the status first: #1198); any other
- * failure of one outbox entry skips that entry only, and counts against it: after `MAX_FAILURES` it is kept but no
+ * never waits for it. Offline or 503 `v2_unavailable` ends the pass; any other failure of one
+ * outbox entry skips that entry only, and counts against it: after `MAX_FAILURES` it is kept but no
  * longer retried until it changes, "Try again", or the next session. Nothing local is lost; every write is idempotent by client id
  * or revision, so the next pass retries what is left. Every answer lands only while the session
  * that asked is current: the shared `whileCurrent` epoch guard (#1151, #1155), and a write after a
@@ -85,23 +85,19 @@ const drop = async (lib: LocalLibrary, reset: Reset, item: OutboxItem) => void (
 
 /**
  * An error that ends the pass (no point pushing the rest), counted against no entry: offline, or the
- * server down — any 503, `v2_unavailable` or not.
+ * server down — any 503, `v2_unavailable` or not. Every 503 under /me/v2 is server-wide (readiness, a write
+ * freeze, the account guard, sync paused: #1198), so no single entry can answer one and starve the rest.
  */
 const endsPass = (e: unknown) => e === DROPPED || isOfflineError(e) || (e as { status?: number } | null)?.status === 503
 
 /**
- * #1198: an outbox entry's 503 or fetch-level failure while the server's status still answers is that entry's own
- * (counted, the pass goes on), so one entry never starves the ones after it. The status failing too: the server is
- * down or the device offline, and the pass ends with nothing counted (an outage never parks a whole library).
- */
-const serverAnswers = () => syncApi.getStatus().then(() => true, () => false)
-
-/**
- * #1198: failed uploads per book (file sync), this session's: at `MAX_FAILURES` a book's upload waits for the next
- * session or "Try again" (`retryFailed`), as an outbox entry does. ponytail: in memory, no resume: a retried upload
- * re-sends every part (the server lists no stored parts); a parts listing is the upgrade if big files fail often.
+ * #1198: failed uploads per user and book (file sync), this app run's: at `MAX_FAILURES` a book's upload waits for
+ * the next session's first pass or "Try again", as an outbox entry does; an outage or offline is never counted.
+ * ponytail: in memory, no resume: a retried upload re-sends every part (the server lists no stored parts); a parts
+ * listing is the upgrade if big files fail often.
  */
 const uploadFailures = new Map<string, number>()
+const uploadKey = (host: SyncHost, bookId: string) => `${host.userId}:${bookId}`
 
 export { MAX_FAILURES }
 
@@ -163,7 +159,7 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = 
     await account(lib, host, reset)
     if (host.retryFailed) {
       await checked(reset, () => lib.retryAll())
-      uploadFailures.clear()
+      for (const k of uploadFailures.keys()) if (k.startsWith(`${host.userId}:`)) uploadFailures.delete(k)
     }
     if (!pushOnly) for (const feed of FEEDS) if (feed !== 'vocabulary') await pull(lib, host, reset, feed)
     let failed = false
@@ -175,8 +171,7 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = 
         try {
           await push(lib, host, reset, item)
         } catch (e) {
-          if (e === DROPPED || reset()) throw e
-          if (endsPass(e) && !(await serverAnswers())) throw e
+          if (endsPass(e) || reset()) throw e
           failed = true
           await failedOnce(lib, reset, item, e)
         }
@@ -248,7 +243,7 @@ export async function claimLibraryFor(userId: string, lib: () => LocalLibrary = 
  */
 export async function tryAgainBook(lib: LocalLibrary, bookId: string, refresh: () => Promise<unknown>, sync: () => void) {
   await lib.unpark(bookId)
-  uploadFailures.delete(bookId)
+  for (const k of uploadFailures.keys()) if (k.endsWith(`:${bookId}`)) uploadFailures.delete(k)
   await refresh()
   sync()
 }
@@ -555,13 +550,14 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
   const { maxPartBytes } = await startSyncProbe()
   for (const b of await lib.uploadable()) {
     if (reset()) throw DROPPED
-    if ((uploadFailures.get(b.id) ?? 0) >= MAX_FAILURES) continue
+    const key = uploadKey(host, b.id)
+    if ((uploadFailures.get(key) ?? 0) >= MAX_FAILURES) continue
     try {
       await host.upload(b, maxPartBytes, reset)
-      uploadFailures.delete(b.id)
+      uploadFailures.delete(key)
       await checked(reset, () => lib.setHasContent(b.id))
     } catch (e) {
-      if (e === DROPPED || reset() || isOfflineError(e)) throw e
+      if (endsPass(e) || reset()) throw e
       if (e instanceof UploadNotOnServer) {
         // The server's copy of this book is not the one this device knows: push the book again
         // (sha256 first pairs it, or imports it under this device's ids), then its bytes.
@@ -570,8 +566,8 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
         continue
       }
       if (e instanceof FileUploadError && e.code === 'quota_exceeded') return console.warn('[v2 sync] upload stopped, quota full:', b.id)
-      const n = (uploadFailures.get(b.id) ?? 0) + 1
-      uploadFailures.set(b.id, n)
+      const n = (uploadFailures.get(key) ?? 0) + 1
+      uploadFailures.set(key, n)
       console.warn(`[v2 sync] upload of ${b.id} failed (${n}/${MAX_FAILURES})${n >= MAX_FAILURES ? ', not retried until the next session or "Try again"' : ''}:`, brief(e))
     }
   }
