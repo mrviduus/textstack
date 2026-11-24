@@ -315,4 +315,26 @@ public class AnnotationRepositoryTests(PostgresFixture db)
         Assert.Equal([oldKey.Id, noToc.Id], page.Items.Select(i => i.Id));
         Assert.All(page.Items, i => Assert.Null(i.ChapterTitle ?? i.ChapterKey));
     }
+
+    // #1573: the highlights page shows each book's cover. A book with one lists its version (the cover URL's cache key,
+    // changing when the cover does); a book without lists none.
+    [Fact]
+    public async Task ListAllAsync_BooksWithAndWithoutACover_CarryTheCoversVersionOnlyWhereOneExists()
+    {
+        var covered = await db.NewReaderWithBookAsync();
+        await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
+        await using (var set = new NpgsqlCommand("UPDATE books SET cover_key = 'library/cover.png', updated_at = now() WHERE id = @id", conn))
+        {
+            set.Parameters.AddWithValue("id", covered.Id);
+            await set.ExecuteNonQueryAsync(Ct);
+        }
+        await SaveAsync(covered, "On a covered book");
+        var bare = await db.NewBookAsync(covered.UserId, "No cover");
+        await SaveAsync(bare, "On a bare book");
+
+        var page = await _repo.ListAllAsync(covered.UserId, null, null, true, 10, 0, Ct);
+
+        Assert.NotNull(Assert.Single(page.Items, i => i.BookId == covered.Id).BookCoverVersion);
+        Assert.Null(Assert.Single(page.Items, i => i.BookId == bare.Id).BookCoverVersion);
+    }
 }

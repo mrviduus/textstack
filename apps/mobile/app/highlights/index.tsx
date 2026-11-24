@@ -3,7 +3,7 @@ import { View, Text, SectionList, StyleSheet, TouchableOpacity, TextInput, Activ
 import { useRouter, Stack } from 'expo-router'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
-import { highlightsApi, getStorageUrl, isOfflineError } from '@textstack/shared'
+import { highlightsApi, getApiConfig, isOfflineError } from '@textstack/shared'
 import type { HighlightListItem } from '@textstack/shared'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
@@ -11,6 +11,7 @@ import { fonts } from '../../src/theme/typography'
 import { useReconnectCount } from '../../src/hooks/useOnline'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { HighlightQuote } from '../../src/components/HighlightQuote'
+import { useCoverSource } from '../../src/hooks/useCoverSource'
 
 const PAGE_SIZE = 50
 /**
@@ -138,12 +139,12 @@ export default function HighlightsScreen() {
     const chapterTitle = item.chapterTitle || item.userChapterTitle || ''
 
     const handlePress = () => {
-      if (item.userBookId && item.userChapterSlug) {
-        router.push(`/my-books/read/${item.userBookId}/${item.userChapterSlug}?highlight=${item.id}`)
-      }
+      // The reader route opens the book and jumps to `highlight`; the slug only names a place, and a highlight
+      // made in the current reader (an epub-cfi) has none (#1572).
+      if (item.userBookId) router.push(`/my-books/read/${item.userBookId}/${item.userChapterSlug ?? 'start'}?highlight=${item.id}`)
     }
 
-    const isNavigable = !!(item.userBookId && item.userChapterSlug)
+    const isNavigable = !!item.userBookId
 
     return (
       <TouchableOpacity
@@ -191,9 +192,7 @@ export default function HighlightsScreen() {
         activeOpacity={0.7}
       >
         <Ionicons name={isCollapsed ? 'chevron-forward' : 'chevron-down'} size={16} color={colors.textSecondary} />
-        {section.coverPath && (
-          <Image source={getStorageUrl(section.coverPath)} style={styles.sectionCover} contentFit="cover" />
-        )}
+        {section.coverPath && <SectionCover path={section.coverPath} style={styles.sectionCover} />}
         <Text style={[styles.sectionTitle, { color: colors.text }]} numberOfLines={1}>{section.title}</Text>
         <Text style={[styles.sectionCount, { color: colors.textSecondary }]}>{section.count}</Text>
       </TouchableOpacity>
@@ -317,3 +316,9 @@ const styles = StyleSheet.create({
   badgeText: { fontFamily: fonts.sansMedium, fontSize: 10 },
   emptyText: { fontFamily: fonts.sans, fontSize: 14, textAlign: 'center', paddingVertical: 40, paddingHorizontal: 32 },
 })
+
+/** A book's cover: an owner-checked `/me/v2/books/{id}/cover` path under the API, loaded with the Bearer (#1573). */
+function SectionCover({ path, style }: { path: string; style: object }) {
+  const [source, onError] = useCoverSource(`${getApiConfig().baseUrl}${path}`)
+  return source ? <Image source={source} style={style} contentFit="cover" onError={onError} /> : null
+}

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { getAllHighlights, type HighlightListItem } from '../api/userData'
+import { API_BASE } from '../api/client'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
@@ -173,7 +174,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
                   {group.coverPath && (
                     <img
                       className="highlights-page__book-cover"
-                      src={`/storage/${group.coverPath}`}
+                      src={`${API_BASE}${group.coverPath}`}
                       alt=""
                     />
                   )}

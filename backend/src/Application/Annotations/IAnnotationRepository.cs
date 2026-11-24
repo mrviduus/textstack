@@ -56,10 +56,12 @@ public interface IAnnotationRepository
 /// <summary>
 /// One row of <see cref="IAnnotationRepository.ListAllAsync"/>. <c>AnchorJson</c> is legacy's anchor: the quote with its
 /// context for an <c>epub-cfi</c> locator, the locator's object value otherwise (a PDF one marked <c>kind: pdf</c>), else
-/// <c>{}</c>. <c>BookRemoved</c>: the book is in the trash, <c>BookTitle</c> the title it had.
+/// <c>{}</c>. <c>BookRemoved</c>: the book is in the trash, <c>BookTitle</c> the title it had. <c>BookCoverVersion</c>: the book's
+/// <c>updated_at</c> when it has a cover (the cover URL's cache key), else null.
 /// </summary>
 public sealed record AnnotationListItem(
     Guid Id, string SelectedText, string AnchorJson, string Color, string? NoteText, DateTimeOffset CreatedAt,
-    Guid BookId, string BookTitle, bool BookRemoved, Guid? ChapterId, string? ChapterTitle, string? ChapterKey);
+    Guid BookId, string BookTitle, bool BookRemoved, Guid? ChapterId, string? ChapterTitle, string? ChapterKey,
+    DateTimeOffset? BookCoverVersion = null);
 
 public sealed record AnnotationPage(int TotalCount, IReadOnlyList<AnnotationListItem> Items);

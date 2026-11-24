@@ -125,7 +125,8 @@ public static class CompatEndpoints
 
     /// <summary>
     /// <c>GET /me/highlights/all</c> on V2 annotations, the legacy query and shape. A V2 highlight is in an upload
-    /// (no catalog editions): <c>bookType=edition</c> lists none; covers are not served here (null).
+    /// (no catalog editions): <c>bookType=edition</c> lists none. A cover is the owner-checked
+    /// <c>/me/v2/books/{id}/cover</c>, as a path under the API (#1573); clients prefix their API base.
     /// </summary>
     private static async Task<IResult> GetAllHighlights(
         HttpContext http, IAuthService auth, IAnnotationRepository annotations,
@@ -141,7 +142,9 @@ public static class CompatEndpoints
             h.Id, h.SelectedText, h.AnchorJson, h.Color, h.NoteText, h.CreatedAt,
             null, null, null, null,
             // A removed book's highlight carries only the title it had, as legacy's deleted book (#982).
-            h.BookRemoved ? null : h.BookId, h.BookRemoved ? null : h.BookTitle, null,
+            h.BookRemoved ? null : h.BookId, h.BookRemoved ? null : h.BookTitle,
+            h.BookRemoved || h.BookCoverVersion is not { } v ? null
+                : $"/me/v2/books/{h.BookId}/cover?v={Uri.EscapeDataString(v.ToString("O"))}",
             null, h.ChapterId, null, h.ChapterTitle, null, h.ChapterKey,
             h.BookRemoved ? h.BookTitle : null));
         return Results.Ok(new { items, totalCount = page.TotalCount });
