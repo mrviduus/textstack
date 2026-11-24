@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   buildLibraryEntries,
   entryKey,
@@ -226,26 +226,6 @@ describe('sortEntries', () => {
     ]
     const marks = parseOpenedAt(withOpened('{"x": "junk"}', 'reopened', Date.parse('2026-08-01T00:00:00Z')))
     expect(sortEntries(entries, 'recent', noProgress, marks).map(entryKey)).toEqual(['upload:reopened', 'upload:newer'])
-  })
-
-  // #1385: a phone 10 minutes fast opened an older book, then another device turned a page in a newer one.
-  it('a fast device clock: its open, stamped on the server clock, still ranks below a later page turn elsewhere', async () => {
-    const { authFetch, initApi } = await import('../api/client')
-    const server = Date.parse('2026-08-01T12:00:00Z')
-    vi.useFakeTimers({ now: server + 10 * 60_000 })
-    try {
-      globalThis.fetch = vi.fn().mockResolvedValue(new Response('{}', { headers: { Date: new Date(server).toUTCString() } })) as unknown as typeof fetch
-      initApi({ baseUrl: 'http://api', getAccessToken: async () => null })
-      await authFetch('/me/v2/books')
-      const marks = parseOpenedAt(withOpened(null, 'opened-here'))
-      const entries = [
-        U({ id: 'opened-here', progressUpdatedAt: '2026-03-01T00:00:00Z' }),
-        U({ id: 'turned-elsewhere', progressUpdatedAt: '2026-08-01T12:05:00Z' }),
-      ]
-      expect(sortEntries(entries, 'recent', noProgress, marks).map(entryKey)).toEqual(['upload:turned-elsewhere', 'upload:opened-here'])
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it('opening more books than the marks keep forgets the oldest opens', () => {

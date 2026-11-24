@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { ApiError, isOfflineError, OPENED_AT_KEY, syncApi, withOpened } from '@textstack/shared'
+import { ApiError, isOfflineError, OPENED_AT_KEY, serverNow, syncApi, withOpened } from '@textstack/shared'
 import { readItem, writeItem } from '../lib/safeLocalStorage'
 import { fetchFileBytes, pullBooks, syncAnswer, liveBook, syncSwitch } from '../api/sync'
 import { SeoHead } from '../components/SeoHead'
@@ -111,7 +111,7 @@ export function ReaderPage() {
       setLoad(null)
       setBook(b)
       // This device opened it: "Recently opened" sorts it first, with no server write (a reopen moves no place).
-      writeItem(OPENED_AT_KEY, withOpened(readItem(OPENED_AT_KEY), id))
+      writeItem(OPENED_AT_KEY, withOpened(readItem(OPENED_AT_KEY), id, serverNow()))
     }, (e: unknown) => {
       if (stalled) setLoad({ error: t('v2Reader.stalled', { seconds: DOWNLOAD_STALL_MS / 1000 }), retry: true })
       else if (!abort.signal.aborted) setLoad(loadError(e, t))

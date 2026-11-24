@@ -14,7 +14,6 @@
  * Pure and I/O-free. The mobile hooks own persistence; this owns the semantics.
  */
 
-import { serverNow } from '../api/client'
 import { storedBookPercent } from '../reader/bookProgress'
 import type { UserLibraryItem, UserBookDto, ReadingProgressDto } from '../types/api'
 
@@ -142,7 +141,7 @@ export const MAX_OPENED_MARKS = 200
  * The stored marks with `bookId` opened at `now`, as JSON to store: the newest `MAX_OPENED_MARKS`. `now` on the
  * server's clock (#1385): the marks rank beside the server's `progressUpdatedAt`, so a skewed device clock never misorders.
  */
-export function withOpened(json: string | null, bookId: string, now = serverNow()): string {
+export function withOpened(json: string | null, bookId: string, now: number): string {
   const marks = Object.entries({ ...parseOpenedAt(json), [bookId]: now })
   return JSON.stringify(Object.fromEntries(marks.sort((a, b) => b[1] - a[1]).slice(0, MAX_OPENED_MARKS)))
 }

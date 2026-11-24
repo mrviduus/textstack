@@ -46,16 +46,19 @@ async function safeFetch(input: string, init?: RequestInit): Promise<Response> {
   } catch (e: unknown) {
     throw networkError(e)
   }
+  // A response a cache may have kept (its `Date` is as old as the copy) measures nothing.
+  const kept = /max-age=[1-9]|immutable/.test(res.headers?.get('cache-control') ?? '') || !!res.headers?.get('age')
   const at = Date.parse(res.headers?.get('date') ?? '')
-  if (Number.isFinite(at)) clockOffsetMs = at - Date.now()
+  if (!kept && Number.isFinite(at)) clockOffsetMs = at - Date.now()
   return res
 }
 
 let clockOffsetMs = 0
 /**
- * Now on the server's clock, as this device last measured it (#1385): the latest response's `Date` header (second
- * resolution, latency ignored), so a device stamp compares with the server's `updatedAt`s. The device clock until a
- * response is read, or where the header is hidden (a cross-origin dev server: not CORS-safelisted).
+ * Now on the server's clock, as this device last measured it (#1385): the latest uncached response's `Date` header
+ * (second resolution, latency ignored), so a device stamp compares with the server's `updatedAt`s. ponytail: in memory,
+ * so the device clock until this launch reads a response (an offline cold start) or where the header is hidden (a
+ * cross-origin dev server: not CORS-safelisted); persist the offset if that misorders in practice.
  */
 export const serverNow = () => Date.now() + clockOffsetMs
 

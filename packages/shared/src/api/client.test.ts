@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { authFetch, initApi, publicFetch } from './client'
+import { authFetch, initApi, publicFetch, serverNow } from './client'
 import { createGuestSession } from './auth'
 
 const realFetch = globalThis.fetch
@@ -76,5 +76,26 @@ describe('config headers (mobile X-App-Version, review #23)', () => {
 
     await publicFetch('/books')
     expect(fetchMock.mock.calls[0][1].headers).toEqual({})
+  })
+})
+
+// #1385: a phone 10 minutes fast stamps its opens on the server's clock, so they rank beside the server's updatedAt.
+describe('serverNow', () => {
+  const server = Date.parse('2026-08-01T12:00:00Z')
+  const answer = (headers: Record<string, string>) => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('{}', { headers })) as unknown as typeof fetch
+    return authFetch('/me/v2/books')
+  }
+  afterEach(() => vi.useRealTimers())
+
+  it('a fast device: after a response, now is the server clock; a cached copy measures nothing', async () => {
+    vi.useFakeTimers({ now: server + 10 * 60_000 })
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => null })
+    await answer({ Date: new Date(server).toUTCString() })
+    expect(serverNow()).toBe(server)
+    await answer({ Date: new Date(server - 3_600_000).toUTCString(), 'Cache-Control': 'public, max-age=86400' })
+    expect(serverNow()).toBe(server)
+    await answer({ Date: new Date(server - 3_600_000).toUTCString(), Age: '3600' })
+    expect(serverNow()).toBe(server)
   })
 })

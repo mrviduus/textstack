@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
 import { File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
-import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, ttsHasVoice, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
+import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, serverNow, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, ttsHasVoice, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
@@ -347,8 +347,10 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   const [toc, setToc] = useState<TocEntry[]>([])
   const tocIndex = useRef<number | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
-  /** `?contents=1` (the book page's Contents): the sheet opens once the linked book is open, if it has contents. */
-  /** #1385: the file a deep link's `contents` is for: another book's open or a failed download disarms it. */
+  /**
+   * `?contents=1` (the book page's Contents): the sheet opens once the linked book is open, if it has contents. The file
+   * it is for (#1385): another book's open or a failed download disarms it.
+   */
   const contentsOnOpen = useRef<string | null>(null)
   /** A new open or a closed book: the previous book's contents go. */
   const clearToc = () => {
@@ -1490,7 +1492,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   // #1385: this device opened it (its page said `opened`, whatever path opened it): "Recently opened" and Continue sort
   // it first, with no server write (a reopen moves no place).
   useEffect(() => {
-    if (openBook) AsyncStorage.getItem(OPENED_AT_KEY).then((j) => AsyncStorage.setItem(OPENED_AT_KEY, withOpened(j, openBook.id))).catch(() => {})
+    if (openBook) AsyncStorage.getItem(OPENED_AT_KEY).then((j) => AsyncStorage.setItem(OPENED_AT_KEY, withOpened(j, openBook.id, serverNow()))).catch(() => {})
   }, [openBook?.id])
   /** The chapter whose run found no assistant connected: its connect sheet shows. */
   const connecting = Object.entries(discussStates).find(([, st]) => st.phase === 'connect')?.[0] ?? null
