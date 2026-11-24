@@ -18,7 +18,7 @@ import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
-import { getAllUserBookLocalProgress, type UserBookProgressWithPercent } from '../../src/lib/progressStorage'
+import { cachedUserBook } from '../../src/lib/cachedUserBookDetail'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
 import { LibraryViewSheet } from '../../src/components/library/LibraryViewSheet'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
@@ -98,32 +98,14 @@ export default function LibraryScreen() {
       // the list is partial rather than pretending it is whole.
       if (offline) {
         try {
-          const [onDevice, localProgress] = await Promise.all([
-            deviceLocalLibrary().books().then(bs => bs.filter(b => b.local)),
-            getAllUserBookLocalProgress().catch(() => new Map<string, UserBookProgressWithPercent>()),
+          const lib = deviceLocalLibrary()
+          const [onDevice, progress] = await Promise.all([
+            lib.books().then(bs => bs.filter(b => b.local)),
+            // The reader's places (#1532): progress and Continue with no account or network.
+            lib.progress(),
           ])
           if (myGen !== loadGenRef.current) return
-          setUserBooks(prev => (prev.length > 0 ? prev : onDevice.map(c => ({
-            id: c.id,
-            title: c.title,
-            author: c.author || null,
-            language: 'en',
-            coverPath: null,
-            genre: null,
-            totalWordCount: null,
-            // Its file is here: readable.
-            status: 'Ready',
-            chapterCount: 0,
-            createdAt: new Date(c.importedAt).toISOString(),
-            completedAt: null,
-            errorMessage: null,
-            progressPercent: localProgress.get(c.id)?.bookPercent ?? null,
-            progressUpdatedAt: localProgress.get(c.id)
-              ? new Date(localProgress.get(c.id)!.updatedAt).toISOString()
-              : null,
-            progressChapterSlug: localProgress.get(c.id)?.chapterSlug ?? null,
-            hasOriginalPdf: false,
-          }))))
+          setUserBooks(prev => (prev.length > 0 ? prev : onDevice.map(c => cachedUserBook(c, progress.get(c.id)))))
         } catch { /* cache unavailable — the banner still explains the empty list */ }
       }
     } finally {

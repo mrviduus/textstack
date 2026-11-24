@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { resetSyncForTests, reloadLastSyncAnswerForTests, forgetSyncAnswer, syncOn, startSyncProbe, reprobeSyncAfterReconnect, uploadBook, saveProgress, sha256Of, FileUploadError, MAX_DEVICE_PART_BYTES, pullBooks, deviceUploadIo, syncStore, getUserBooks, bookChapters, readProgress, uploadPicked, UPLOAD_PICKER_TYPES, PICKER_TYPES_BY_FORMAT, type UploadIo, type UploadStaging } from './sync'
 import en from '../../../../packages/shared/src/i18n/en.json'
 import { vocabularyApi } from './vocabularyApi'
-import { getUserBookLocalProgress, setUserBookSyncState, getUserBookSyncState } from './progressStorage'
+import { setUserBookSyncState, getUserBookSyncState } from './progressStorage'
 import { fakeApi as fakeV2, conflict, state, feed, book, file, resetMidCall as midCall, type Answer, type Call } from '../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
 const V2 = 'http://api/me/v2'
@@ -205,10 +205,9 @@ describe('mobile v2', () => {
       () => saveProgress('b-lost', { chapterSlug: 'k1' }))
     expect(outcome).toBe('dropped')
     expect(await getUserBookSyncState('b-lost')).toEqual({ revision: 1, fileId: 'f1' })
-    expect(await getUserBookLocalProgress('b-lost')).toBeNull()
   })
 
-  it('an adopt whose chapters load outlives syncStore.reset writes no local record', async () => {
+  it('an adopt whose chapters load outlives syncStore.reset adopts nothing', async () => {
     await setUserBookSyncState('b-adopt', { revision: 1, fileId: 'f1' })
     // An epub-cfi place resumes by fraction: adopt loads the chapters, and the reset lands there.
     const current = state('b-adopt', 7, { currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/2)' } })
@@ -219,7 +218,6 @@ describe('mobile v2', () => {
     }, () => saveProgress('b-adopt', { chapterSlug: 'k1' }), '/books/b-adopt/files/f1/chapters')
     // Web's answer since the shared fold (#1121): no place is adopted for the next account.
     expect(outcome).toBe('dropped')
-    expect(await getUserBookLocalProgress('b-adopt')).toBeNull()
   })
 
   it('a vocabulary read answered after syncStore.reset returns nothing and remembers no card revision', async () => {
@@ -414,14 +412,13 @@ describe('mobile v2', () => {
     expect(hex).toBe(createHash('sha256').update(big).digest('hex'))
   })
 
-  it('a lost reading-state write adopts the server place as this device record', async () => {
+  it('a lost reading-state write adopts the server place', async () => {
     await setUserBookSyncState('b1', { revision: 3, fileId: 'f1' })
     const current = state('b1', 5, { bookFraction: 0.4, currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 9 } } })
     const calls = fakeApi({ 'PUT /books/b1/reading-state': [conflict('stale_revision', { current })] })
     expect(await saveProgress('b1', { chapterSlug: null, locator: 'page:2', percent: 0.1 })).toEqual({ adopted: expect.objectContaining({ locator: 'page:9' }) })
     expect(calls[0].body).toMatchObject({ expectedRevision: 3, fileId: 'f1', currentLocator: { scheme: 'pdf-page', value: { page: 2 } } })
     expect(await getUserBookSyncState('b1')).toEqual({ revision: 5, fileId: 'f1', bookFraction: 0.4 })
-    expect(await getUserBookLocalProgress('b1')).toMatchObject({ page: 9, bookPercent: 0.4, synced: true })
   })
 
   it('a replaced file forgets the book and asks for a reload; a missing chapter drops the write', async () => {

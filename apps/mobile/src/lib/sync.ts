@@ -10,7 +10,7 @@ import { uuid } from 'expo-modules-core'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
 import {
-  syncApi, ApiError, isOfflineError, SYNC_OFF, placeToLocator, createSha256, parsePdfPageLocator,
+  syncApi, ApiError, isOfflineError, SYNC_OFF, placeToLocator, createSha256,
   shelfFileSummary, isShelfBook, resumeChapterOf, createBooks, uploadFile, FileUploadError,
   type Book, type FileChapters, type Annotation, type Word, type ReadingState, type ReadingStateWrite, type SyncSwitch,
   type UserBookProgressDto, type ProgressWrite, type UserBookDto, type UserBookDetailResponse, type ClientFormat, type FileDetails,
@@ -19,7 +19,7 @@ import {
 export { FileUploadError }
 export type { ProgressWrite }
 import { createSingleFlight } from './singleFlight'
-import { getUserBookSyncState, setUserBookSyncState, saveUserBookLocalProgress } from './progressStorage'
+import { getUserBookSyncState, setUserBookSyncState } from './progressStorage'
 
 // ---- The probe ----------------------------------------------------------------------------------
 
@@ -197,19 +197,6 @@ const client = createBooks({
   },
   progressBody,
   pullFlight: (pull) => pullFlight.run(pull),
-  // A lost write takes the server's place: it becomes this device's record, so the next open resumes there.
-  keepAdopted: (s, p) => {
-    const page = parsePdfPageLocator(p.locator)
-    const at = Math.min(Date.parse(s.clientRecordedAt) || Date.now(), Date.now())
-    return saveUserBookLocalProgress(s.bookId, {
-      bookPercent: s.bookFraction,
-      updatedAt: at,
-      synced: true,
-      chapterSlug: p.chapterSlug,
-      positionJson: p.positionJson ?? undefined,
-      ...(page != null && { page }),
-    })
-  },
 })
 export const {
   resetSince, whileCurrent, pullBooks, liveBook, bookChapters, removeBook,
