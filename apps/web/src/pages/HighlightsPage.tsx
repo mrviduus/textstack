@@ -5,6 +5,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { highlightCoverUrl, highlightsApi, type HighlightListItem } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
+import { useOnline } from '../hooks/useOnline'
 import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
 import { useDataChange } from '../lib/dataEvents'
@@ -255,11 +256,8 @@ export function highlightReaderPath(h: HighlightListItem): string | null {
  */
 function BookCover({ url }: { url: string | null }) {
   const [failed, setFailed] = useState<string | null>(null)
-  useEffect(() => {
-    const retry = () => setFailed(null)
-    window.addEventListener('online', retry)
-    return () => window.removeEventListener('online', retry)
-  }, [])
+  const online = useOnline()
+  useEffect(() => { if (online) setFailed(null) }, [online])
   if (!url || url === failed) return null
   return <img className="highlights-page__book-cover" src={url} alt="" onError={() => setFailed(url)} />
 }

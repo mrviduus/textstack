@@ -56,6 +56,7 @@ describe('HighlightsPage cover', () => {
     fireEvent.error(container.querySelector('img')!)
     expect(container.querySelector('img')).toBeNull()
 
+    act(() => { window.dispatchEvent(new Event('offline')) })
     act(() => { window.dispatchEvent(new Event('online')) })
 
     expect(container.querySelector('img')?.getAttribute('src')).toBe(syncApi.coverUrl('b1', '2026-11-24T09:30:15Z'))
