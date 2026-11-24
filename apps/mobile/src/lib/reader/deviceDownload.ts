@@ -11,16 +11,22 @@ import { downloadBook } from './sync'
 /** `name` under <documents>/v2/ (`filesRoot`, shared with the wipe and the measure), e.g. `books/<sha256>.epub`. */
 export const hostFile = (name: string) => new File(filesRoot(), ...name.split('/'))
 
-/** Download on demand: into staging, checked against the sha256, then the retained copy (`staging/` is cleared on start). */
+/**
+ * A download's time in its staged name, one apart from the last: two downloads in one millisecond (the reader's and a
+ * Download, #1526) stage apart, in the one shape the book server serves (bookOrigin.mjs `BOOK_PATH`).
+ */
+let lastStaged = 0
+
+/** Download on demand: into staging, checked against the sha256, then the retained copy (an earlier process's leftovers are swept on start). */
 export const downloadIo = {
   async fetch(url: string, sha256: string) {
     const token = await freshAccessToken()
-    const staged = `staging/dl-${Date.now()}.epub`
+    const staged = `staging/dl-${(lastStaged = Math.max(Date.now(), lastStaged + 1))}.epub`
     const dest = hostFile(staged)
     const file = await File.downloadFileAsync(url, dest, { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, idempotent: true })
       .catch((e) => {
         // A failed download (a full disk) leaves no partial file, like a failed pick.
-        try { if (dest.exists) dest.delete() } catch { /* staging/ is cleared on start */ }
+        try { if (dest.exists) dest.delete() } catch { /* swept on a later start */ }
         throw e
       })
     const source = deviceUploadIo(() => false).open(file.uri)

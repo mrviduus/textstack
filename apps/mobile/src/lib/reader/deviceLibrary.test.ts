@@ -31,6 +31,7 @@ class Directory {
   uri: string
   constructor(...parts: unknown[]) { this.uri = join(parts) }
   get exists() { return dirs.has(this.uri) }
+  list() { return [...files.keys()].filter(under(this.uri)).map((p) => ({ name: p.slice(this.uri.length + 1), delete: () => files.delete(p) })) }
   get size() { return this.exists ? [...files].filter(([p]) => under(this.uri)(p)).reduce((n, [, s]) => n + s, 0) : null }
   create() {
     if (failCreate > 0) { failCreate--; throw new Error('create failed') }
@@ -111,6 +112,17 @@ describe('device V2 local library', () => {
     m.clearDeviceFiles()
     expect([...dirs].sort()).toEqual([...HOST_DIRS].sort())
     expect([...files.keys()]).toEqual([])
+  })
+
+  it('sweepStaging_LeftoversOfAnEarlierProcessAndALiveDownload_OnlyTheLeftoversGo', async () => {
+    const m = await fresh()
+    m.makeFileDirs()
+    const live = `doc/v2/staging/dl-${Date.now()}.epub`
+    files.set(`doc/v2/staging/${Date.now() - 60_000}.epub`, 1) // an open that never finished before a restart
+    files.set('doc/v2/staging/picked.epub', 1) // no time in its name: an earlier build's
+    files.set(live, 1) // the book page's Download, still writing when the reader starts (#1526)
+    m.sweepStaging()
+    expect([...files.keys()]).toEqual([live])
   })
 
   it('measure_BooksAndStaging_CountedUnderV2Only', async () => {

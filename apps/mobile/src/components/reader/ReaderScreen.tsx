@@ -6,7 +6,7 @@ import { StatusBar } from 'expo-status-bar'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
-import { Directory, File } from 'expo-file-system'
+import { File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
 import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, ttsHasVoice, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
@@ -15,7 +15,7 @@ import { useAuth } from '../../context/AuthContext'
 import { deviceUploadIo, resetSince, uploadBook } from '../../lib/sync'
 import { downloadIo, hostFile } from '../../lib/reader/deviceDownload'
 import { bookFile, createHostStorage, nonceFromUuid, sha256Key, type LibraryBook, type HostFiles, type HostStorage } from '../../lib/reader/hostStorage'
-import { deviceLocalLibrary, makeFileDirs, filesRoot } from '../../lib/reader/deviceLibrary'
+import { deviceLocalLibrary, makeFileDirs, sweepStaging } from '../../lib/reader/deviceLibrary'
 import { capabilitiesFor } from '../../lib/capabilities'
 import type { BookNotes, BookRow } from '../../lib/reader/localLibrary'
 import { downloadBook, openBookHost, syncLibrary, tryAgainBook, type SyncHost } from '../../lib/reader/sync'
@@ -92,9 +92,8 @@ import { createListener, speakingJs, spokenOf, ttsLang } from '../../../../../pa
  */
 
 function deviceFiles(): HostFiles {
-  // Anything still staged belongs to an open that never finished in an earlier process.
-  const staging = new Directory(filesRoot(), 'staging')
-  if (staging.exists) staging.delete()
+  // Anything an earlier process staged and never finished; this process's own (a Download, an upload) stay (#1526).
+  sweepStaging()
   makeFileDirs()
   return {
     read: async (name) => {
@@ -1027,7 +1026,8 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     const current = tracker.pick()
     return downloadBook(deviceLocalLibrary(), b.id, downloadIo).then(
       async (ok) => {
-        if (!ok) return false
+        // #1526: a Download of the same book that landed first leaves this one nothing to add; its file opens all the same.
+        if (!ok && !(await deviceLocalLibrary().hasLocalBytes(b.sha256))) return false
         await refreshBooks()
         if (current()) open({ file: bookFile(b.sha256), name: b.originalName, format: b.format })
         return true
