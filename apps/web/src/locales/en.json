@@ -35,7 +35,7 @@
       "subtitleAfter": "— stay in flow, finish the book.",
       "brandLine": "TextStack — a reader for developers, students, and curious minds.",
       "seoTitle": "TextStack — A reader that helps you finish dense books",
-      "seoDescription": "Finish the tech book, paper, or classic you keep quitting. Contextual word explanations tied to the book's domain. Capped weekly SRS, offline reading. EPUB, PDF.",
+      "seoDescription": "Finish the tech book, paper, or classic you keep quitting. Contextual word explanations tied to the book's domain. Capped weekly SRS, offline reading. EPUB, MOBI, AZW3, FB2, CBZ, PDF.",
       "yourLanguage": "your language"
     },
     "features": {
@@ -51,7 +51,7 @@
       },
       "upload": {
         "title": "Your own books",
-        "description": "Upload EPUB or PDF. Read your books with the full TextStack Reader toolkit."
+        "description": "Upload EPUB, MOBI, AZW3, FB2, CBZ or PDF. Read your books with the full TextStack Reader toolkit."
       },
       "stats": {
         "title": "Reading stats",
@@ -79,7 +79,7 @@
       },
       "techBooks": {
         "q": "Do you have programming or tech books?",
-        "a": "The catalog ships with thousands of public-domain classics. MIT/Apache/CC-BY licensed programming books are being added — priority given to Rust, Go, and systems titles. You can also upload your own EPUB or PDF at any time and read it with the full toolkit."
+        "a": "The catalog ships with thousands of public-domain classics. MIT/Apache/CC-BY licensed programming books are being added — priority given to Rust, Go, and systems titles. You can also upload your own EPUB, MOBI, AZW3, FB2, CBZ or PDF at any time and read it with the full toolkit."
       },
       "languages": {
         "q": "Which languages are supported?",
@@ -91,7 +91,7 @@
       },
       "uploadBooks": {
         "q": "Can I upload my own books?",
-        "a": "Absolutely. Upload EPUB or PDF files and read them with the full TextStack toolkit — translation, flashcards, TTS, and progress tracking."
+        "a": "Absolutely. Upload EPUB, MOBI, AZW3, FB2, CBZ or PDF files and read them with the full TextStack toolkit — translation, flashcards, TTS, and progress tracking."
       },
       "srsCards": {
         "q": "How do the SRS flashcards work?",
@@ -526,10 +526,10 @@
       "hint": "Upload book (⌘U)"
     },
     "dropzone": {
-      "title": "Drop EPUB or PDF here",
+      "title": "Drop EPUB, MOBI, AZW3, FB2, CBZ or PDF here",
       "browse": "or click to browse",
-      "subtitle": "EPUB or PDF",
-      "invalid": "Unsupported file. Use EPUB or PDF.",
+      "subtitle": "EPUB, MOBI, AZW3, FB2, CBZ or PDF",
+      "invalid": "Unsupported file. Use EPUB, MOBI, AZW3, FB2, CBZ or PDF.",
       "truncatedPdf": "This PDF looks incomplete or corrupted. If you just downloaded it, wait for the download to finish and pick it again.",
       "signinRequired": "Sign in to upload books",
       "signinAction": "Sign in"

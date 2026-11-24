@@ -1,12 +1,6 @@
-export const ACCEPTED_EXTENSIONS = ['epub', 'pdf'] as const
+import { UPLOAD_EXTENSIONS } from '@textstack/shared'
 
-export const ACCEPT_ATTR = '.epub,.pdf'
-
-const MIME_HINTS: ReadonlyArray<string> = [
-  'application/epub+zip',
-  'application/pdf',
-  'application/zip',
-]
+export const ACCEPT_ATTR = UPLOAD_EXTENSIONS.map((e) => `.${e}`).join(',')
 
 function getExt(name: string): string {
   const n = name.toLowerCase()
@@ -14,11 +8,9 @@ function getExt(name: string): string {
   return idx === -1 ? '' : n.slice(idx + 1)
 }
 
-export function isUploadableFile(file: File | { name: string; type?: string }): boolean {
-  const ext = getExt(file.name)
-  if ((ACCEPTED_EXTENSIONS as readonly string[]).includes(ext)) return true
-  // mimetype is unreliable, treat as soft hint only
-  return Boolean(file.type && MIME_HINTS.includes(file.type))
+/** By extension only: the upload's format comes from the name (`formatOfName`), so a name without one would go up as EPUB. */
+export function isUploadableFile(file: File | { name: string }): boolean {
+  return UPLOAD_EXTENSIONS.includes(getExt(file.name))
 }
 
 export function partitionFiles(files: ArrayLike<File>): { valid: File[]; invalid: File[] } {

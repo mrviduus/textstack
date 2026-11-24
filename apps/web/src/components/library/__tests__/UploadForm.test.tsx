@@ -67,4 +67,18 @@ describe('UploadForm', () => {
     pickFile(makeFile('book.epub', bytes('PK\x03\x04'), bytes('junk')))
     await waitFor(() => expect(uploadUserBookMock).toHaveBeenCalledTimes(1))
   })
+
+  it('Drop_MobiFb2CbzOrUnsupported_UploadsTheBooksAndRefusesTheRest', async () => {
+    render(<UploadForm onUploadComplete={vi.fn()} />)
+    const zone = document.querySelector('.upload-section__dropzone') as HTMLElement
+    const drop = (name: string) => fireEvent.drop(zone, { dataTransfer: { files: [makeFile(name, bytes('PK'), bytes('x'))] } })
+
+    for (const name of ['novel.mobi', 'novel.fb2', 'comic.cbz']) drop(name)
+    await waitFor(() => expect(uploadUserBookMock).toHaveBeenCalledTimes(3))
+    expect(document.querySelector('input[type="file"]')!.getAttribute('accept')).toContain('.mobi')
+
+    drop('notes.docx')
+    await waitFor(() => expect(screen.getByText('upload.dropzone.invalid')).toBeInTheDocument())
+    expect(uploadUserBookMock).toHaveBeenCalledTimes(3)
+  })
 })
