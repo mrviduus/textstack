@@ -25,8 +25,10 @@ const FOLIATE_REPO = 'https://github.com/mrviduus/foliate-js.git'
 // afterScroll (the debounced scroll listener outlives a closed book); #1297: justAnchored swallows only the
 // anchoring's own scroll, not the reader's next one; #1315: search takes a `limit` (matching, registering and
 // drawing stop at it), each hit carries the contents entry it is under, a section that throws is skipped and
-// reported, and a hit over several text nodes keeps its middle.
-const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
+// reported, and a hit over several text nodes keeps its middle; #1203 (branch pdf-adapter-fixes-1203): the PDF link
+// service has getAnchorUrl and the other IPDFLinkService no-ops, render() replaces its layers, the last four pages kept
+// (older ones revoked and cleaned up), a failed load destroys its own task, TOCProgress resolves entries in parallel.
+const FOLIATE_SHA = '772af5050b11a7f3d767412242e6613463da9efd'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // the retired reader engine's 64 KB budget.
@@ -143,7 +145,9 @@ const FOLIATE_SHA = '686afc4200006874a24071a6a57510e027a4cc32'
 // +566: saved quotations reuse anchored annotations without painting text.
 // +174: keep placed quotations separate from bookmark state.
 // +2,472: the contents the server keeps, sent in `described` (ADR-033 P3, chapters.mjs `tocEntries`).
-const BUDGET = 347929
+// −276 (#1203 pin bump): the page no longer wraps pdf.js's getDocument (the fork destroys a failed load's task);
+// progress.js resolves TOC entries in parallel.
+const BUDGET = 347653
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).
@@ -151,11 +155,12 @@ const BUDGET = 347929
 // pdf (#1128 S5) = fork pdf.js + pdf.js v5.5.207 (pdf.mjs + pdf.worker.mjs, run on the page's main thread)
 // + its two layer stylesheets, the one MINIFIED reader (keepNames; 1614390 without them, 3180221 unminified): the measured
 // size. pdf +1825 (#1128 S5 review): pdfPolyfills.mjs first (runtime APIs an older WebView lacks).
+// pdf +936 (#1203 pin bump): the link service's no-ops, layers replaced per render, pages released, a failed load's task destroyed.
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
 // dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
 // notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
 // serif: Literata's four full Latin/Cyrillic faces and OFL notice, replacing the Latin-only brand font.
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1708545, pdfcmaps: 1559883, dyslexic: 158436, serif: 550100, sans: 525327 }
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 1709481, pdfcmaps: 1559883, dyslexic: 158436, serif: 550100, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'readerPage.generated.ts')
