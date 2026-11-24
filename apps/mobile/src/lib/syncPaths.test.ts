@@ -6,11 +6,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { initApi, ApiError } from '@textstack/shared'
-import { resetSyncForTests, startSyncProbe, reprobeSyncAfterReconnect, saveProgress, uploadBook, pullBooks, getUserBook, FileUploadError, type UploadIo } from './sync'
+import { resetSyncForTests, startSyncProbe, reprobeSyncAfterReconnect, uploadBook, getUserBook, FileUploadError, type UploadIo } from './sync'
 import { userBooksApi } from './userBooksApi'
 import { vocabularyApi } from './vocabularyApi'
 import { flushPendingSessions, enqueuePendingSession, clearPendingSessions } from './pendingSessions'
-import { setUserBookSyncState, getUserBookSyncState } from './progressStorage'
 
 
 type Answer = { status: number; body?: unknown }
@@ -47,7 +46,6 @@ async function everyCall() {
   await swallow(userBooksApi.getUserBooks())
   await swallow(userBooksApi.getUserBook('b1'))
   await swallow(userBooksApi.getUserBookProgress('b1'))
-  await swallow(userBooksApi.updateUserBookProgress('b1', { chapterSlug: 'k1', percent: 0.1 } as never))
   await swallow(userBooksApi.markUserBookComplete('b1'))
   await swallow(userBooksApi.unmarkUserBookComplete('b1'))
   await swallow(userBooksApi.deleteUserBook('b1'))
@@ -128,66 +126,6 @@ describe('reading-state write outcomes', () => {
     currentLocator: { version: 1, scheme: 'pdf-page', value: { page: 3 } }, clientRecordedAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z', resetRevision: null,
   })
 
-  it('saveProgress_Reset_WritesAgainOnTheNewRevision', async () => {
-    await setUserBookSyncState('b1', { revision: 2, fileId: 'f1' })
-    const calls = fakeApi({ ...on, 'PUT /me/v2/books/b1/reading-state': [
-      { status: 409, body: { code: 'reset', message: 'x', current: state(9) } },
-      { status: 200, body: state(10) },
-    ] })
-    expect(await saveProgress('b1', { chapterSlug: null, locator: 'page:4', percent: 0.3 })).toBe('accepted')
-    const puts = calls.filter((c) => c.method === 'PUT')
-    expect(puts.map((p) => (p.body as { expectedRevision: number }).expectedRevision)).toEqual([2, 9])
-    expect(await getUserBookSyncState('b1')).toMatchObject({ revision: 10, fileId: 'f1' })
-  })
-
-  it('saveProgress_UnknownFileTwice_RetriesOnceThenDropped', async () => {
-    await setUserBookSyncState('b1', { revision: 2, fileId: 'f-old' })
-    const calls = fakeApi({ ...on,
-      'PUT /me/v2/books/b1/reading-state': [{ status: 409, body: { code: 'unknown_file', message: 'x' } }],
-      'GET /me/v2/library/changes': [{ status: 200, body: { items: [{ id: 'b1', currentFile: { id: 'f-new' } }], hasMore: false, cursor: null } }],
-    })
-    expect(await saveProgress('b1', { chapterSlug: null, locator: 'page:4' })).toBe('dropped')
-    const puts = calls.filter((c) => c.method === 'PUT')
-    expect(puts.map((p) => (p.body as { fileId: string }).fileId)).toEqual(['f-old', 'f-new'])
-  })
-
-  it('saveProgress_StaleWithoutCurrent_DroppedAndRevisionForgotten', async () => {
-    await setUserBookSyncState('b1', { revision: 2, fileId: 'f1' })
-    fakeApi({ ...on, 'PUT /me/v2/books/b1/reading-state': [{ status: 409, body: { code: 'stale_revision', message: 'x', current: null } }] })
-    expect(await saveProgress('b1', { chapterSlug: null, locator: 'page:4' })).toBe('dropped')
-    expect(await getUserBookSyncState('b1')).toBeNull()
-  })
-
-  it('saveProgress_FutureStampAndOverrangeFraction_ClampedToNowAndOne', async () => {
-    await setUserBookSyncState('b1', { revision: 2, fileId: 'f1' })
-    const calls = fakeApi({ ...on, 'PUT /me/v2/books/b1/reading-state': [{ status: 200, body: state(3) }] })
-    const before = Date.now()
-    await saveProgress('b1', { chapterSlug: null, locator: 'page:4', percent: 1.7, updatedAt: new Date(before + 3_600_000).toISOString() })
-    const body = calls.find((c) => c.method === 'PUT')!.body as { clientRecordedAt: string; bookFraction: number }
-    expect(Date.parse(body.clientRecordedAt)).toBeLessThanOrEqual(Date.now())
-    expect(body.bookFraction).toBe(1)
-  })
-
-  it('saveProgress_ReflowPlace_SendsTextstackPositionNeverCfi', async () => {
-    await setUserBookSyncState('b1', { revision: 2, fileId: 'f1' })
-    const calls = fakeApi({ ...on, 'PUT /me/v2/books/b1/reading-state': [{ status: 200, body: state(3) }] })
-    await saveProgress('b1', { chapterSlug: 'key-7', locator: 'scroll:0.5', percent: 0.4 })
-    const loc = (calls.find((c) => c.method === 'PUT')!.body as { currentLocator: { scheme: string; value: { chapterSlug?: string } } }).currentLocator
-    expect(loc.scheme).toBe('textstack-position-v1')
-    expect(loc.value.chapterSlug).toBe('key-7')
-  })
-
-  it('saveProgress_StoredStateOnSupersededFile_FirstWriteOnCurrentFile', async () => {
-    await setUserBookSyncState('b1', { revision: 5, fileId: 'f-old' })
-    const calls = fakeApi({ ...on,
-      'GET /me/v2/library/changes': [{ status: 200, body: { items: [{ id: 'b1', currentFile: { id: 'f-new' } }], hasMore: false, cursor: null } }],
-      'PUT /me/v2/books/b1/reading-state': [{ status: 200, body: { ...state(1), fileId: 'f-new' } }],
-    })
-    await pullBooks()
-    expect(await saveProgress('b1', { chapterSlug: null, locator: 'page:4' })).toBe('accepted')
-    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ expectedRevision: null, fileId: 'f-new' })
-  })
-
   it('getUserBook_StateCompleted_BookPageShowsCompleted', async () => {
     fakeApi({ ...on,
       'GET /me/v2/library/changes': [{ status: 200, body: { items: [{ id: 'b1', title: 't', currentFile: { id: 'f1', format: 'epub', hasContent: true } }], hasMore: false, cursor: null } }],
@@ -197,11 +135,6 @@ describe('reading-state write outcomes', () => {
     expect((await getUserBook('b1')).completedAt).toBe('2026-11-02T00:00:00Z')
   })
 
-  it('saveProgress_ServerError_Throws', async () => {
-    await setUserBookSyncState('b1', { revision: 2, fileId: 'f1' })
-    fakeApi({ ...on, 'PUT /me/v2/books/b1/reading-state': [{ status: 500, body: { message: 'boom' } }] })
-    await expect(saveProgress('b1', { chapterSlug: null, locator: 'page:4' })).rejects.toBeInstanceOf(ApiError)
-  })
 })
 
 describe('upload error paths', () => {

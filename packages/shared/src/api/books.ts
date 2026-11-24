@@ -1,19 +1,14 @@
 /**
  * The V2 side of the user-book API for both clients (#1121): the session epoch guard, the library
- * cache, a reading state as the legacy progress row, the revision rule, mark read / unread. Each app
+ * cache, a reading state as the legacy progress row, mark read / unread. Each app
  * keeps its DTO mapping and gives the caches, the epoch, where a reading state is kept (memory on
- * web; memory and storage on mobile) and how a write's body is made.
+ * web; memory and storage on mobile).
  */
 import * as syncApi from './sync'
 import { ApiError } from './client'
 import { resumeChapterOf } from './sync'
-import type { Book, FileChapters, Locator, ReadingState, ReadingStateWrite, WriteOutcome, UserBookProgressDto } from './sync'
-import { locatorToPlace, type LegacyPlace } from '../reader/locators'
-
-export interface ProgressWrite extends LegacyPlace {
-  percent?: number
-  updatedAt?: string
-}
+import type { Book, FileChapters, Locator, ReadingState, UserBookProgressDto } from './sync'
+import { locatorToPlace } from '../reader/locators'
 
 /** 'dropped': the store was reset meanwhile, the caller shows no change. */
 export type MarkOutcome = 'done' | 'dropped'
@@ -29,17 +24,13 @@ export interface BooksPlatform {
   keepState(s: ReadingState): unknown
   /** Forget a book's reading state: its file changed, or the server holds none. */
   forgetState(bookId: string): unknown
-  /** A reading-state write's PUT body; null when there is nothing to write on. */
-  progressBody(bookId: string, data: ProgressWrite): Promise<ReadingStateWrite | null>
   /** Runs a library pull, shared with concurrent callers (mobile's single flight); default: runs it. */
   pullFlight?: (pull: () => Promise<Book[]>) => Promise<Book[]>
   /** After a library pull that was kept (mobile drops replaced files' local copies). */
   afterPull?: (items: Book[]) => Promise<void>
-  /** Keep an adopted place, in the tick its epoch was checked in (mobile: the device's progress record). */
-  keepAdopted?: (s: ReadingState, p: UserBookProgressDto) => unknown
 }
 
-export function createBooks({ books, chapters, epoch, keepState, forgetState, progressBody, pullFlight, afterPull, keepAdopted }: BooksPlatform) {
+export function createBooks({ books, chapters, epoch, keepState, forgetState, pullFlight, afterPull }: BooksPlatform) {
   /** Taken at a call's start: whether the store was reset since (signed out, another account). */
   function resetSince(): () => boolean {
     const started = epoch()
@@ -147,57 +138,6 @@ export function createBooks({ books, chapters, epoch, keepState, forgetState, pr
   }
 
   /**
-   * One reading-state write under the revision rule (PDD "The revision rule"). Lost (409):
-   * `stale_revision` adopts the server's row (a lost write takes the server's place); `reset` writes
-   * this place again on the new revision; `file_replaced` forgets the book and asks for a reload;
-   * `unknown_file` refetches the book and writes once more; `chapter_not_found` drops the write (its
-   * chapter keys changed: the TOC is fetched again, the reader resumes from the fraction). Anything
-   * else throws: the caller keeps the write for its next save. A reset at any point drops the write.
-   */
-  async function saveProgress(bookId: string, data: ProgressWrite, retried = false): Promise<WriteOutcome> {
-    const reset = resetSince()
-    const body = await progressBody(bookId, data)
-    if (!body) return 'dropped'
-    const put = async (b: ReadingStateWrite) => ((await rememberState(syncApi.putReadingState(bookId, b), reset)) ? 'accepted' : 'dropped')
-    try {
-      return await put(body)
-    } catch (e) {
-      // Only reached with no reset so far: whileCurrent swallows a failure that outlived one.
-      const err = syncApi.syncErrorOf(e)
-      const current = err?.current as ReadingState | null | undefined
-      switch (err?.code) {
-        case 'stale_revision': {
-          if (!current) {
-            await forgetState(bookId)
-            return 'dropped'
-          }
-          if (!(await rememberState(Promise.resolve(current), reset))) return 'dropped'
-          // Signed out while the server's chapter resolves: no place, and no local record, for the next account.
-          const adopted = await whileCurrent(toProgress(current), keepAdopted && ((p) => keepAdopted(current, p)), reset)
-          return adopted ? { adopted } : 'dropped'
-        }
-        case 'reset':
-          if (current) await keepState(current)
-          return put({ ...body, expectedRevision: current?.revision ?? null })
-        case 'file_replaced':
-          await forgetBook(bookId)
-          return 'reload'
-        case 'unknown_file':
-          // The book's file is not the one we named: fetch the book again and write once more.
-          await forgetBook(bookId)
-          return retried ? 'dropped' : saveProgress(bookId, data, true)
-        case 'chapter_not_found': {
-          const file = books.get(bookId)?.currentFile
-          if (file) chapters.delete(file.id)
-          return 'dropped'
-        }
-        default:
-          throw e
-      }
-    }
-  }
-
-  /**
    * Mark read on V2: the state as it stands (or the book's start), with `completedAt`. The start names no chapter
    * (ADR-033: a chapter key needs the file's synced TOC): page 1 of a PDF, else a bare CFI resumed by fraction.
    */
@@ -236,6 +176,6 @@ export function createBooks({ books, chapters, epoch, keepState, forgetState, pr
 
   return {
     resetSince, whileCurrent, rememberState, pullBooks, liveBook, bookChapters, forgetBook, removeBook, originalFileUrl,
-    toProgress, saveProgress, completeBook, uncompleteBook,
+    toProgress, completeBook, uncompleteBook,
   }
 }

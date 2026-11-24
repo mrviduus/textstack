@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 /**
- * Books the reader took off this device on purpose.
+ * Books the reader took off this device on purpose, in an older build: nothing adds to the set since
+ * Download keeps the book file and has no Remove (#1522, #1551). Still honoured, cleared by Download.
  *
  * The automatic sweep decides what to fetch from "is it cached?", and a removed
  * book answers no — so without this it comes back on the next Wi-Fi, along with
@@ -53,11 +54,6 @@ export function updateIdSet(key: string, change: (ids: Set<string>) => Set<strin
 
 export async function listDeclinedDownloads(): Promise<Set<string>> {
   return readIdSet(KEY)
-}
-
-/** The reader removed this download. Stop fetching it automatically. */
-export async function declineDownload(bookId: string): Promise<void> {
-  await updateIdSet(KEY, ids => (ids.has(bookId) ? null : ids.add(bookId)))
 }
 
 /** The reader asked for it again — by pressing Download, which is as clear a

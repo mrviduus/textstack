@@ -4,7 +4,7 @@ import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
   syncSwitch, startSyncProbe, pullBooks, getShelfBooks, getBookDetail, removeBook, originalFileUrl,
-  readBookProgress, saveProgress, uploadBook, FileUploadError, completeBook, uncompleteBook, type WriteOutcome, type MarkOutcome,
+  readBookProgress, uploadBook, FileUploadError, completeBook, uncompleteBook, type MarkOutcome,
 } from './sync'
 
 export interface UserBook {
@@ -258,19 +258,3 @@ export function readUserBookProgress(bookId: string, signal?: AbortSignal): Prom
   return readBookProgress(bookId, signal)
 }
 
-/** The revision rule decides; the outcome says whether the reader adopts the server's place or reloads. */
-export function saveUserBookProgress(
-  bookId: string,
-  data: {
-    chapterSlug: string | null
-    locator?: string
-    percent?: number
-    percentUnit?: string
-    locatorKind?: string
-    updatedAt?: string
-    /** Serialised TextPosition (ADR-015). Beside the locator, never instead. */
-    positionJson?: string
-  }
-): Promise<WriteOutcome> {
-  return saveProgress(bookId, data)
-}

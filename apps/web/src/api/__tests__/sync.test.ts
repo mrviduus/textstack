@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  startSyncProbe, syncSwitch, resetSyncForTests, uploadBook, FileUploadError, saveProgress, readBookProgress,
+  startSyncProbe, syncSwitch, resetSyncForTests, uploadBook, FileUploadError, readBookProgress,
   pullBooks, getShelfBooks, getBookDetail, syncStore, completeBook, uncompleteBook, bookChapters, rememberReadingState, fetchFileBytes,
 } from '../sync'
 import { getUserBook, getUserBookFileUrl, bulkFinishUserBooks } from '../userBooks'
@@ -197,70 +197,8 @@ describe('the V2 upload', () => {
 })
 
 describe('the V2 reading state', () => {
-  const write = { chapterSlug: 'two', percent: 0.5, updatedAt: '2026-11-02T00:00:00.000Z', positionJson: JSON.stringify(position) }
   const put = 'PUT /me/v2/books/b1/reading-state'
   const library = { 'GET /me/v2/library/changes': feed(book('b1', 'f1')) }
-
-  it("makes the first write a null revision on the current file, with the reader's TextPosition, and the next on the revision it got", async () => {
-    const calls = fakeApi({ ...library, [put]: [{ status: 200, body: state('b1', 1) }, { status: 200, body: state('b1', 2) }] })
-    expect(await saveProgress('b1', write)).toBe('accepted')
-    await saveProgress('b1', write)
-    const puts = calls.filter((c) => c.method === 'PUT')
-    expect(puts[0].body).toMatchObject({ expectedRevision: null, fileId: 'f1', bookFraction: 0.5, currentLocator: { scheme: 'textstack-position-v1', value: position } })
-    expect(puts[1].body).toMatchObject({ expectedRevision: 1 })
-  })
-
-  it('keeps the fraction the server holds when a write knows no percent yet (never 0 over it)', async () => {
-    const calls = fakeApi({ ...library, [put]: [{ status: 200, body: state('b1', 1) }, { status: 200, body: state('b1', 2) }] })
-    await saveProgress('b1', write)
-    await saveProgress('b1', { ...write, percent: undefined })
-    const held = state('b1', 1).bookFraction
-    expect(calls.filter((c) => c.method === 'PUT')[1].body).toMatchObject({ bookFraction: held })
-    expect(held).toBeGreaterThan(0)
-  })
-
-  it("adopts the server's place on stale_revision and writes on its revision next", async () => {
-    const theirs = { ...position, chapterSlug: 'three' }
-    const calls = fakeApi({ ...library, [put]: [conflict('stale_revision', { current: state('b1', 5, { currentLocator: { version: 1, scheme: 'textstack-position-v1', value: theirs } }) }), { status: 200, body: state('b1', 6) }] })
-    expect(await saveProgress('b1', write)).toEqual({ adopted: expect.objectContaining({ chapterSlug: 'three', percent: 0.7, positionJson: JSON.stringify(theirs) }) })
-    await saveProgress('b1', write)
-    expect(calls.filter((c) => c.method === 'PUT')[1].body).toMatchObject({ expectedRevision: 5 })
-  })
-
-  it('writes its own place again on the revision a reset made', async () => {
-    const calls = fakeApi({ ...library, [put]: [conflict('reset', { current: state('b1', 9, { resetRevision: 9 }) }), { status: 200, body: state('b1', 10) }] })
-    expect(await saveProgress('b1', write)).toBe('accepted')
-    expect(calls.filter((c) => c.method === 'PUT').map((c) => c.body.expectedRevision)).toEqual([null, 9])
-  })
-
-  it.each([
-    ['file_replaced', 'reload'],
-    ['chapter_not_found', 'dropped'],
-  ])('answers %s with %s', async (code, outcome) => {
-    fakeApi({ ...library, [put]: [conflict(code)] })
-    expect(await saveProgress('b1', write)).toBe(outcome)
-  })
-
-  it('refetches the book once on unknown_file and writes to its file', async () => {
-    const calls = fakeApi({
-      'GET /me/v2/library/changes': [...feed(book('b1', 'f-old')), ...feed(book('b1', 'f-new'))],
-      [put]: [conflict('unknown_file'), { status: 200, body: state('b1', 1) }],
-    })
-    expect(await saveProgress('b1', write)).toBe('accepted')
-    expect(calls.filter((c) => c.method === 'PUT').map((c) => c.body.fileId)).toEqual(['f-old', 'f-new'])
-  })
-
-  it('writes a state read on a superseded file to the current file, as a first write (no reload loop)', async () => {
-    const calls = fakeApi({
-      'GET /me/v2/library/changes': feed(book('b1', 'f-new')),
-      'GET /me/v2/books/b1/reading-state': [{ status: 200, body: state('b1', 3, { fileId: 'f-old' }) }],
-      [put]: [{ status: 200, body: state('b1', 1, { fileId: 'f-new' }) }],
-    })
-    await pullBooks()
-    await readBookProgress('b1')
-    expect(await saveProgress('b1', write)).toBe('accepted')
-    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ fileId: 'f-new', expectedRevision: null })
-  })
 
   it('reads a pdf-page place back as page:N, and an epub-cfi by its fraction over the TOC entries', async () => {
     fakeApi({
@@ -299,7 +237,6 @@ describe('an answer that outlives a sign-out (syncStore.reset, #1155)', () => {
   const library = { 'GET /me/v2/library/changes': feed(book('b1', 'f1'))[0] }
   const chapters = { 'GET /me/v2/books/b1/files/f1/chapters': { status: 200, body: { items: [{ chapterKey: 'one', chapterNumber: 0, title: 'One' }] } } }
   const put = { 'PUT /me/v2/books/b1/reading-state': { status: 200, body: state('b1', 1) } }
-  const write = { chapterSlug: 'two', percent: 0.5, positionJson: JSON.stringify(position) }
   const underReset = <T>(routes: Record<string, Answer>, op: () => Promise<T>, hold?: string) =>
     resetMidCall(() => syncStore.reset(), routes, op, hold)
   /** Every request answers an empty chapter list, and the one to `path` resets the store first: a sign-out mid-call. */
@@ -330,23 +267,6 @@ describe('an answer that outlives a sign-out (syncStore.reset, #1155)', () => {
     expect([...syncStore.chapters.keys()]).toEqual(['f1'])
   })
 
-  it('drops a reading-state write answered after the reset, remembering no revision', async () => {
-    expect(await underReset({ ...library, ...put }, () => saveProgress('b1', write), '/reading-state')).toBe('dropped')
-    expect(syncStore.states.size).toBe(0)
-  })
-
-  it('remembers the revision of a reading-state write answered with no reset', async () => {
-    asFake({ ...library, ...put })
-    expect(await saveProgress('b1', write)).toBe('accepted')
-    expect(syncStore.states.get('b1')).toMatchObject({ revision: 1 })
-  })
-
-  it("adopts no server place from a conflict answered after the reset", async () => {
-    const lost = { 'PUT /me/v2/books/b1/reading-state': conflict('stale_revision', { current: state('b1', 5) }) }
-    expect(await underReset({ ...library, ...lost }, () => saveProgress('b1', write), '/reading-state')).toBe('dropped')
-    expect(syncStore.states.size).toBe(0)
-  })
-
   const cfi = { currentLocator: { version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/4!/4)', quote: 'q' } }
   const readState = (answer: Answer) => ({ 'GET /me/v2/books/b1/reading-state': answer })
 
@@ -362,11 +282,6 @@ describe('an answer that outlives a sign-out (syncStore.reset, #1155)', () => {
   it('answers no place when the reset lands while a read resolves its chapter', async () => {
     const routes = { ...library, ...chapters, ...readState({ status: 200, body: state('b1', 1, cfi) }) }
     expect(await underReset(routes, () => readBookProgress('b1'), '/chapters')).toBeUndefined()
-  })
-
-  it("adopts no server place when the reset lands while a lost write resolves the server's chapter", async () => {
-    const lost = { 'PUT /me/v2/books/b1/reading-state': conflict('stale_revision', { current: state('b1', 5, cfi) }) }
-    expect(await underReset({ ...library, ...chapters, ...lost }, () => saveProgress('b1', write), '/chapters')).toBe('dropped')
   })
 
   it('sends no mark-read write once the reset landed', async () => {

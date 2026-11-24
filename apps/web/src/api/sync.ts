@@ -6,9 +6,9 @@
  * (`createBooks`, `uploadFile`, #1121); this file caches, maps and gives them its IO.
  */
 import {
-  syncApi, ApiError, SYNC_OFF, shelfFileSummary, isShelfBook, resumeChapterOf, placeToLocator, createBooks, uploadFile, FileUploadError, mb,
+  syncApi, ApiError, SYNC_OFF, shelfFileSummary, isShelfBook, resumeChapterOf, createBooks, uploadFile, FileUploadError, mb,
   type Book, type FileChapters, type ReadingState, type Annotation, type Word,
-  type ReadingStateWrite, type SyncSwitch, type ProgressWrite,
+  type SyncSwitch,
 } from '@textstack/shared'
 import { API_BASE } from './client'
 import { settleSyncSession, syncSessionSettled, rearmSyncSession } from '../lib/syncSession'
@@ -98,14 +98,9 @@ const bookClient = createBooks({
   epoch: () => syncStore.epoch,
   keepState: remember,
   forgetState: (id) => syncStore.states.delete(id),
-  // The book first, so the body names its current file.
-  progressBody: async (bookId, data) => {
-    if (!syncStore.books.has(bookId)) await liveBook(bookId)
-    return progressBody(bookId, data)
-  },
 })
 export const {
-  resetSince, whileCurrent, pullBooks, liveBook, bookChapters, removeBook, originalFileUrl, saveProgress, completeBook, uncompleteBook,
+  resetSince, whileCurrent, pullBooks, liveBook, bookChapters, removeBook, originalFileUrl, completeBook, uncompleteBook,
 } = bookClient
 const { rememberState, toProgress } = bookClient
 
@@ -201,31 +196,7 @@ export async function readBookProgress(bookId: string, signal?: AbortSignal): Pr
   }
 }
 
-/**
- * The PUT body for a write, synchronously (the keepalive flush); null when the book is not known
- * yet. On the book's current file: a state read on a superseded version is not written to again
- * (that answers `file_replaced`, and a reload would read it again) — the write is a first write
- * on the current file.
- */
-export function progressBody(bookId: string, data: ProgressWrite): ReadingStateWrite | null {
-  const current = syncStore.books.get(bookId)?.currentFile?.id
-  const known = syncStore.states.get(bookId)
-  const onKnown = !!known && (!current || known.fileId === current)
-  const fileId = onKnown ? known!.fileId : current
-  const currentLocator = placeToLocator(data)
-  if (!fileId || !currentLocator) return null
-  return {
-    expectedRevision: onKnown ? known!.revision : null,
-    fileId,
-    currentLocator,
-    // No percent yet (the chapter list has not loaded): the fraction last read, never 0 over it.
-    bookFraction: Math.min(1, Math.max(0, data.percent ?? known?.bookFraction ?? 0)),
-    // The client's clock as the write was made, never later than now (MAX_CLIENT_SKEW_MS is the server's bound; as mobile).
-    clientRecordedAt: new Date(Math.min(Date.parse(data.updatedAt ?? '') || Date.now(), Date.now())).toISOString(),
-  }
-}
-
-export type { WriteOutcome, MarkOutcome, ProgressWrite } from '@textstack/shared'
+export type { MarkOutcome } from '@textstack/shared'
 export { FileUploadError }
 
 /** A keepalive write's answer (null: not landed) is the new revision, unless the store was reset meanwhile. */

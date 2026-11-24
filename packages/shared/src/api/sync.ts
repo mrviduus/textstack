@@ -50,13 +50,6 @@ export interface UserBookProgressDto {
   clientUpdatedAt?: string | null
 }
 
-/**
- * After a V2 reading-state write: `accepted` the server holds it (mark it synced); `dropped`
- * neither stored nor adopted (the local place stays unsynced); `reload` the book's file was
- * replaced; `adopted` the server's place replaces this one.
- */
-export type WriteOutcome = 'accepted' | 'dropped' | 'reload' | { adopted: UserBookProgressDto }
-
 /** A sign-in's `merge` (a guest merged): guest id → account id, only the ids that changed. */
 export interface MergeMap {
   books?: Record<string, string>
