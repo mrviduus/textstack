@@ -91,13 +91,14 @@ const drop = async (lib: LocalLibrary, reset: Reset, item: OutboxItem) => void (
 const endsPass = (e: unknown) => e === DROPPED || isOfflineError(e) || (e as { status?: number } | null)?.status === 503
 
 /**
- * #1198: failed uploads per user and book (file sync), this app run's: at `MAX_FAILURES` a book's upload waits for
+ * #1198: failed uploads per book (file sync), this app run's: at `MAX_FAILURES` a book's upload waits for
  * the next session's first pass or "Try again", as an outbox entry does; an outage or offline is never counted.
  * ponytail: in memory, no resume: a retried upload re-sends every part (the server lists no stored parts); a parts
  * listing is the upgrade if big files fail often.
  */
 const uploadFailures = new Map<string, number>()
-const uploadKey = (host: SyncHost, bookId: string) => `${host.userId}:${bookId}`
+/** Tests only: every count gone (module state outlives a test). */
+export const resetUploadFailures = () => uploadFailures.clear()
 
 export { MAX_FAILURES }
 
@@ -159,7 +160,7 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = 
     await account(lib, host, reset)
     if (host.retryFailed) {
       await checked(reset, () => lib.retryAll())
-      for (const k of uploadFailures.keys()) if (k.startsWith(`${host.userId}:`)) uploadFailures.delete(k)
+      uploadFailures.clear()
     }
     if (!pushOnly) for (const feed of FEEDS) if (feed !== 'vocabulary') await pull(lib, host, reset, feed)
     let failed = false
@@ -243,7 +244,7 @@ export async function claimLibraryFor(userId: string, lib: () => LocalLibrary = 
  */
 export async function tryAgainBook(lib: LocalLibrary, bookId: string, refresh: () => Promise<unknown>, sync: () => void) {
   await lib.unpark(bookId)
-  for (const k of uploadFailures.keys()) if (k.endsWith(`:${bookId}`)) uploadFailures.delete(k)
+  uploadFailures.delete(bookId)
   await refresh()
   sync()
 }
@@ -550,11 +551,10 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
   const { maxPartBytes } = await startSyncProbe()
   for (const b of await lib.uploadable()) {
     if (reset()) throw DROPPED
-    const key = uploadKey(host, b.id)
-    if ((uploadFailures.get(key) ?? 0) >= MAX_FAILURES) continue
+    if ((uploadFailures.get(b.id) ?? 0) >= MAX_FAILURES) continue
     try {
       await host.upload(b, maxPartBytes, reset)
-      uploadFailures.delete(key)
+      uploadFailures.delete(b.id)
       await checked(reset, () => lib.setHasContent(b.id))
     } catch (e) {
       if (endsPass(e) || reset()) throw e
@@ -566,8 +566,8 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
         continue
       }
       if (e instanceof FileUploadError && e.code === 'quota_exceeded') return console.warn('[v2 sync] upload stopped, quota full:', b.id)
-      const n = (uploadFailures.get(key) ?? 0) + 1
-      uploadFailures.set(key, n)
+      const n = (uploadFailures.get(b.id) ?? 0) + 1
+      uploadFailures.set(b.id, n)
       console.warn(`[v2 sync] upload of ${b.id} failed (${n}/${MAX_FAILURES})${n >= MAX_FAILURES ? ', not retried until the next session or "Try again"' : ''}:`, brief(e))
     }
   }

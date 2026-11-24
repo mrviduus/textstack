@@ -10,7 +10,7 @@ import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage } from './hostStorage'
-import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, openBookHost, pushBeforeSignOut, syncLibrary, tryAgainBook, type SyncHost } from './sync'
+import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, openBookHost, pushBeforeSignOut, resetUploadFailures, syncLibrary, tryAgainBook, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
@@ -85,6 +85,7 @@ const restoredEntry = async (lib: LocalLibrary) => JSON.parse((await lib.readEnt
 
 describe('V2 local library sync (R6)', () => {
   beforeEach(async () => {
+    resetUploadFailures()
     resetSyncForTests()
     n = 0
     cleared = 0
@@ -2214,7 +2215,8 @@ describe('V2 local library sync (R6)', () => {
       await lib.setFileSync(true)
       fakeApi({})
       const outage = vi.fn(async () => { throw new ApiError(503, 'paused') })
-      await passes(lib, MAX_FAILURES + 2, host({ upload: outage }))
+      expect(await syncLibrary(lib, host({ upload: outage }))).toBe('failed')
+      await passes(lib, MAX_FAILURES + 1, host({ upload: outage }))
       expect(outage).toHaveBeenCalledTimes(MAX_FAILURES + 2)
 
       const upload = vi.fn(async () => { throw new Error('upload 500') })
