@@ -292,6 +292,7 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         Resource = OAuthResource,
         Scope = "library",
         ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30),
+        CreatedAt = DateTimeOffset.UtcNow,
     };
 
     /// <summary>A fresh grant of the app "Claude" redirecting to <paramref name="redirectUri"/>; its access token lives an hour.</summary>
