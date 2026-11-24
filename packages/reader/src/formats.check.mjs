@@ -445,7 +445,7 @@ try {
   check(removedQuote && !removedQuote.highlights.some(h => h.id === quotation?.id), 'a saved quotation can be removed and persisted')
 
   console.log('offline reader fonts')
-  for (const [fontFamily, name] of [['serif', 'Literata'], ['sans', 'TextStack Source Sans 3'], ['dyslexic', 'TextStack OpenDyslexic']]) {
+  for (const [fontFamily, name] of [['serif', 'TextStack'], ['serif', 'Literata'], ['sans', 'TextStack Source Sans 3'], ['dyslexic', 'TextStack OpenDyslexic']]) {
     await call(`window.__fol.settings(${JSON.stringify({ fontFamily })})`)
     let loadedFont = false
     for (const f of page.frames().filter((f) => f.url().startsWith('blob:'))) {

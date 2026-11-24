@@ -58,11 +58,12 @@ export function parseChosen(json) {
 export const choose = (chosen, patch) => ({ ...readChosen(chosen), ...readChosen(patch) })
 
 const FAMILY_CSS = {
-  serif: '"Literata", Georgia, "Times New Roman", serif',
+  serif: '"TextStack", "Literata", Georgia, "Times New Roman", serif',
   sans: '"TextStack Source Sans 3", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   dyslexic: '"TextStack OpenDyslexic", sans-serif',
 }
 export const fontFamilyCss = (raw) => FAMILY_CSS[readSettings(raw).fontFamily]
+/** Serif is the brand face (Latin only) with Literata behind it: a letter TextStack lacks (Cyrillic) comes from Literata. */
 const FACE_FAMILY = { serif: 'Literata', sans: 'TextStack Source Sans 3', dyslexic: 'TextStack OpenDyslexic' }
 const FACES = [['regular', 400, 'normal'], ['bold', 700, 'normal'], ['italic', 400, 'italic'], ['boldItalic', 700, 'italic']]
 /** Dark: images and inline SVG on a light plate, or black line art (and SVG's default black fill) vanishes. */
@@ -82,11 +83,13 @@ export function settingsCss(raw, fontUrl, glosses = false) {
   const { bg, fg } = THEMES[s.theme]
   const dyslexic = s.fontFamily === 'dyslexic'
   const urls = typeof fontUrl === 'string' ? { regular: fontUrl } : fontUrl
-  const face = FACES.map(([name, weight, style]) => {
-    const url = urls?.[name]
+  // Serif's chunk carries the brand faces too, as `brand_<face>`.
+  const families = [...(s.fontFamily === 'serif' ? [['TextStack', 'brand_']] : []), [FACE_FAMILY[s.fontFamily], '']]
+  const face = families.flatMap(([family, prefix]) => FACES.map(([name, weight, style]) => {
+    const url = urls?.[prefix + name]
     return typeof url === 'string' && /^blob:[\w:/.-]+$/.test(url)
-      ? `@font-face { font-family: "${FACE_FAMILY[s.fontFamily]}"; src: url(${url}) format("woff2"); font-weight: ${weight}; font-style: ${style}; }\n` : ''
-  }).join('')
+      ? `@font-face { font-family: "${family}"; src: url(${url}) format("woff2"); font-weight: ${weight}; font-style: ${style}; }\n` : ''
+  })).join('')
   return `${face}html, body { font-size: ${s.fontSize}px !important; line-height: ${lineHeight} !important; font-family: ${FAMILY_CSS[s.fontFamily]} !important; color: ${fg} !important; background: ${bg} !important; }
 p, li, blockquote, dd { line-height: inherit !important; }${
     dyslexic ? '\nbody * { font-family: inherit !important; }' : ''}${
