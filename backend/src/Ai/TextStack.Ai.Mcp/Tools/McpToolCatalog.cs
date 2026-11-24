@@ -577,7 +577,7 @@ public sealed partial class McpToolCatalog
     //   • a passage       → a highlight, which the reader already paints;
     //   • a chapter, or   → an insight keyed by chapter slug;
     //   • the whole book  → an insight with no chapter slug.
-    // A study конспект is the assembly of those in reading order, not a separate
+    // A study summary is the assembly of those in reading order, not a separate
     // document — so re-running a pass refreshes it instead of duplicating it.
 
     private static readonly JsonElement SaveMyHighlightSchema = JsonDocument.Parse(
