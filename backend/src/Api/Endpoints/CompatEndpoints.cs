@@ -125,8 +125,8 @@ public static class CompatEndpoints
 
     /// <summary>
     /// <c>GET /me/highlights/all</c> on V2 annotations, the legacy query and shape. A V2 highlight is in an upload
-    /// (no catalog editions): <c>bookType=edition</c> lists none. A cover is the owner-checked
-    /// <c>/me/v2/books/{id}/cover</c>, as a path under the API (#1573); clients prefix their API base.
+    /// (no catalog editions): <c>bookType=edition</c> lists none. A cover is <c>UserBookCoverVersion</c>: clients build the
+    /// URL with <c>syncApi.coverUrl(userBookId, version)</c>, keyed as the library's (#1580).
     /// </summary>
     private static async Task<IResult> GetAllHighlights(
         HttpContext http, IAuthService auth, IAnnotationRepository annotations,
@@ -138,17 +138,19 @@ public static class CompatEndpoints
 
         var page = await annotations.ListAllAsync(http.GetUserId(auth)!.Value, search, color, sort == "oldest",
             Math.Clamp(limit, 1, 100), Math.Max(offset, 0), ct);
-        var items = page.Items.Select(h => new HighlightListItemDto(
-            h.Id, h.SelectedText, h.AnchorJson, h.Color, h.NoteText, h.CreatedAt,
-            null, null, null, null,
-            // A removed book's highlight carries only the title it had, as legacy's deleted book (#982).
-            h.BookRemoved ? null : h.BookId, h.BookRemoved ? null : h.BookTitle,
-            h.BookRemoved || h.BookCoverVersion is not { } v ? null
-                : $"/me/v2/books/{h.BookId}/cover?v={Uri.EscapeDataString(v.ToString("O"))}",
-            null, h.ChapterId, null, h.ChapterTitle, null, h.ChapterKey,
-            h.BookRemoved ? h.BookTitle : null));
+        var items = page.Items.Select(ToHighlightDto);
         return Results.Ok(new { items, totalCount = page.TotalCount });
     }
+
+    internal static HighlightListItemDto ToHighlightDto(AnnotationListItem h) => new(
+        h.Id, h.SelectedText, h.AnchorJson, h.Color, h.NoteText, h.CreatedAt,
+        null, null, null, null,
+        // A removed book's highlight carries only the title it had, as legacy's deleted book (#982).
+        // UserBookCoverPath stays null: an old Android build passes it to getStorageUrl (#1580).
+        h.BookRemoved ? null : h.BookId, h.BookRemoved ? null : h.BookTitle, null,
+        null, h.ChapterId, null, h.ChapterTitle, null, h.ChapterKey,
+        h.BookRemoved ? h.BookTitle : null,
+        h.BookRemoved ? null : h.BookCoverVersion);
 }
 
 /// <summary>A row of <c>GET /me/highlights/all</c>, legacy's shape.</summary>
@@ -176,6 +178,8 @@ public record HighlightListItemDto(
     string? ChapterSlug,
     string? UserChapterSlug,
     // Set only when the book was deleted (no edition or upload left): the title it had (#982).
-    string? DeletedBookTitle
+    string? DeletedBookTitle,
+    // The book's cover version (its library `updatedAt`) when it has a cover, the key of syncApi.coverUrl (#1580).
+    DateTimeOffset? UserBookCoverVersion
 );
 
