@@ -161,6 +161,16 @@ describe('v2 reader store', () => {
     expect(yields).toBe(3)
   })
 
+  it('sha256Yielding_ANewerOpenStartsMidHash_StopsAtTheNextSliceWithNoDigest', async () => {
+    // The reader opened a big book, then the user picked another: the first hash stops, not reads to the end.
+    const bytes = new Uint8Array((9 << 20) + 37)
+    let yields = 0
+    let superseded = false
+    const digest = await sha256Yielding(bytes, async () => { if (++yields === 1) superseded = true }, () => superseded)
+    expect(digest).toBeNull()
+    expect(yields).toBe(1)
+  })
+
   it('sha256Yielding_ShortAndEmptyInput_MatchesTheSyncOne', async () => {
     for (const n of [0, 1, 55, 56, 64, 65]) {
       const b = Uint8Array.from({ length: n }, (_, i) => (i * 13 + 5) & 255)

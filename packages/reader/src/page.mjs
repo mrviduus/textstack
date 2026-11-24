@@ -159,6 +159,7 @@ let lastSelection = null
  * swap in? A build that is not the latest when it is made is destroyed and never shown.
  */
 let openSeq = 0
+let openXhr = null
 /**
  * The open whose view is on screen. Turns over exactly at the swap (`open`), never earlier: while a newer
  * book is hashed or made, the book on screen keeps reporting, saving, navigating and answering its restore.
@@ -1279,7 +1280,7 @@ const text = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? St
 const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.name ?? a }
 
 async function open(bytes, name, kind, mine) {
-  const sha256 = await sha256Yielding(bytes)
+  const sha256 = await sha256Yielding(bytes, undefined, () => mine !== openSeq)
   // Checked BEFORE book is assigned: a superseded open must not re-key the current book's saves (#1168).
   if (mine !== openSeq) return false
   // Made before the open book is touched: a file its reader cannot make a book of (a password-protected
@@ -1789,7 +1790,9 @@ window.__fol = {
     // Order requests before reading: an older XHR may finish after the latest book has opened (#1069).
     // viewSeq changes only at the swap, so a failed read still leaves the current book reading and saving.
     const mine = ++openSeq
-    const x = new XMLHttpRequest()
+    // A superseded download is aborted, not read to its end and dropped (#1177).
+    openXhr?.abort()
+    const x = openXhr = new XMLHttpRequest()
     x.responseType = 'arraybuffer'
     x.onload = () => {
       if (mine !== openSeq) return
