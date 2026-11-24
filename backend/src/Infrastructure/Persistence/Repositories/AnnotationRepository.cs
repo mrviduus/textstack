@@ -56,7 +56,7 @@ public sealed class AnnotationRepository(AppDataSource dataSource) : IAnnotation
                   ELSE a.locator->'value' END)::text AS AnchorJson,
             a.color AS Color, a.note_text AS NoteText, a.created_at AS CreatedAt, a.book_id AS BookId, b.title AS BookTitle,
             b.removed_at IS NOT NULL AS BookRemoved,
-            CASE WHEN b.cover_key IS NOT NULL THEN b.cover_updated_at END AS BookCoverVersion,
+            CASE WHEN b.cover_key IS NOT NULL THEN COALESCE(b.cover_updated_at, b.updated_at) END AS BookCoverVersion,
             NULL::uuid AS ChapterId, c.title AS ChapterTitle, c.chapter_key AS ChapterKey
         {ListAllFrom}
         LEFT JOIN LATERAL (
