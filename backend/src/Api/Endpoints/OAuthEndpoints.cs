@@ -132,6 +132,7 @@ public static class OAuthEndpoints
             Resource = resource,
             Scope = OAuth.GrantedScope(P("scope")),
             ExpiresAt = now + OAuth.ConsentLifetime,
+            CreatedAt = now,
         };
         await oauth.CreateRequestAsync(request, ct);
 

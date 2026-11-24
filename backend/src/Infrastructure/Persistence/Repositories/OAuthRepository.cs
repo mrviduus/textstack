@@ -43,9 +43,11 @@ public sealed class OAuthRepository(AppDataSource dataSource) : IOAuthRepository
         return await conn.QuerySingleAsync<OAuthClientRegistration>(new CommandDefinition(UpsertClient, client, cancellationToken: ct));
     }
 
+    // created_at is the request's CreatedAt, from the api's clock: ConnectAsync compares it with
+    // credentials_reset_at, which the api's clock stamps too (#1364).
     private const string InsertRequest = """
         INSERT INTO oauth_authorization_requests (id, client_id, client_name, redirect_uri, state, code_challenge, resource, scope, expires_at, created_at)
-        VALUES (@Id, @ClientId, @ClientName, @RedirectUri, @State, @CodeChallenge, @Resource, @Scope, @ExpiresAt, now())
+        VALUES (@Id, @ClientId, @ClientName, @RedirectUri, @State, @CodeChallenge, @Resource, @Scope, @ExpiresAt, @CreatedAt)
         """;
 
     public async Task CreateRequestAsync(OAuthAuthorization request, CancellationToken ct)

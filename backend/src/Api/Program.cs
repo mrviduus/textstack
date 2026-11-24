@@ -188,7 +188,8 @@ app.MapGet("/health", async (AppDataSource db, ILogger<Program> logger, Cancella
     try
     {
         await using var conn = await db.OpenConnectionAsync(ct);
-        await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
+        await using var ping = new Npgsql.NpgsqlCommand("SELECT 1", conn);
+        await ping.ExecuteScalarAsync(ct);
         return Results.Ok("healthy");
     }
     catch (Exception ex)
@@ -207,10 +208,13 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     var components = new Dictionary<string, object>();
     var criticalOk = true;
 
+    // One connection for the db, schema and collation checks (#1364), disposed with the request.
+    Npgsql.NpgsqlConnection? conn = null;
     try
     {
-        await using var conn = await db.OpenConnectionAsync(ct);
-        await new Npgsql.NpgsqlCommand("SELECT 1", conn).ExecuteScalarAsync(ct);
+        conn = await db.OpenConnectionAsync(ct);
+        await using var ping = new Npgsql.NpgsqlCommand("SELECT 1", conn);
+        await ping.ExecuteScalarAsync(ct);
         components["db"] = new { status = "ok" };
     }
     catch (Exception ex)
@@ -218,6 +222,7 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
         components["db"] = new { status = "down", error = ex.GetType().Name };
         criticalOk = false;
     }
+    await using var dbConn = conn;
 
     // Critical: the Api never migrates (ADR-021, ADR-026), so after `migrate.sh down`, or a
     // migrator that did not run, this build is serving against a schema it was not written for.
@@ -228,8 +233,7 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     {
         try
         {
-            await using var conn = await db.OpenConnectionAsync(ct);
-            var pending = await SchemaVersion.PendingAsync(conn, SchemaVersion.Known, ct);
+            var pending = await SchemaVersion.PendingAsync(conn!, SchemaVersion.Known, ct);
             if (pending.Count == 0)
                 components["schema"] = new { status = "ok" };
             else
@@ -255,8 +259,7 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     {
         try
         {
-            await using var conn = await db.OpenConnectionAsync(ct);
-            var drifted = await CollationDrift.DriftedAsync(conn, ct);
+            var drifted = await CollationDrift.DriftedAsync(conn!, ct);
             components["collation"] = drifted.Count == 0
                 ? new { status = "ok" }
                 : new { status = "drift", databases = drifted };

@@ -19,6 +19,10 @@ public interface IOAuthRepository
     /// </summary>
     Task<OAuthClientRegistration> SaveClientAsync(OAuthClientRegistration client, CancellationToken ct);
 
+    /// <summary>
+    /// Stores a pending request. Its <c>CreatedAt</c> comes from the api's clock, the one that stamps
+    /// a password reset: a consent requested before the reset mints no grant.
+    /// </summary>
     Task CreateRequestAsync(OAuthAuthorization request, CancellationToken ct);
 
     /// <summary>The request; null when none.</summary>

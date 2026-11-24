@@ -37,6 +37,26 @@ public class OAuthRepositoryTests(PostgresFixture db) : OAuthRepositoryContract(
         Assert.Null((await _repo.GetRequestAsync(request.Id, Ct))!.UserId);
     }
 
+    [Theory]
+    // The api's clock 3 minutes behind the database's: the reset came after the consent was asked.
+    [InlineData(-3, -2, false)]
+    // 3 minutes ahead: the consent was asked after the reset.
+    [InlineData(3, 2, true)]
+    public async Task ConnectAsync_ApiClockSkewedFromTheDatabase_ComparesConsentAndResetOnTheApisClock(
+        int requestedAtMinutes, int resetAtMinutes, bool expected)
+    {
+        // #1364: both stamps come from the api's clock, so the database's clock never decides.
+        var user = await db.NewReaderAsync();
+        var request = NewOAuthRequest();
+        request.CreatedAt = DateTimeOffset.UtcNow.AddMinutes(requestedAtMinutes);
+        await _repo.CreateRequestAsync(request, Ct);
+        await _repo.ApproveRequestAsync(request.Id, user, NewHash(), DateTimeOffset.UtcNow.AddMinutes(5), DateTimeOffset.UtcNow.AddMinutes(10), DateTimeOffset.UtcNow, Ct);
+        await db.ResetCredentialsAtAsync(user, DateTimeOffset.UtcNow.AddMinutes(resetAtMinutes));
+
+        Assert.Equal(expected, await _repo.ConnectAsync(user, request.Id, NewGrant(), Ct));
+        Assert.Equal(expected ? 1L : 0L, await db.CountAsync("oauth_grants", user));
+    }
+
     [Fact]
     public async Task ConnectAsync_ResetCommitsWhileItWaits_StoresNoGrant()
     {
