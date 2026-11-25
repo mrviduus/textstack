@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ApiError, initApi, UploadNotOnServer, type OpenReader } from '@textstack/shared'
 import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
-import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
+import { CHANGES_NOT_SYNCED, FILE_NOT_UPLOADED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage } from './hostStorage'
 import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, holdReaderHost, openBookHost, pushBeforeSignOut, removeLocalBook, syncLibrary, tryAgainBook, type SyncHost } from './sync'
@@ -2259,7 +2259,7 @@ describe('V2 local library sync (R6)', () => {
       expect(upload).toHaveBeenCalledTimes(MAX_FAILURES)
       expect(await lib.outbox()).toEqual([])
       // #1593: the stop shows on the book, as a stuck outbox entry does.
-      expect((await lib.books())[0].notSynced).toBe(CHANGES_NOT_SYNCED)
+      expect((await lib.books())[0].notSynced).toBe(FILE_NOT_UPLOADED)
 
       await syncLibrary(lib, host({ upload, retryFailed: true }))
       expect(upload).toHaveBeenCalledTimes(MAX_FAILURES + 1)
@@ -2270,6 +2270,41 @@ describe('V2 local library sync (R6)', () => {
       expect((await lib.books())[0].notSynced).toBeNull()
       await syncLibrary(lib, host({ upload }))
       expect(upload).toHaveBeenCalledTimes(2 * MAX_FAILURES + 1)
+    })
+  })
+
+  describe('a stopped upload on the book (#1593)', () => {
+    /** A pushed book whose upload failed MAX_FAILURES times, file sync on; and its database (a launch is a new library on it). */
+    async function uploadStopped() {
+      const db = memoryDb()
+      const lib = createLocalLibrary(db)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      const id = (await lib.localBookId(SHA))!
+      const fileId = (await lib.book(id))!.file_id!
+      await lib.setServerFile(id, serverFile(fileId) as never)
+      await lib.setFileSync(true)
+      for (let i = 0; i < MAX_FAILURES; i++) await lib.uploadFailed(id)
+      expect((await lib.books())[0].notSynced).toBe(FILE_NOT_UPLOADED)
+      return { db, lib, id, fileId }
+    }
+
+    it('books_UploadStoppedThenAPullSaysTheServerHasTheBytes_NotFlagged', async () => {
+      const { lib, id, fileId } = await uploadStopped()
+      await lib.applyBooks([serverBook(id, fileId, {}, { hasContent: true })] as never)
+      expect((await lib.books())[0].notSynced).toBeNull()
+    })
+
+    it('books_UploadStoppedThenFileSyncOff_NotFlagged', async () => {
+      const { lib } = await uploadStopped()
+      await lib.setFileSync(false)
+      expect((await lib.books())[0].notSynced).toBeNull()
+    })
+
+    it('uploadable_UploadStoppedThenTheAppLaunchesAgain_RetriedWhateverTheFirstPassDoes', async () => {
+      const { db, id } = await uploadStopped()
+      const relaunched = createLocalLibrary(db)
+      expect((await relaunched.books())[0].notSynced).toBeNull()
+      expect((await relaunched.uploadable()).map((b) => b.id)).toEqual([id])
     })
   })
 

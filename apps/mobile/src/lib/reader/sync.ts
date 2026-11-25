@@ -585,7 +585,7 @@ async function pushBookRemoval(lib: LocalLibrary, _host: SyncHost, reset: Reset,
  * Story B5, opt-in (off by default): each pushed book whose bytes the server lacks — and that no
  * device stopped syncing (`contentRemovedAt`) — goes up through the shared `uploadFile` to its
  * known ids. A full quota stops the round (the books stay local); offline ends the pass. A failed upload is
- * counted on the book's row (#1198, #1593): at `MAX_FAILURES` it waits for the next session's first pass or
+ * counted on the book's row (#1198, #1593): at `MAX_FAILURES` it waits for the next launch, session's first pass or
  * "Try again", and the list shows it not synced; an outage or offline is never counted.
  * ponytail: no resume: a retried upload re-sends every part (the server lists no stored parts); a parts listing is
  * the upgrade if big files fail often.

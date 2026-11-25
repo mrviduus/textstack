@@ -147,6 +147,8 @@ const isDuplicateColumn = (e: unknown) => /duplicate column name/i.test(String((
 export const MAX_FAILURES = 5
 /** A book's not-synced text when its entry or a child's stopped being retried: fixed, no error text. */
 export const CHANGES_NOT_SYNCED = 'some changes not synced'
+/** #1593: a book's not-synced text when the upload of its file (file sync) stopped being retried. */
+export const FILE_NOT_UPLOADED = 'book file not uploaded'
 /** The book an outbox entry belongs to (its own entry, its state, its annotation, its session): the one definition. */
 const BOOK_OF = `CASE outbox.kind WHEN 'annotation' THEN (SELECT a.book_id FROM annotations a WHERE a.id = outbox.target)
   WHEN 'session' THEN (SELECT s.book_id FROM reading_sessions s WHERE s.id = outbox.target) ELSE outbox.target END`
@@ -247,6 +249,10 @@ const parse = <T>(json: string | null): T | null => {
   try { return JSON.parse(json) as T } catch { return null }
 }
 
+/** #1593: a book still `uploadable` whose upload failed MAX_FAILURES times (the same predicate as that query). */
+const uploadStopped = (b: BookRow) => b.upload_failures >= MAX_FAILURES && b.imported_at != null && b.server_file_id === b.file_id
+  && !b.has_content && !b.content_removed && !b.removed_at
+
 /** The server's current file, as the `server_*` columns and `has_content`. */
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
@@ -312,6 +318,8 @@ export function createLocalLibrary(db: Db) {
       await db.execAsync(alter).catch((e) => { if (!isDuplicateColumn(e)) throw e })
     }
     if (!(await db.getFirstAsync('SELECT 1 FROM meta WHERE key = ?', [NOTES_UPGRADE]))) await db.withTransactionAsync(() => db.execAsync(NOTES_UPGRADE_SQL))
+    // #1593: failed uploads count per app run: every launch retries them, whatever its first pass did.
+    await db.execAsync('UPDATE books SET upload_failures = 0 WHERE upload_failures > 0')
   }
   /** A job on the one queue; the schema runs before the first (a failed one is tried again). */
   const job = <T>(fn: () => Promise<T>): Promise<T> => queue.run(async () => {
@@ -497,6 +505,7 @@ export function createLocalLibrary(db: Db) {
 
     /** Books on this device, in import order, then the server's that can be downloaded (bytes not already here). */
     books: (): Promise<LibraryBook[]> => job(async () => {
+      const fileSync = (await getMeta('file_sync')) === '1'
       const stuck = new Set((await all<{ id: string }>(`SELECT ${BOOK_OF} AS id FROM outbox WHERE failures >= ? GROUP BY 1`, [MAX_FAILURES])).map((r) => r.id))
       const finished = new Map((await all<{ book_id: string; completed_at: string }>('SELECT book_id, completed_at FROM reading_state WHERE completed_at IS NOT NULL')).map((r) => [r.book_id, r.completed_at]))
       const rows = await all<BookRow>(
@@ -511,7 +520,7 @@ export function createLocalLibrary(db: Db) {
           id: b.id, title: b.title, author: b.author, originalName: b.original_name,
           sha256: (local ? b.sha256 : b.server_sha256)!, size: (local ? b.size : b.server_size)!,
           importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
-          notSynced: b.blocked ?? (stuck.has(b.id) || b.upload_failures >= MAX_FAILURES ? CHANGES_NOT_SYNCED : null),
+          notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : fileSync && uploadStopped(b) ? FILE_NOT_UPLOADED : null),
           finished: finished.has(b.id),
           completedAt: finished.get(b.id) ?? null,
           format: (local ? b.format : b.server_format) ?? null,
