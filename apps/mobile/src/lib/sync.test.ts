@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { initApi } from '@textstack/shared'
 import NetInfo from '@react-native-community/netinfo'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -395,3 +396,21 @@ function wrapIds(calls: Call[], completes: Answer[] = [{ status: 200, body: {} }
     return { ok: a.status < 300, status: a.status, text: async () => (a.body === undefined ? '' : JSON.stringify(a.body)) }
   })
 }
+
+// #1610: Android's default open mode is READ_WRITE ("rw"), which creates a missing file: a 0-byte book.
+describe('deviceUploadIo', () => {
+  it('open_RetainedBookFile_OpensReadOnly', () => {
+    const req = createRequire(import.meta.url)
+    const path = req.resolve('expo-file-system')
+    const saved = req.cache[path]
+    const modes: unknown[] = []
+    class File { size = 3; constructor(readonly uri: string) {} open(mode?: unknown) { modes.push(mode); return { close() {} } } }
+    req.cache[path] = { id: path, filename: path, loaded: true, exports: { File, FileMode: { ReadOnly: 'r' } } } as never
+    try {
+      deviceUploadIo(() => false).open('file:///doc/v2/books/abc.epub').close()
+    } finally {
+      if (saved) req.cache[path] = saved; else delete req.cache[path]
+    }
+    expect(modes).toEqual(['r'])
+  })
+})
