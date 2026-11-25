@@ -165,7 +165,10 @@ const FOLIATE_SHA = 'be4abb9c1a4f6225f506e0c1bdfaf7cd2b8d543a'
 // −99 (#1579 review): one silence watchdog (PDF_SILENCE_MS) for the deadlines; `toc` and `book-stopped` said again after a
 // newer open fails (`said`); a missing worker chunk fails at once; one base64 helper (`fromBase64`).
 // +163 (#1352): a relocate's text nodes and chapter starts cached per section document; one section-end test.
-const BUDGET = 351001
+// +455 (#1354): a mark not starting on screen is never asked (`hereOf`, but one above in scrolled flow); `atTop` decides a
+// mark on a line below the place's by first lines (no span; the place's measured once, on demand); `bookmark-list` carries
+// its list only when it changed (`listSent`); text.ts `textPartsIn` / `brBetween` shared with tap.mjs.
+const BUDGET = 351456
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

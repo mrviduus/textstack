@@ -21,7 +21,7 @@ import { MAX_SELECTION_CFI, selectionMessage } from './selection.mjs'
 import { SPOKEN_FILL } from './listen.mjs'
 import { navKey } from './chrome.mjs'
 import { HIGHLIGHT_FILL, colorOf, highlightList, isHighlightColor, sameRangeHighlight } from './highlights.mjs'
-import { atTop, bookmarkList, bookmarkRange, bookmarkText, isBookmark, startsWithin } from './bookmarks.mjs'
+import { atTop, bookmarkList, firstLine, bookmarkRange, bookmarkText, isBookmark, startsWithin } from './bookmarks.mjs'
 import { BOOKMARK_COLOR } from '../../shared/src/reader/pageStore'
 import { MAX_SELECTED_TEXT } from '../../shared/src/reader/locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
@@ -67,7 +67,7 @@ const drawnRanges = new Map()
  * - `placing`: the restores and `addHighlights` calls not finished yet, and `awaitingMore`: the host said more
  *   annotations follow the restore (`restore(json, true)`): no bookmark can be made until they are placed, or one
  *   made meanwhile could be the twin of one still coming;
- * - `bookmarksSent`: what the last `bookmark-list` said (view, list version, here, can).
+ * - `bookmarksSent`: what the last `bookmark-list` said (view, list version, here, can, placing).
  */
 const placed = new Set()
 const placedQuotes = new Set()
@@ -77,6 +77,8 @@ let hereId = null
 const placing = new Set()
 let awaitingMore = false
 let bookmarksSent = null
+/** #1354: the view and list version whose list the last `bookmark-list` carried. */
+let listSent = null
 /** Test-only (formats.check.mjs): the next bookmark passes throw. */
 let testBreakBookmarks = false
 /** #1271: the reader's saved words (wordMarks.mjs `readMarkWords`), as the host last sent them, and whether their glosses show. */
@@ -1027,8 +1029,14 @@ function rangeOn(h, loc) {
  * ponytail: resolves every found bookmark's CFI per relocate; index them by section if a book ever holds thousands.
  */
 function hereOf(loc, cause, place) {
-  const top = place && { scrolled: !!view.renderer.scrolled, vertical: /^vertical/.test(writingModeOf(elementOf(place)) ?? '') }
-  const atTheTop = (r) => !!r && !!place && atTop(place, r, top)
+  const scrolled = !!view.renderer.scrolled
+  const vertical = !!place && /^vertical/.test(writingModeOf(elementOf(place)) ?? '')
+  // #1354: the place's first line measured once, and only when a mark reaches `atTop`.
+  let line
+  const top = place && { scrolled, vertical, placeLine: () => (line ??= firstLine(place.getClientRects(), vertical)) }
+  // #1354: a mark that does not start on screen is not here, no layout read (in scrolled flow one just above may be).
+  const near = (r) => startsWithin(loc.range, r) || (scrolled && r.compareBoundaryPoints(0 /* START_TO_START */, loc.range) < 0)
+  const atTheTop = (r) => !!r && !!place && near(r) && atTop(place, r, top)
   if (hereId && cause !== 'turn' && cause !== 'nav') {
     const kept = entry.highlights.find((h) => h.id === hereId && placed.has(h.id))
     const r = kept && rangeOn(kept, loc)
@@ -1056,10 +1064,14 @@ function postBookmarks(loc = view?.lastLocation, cause) {
     const can = canBookmark(place)
     // Bookmarks still being placed (#1314 review): a host shows them loading, not "this page cannot be bookmarked".
     const loading = awaitingMore || placing.size > 0
-    const sent = `${viewSeq}:${listedVersion}:${hereId}:${can}:${loading}`
+    const list = `${viewSeq}:${listedVersion}`
+    const sent = `${list}:${hereId}:${can}:${loading}`
     if (sent === bookmarksSent) return
+    // #1354: the list (up to 5000 items) only when it changed (or this view has not sent it yet); a turn sends the rest.
+    const bookmarks = list === listSent ? {} : { bookmarks: listed }
     bookmarksSent = sent
-    post({ type: 'bookmark-list', key: book.sha256, bookmarks: listed, here: hereId, can, placing: loading })
+    listSent = list
+    post({ type: 'bookmark-list', key: book.sha256, ...bookmarks, here: hereId, can, placing: loading })
   } catch (e) {
     log('error', `bookmarks: ${e?.stack ?? e}`)
   }

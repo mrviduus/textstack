@@ -28,6 +28,30 @@ export function textNodes(root: Node): Text[] {
   return out
 }
 
+/** The element `textNodes` walks for `range`: its common ancestor (a text node's parent). */
+export function rangeRoot(range: Range): Node {
+  const c = range.commonAncestorContainer
+  return c.nodeType === Node.TEXT_NODE ? (c.parentNode ?? c) : c
+}
+
+/**
+ * The text nodes in `range` (`textNodes` of `rangeRoot`), each with the part of it inside the range; empty parts dropped.
+ * ponytail: walks the range's whole common ancestor (a section's body for a screen); a walker started at the range's
+ * start, if a very long section makes a relocate slow.
+ */
+export function textPartsIn(range: Range): { node: Text; from: number; to: number }[] {
+  return textNodes(rangeRoot(range))
+    .filter((t) => range.intersectsNode(t))
+    .map((node) => ({ node, from: node === range.startContainer ? range.startOffset : 0, to: node === range.endContainer ? range.endOffset : node.length }))
+    .filter((p) => p.to > p.from)
+}
+
+/** A `<br>` of `brs` stands between nodes `a` and `b`: a line break on screen. */
+export function brBetween(brs: Element[], a: Node, b: Node): boolean {
+  const follows = (x: Node, y: Node) => !!(x.compareDocumentPosition(y) & 4 /* DOCUMENT_POSITION_FOLLOWING */)
+  return brs.some((br) => follows(a, br) && follows(br, b))
+}
+
 export function chapterText(root: Node): string {
   return textNodes(root).map((t) => t.data).join('')
 }

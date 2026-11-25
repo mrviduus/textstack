@@ -165,6 +165,15 @@ describe('ReaderHost bookmarks', () => {
     expect(rows(openTab()).map((b) => b.textContent)).toEqual(['kept'])
   })
 
+  it('list_ATurnWithoutTheList_KeepsTheListHeld_TakesHereAndCan', () => {
+    opened()
+    list([item(ID1, 'first', 2), item(ID2, 'second', 4)])
+    // #1354: while the list is unchanged a turn sends only `here` / `can`.
+    fromPage({ type: 'bookmark-list', key: SHA, here: ID2, can: false, placing: false })
+    expect(button()).toHaveAttribute('aria-pressed', 'true')
+    expect(rows(openTab()).map((b) => b.textContent)).toEqual(['first', 'second'])
+  })
+
   it('list_UntrustedText_RenderedAsText', () => {
     opened()
     list([item(ID1, '<img src=x onerror=alert(1)>')])

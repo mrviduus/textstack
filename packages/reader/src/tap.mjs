@@ -1,6 +1,6 @@
 // What a tap in a book section hands the host: the tapped word's sentence and an external link. DOM
 // only, no foliate, so tap.test.ts runs it in jsdom.
-import { blockOf, sentenceAround, textNodes } from './text'
+import { blockOf, brBetween, sentenceAround, textNodes, textPartsIn } from './text'
 
 /** The tapped word's sentence inside its block (text.ts `blockOf`), by its sentence rule (TR-1). */
 export function sentenceOf(node, start, end) {
@@ -30,8 +30,7 @@ export function sentenceOfRange(startNode, start, endNode, end) {
   // A <br> between two text nodes is a line break on screen: a space. A PDF's text layer (pdf.js) separates
   // its lines with nothing else, so without it the last word of a line glues to the next line's first.
   const brs = [...block.querySelectorAll('br')]
-  const follows = (a, b) => !!(a.compareDocumentPosition(b) & a.DOCUMENT_POSITION_FOLLOWING)
-  const parts = nodes.map((t, k) => (k && brs.some((br) => follows(nodes[k - 1], br) && follows(br, t)) ? ' ' : '') + t.data)
+  const parts = nodes.map((t, k) => (k && brBetween(brs, nodes[k - 1], t) ? ' ' : '') + t.data)
   // Where each node's data starts in the joined text.
   const starts = []
   parts.reduce((n, p, k) => (starts.push(n + p.length - nodes[k].length), n + p.length), 0)
@@ -55,13 +54,10 @@ export function sentenceOfRange(startNode, start, endNode, end) {
  * heading starts in the next block's text, not at the heading's end. Null when it holds no text.
  */
 export function trimRange(range) {
-  const c = range.commonAncestorContainer
-  const nodes = textNodes(c.nodeType === Node.TEXT_NODE ? c.parentNode : c).filter((t) => range.intersectsNode(t))
   let first = null
   let last = null
-  for (const t of nodes) {
-    const from = t === range.startContainer ? range.startOffset : 0
-    const part = t.data.slice(from, t === range.endContainer ? range.endOffset : t.length)
+  for (const { node: t, from, to } of textPartsIn(range)) {
+    const part = t.data.slice(from, to)
     const a = part.search(/\S/)
     if (a < 0) continue
     first ??= [t, from + a]

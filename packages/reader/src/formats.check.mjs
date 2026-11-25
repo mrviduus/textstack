@@ -538,8 +538,18 @@ try {
   check(bookmarkedQuote?.highlights.filter(h => h.color === 'bookmark').length === 1
     && bookmarkedQuote?.highlights.filter(h => h.color === 'quote').length === 1,
   'a quotation does not block a separate bookmark at the same location')
+  // #1354: `bookmark-list` carries its list only when the list changed or the view has not sent it yet.
+  const added = await waitFor(beforeBookmark, x => x.type === 'bookmark-list' && x.here === bookmark?.id, 'bookmark-list after addBookmark')
+  const turnFrom = messages.length
+  // (The bookmark starts the last chapter: a turn back leaves it.)
+  await call('window.__fol.prev()')
+  const turned = await waitFor(turnFrom, x => x.type === 'bookmark-list', 'bookmark-list after a turn').catch(() => null)
+  check(Array.isArray(added.bookmarks) && turned && !('bookmarks' in turned) && turned.here === null,
+    `a turn sends here/can without the unchanged list (${JSON.stringify(turned)})`)
   if (bookmark) {
-    await open('tsalignment.epub', JSON.stringify(bookmarkedQuote))
+    const reopened = await open('tsalignment.epub', JSON.stringify(bookmarkedQuote))
+    const firstList = messages.slice(reopened.from).find(x => x.type === 'bookmark-list')
+    check(Array.isArray(firstList?.bookmarks), 'a new view sends the bookmark list again')
     check(await call('window.__fol.placedBookmarks()') === 1, 'restoring a quotation does not increase the bookmark count')
     const removeFrom = messages.length
     await call(`window.__fol.removeBookmark(${JSON.stringify(bookmark.id)})`)
