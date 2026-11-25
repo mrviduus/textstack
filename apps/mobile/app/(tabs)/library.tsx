@@ -76,8 +76,6 @@ export default function LibraryScreen() {
   const resumeList = useContinueReadingList(NO_CATALOG, NO_CATALOG_PROGRESS, userBooks, openedAt)
 
   const loadGenRef = useRef(0)
-  /** #1189: the ids the server listed last: an offline list keeps those (unless deleted here) and the books on the device. */
-  const listedRef = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => () => { loadGenRef.current = -1 }, [])
 
   const loadData = useCallback(async () => {
@@ -88,7 +86,6 @@ export default function LibraryScreen() {
     try {
       const books = await userBooksApi.getUserBooks()
       if (myGen !== loadGenRef.current) return // superseded or unmounted
-      listedRef.current = new Set(books.map(b => b.id))
       setUserBooks(books)
       setLoadError(null)
     } catch (e) {
@@ -113,9 +110,7 @@ export default function LibraryScreen() {
           ])
           if (myGen !== loadGenRef.current) return
           // #1189: a book deleted here offline leaves the kept list too.
-          const here = new Set(onDevice.map(c => c.id))
-          const kept = (b: UserBookDto) => !removed.has(b.id) && (here.has(b.id) || listedRef.current.has(b.id))
-          setUserBooks(prev => (prev.length > 0 ? prev.filter(kept) : onDevice.map(c => cachedUserBook(c, progress.get(c.id)))))
+          setUserBooks(prev => (prev.length > 0 ? prev.filter(b => !removed.has(b.id)) : onDevice.map(c => cachedUserBook(c, progress.get(c.id)))))
         } catch { /* cache unavailable — the banner still explains the empty list */ }
       }
     } finally {

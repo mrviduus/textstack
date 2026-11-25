@@ -278,7 +278,8 @@ const UNSENT_CHANGES = `
   UNION ALL SELECT s.book_id FROM outbox o LEFT JOIN reading_sessions s ON s.id = o.target WHERE o.kind = 'session'
   UNION ALL SELECT a.book_id FROM outbox o LEFT JOIN annotations a ON a.id = o.target WHERE o.kind = 'annotation'
   UNION ALL SELECT book_id FROM annotations WHERE mine = 1 AND revision IS NULL AND deleted_at IS NULL
-    AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')`
+    AND id NOT IN (SELECT target FROM outbox WHERE kind = 'annotation')
+  UNION ALL SELECT target FROM outbox WHERE kind = 'removal'`
 
 /**
  * A book on this device is lost with its copy unless the server holds this very file with its bytes:
@@ -423,7 +424,7 @@ export function createLocalLibrary(db: Db) {
       await run('UPDATE OR REPLACE reading_state SET book_id = ? WHERE book_id = ?', [to, from])
       await run('UPDATE annotations SET book_id = ? WHERE book_id = ?', [to, from])
       await run('UPDATE reading_sessions SET book_id = ? WHERE book_id = ?', [to, from])
-      await run(`UPDATE OR REPLACE outbox SET target = ? WHERE target = ? AND kind IN ('book', 'state')`, [to, from])
+      await run(`UPDATE OR REPLACE outbox SET target = ? WHERE target = ? AND kind IN ('book', 'state', 'removal')`, [to, from])
     }
     for (const [from, to] of Object.entries(files)) {
       if (from === to) continue

@@ -2775,6 +2775,15 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.outbox()).toEqual([])
     })
 
+    // Review: a delete made as a guest follows the merge to the account's id, and an offline sign-out warns about it.
+    it('delete_AsAGuestThenMerged_TheRemovalTargetsTheAccountsBook_SignOutCountsIt', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.removeBook(bookId)
+      expect(await lib.signOutLoss()).toEqual({ books: 0, writes: 1 })
+      await lib.adoptAccount('u1', { [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.target}`)).toEqual(['removal:acct-book'])
+    })
+
     it('delete_ServerAnswers404_EntryDropped', async () => {
       const { lib, bookId } = await synced()
       await lib.removeBook(bookId)
