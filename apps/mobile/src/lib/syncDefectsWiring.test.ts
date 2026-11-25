@@ -10,8 +10,28 @@ const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), '
 describe('#1191 — a V2 store reset never lets a listing delete downloads', () => {
   it('the library screen re-loads instead of failing when a reset dropped its load, and a sign-out supersedes it', () => {
     const lib = read('app/(tabs)/library.tsx')
-    expect(lib.indexOf('const myGen = ++loadGenRef.current')).toBeLessThan(lib.indexOf('if (!isAuthenticated) { setLoading(false); return }'))
+    expect(lib.indexOf('const myGen = ++loadGenRef.current')).toBeLessThan(lib.indexOf('if (!isAuthenticated) {'))
     expect(lib).toContain('if (syncEpoch() !== epoch) return void loadData()')
+  })
+})
+
+describe('#1608 — signed out, the library still lists the books on this device', () => {
+  it('signed out, the screen reads the device (gated by the sign-out wipe), never the server, and keeps sign-in for an empty shelf', () => {
+    const lib = read('app/(tabs)/library.tsx')
+    const signedOut = lib.slice(lib.indexOf('if (!isAuthenticated) {'), lib.indexOf('const epoch = syncEpoch()'))
+    expect(signedOut).toContain('signedOutMayList()')
+    expect(signedOut).toContain('deviceUserBooks(')
+    expect(signedOut).not.toContain('userBooksApi')
+    expect(lib).toContain('!isAuthenticated && userBooks.length === 0')
+  })
+
+  it('signed out, the book page shows the device copy without asking the server, and no server write is offered', () => {
+    const page = read('app/my-books/[id].tsx')
+    const signedOut = page.slice(page.indexOf('if (!isAuthenticated) {'), page.indexOf('userBooksApi.getUserBook(id)'))
+    expect(signedOut).toContain('signedOutMayList()')
+    expect(signedOut).toContain('rehydrateFromDevice(id)')
+    expect(signedOut).toContain('return')
+    expect(read('src/hooks/useBookActions.ts')).toContain('isReady && isAuthenticated')
   })
 })
 

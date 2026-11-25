@@ -74,11 +74,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     if (wasAuthenticatedRef.current && !isAuthenticated) {
       // The declined set names this account's books: gone with it (#1192).
       forgetDeclinedDownloads().catch(() => {})
-      setOnDevice(NONE)
+      // Read again, not assumed empty: a session the server lost wipes nothing, its files stay readable (#1608).
+      refreshOnDevice().catch(() => setOnDevice(NONE))
       setDownloading(NONE)
     }
     wasAuthenticatedRef.current = isAuthenticated
-  }, [isAuthenticated])
+  }, [isAuthenticated, refreshOnDevice])
 
   /** A sync pass so the device's library knows the server's books (the reader runs the same on open). */
   const pull = useCallback(async (retryFailed = false) => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, TouchableOpacity } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter, useFocusEffect } from 'expo-router'
@@ -17,8 +17,8 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
-import { deviceLocalLibrary, deviceRemovals } from '../../src/lib/reader/deviceLibrary'
-import { cachedUserBook } from '../../src/lib/cachedUserBookDetail'
+import { deviceLocalLibrary, deviceRemovals, signedOutMayList } from '../../src/lib/reader/deviceLibrary'
+import { deviceUserBooks } from '../../src/lib/cachedUserBookDetail'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
 import { LibraryViewSheet } from '../../src/components/library/LibraryViewSheet'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
@@ -41,7 +41,7 @@ const NO_CATALOG: UserLibraryItem[] = []
 const NO_CATALOG_PROGRESS: Record<string, ReadingProgressDto> = {}
 
 export default function LibraryScreen() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
   const { colors } = useTheme()
   const { t } = useLanguage()
   const router = useRouter()
@@ -61,27 +61,56 @@ export default function LibraryScreen() {
   // "you have no books" from "I could not ask", and it showed the first-run
   // welcome to an offline reader with twelve books — indistinguishable from
   // having lost the account.
-  const [loadError, setLoadError] = useState<'offline' | 'failed' | null>(null)
+  // 'device': signed out, the device's own library could not be read (#1608).
+  const [loadError, setLoadError] = useState<'offline' | 'failed' | 'device' | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Generation counter guards against:
   //  1. Out-of-order resolution — pull-to-refresh racing a focus-effect
   //     reload; the slower response would otherwise overwrite fresher data.
   //  2. Set-state-after-unmount — tab swap during an in-flight request.
   // Set to -1 on unmount so trailing resolutions are dropped (B-10).
-  // Must sit above the early returns below — it is a hook, and `loading` /
-  // `!isAuthenticated` both bail out before the render body.
+  // Must sit above the early returns below — it is a hook, and `loading` bails out before the render body.
   /** This device's opens of uploads (the V2 reader marks them): "Recently opened" and Continue (#1385) without a server write. Read on focus. */
   const [openedAt, setOpenedAt] = useState<Record<string, number>>({})
   useFocusEffect(useCallback(() => { AsyncStorage.getItem(OPENED_AT_KEY).then((j) => setOpenedAt(parseOpenedAt(j))).catch(() => {}) }, []))
   const resumeList = useContinueReadingList(NO_CATALOG, NO_CATALOG_PROGRESS, userBooks, openedAt)
 
+  // A session change (#1608: sign-out, a lost account) drops the list in the same render: the previous
+  // session's server list never shows under the signed-out banner, nor a device list under an account.
   const loadGenRef = useRef(0)
+  const [listSession, setListSession] = useState(isAuthenticated)
+  if (listSession !== isAuthenticated) {
+    setListSession(isAuthenticated)
+    setUserBooks([])
+    setLoading(true)
+  }
+  // Before paint: a load of the previous session still in flight lands nowhere.
+  useLayoutEffect(() => { loadGenRef.current++ }, [isAuthenticated])
   useEffect(() => () => { loadGenRef.current = -1 }, [])
 
   const loadData = useCallback(async () => {
     // Bumped before the session check: a sign-out supersedes a load still in flight (#1191).
     const myGen = ++loadGenRef.current
-    if (!isAuthenticated) { setLoading(false); return }
+    // The session is not known yet (SecureStore still answering): neither list is the reader's. Re-run when it is.
+    if (authLoading) return
+    // Signed out (#1608: the server lost the account, or no session yet): the device's own books, no server call.
+    if (!isAuthenticated) {
+      try {
+        // After a sign-out whose wipe is late or failed, the rows left are the signed-out account's: not listed.
+        const here = (await signedOutMayList()) ? await deviceUserBooks(deviceLocalLibrary()) : []
+        if (myGen !== loadGenRef.current) return
+        setUserBooks(here)
+        setLoadError(null)
+      } catch (e) {
+        if (myGen !== loadGenRef.current) return
+        logLoadError('Library device read error:', e)
+        setUserBooks([])
+        setLoadError('device')
+      } finally {
+        if (myGen === loadGenRef.current) setLoading(false)
+      }
+      return
+    }
     const epoch = syncEpoch()
     try {
       const books = await userBooksApi.getUserBooks()
@@ -101,32 +130,30 @@ export default function LibraryScreen() {
       // the list is partial rather than pretending it is whole.
       if (offline) {
         try {
-          const lib = deviceLocalLibrary()
-          const [onDevice, progress, removed] = await Promise.all([
-            lib.books().then(bs => bs.filter(b => b.local)),
-            // The reader's places (#1532): progress and Continue with no account or network.
-            lib.progress(),
-            deviceRemovals(),
-          ])
+          const [books, removed] = await Promise.all([deviceUserBooks(deviceLocalLibrary()), deviceRemovals()])
           if (myGen !== loadGenRef.current) return
           // #1189: a book deleted here offline leaves the kept list too.
-          setUserBooks(prev => (prev.length > 0 ? prev.filter(b => !removed.has(b.id)) : onDevice.map(c => cachedUserBook(c, progress.get(c.id)))))
+          setUserBooks(prev => (prev.length > 0 ? prev.filter(b => !removed.has(b.id)) : books))
         } catch { /* cache unavailable — the banner still explains the empty list */ }
       }
     } finally {
       if (myGen === loadGenRef.current) setLoading(false)
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, authLoading])
 
 
   // Auto-refresh while processing books exist
   useEffect(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     const hasProcessing = userBooks.some(b => b.status.toLowerCase() === 'processing')
-    if (!hasProcessing) return
+    // Signed out: no server list to poll (#1608).
+    if (!hasProcessing || !isAuthenticated) return
     pollRef.current = setInterval(async () => {
+      const gen = loadGenRef.current
       try {
         const books = await userBooksApi.getUserBooks()
+        // A load since (a sign-out included) owns the list.
+        if (gen !== loadGenRef.current) return
         setUserBooks(books)
       } catch (e) {
         // Don't toast here — polling errors should stay quiet, otherwise a
@@ -135,7 +162,7 @@ export default function LibraryScreen() {
       }
     }, 5000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [userBooks])
+  }, [userBooks, isAuthenticated])
 
   // Persist view mode
   useEffect(() => {
@@ -154,29 +181,7 @@ export default function LibraryScreen() {
     setRefreshing(false)
   }
 
-  if (!isAuthenticated) {
-    // Two honest answers for an empty shelf, and until 2026-09-28 only the
-    // second was offered. A reader with no session was sent to Sign In — the
-    // one thing that was never required to add a book, since a guest may
-    // upload (ADR-014 §3a) and the upload route mints the session itself. The
-    // account is for carrying a library between phones, which is a real reason
-    // and a secondary one.
-    return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <EmptyState
-          icon="library-outline"
-          title={t('library.title')}
-          subtitle="Add a book and start reading. An account is only needed to carry your library to another phone."
-          buttonLabel="Upload a book"
-          onButtonPress={() => router.push('/my-books/upload')}
-          secondaryLabel="Sign in"
-          onSecondaryPress={() => router.push('/(auth)/login')}
-        />
-      </View>
-    )
-  }
-
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.skeletonList}>
@@ -202,10 +207,32 @@ export default function LibraryScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <EmptyState
           icon={loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
-          title={loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
-          subtitle={loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
+          title={loadError === 'offline' ? t('library.offline.title') : loadError === 'device' ? t('library.signedOut.readFailed') : t('library.loadFailed.title')}
+          subtitle={loadError === 'offline' ? t('library.offline.body') : loadError === 'device' ? undefined : t('library.loadFailed.body')}
           buttonLabel={t('common.retry')}
           onButtonPress={() => { setLoading(true); loadData() }}
+        />
+      </View>
+    )
+  }
+
+  if (!isAuthenticated && userBooks.length === 0) {
+    // Two honest answers for an empty shelf, and until 2026-09-28 only the
+    // second was offered. A reader with no session was sent to Sign In — the
+    // one thing that was never required to add a book, since a guest may
+    // upload (ADR-014 §3a) and the upload route mints the session itself. The
+    // account is for carrying a library between phones, which is a real reason
+    // and a secondary one.
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <EmptyState
+          icon="library-outline"
+          title={t('library.title')}
+          subtitle="Add a book and start reading. An account is only needed to carry your library to another phone."
+          buttonLabel="Upload a book"
+          onButtonPress={() => router.push('/my-books/upload')}
+          secondaryLabel="Sign in"
+          onSecondaryPress={() => router.push('/(auth)/login')}
         />
       </View>
     )
@@ -245,6 +272,10 @@ export default function LibraryScreen() {
       {/* Above everything, because it changes how the whole list should be read:
           uploads and saved-but-undownloaded books are not cached at all. */}
       {loadError === 'offline' && <OfflineBanner message={t('library.offline.partial')} />}
+      {/* #1608: signed out, the books on this device still read; the account only carries them elsewhere. */}
+      {!isAuthenticated && (
+        <OfflineBanner signedOut message={t('library.signedOut.banner')} actionLabel={t('library.signedOut.signIn')} onAction={() => router.push('/(auth)/login')} />
+      )}
       <LibrarySearch value={query} onChange={setQuery} onClear={clearQuery} />
       <View style={styles.controlRow}>
         <View style={{ flex: 1 }}>

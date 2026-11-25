@@ -206,6 +206,11 @@
       "body": "Your library will be here as soon as you reconnect.",
       "partial": "You're offline — showing downloaded books only."
     },
+    "signedOut": {
+      "banner": "Signed out — these books are on this device. Sign in to keep them.",
+      "readFailed": "Couldn't read the books on this device.",
+      "signIn": "Sign in"
+    },
     "loadFailed": {
       "title": "Couldn't load your library",
       "body": "Something went wrong on our side. Your books are safe."
