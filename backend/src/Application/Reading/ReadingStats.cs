@@ -31,10 +31,11 @@ public static class ReadingStats
         for (var start = from; start <= to; start = daily ? start.AddDays(1) : start.AddMonths(1))
             bars.Add(new(start, Clamp(Minutes(seconds.GetValueOrDefault(start)))));
 
-        var (current, best) = Streaks([.. days.Select(d => d.Day)], today);
+        // A day is read when its minutes round to one or more, as its bar does.
+        var (current, best) = Streaks([.. days.Where(IsRead).Select(d => d.Day)], today);
         // Each bar is rounded once and the total is their sum, so the header always matches the chart.
         var total = seconds.Values.Sum(Minutes);
-        return new(period, from, to, Clamp(total), inPeriod.Count, current, best, bars);
+        return new(period, from, to, Clamp(total), inPeriod.Count(IsRead), current, best, bars);
     }
 
     /// <summary>
@@ -53,6 +54,8 @@ public static class ReadingStats
         for (var day = read.Contains(today) ? today : today.AddDays(-1); read.Contains(day); day = day.AddDays(-1)) current++;
         return (current, best);
     }
+
+    private static bool IsRead(DailyReading day) => Minutes(day.Seconds) >= 1;
 
     private static long Minutes(long seconds) => (long)Math.Round(seconds / 60.0, MidpointRounding.AwayFromZero);
 

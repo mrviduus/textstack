@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Application.Common;
 using Application.Library;
 using Application.Sync;
@@ -115,6 +116,9 @@ public sealed class ReadingSyncService(
         return result.Current is { } stored ? SyncResult.StaleRevision(stored.Revision, stored.ToDto()) : await MissingAsync(userId, bookId, ct);
     }
 
+    // UTC or Area/Location[/…]. Refuses what Postgres would read as POSIX (UTC+3, +03:00: the sign flipped) and control chars.
+    private static readonly Regex IanaZoneShape = new(@"^(UTC|[A-Za-z]+(/[A-Za-z0-9_+\-]+)+)\z", RegexOptions.Compiled);
+
     /// <summary>
     /// <c>GET /me/v2/stats</c> (#1366): the <paramref name="period"/> holding today in <paramref name="timeZone"/>
     /// (week, month, halfyear = this month and the 5 before it, year), with all-time streaks. Both are required: days are the user's, not the server's.
@@ -123,7 +127,7 @@ public sealed class ReadingSyncService(
     {
         var badZone = SyncResult.Invalid("tz", "tz is an IANA time zone, such as Europe/Kyiv.");
         if (!ReadingStats.IsPeriod(period)) return SyncResult.Invalid("period", "period is week, month, halfyear or year.");
-        if (string.IsNullOrWhiteSpace(timeZone)) return badZone;
+        if (timeZone is not { Length: <= 64 } || !IanaZoneShape.IsMatch(timeZone)) return badZone;
         // Postgres is the one zone database: it names today and the days, and refuses a zone it does not know.
         var totals = await sessions.DailyTotalsAsync(userId, timeZone, ct);
         return totals is null ? badZone : SyncResult.Ok(ReadingStats.Build(period!, totals.Today, totals.Days));

@@ -83,4 +83,20 @@ public class ReadingStatsTests
 
         Assert.Equal((int.MaxValue, int.MaxValue), (stats.Bars[0].Minutes, stats.Minutes));
     }
+
+    [Fact]
+    public void Build_OnlyTwentySecondsRead_NoDayReadAndNoStreak()
+    {
+        var stats = ReadingStats.Build("week", Today, [Read(11, 25, 20)]);
+
+        Assert.Equal((0, 0, 0, 0), (stats.Minutes, stats.DaysRead, stats.CurrentStreak, stats.BestStreak));
+    }
+
+    [Fact]
+    public void Build_TwentySecondsToday_StreakEndsYesterday()
+    {
+        var stats = ReadingStats.Build("week", Today, [Read(11, 23, 60), Read(11, 24, 30), Read(11, 25, 20)]);
+
+        Assert.Equal((2, 2, 2), (stats.Minutes, stats.DaysRead, stats.CurrentStreak));
+    }
 }

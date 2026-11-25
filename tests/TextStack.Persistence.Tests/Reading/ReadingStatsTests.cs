@@ -23,8 +23,9 @@ public class ReadingStatsTests(PostgresFixture db)
         return new(library, new ReadingStateRepository(db.DataSource), _sessions, new ChapterReadService(library), TimeProvider.System);
     }
 
-    private async Task<DateOnly> TodayAsync() =>
-        DateOnly.FromDateTime(await db.ScalarAsync<DateTime>("SELECT (now() AT TIME ZONE 'UTC')::date", new { }));
+    // The stats' own read of today; the asserts below lean on the response's From/To, so only a run across midnight UTC
+    // between this and the stats call could shift the sessions placed from it.
+    private async Task<DateOnly> TodayAsync() => (await _sessions.DailyTotalsAsync(Guid.NewGuid(), "UTC", Ct))!.Today;
 
     private async Task<ReadingStatsDto> StatsAsync(Guid userId, string period, string tz = "UTC")
     {
@@ -60,9 +61,9 @@ public class ReadingStatsTests(PostgresFixture db)
 
         var stats = await StatsAsync(user, "week");
 
-        var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
-        Assert.Equal((monday, monday.AddDays(6), 7), (stats.From, stats.To, stats.Bars.Count));
-        Assert.Equal(Enumerable.Range(0, 7).Select(monday.AddDays), stats.Bars.Select(b => b.Start));
+        Assert.Equal((DayOfWeek.Monday, stats.From.AddDays(6), 7), (stats.From.DayOfWeek, stats.To, stats.Bars.Count));
+        Assert.Equal(Enumerable.Range(0, 7).Select(stats.From.AddDays), stats.Bars.Select(b => b.Start));
+        Assert.InRange(today, stats.From, stats.To);
         Assert.Equal(10, stats.Bars.Single(b => b.Start == today).Minutes);
         Assert.Equal((10, 1, 10), (stats.Minutes, stats.DaysRead, stats.Bars.Sum(b => b.Minutes)));
     }
@@ -90,7 +91,7 @@ public class ReadingStatsTests(PostgresFixture db)
 
         var stats = await StatsAsync(user, "month");
 
-        Assert.Equal((first, first.AddMonths(1).AddDays(-1), DateTime.DaysInMonth(first.Year, first.Month)), (stats.From, stats.To, stats.Bars.Count));
+        Assert.Equal((first, stats.From.AddMonths(1).AddDays(-1), DateTime.DaysInMonth(first.Year, first.Month)), (stats.From, stats.To, stats.Bars.Count));
         Assert.Equal((1, 1, 1), (stats.Bars[0].Minutes, stats.Minutes, stats.DaysRead));
     }
 
@@ -107,9 +108,10 @@ public class ReadingStatsTests(PostgresFixture db)
         var half = await StatsAsync(user, "halfyear");
         var year = await StatsAsync(user, "year");
 
-        Assert.Equal(Enumerable.Range(-5, 6).Select(thisMonth.AddMonths), half.Bars.Select(b => b.Start));
+        Assert.Equal((thisMonth.AddMonths(-5), thisMonth.AddMonths(1).AddDays(-1)), (half.From, half.To));
+        Assert.Equal(Enumerable.Range(0, 6).Select(half.From.AddMonths), half.Bars.Select(b => b.Start));
         Assert.Equal((15, 60, 75, 3), (half.Bars[0].Minutes, half.Bars[5].Minutes, half.Minutes, half.DaysRead));
-        Assert.Equal((new DateOnly(thisMonth.Year, 1, 1), new DateOnly(thisMonth.Year, 12, 31), 12), (year.From, year.To, year.Bars.Count));
+        Assert.Equal((new DateOnly(thisMonth.Year, 1, 1), year.From.AddYears(1).AddDays(-1), 12), (year.From, year.To, year.Bars.Count));
         Assert.Equal(60, year.Bars[thisMonth.Month - 1].Minutes);
     }
 
@@ -177,7 +179,12 @@ public class ReadingStatsTests(PostgresFixture db)
     [Theory]
     [InlineData("week", null, "tz")]
     [InlineData("week", " ", "tz")]
-    [InlineData("week", "Mars/Olympus", "tz")] // refused by Postgres, not before the query
+    [InlineData("week", "Mars/Olympus", "tz")] // well shaped: refused by Postgres (22023)
+    [InlineData("week", "GMT+03:00", "tz")] // POSIX shapes: Postgres would flip the sign
+    [InlineData("week", "+03:00", "tz")]
+    [InlineData("week", "UTC+3", "tz")]
+    [InlineData("week", "UTC\0", "tz")] // a control char: refused before it reaches Postgres
+    [InlineData("week", "Europe/Kyiv\n", "tz")]
     [InlineData("day", "UTC", "period")]
     [InlineData(null, "UTC", "period")]
     public async Task StatsAsync_BadPeriodOrZone_IsInvalidPayload(string? period, string? tz, string field)
@@ -187,4 +194,10 @@ public class ReadingStatsTests(PostgresFixture db)
         Assert.Equal(400, result.Status);
         Assert.Equal(field, Assert.IsType<SyncError>(result.Body).Field);
     }
+
+    [Theory]
+    [InlineData("Etc/GMT+3")]
+    [InlineData("America/Argentina/Buenos_Aires")]
+    [InlineData("UTC")]
+    public async Task StatsAsync_IanaZone_IsAccepted(string tz) => await StatsAsync(Guid.NewGuid(), "week", tz);
 }
