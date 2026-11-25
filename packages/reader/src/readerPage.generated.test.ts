@@ -68,8 +68,8 @@ describe('readerPageHtml', () => {
     expect(html).toMatch(/if \(!\(\((\w+) = \((\w+) = this\.#view\) == null \? void 0 : \2\.document\) == null \? void 0 : \1\.body\)\) return;/)
     // Fork commit b3386ef (#1182): setStyles' frame callback does nothing once destroy() nulled the view.
     expect(html).toMatch(/requestAnimationFrame\(\(\) => \{\s*if \(this\.#view\) this\.#background\.style\.background = getBackground\(this\.#view\.document\);\s*\}\);/)
-    // Fork commit 73d4259 (#1291): afterScroll does nothing once destroy() nulled the view.
-    expect(html).toMatch(/#afterScroll\(reason\) \{\s*if \(!this\.#view\) return;/)
+    // Fork commit 73d4259 (#1291): afterScroll does nothing once destroy() nulled the view (#1333: nor while a view loads).
+    expect(html).toMatch(/#afterScroll\(reason\) \{\s*if \(!this\.#view \|\| this\.#loading\) return;/)
     // Fork commit fe04665 (#1297): justAnchored swallows only the anchoring's own scroll (its offset), not the reader's next one.
     expect(html).toContain('const anchored = this.#justAnchored === this.#container[this.scrollProp];')
     expect(html).toContain('else this.#justAnchored = this.#container[this.scrollProp];')
@@ -86,8 +86,12 @@ describe('readerPageHtml', () => {
     // The save rule's test, sent as `relocate.moved` (#1263) and used for the save: one rule.
     expect(html).toMatch(/const moved = (\w+)\.reason !== "anchor" && \1\.cfi !== lastCfi && !hostMoving;/)
     expect(html).toMatch(/dir: pagedDir\(\), moved, cause, atEnd: atBookEnd\(.*\), \.\.\.lengthAt\(.*\) \}\);/)
-    // #1313: what moved the place, from the page's own navigations (`hostMoving`, `asNav`), never a host's guess.
-    expect(html).toMatch(/const cause = (\w+)\.cfi === lastCfi \? "layout" : navs > 0 \|\| awaitingRestore && !readerActed \? "nav" : \1\.reason === "anchor" \? "layout" : "turn";/)
+    // #1313/#1333: what moved the place, from the renderer's reason and the page's own navigations (`asNav`).
+    expect(html).toContain('const cause = causeOf(')
+    expect(html).toMatch(/function causeOf\(\w+\) \{[^}]*return "turn";[^}]*if \(navs > 0\) return "nav";[^}]*\}/)
+    // Fork (#1333): #turnPage and the swipe's snap cross a section with reason 'turn'.
+    expect(html.match(/reason: "turn"/g)).toHaveLength(2)
+    expect(html).toContain('reason ?? (select ? "selection" : "navigation")')
     expect(html).toMatch(/const position = moved && entry \? positionOf\(/)
     expect(html).not.toContain('rendererReason')
     expect(html).not.toMatch(/view\.renderer\.addEventListener\("relocate"/)

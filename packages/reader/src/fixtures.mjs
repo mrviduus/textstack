@@ -601,6 +601,12 @@ export function writeFormatFixtures(dir) {
     manifest: '<item id="p1" href="p1.xhtml" media-type="application/xhtml+xml"/><item id="red" href="red.png" media-type="image/png"/>',
     spine: '<itemref idref="p1"/>',
   })
+  // #1333: three one-page sections (a turn crosses one at every next()).
+  epub(resolve(dir, 'tsshort.epub'), 'TS SHORT', {
+    files: { 'a.xhtml': xhtml('', '<p>Short one.</p>'), 'b.xhtml': xhtml('', '<p>Short two.</p>'), 'c.xhtml': xhtml('', '<p>Short three.</p>') },
+    manifest: ['a', 'b', 'c'].map((x) => `<item id="${x}" href="${x}.xhtml" media-type="application/xhtml+xml"/>`).join(''),
+    spine: '<itemref idref="a"/><itemref idref="b"/><itemref idref="c"/>',
+  })
   // PDF (#1128 S5): five text pages; one CJK page on a predefined cMap; one that needs a password.
   writeFileSync(resolve(dir, 'tsformat.pdf'), pdf(5))
   writeFileSync(resolve(dir, 'tscjk.pdf'), pdf(1, { title: 'TS CJK', cjk: true }))
@@ -608,7 +614,7 @@ export function writeFormatFixtures(dir) {
   writeFileSync(resolve(dir, 'tsjpx.pdf'), pdf(1, { title: 'TS JPX', jpx: RED_J2K }))
   // ADR-033 P3: an outline to pages 1 and 4 of 5.
   writeFileSync(resolve(dir, 'tsoutline.pdf'), pdf(5, { title: 'TS OUTLINE', outline: [{ title: 'Start', dest: (p) => `[${p[0]} /Fit]` }, { title: 'Four', dest: (p) => `[${p[3]} /Fit]` }] }))
-  return ['tssearch.epub', 'tssvgspine.epub', 'tsformat.pdf', 'tsoutline.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tsjpx.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
+  return ['tssearch.epub', 'tssvgspine.epub', 'tsformat.pdf', 'tsoutline.pdf', 'tscjk.pdf', 'tslocked.pdf', 'tsjpx.pdf', 'tscover.epub', 'tsfixed.epub', 'tsdup.epub', 'tsimage.epub', 'tsfixedimg.epub', 'tsthree.cbz', 'tsformat.epub', 'tsmarks.epub', 'tsshort.epub', 'tsrtl.epub', 'tshe.epub', 'tsformat.mobi', 'tsdrm.mobi', 'tsformat.fb2', 'tsformat.fbz', 'tsformat.cbz', 'tsupper.cbz', 'tsutf16.fb2', 'tskf8.mobi', 'tscombo.mobi']
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
