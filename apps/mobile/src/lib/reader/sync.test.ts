@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ApiError, initApi, UploadNotOnServer, type OpenReader } from '@textstack/shared'
 import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
-import { CHANGES_NOT_SYNCED, FILE_NOT_UPLOADED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
+import { CHANGES_NOT_SYNCED, FILE_NOT_UPLOADED, createLocalLibrary, identityStep, ownedLoss, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage } from './hostStorage'
 import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, holdReaderHost, openBookHost, pushBeforeSignOut, removeLocalBook, syncLibrary, tryAgainBook, type SyncHost } from './sync'
@@ -1392,6 +1392,27 @@ describe('V2 local library sync (R6)', () => {
         const empty = createLocalLibrary(memoryDb())
         await claimLibraryFor('u2', () => empty, clear)
         expect(cleared).toBe(0)
+      })
+
+      // #1611: asked before a sign-in's server call: a real owner's books or changes only on this phone.
+      it('ownedLoss_RealOwnersUnsentBook_ReturnsTheLoss', async () => {
+        const { lib } = await withUnsent()
+        expect(await ownedLoss(lib)).toEqual({ books: 1, writes: 0 })
+      })
+
+      it('ownedLoss_NothingLostUnownedOrGuestOwned_ReturnsNull', async () => {
+        const { lib } = await withUnsent()
+        const synced = createLocalLibrary(memoryDb())
+        await synced.setAccount('u1', false)
+        expect(await ownedLoss(synced)).toBeNull()
+        expect(await ownedLoss(createLocalLibrary(memoryDb()))).toBeNull()
+        await lib.setAccount('g1', true)
+        expect(await ownedLoss(lib)).toBeNull()
+      })
+
+      it('ownedLoss_ReadFails_ReturnsUnknown', async () => {
+        const { lib } = await withUnsent()
+        expect(await ownedLoss({ ...lib, owner: () => Promise.reject(new Error('disk busy')) })).toBe('unknown')
       })
 
       it('claim_RowWipeFails_FilesAndOwnerKept_PassesStillRefused', async () => {

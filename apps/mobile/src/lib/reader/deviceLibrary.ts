@@ -2,7 +2,7 @@
 // deviceLibrary.web.ts is its twin: the web bundle (which mobile e2e runs against) must never resolve
 // expo-sqlite from here.
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { createLocalLibrary, wipeLibrary, type Db, type LocalLibrary, type SignOutLoss } from './localLibrary'
+import { createLocalLibrary, ownedLoss, wipeLibrary, type Db, type LocalLibrary, type SignOutLoss } from './localLibrary'
 import { withDeadline } from '../deadline'
 
 let device: LocalLibrary | null = null
@@ -91,14 +91,34 @@ export const LIBRARY_WIPE_MS = 5000
 
 /** #1608: set while a sign-out's wipe is owed (written before it, cleared after it or by a session's claim); survives a restart. */
 const WIPE_PENDING = 'textstack_v2_wipe_pending'
+/** #1611: the email of the real account whose session last claimed the library (gone with its wipe): a sign-in as it keeps the books. */
+const OWNER_EMAIL = 'textstack_v2_owner_email'
 
 /** Sign-out (#1070, owner 2026-11-12: V2 books belong to the account): rows, then files (`wipeLibrary`). */
 export async function wipeDeviceLibrary(): Promise<void> {
   // Best effort: the wipe itself is the privacy step, so a marker that cannot be written never stops it.
   await AsyncStorage.setItem(WIPE_PENDING, '1').catch(() => {})
   await wipeLibrary(deviceLocalLibrary(), clearDeviceFiles)
+  await AsyncStorage.removeItem(OWNER_EMAIL).catch(() => {})
   await AsyncStorage.removeItem(WIPE_PENDING)
 }
+
+/** #1611: what a sign-in to a different account would wipe here, and whose it is (`email`, null when not known). */
+export interface OwnedLoss { loss: SignOutLoss | 'unknown'; email: string | null }
+
+/**
+ * #1611 `ownedLoss` of the device, bounded by `ms` (a timeout is 'unknown'). A sign-out wipe owed (#1608) was
+ * confirmed at that sign-out: nothing to ask again.
+ */
+export async function deviceOwnedLoss(ms = LIBRARY_WIPE_MS): Promise<OwnedLoss | null> {
+  if (await AsyncStorage.getItem(WIPE_PENDING).catch(() => null)) return null
+  const loss = await withDeadline(ownedLoss(deviceLocalLibrary()), ms).catch(() => 'unknown' as const)
+  return loss && { loss, email: await AsyncStorage.getItem(OWNER_EMAIL).catch(() => null) }
+}
+
+/** A session claimed the library (`claimLibraryFor` done): its email is the owner's, a guest's is nobody's. */
+export const rememberOwnerEmail = (email: string | null): Promise<void> =>
+  email ? AsyncStorage.setItem(OWNER_EMAIL, email) : AsyncStorage.removeItem(OWNER_EMAIL)
 
 /** A live session took the library (`claimLibraryFor` done): no sign-out wipe is owed any more. */
 export const clearWipePending = (): Promise<void> => AsyncStorage.removeItem(WIPE_PENDING)

@@ -13,6 +13,7 @@ import { capabilitiesFor } from '../../src/lib/capabilities'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useToast } from '../../src/context/ToastContext'
 import { useLanguage } from '../../src/context/LanguageContext'
+import { deviceOwnedLoss } from '../../src/lib/reader/deviceLibrary'
 import { fonts } from '../../src/theme/typography'
 
 // Google OAuth Client IDs, sourced from app.json → expo.extra.googleAuth.
@@ -51,6 +52,36 @@ export default function LoginScreen() {
   const isGuest = capabilitiesFor(user).isGuest
   const { show: showToast } = useToast()
   const { t: translate } = useLanguage()
+
+  /**
+   * #1611: signing in to a different account wipes the books of the one signed in here (`claimLibrary`); some may
+   * be only on this phone. Asked before any server call, so "Cancel" leaves no account, merge or session behind.
+   * Nothing only here (or a guest's library, or a sign-out wipe already confirmed): no question. `signInEmail`: an
+   * email sign-in as the account that owns the library keeps it (an expired session signing back in): no question.
+   */
+  const confirmLibraryLoss = async (signInEmail?: string): Promise<boolean> => {
+    const owned = await deviceOwnedLoss()
+    if (!owned) return true
+    const { loss, email } = owned
+    if (email && signInEmail?.trim().toLowerCase() === email.trim().toLowerCase()) return true
+    const count = (key: string, n: number) => (n > 0 ? translate(key).replace('{{n}}', String(n)) : '')
+    const what = (l: { books: number; writes: number }) => {
+      const books = count('profile.signInLossBooks', l.books)
+      const changes = count('profile.signInLossChanges', l.writes)
+      return books && changes ? translate('profile.signInLossBoth').replace('{{books}}', books).replace('{{changes}}', changes) : books || changes
+    }
+    return new Promise<boolean>((resolve) => Alert.alert(
+      translate('profile.signInLossTitle'),
+      loss === 'unknown'
+        ? translate('profile.signInLossUnknownMessage')
+        : translate(email ? 'profile.signInLossOwnerMessage' : 'profile.signInLossMessage').replace('{{what}}', what(loss)).split('{{email}}').join(email ?? ''),
+      [
+        { text: translate('profile.signOutLossCancel'), style: 'cancel', onPress: () => resolve(false) },
+        { text: translate('profile.signInLossConfirm'), style: 'destructive', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    ))
+  }
 
   /**
    * Says so when the sign-in did not bring the reader's earlier work across.
@@ -137,8 +168,11 @@ export default function LoginScreen() {
     }
     if (mode !== 'forgot' && password.length < 8) { setError('Password must be at least 8 characters.'); return }
 
+    // Busy before the question, so a second submit cannot ask twice; Cancel clears it (`finally`).
     setLoading(true)
     try {
+      // Register is always a different account: no email keeps the books.
+      if (mode !== 'forgot' && !(await confirmLibraryLoss(mode === 'register' ? undefined : email))) return
       if (mode === 'forgot') {
         await authApi.forgotPassword(email.trim())
         setForgotSent(true)
@@ -203,6 +237,8 @@ export default function LoginScreen() {
     const wasGuest = isGuest
     setLoading(true)
     try {
+      // Busy before the question (no second tap asks twice); the owner's email is unknown before the picker.
+      if (!(await confirmLibraryLoss())) return
       await GoogleSignin.hasPlayServices()
       const response = await GoogleSignin.signIn()
       const idToken = response.data?.idToken
@@ -234,6 +270,8 @@ export default function LoginScreen() {
     const wasGuest = isGuest
     setLoading(true)
     try {
+      // Busy before the question (no second tap asks twice); the owner's email is unknown before the picker.
+      if (!(await confirmLibraryLoss())) return
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,

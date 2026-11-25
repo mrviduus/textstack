@@ -192,6 +192,34 @@ describe('device V2 local library', () => {
     expect(await m2.deviceLocalLibrary().books()).toEqual([])
   })
 
+  // #1611: what a sign-in to a different account would wipe, and whose.
+  it('deviceOwnedLoss_RealOwnersBook_ReturnsTheLossAndTheClaimedEmailTillAWipe', async () => {
+    const m = await fresh()
+    await used(m)
+    expect(await m.deviceOwnedLoss()).toEqual({ loss: { books: 1, writes: 0 }, email: null })
+    await m.rememberOwnerEmail('a@example.com')
+    expect(await m.deviceOwnedLoss()).toEqual({ loss: { books: 1, writes: 0 }, email: 'a@example.com' })
+    await m.wipeDeviceLibrary()
+    expect(await m.deviceOwnedLoss()).toBeNull()
+    await used(m)
+    expect((await m.deviceOwnedLoss())?.email).toBeNull()
+  })
+
+  it('deviceOwnedLoss_SignOutWipeOwed_ReturnsNull', async () => {
+    // A sign-out confirmed the loss and its wipe failed (#1608): not asked again.
+    const m = await fresh()
+    await used(m)
+    await (await storage()).setItem(PENDING, '1')
+    expect(await m.deviceOwnedLoss()).toBeNull()
+  })
+
+  it('deviceOwnedLoss_DatabaseCannotOpen_ReturnsUnknown', async () => {
+    // Never "nothing lost".
+    failOpen = 'disk busy'
+    const m = await fresh()
+    expect((await m.deviceOwnedLoss())?.loss).toBe('unknown')
+  })
+
   it('clearWipePending_ASessionClaimedTheLibrary_ItsBooksListAfterALostSession', async () => {
     failOpen = 'disk busy'
     const m = await fresh()

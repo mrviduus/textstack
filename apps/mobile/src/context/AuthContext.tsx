@@ -19,16 +19,22 @@ import { clearReaderCache } from '../lib/readerOfflineCache'
 import { forgetSyncAnswer, reprobeSyncAfterReconnect, syncStore } from '../lib/sync'
 import { applyMergeMap } from '../lib/merge'
 import { adoptLocalAccount, claimLibraryFor } from '../lib/reader/sync'
-import { clearWipePending, LIBRARY_WIPE_MS, wipeDeviceLibrary } from '../lib/reader/deviceLibrary'
+import { clearWipePending, deviceOwnedLoss, LIBRARY_WIPE_MS, rememberOwnerEmail, wipeDeviceLibrary } from '../lib/reader/deviceLibrary'
 import { withDeadline } from '../lib/deadline'
 import { capabilitiesFor } from '../lib/capabilities'
 
 /**
  * Sign-in's another-account wipe (#1070 rule B), bounded; a failure or a late one only warns. Done, the library
- * belongs to this session: a sign-out wipe still owed is not (#1608).
+ * belongs to this session: a sign-out wipe still owed is not (#1608), and its owner's email is this account's (#1611).
  */
-const claimLibrary = (userId: string) =>
-  withDeadline(claimLibraryFor(userId).then(clearWipePending), LIBRARY_WIPE_MS).catch((e) => console.warn('[v2] sign-in wipe failed or late:', e))
+const claimLibrary = (user: UserDto) =>
+  withDeadline(
+    claimLibraryFor(user.id).then(clearWipePending).then(() => rememberOwnerEmail(capabilitiesFor(user).isGuest ? null : user.email)),
+    LIBRARY_WIPE_MS,
+  ).catch((e) => console.warn('[v2] sign-in wipe failed or late:', e))
+
+/** #1611: the guest mint's look at the device library, well under the upload gate's 3 s (`READER_SESSION_GATE_TIMEOUT_MS`). */
+const OWNED_LOSS_MINT_MS = 1000
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
 // that don't ship it (e.g. Expo Go web preview, where this package may
@@ -217,7 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(restored)
           // A sign-in whose wipe failed or ran late is retried at the next start (#1070 rule B);
           // not awaited: the reading path waits for nothing, and passes refuse until it is done.
-          void claimLibrary(restored.id)
+          void claimLibrary(restored)
         }
       } catch {
         // ignore
@@ -277,7 +283,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (merge) await applyMergeMap(merge)
         // A V2 local library another real account owns is wiped here, where the identity is
         // authoritative (#1070 rule B; bounded like the sign-out wipe; a failure leaves every pass refused).
-        await claimLibrary(userData.id)
+        await claimLibrary(userData)
         // The V2 local library a guest synced becomes the account's (R6): ids re-keyed, full pull next.
         // A failure never blocks sign-in and is logged: the re-key and the identity commit together
         // in one transaction, so a failed adopt leaves the rows as they were (the first pass then
@@ -420,6 +426,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const createGuestOnce = useCallback(async (): Promise<EnsureSessionResult> => {
     // Captured BEFORE the first await, per the epoch contract.
     const epochAtStart = queueRef.current.epoch
+    // #1611: a guest's claim would wipe a real account's books that only this phone holds, and a mint has no one to
+    // ask: no mint, no server call; Upload stays on its sign-in state, where the sign-in asks. Bounded well under
+    // the gate's deadline. 'unknown' (unreadable or late) mints: the claim reads the same database, and a claim that
+    // cannot read it fails without wiping.
+    const owned = await deviceOwnedLoss(OWNED_LOSS_MINT_MS)
+    if (owned && owned.loss !== 'unknown') return { status: 'failed', error: new Error('the device library holds another account\'s unsynced books') }
     let res: Awaited<ReturnType<typeof authApi.createGuestSession>>
     try {
       res = await authApi.createGuestSession()
@@ -454,7 +466,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // never reaches the UI.
       resetAuthFailureLatch()
       // A minted guest takes the device after an account's library whose sign-out wipe did not run (#1070 rule B).
-      await claimLibrary(res.user.id)
+      await claimLibrary(res.user)
       setUser(res.user)
       return { status: 'minted' }
     })
