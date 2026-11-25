@@ -180,8 +180,9 @@ public sealed record InsightDto(
     string Source, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
 /// <summary>
-/// <c>GET /me/v2/stats</c> (#1366): reading time in a calendar period of the user's zone. <see cref="From"/>..<see cref="To"/> are
-/// inclusive; the streaks are over all time. One bar per day (week, month) or per month (halfyear, year), zeros included.
+/// <c>GET /me/v2/stats</c> (#1366): reading time in the period holding today in the user's zone (week Monday..Sunday, calendar
+/// month, halfyear = this month and the 5 before it, calendar year). <see cref="From"/>..<see cref="To"/> are inclusive;
+/// <see cref="Minutes"/> is the sum of the bars; the streaks are over all time. One bar per day (week, month) or per month (halfyear, year), zeros included.
 /// </summary>
 public sealed record ReadingStatsDto(
     string Period, DateOnly From, DateOnly To, int Minutes, int DaysRead, int CurrentStreak, int BestStreak, IReadOnlyList<ReadingStatsBarDto> Bars);

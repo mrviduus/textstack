@@ -8,20 +8,23 @@ using Infrastructure.Persistence.Repositories;
 namespace TextStack.Persistence.Tests.Reading;
 
 /// <summary>
-/// A reader's stats (#1366), from the sessions their devices pushed: days are the reader's own (their zone),
-/// periods are calendar ones, streaks run over all time. Today is Wednesday 2026-11-25, noon UTC.
+/// A reader's stats (#1366), from the sessions their devices pushed. Today is the database's (now() in the zone), so the
+/// stories read relative to it, in UTC; the exact calendar arithmetic is pinned by the unit tests of ReadingStats.
+/// A session on "today" starts at today's midnight, the one instant of today that is never in the future.
 /// </summary>
 public class ReadingStatsTests(PostgresFixture db)
 {
-    private static readonly DateTimeOffset Now = new(2026, 11, 25, 12, 0, 0, TimeSpan.Zero);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private readonly ReadingSessionRepository _sessions = new(db.DataSource);
 
     private ReadingSyncService Service()
     {
         var library = new BookAccess(new LibraryRepository(db.DataSource));
-        return new(library, new ReadingStateRepository(db.DataSource), _sessions, new ChapterReadService(library), new Clock(Now));
+        return new(library, new ReadingStateRepository(db.DataSource), _sessions, new ChapterReadService(library), TimeProvider.System);
     }
+
+    private async Task<DateOnly> TodayAsync() =>
+        DateOnly.FromDateTime(await db.ScalarAsync<DateTime>("SELECT (now() AT TIME ZONE 'UTC')::date", new { }));
 
     private async Task<ReadingStatsDto> StatsAsync(Guid userId, string period, string tz = "UTC")
     {
@@ -43,76 +46,79 @@ public class ReadingStatsTests(PostgresFixture db)
             EndPercent = 0,
         }, Ct);
 
-    private static DateTimeOffset At(int month, int day, int hour = 10, int minute = 0) => new(2026, month, day, hour, minute, 0, TimeSpan.Zero);
+    /// <summary>Midnight UTC of <paramref name="day"/>, plus <paramref name="hours"/> (only for days before today).</summary>
+    private static DateTimeOffset At(DateOnly day, int hours = 0) => new(day.ToDateTime(new TimeOnly(hours, 0)), TimeSpan.Zero);
 
     [Fact]
-    public async Task StatsAsync_Week_IsMondayToSundayWithAZeroBarForEveryDayNotRead()
+    public async Task StatsAsync_Week_HasABarForEveryDayAndOnlyThisWeeksTime()
     {
         var user = await db.NewReaderAsync();
-        await ReadAsync(user, At(11, 23), 20 * 60);
-        await ReadAsync(user, At(11, 25), 10 * 60);
-        await ReadAsync(user, At(11, 25, 18), 5 * 60 + 30);
-        await ReadAsync(user, At(11, 22), 60 * 60); // last Sunday: another week
-        await ReadAsync(user, At(11, 24), 0); // opened, nothing read
+        var today = await TodayAsync();
+        await ReadAsync(user, At(today), 10 * 60);
+        await ReadAsync(user, At(today.AddDays(-7), 10), 60 * 60); // last week
+        await ReadAsync(user, At(today), 0); // opened, nothing read
 
         var stats = await StatsAsync(user, "week");
 
-        Assert.Equal(("week", new DateOnly(2026, 11, 23), new DateOnly(2026, 11, 29)), (stats.Period, stats.From, stats.To));
-        Assert.Equal([20, 0, 16, 0, 0, 0, 0], stats.Bars.Select(b => b.Minutes));
-        Assert.Equal(new DateOnly(2026, 11, 23), stats.Bars[0].Start);
-        Assert.Equal((36, 2), (stats.Minutes, stats.DaysRead));
+        var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
+        Assert.Equal((monday, monday.AddDays(6), 7), (stats.From, stats.To, stats.Bars.Count));
+        Assert.Equal(Enumerable.Range(0, 7).Select(monday.AddDays), stats.Bars.Select(b => b.Start));
+        Assert.Equal(10, stats.Bars.Single(b => b.Start == today).Minutes);
+        Assert.Equal((10, 1, 10), (stats.Minutes, stats.DaysRead, stats.Bars.Sum(b => b.Minutes)));
     }
 
     [Fact]
-    public async Task StatsAsync_SessionAt2330UtcInKyiv_CountsOnTheNextDay()
+    public async Task DailyTotalsAsync_SessionAt2330UtcInKyiv_LandsOnTheNextDay()
     {
         var user = await db.NewReaderAsync();
-        await ReadAsync(user, At(11, 23, 23, 30), 10 * 60); // 01:30 on Tuesday in Kyiv
+        await ReadAsync(user, new DateTimeOffset(2026, 3, 10, 23, 30, 0, TimeSpan.Zero), 600); // 01:30 on the 11th in Kyiv
 
-        var kyiv = await StatsAsync(user, "week", "Europe/Kyiv");
-        var utc = await StatsAsync(user, "week");
+        var kyiv = await _sessions.DailyTotalsAsync(user, "Europe/Kyiv", Ct);
+        var utc = await _sessions.DailyTotalsAsync(user, "UTC", Ct);
 
-        Assert.Equal([0, 10, 0, 0, 0, 0, 0], kyiv.Bars.Select(b => b.Minutes));
-        Assert.Equal([10, 0, 0, 0, 0, 0, 0], utc.Bars.Select(b => b.Minutes));
+        Assert.Equal([new DailyReading(new DateOnly(2026, 3, 11), 600)], kyiv!.Days);
+        Assert.Equal([new DailyReading(new DateOnly(2026, 3, 10), 600)], utc!.Days);
     }
 
     [Fact]
     public async Task StatsAsync_Month_IsEveryDayOfTheMonth()
     {
         var user = await db.NewReaderAsync();
-        await ReadAsync(user, At(11, 1), 60);
-        await ReadAsync(user, At(10, 31), 60);
+        var first = (await TodayAsync()) is var t ? new DateOnly(t.Year, t.Month, 1) : default;
+        await ReadAsync(user, At(first), 60);
+        await ReadAsync(user, At(first.AddDays(-1), 10), 60);
 
         var stats = await StatsAsync(user, "month");
 
-        Assert.Equal((new DateOnly(2026, 11, 1), new DateOnly(2026, 11, 30), 30), (stats.From, stats.To, stats.Bars.Count));
+        Assert.Equal((first, first.AddMonths(1).AddDays(-1), DateTime.DaysInMonth(first.Year, first.Month)), (stats.From, stats.To, stats.Bars.Count));
         Assert.Equal((1, 1, 1), (stats.Bars[0].Minutes, stats.Minutes, stats.DaysRead));
     }
 
     [Fact]
-    public async Task StatsAsync_HalfyearAndYear_OneBarPerCalendarMonth()
+    public async Task StatsAsync_HalfyearAndYear_OneBarPerMonth()
     {
         var user = await db.NewReaderAsync();
-        await ReadAsync(user, At(6, 1), 30 * 60); // before the half year, in the year
-        await ReadAsync(user, At(7, 15), 10 * 60);
-        await ReadAsync(user, At(7, 31), 5 * 60);
-        await ReadAsync(user, At(11, 2), 60 * 60);
+        var thisMonth = (await TodayAsync()) is var t ? new DateOnly(t.Year, t.Month, 1) : default;
+        await ReadAsync(user, At(thisMonth.AddMonths(-6), 10), 30 * 60); // before the half year
+        await ReadAsync(user, At(thisMonth.AddMonths(-5), 10), 10 * 60);
+        await ReadAsync(user, At(thisMonth.AddMonths(-5).AddDays(3), 10), 5 * 60);
+        await ReadAsync(user, At(thisMonth), 60 * 60);
 
         var half = await StatsAsync(user, "halfyear");
         var year = await StatsAsync(user, "year");
 
-        Assert.Equal((new DateOnly(2026, 6, 1), new DateOnly(2026, 11, 30)), (half.From, half.To));
-        Assert.Equal([(new DateOnly(2026, 6, 1), 30), (new DateOnly(2026, 7, 1), 15), (new DateOnly(2026, 8, 1), 0),
-            (new DateOnly(2026, 9, 1), 0), (new DateOnly(2026, 10, 1), 0), (new DateOnly(2026, 11, 1), 60)], half.Bars.Select(b => (b.Start, b.Minutes)));
-        Assert.Equal((new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), 12), (year.From, year.To, year.Bars.Count));
-        Assert.Equal((105, 4), (year.Minutes, year.DaysRead));
+        Assert.Equal(Enumerable.Range(-5, 6).Select(thisMonth.AddMonths), half.Bars.Select(b => b.Start));
+        Assert.Equal((15, 60, 75, 3), (half.Bars[0].Minutes, half.Bars[5].Minutes, half.Minutes, half.DaysRead));
+        Assert.Equal((new DateOnly(thisMonth.Year, 1, 1), new DateOnly(thisMonth.Year, 12, 31), 12), (year.From, year.To, year.Bars.Count));
+        Assert.Equal(60, year.Bars[thisMonth.Month - 1].Minutes);
     }
 
     [Fact]
     public async Task StatsAsync_ReadUntilYesterdayNotYetToday_CurrentStreakEndsYesterday()
     {
         var user = await db.NewReaderAsync();
-        foreach (var day in new[] { 20, 22, 23, 24 }) await ReadAsync(user, At(11, day), 60);
+        var today = await TodayAsync();
+        foreach (var ago in new[] { 5, 3, 2, 1 }) await ReadAsync(user, At(today.AddDays(-ago), 10), 60);
 
         var stats = await StatsAsync(user, "week");
 
@@ -120,12 +126,13 @@ public class ReadingStatsTests(PostgresFixture db)
     }
 
     [Fact]
-    public async Task StatsAsync_LongerRunMonthsAgo_IsTheBestStreakOverAllTime()
+    public async Task StatsAsync_LongerRunLongAgo_IsTheBestStreakOverAllTime()
     {
         var user = await db.NewReaderAsync();
-        for (var day = 1; day <= 12; day++) await ReadAsync(user, At(3, day), 60);
-        await ReadAsync(user, At(11, 25), 60);
-        await ReadAsync(user, At(11, 22), 60); // a gap before today: no run
+        var today = await TodayAsync();
+        for (var ago = 100; ago < 112; ago++) await ReadAsync(user, At(today.AddDays(-ago), 10), 60);
+        await ReadAsync(user, At(today), 60);
+        await ReadAsync(user, At(today.AddDays(-2), 10), 60); // a gap before today: no run
 
         var stats = await StatsAsync(user, "week");
 
@@ -136,7 +143,7 @@ public class ReadingStatsTests(PostgresFixture db)
     public async Task StatsAsync_SessionOfADeletedBook_StillCounts()
     {
         var book = await db.NewReaderWithBookAsync();
-        await ReadAsync(book.UserId, At(11, 25), 15 * 60, book.Id);
+        await ReadAsync(book.UserId, At(await TodayAsync()), 15 * 60, book.Id);
         await db.ExecAsync("DELETE FROM books WHERE id = @Id", new { book.Id });
 
         var stats = await StatsAsync(book.UserId, "week");
@@ -145,11 +152,22 @@ public class ReadingStatsTests(PostgresFixture db)
     }
 
     [Fact]
+    public async Task StatsAsync_SessionStartingInTheFuture_IsNotCountedYet()
+    {
+        var user = await db.NewReaderAsync();
+        await ReadAsync(user, DateTimeOffset.UtcNow.AddHours(1), 60 * 60); // a device clock running ahead
+
+        var stats = await StatsAsync(user, "week");
+
+        Assert.Equal((0, 0, 0, 0), (stats.Minutes, stats.DaysRead, stats.CurrentStreak, stats.BestStreak));
+    }
+
+    [Fact]
     public async Task StatsAsync_AnotherReadersSessions_AreNotCounted()
     {
         var alice = await db.NewReaderAsync();
         var bob = await db.NewReaderAsync();
-        await ReadAsync(alice, At(11, 25), 60 * 60);
+        await ReadAsync(alice, At(await TodayAsync()), 60 * 60);
 
         var stats = await StatsAsync(bob, "week");
 
@@ -158,7 +176,8 @@ public class ReadingStatsTests(PostgresFixture db)
 
     [Theory]
     [InlineData("week", null, "tz")]
-    [InlineData("week", "Mars/Olympus", "tz")]
+    [InlineData("week", " ", "tz")]
+    [InlineData("week", "Mars/Olympus", "tz")] // refused by Postgres, not before the query
     [InlineData("day", "UTC", "period")]
     [InlineData(null, "UTC", "period")]
     public async Task StatsAsync_BadPeriodOrZone_IsInvalidPayload(string? period, string? tz, string field)
@@ -167,10 +186,5 @@ public class ReadingStatsTests(PostgresFixture db)
 
         Assert.Equal(400, result.Status);
         Assert.Equal(field, Assert.IsType<SyncError>(result.Body).Field);
-    }
-
-    private sealed class Clock(DateTimeOffset now) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => now;
     }
 }

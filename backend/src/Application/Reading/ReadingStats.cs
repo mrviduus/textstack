@@ -2,7 +2,10 @@ using Contracts.Sync;
 
 namespace Application.Reading;
 
-/// <summary>The stats of #1366 from a user's daily totals: a calendar period's buckets and the all-time streaks.</summary>
+/// <summary>
+/// The stats of #1366 from a user's daily totals: the period holding today (week Monday..Sunday, the calendar month,
+/// halfyear = this month and the 5 before it, the calendar year), its bars, and the all-time streaks.
+/// </summary>
 public static class ReadingStats
 {
     public static bool IsPeriod(string? period) => period is "week" or "month" or "halfyear" or "year";
@@ -26,10 +29,12 @@ public static class ReadingStats
         var seconds = inPeriod.GroupBy(d => BucketOf(d.Day)).ToDictionary(g => g.Key, g => g.Sum(d => d.Seconds));
         var bars = new List<ReadingStatsBarDto>();
         for (var start = from; start <= to; start = daily ? start.AddDays(1) : start.AddMonths(1))
-            bars.Add(new(start, Minutes(seconds.GetValueOrDefault(start))));
+            bars.Add(new(start, Clamp(Minutes(seconds.GetValueOrDefault(start)))));
 
         var (current, best) = Streaks([.. days.Select(d => d.Day)], today);
-        return new(period, from, to, Minutes(inPeriod.Sum(d => d.Seconds)), inPeriod.Count, current, best, bars);
+        // Each bar is rounded once and the total is their sum, so the header always matches the chart.
+        var total = seconds.Values.Sum(Minutes);
+        return new(period, from, to, Clamp(total), inPeriod.Count, current, best, bars);
     }
 
     /// <summary>
@@ -49,5 +54,7 @@ public static class ReadingStats
         return (current, best);
     }
 
-    private static int Minutes(long seconds) => (int)Math.Round(seconds / 60.0, MidpointRounding.AwayFromZero);
+    private static long Minutes(long seconds) => (long)Math.Round(seconds / 60.0, MidpointRounding.AwayFromZero);
+
+    private static int Clamp(long value) => (int)Math.Min(value, int.MaxValue);
 }

@@ -19,11 +19,13 @@ public interface IReadingSessionRepository
     Task<WriteResult<ReadingSession>> SaveAsync(Guid userId, ReadingSession session, CancellationToken ct);
 
     /// <summary>
-    /// The user's seconds read per day in <paramref name="timeZone"/> (an IANA id), over all time, ascending; only days
-    /// with time read. Sessions of a deleted book count.
+    /// Today in <paramref name="timeZone"/> (an IANA id, read by Postgres) and the user's seconds read per day there, over
+    /// all time up to now, ascending; only days with time read. Sessions of a deleted book count. Null: Postgres knows no such zone.
     /// </summary>
-    Task<IReadOnlyList<DailyReading>> DailyTotalsAsync(Guid userId, string timeZone, CancellationToken ct);
+    Task<DailyTotals?> DailyTotalsAsync(Guid userId, string timeZone, CancellationToken ct);
 }
 
-/// <summary>One day's reading: <see cref="Seconds"/> &gt; 0.</summary>
+/// <summary>The database's today in the zone, and the days read (<see cref="DailyReading.Seconds"/> &gt; 0).</summary>
+public sealed record DailyTotals(DateOnly Today, IReadOnlyList<DailyReading> Days);
+
 public readonly record struct DailyReading(DateOnly Day, long Seconds);

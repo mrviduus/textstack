@@ -116,17 +116,17 @@ public sealed class ReadingSyncService(
     }
 
     /// <summary>
-    /// <c>GET /me/v2/stats</c> (#1366): the calendar <paramref name="period"/> holding today in <paramref name="timeZone"/>
-    /// (week, month, halfyear, year), with all-time streaks. Both are required: days are the user's, not the server's.
+    /// <c>GET /me/v2/stats</c> (#1366): the <paramref name="period"/> holding today in <paramref name="timeZone"/>
+    /// (week, month, halfyear = this month and the 5 before it, year), with all-time streaks. Both are required: days are the user's, not the server's.
     /// </summary>
     public async Task<SyncResult> StatsAsync(Guid userId, string? period, string? timeZone, CancellationToken ct)
     {
+        var badZone = SyncResult.Invalid("tz", "tz is an IANA time zone, such as Europe/Kyiv.");
         if (!ReadingStats.IsPeriod(period)) return SyncResult.Invalid("period", "period is week, month, halfyear or year.");
-        // HasIanaId refuses a Windows id; Postgres reads the same IANA name in the query.
-        if (timeZone is null || !TimeZoneInfo.TryFindSystemTimeZoneById(timeZone, out var zone) || !zone.HasIanaId)
-            return SyncResult.Invalid("tz", "tz is an IANA time zone, such as Europe/Kyiv.");
-        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(), zone).DateTime);
-        return SyncResult.Ok(ReadingStats.Build(period!, today, await sessions.DailyTotalsAsync(userId, timeZone, ct)));
+        if (string.IsNullOrWhiteSpace(timeZone)) return badZone;
+        // Postgres is the one zone database: it names today and the days, and refuses a zone it does not know.
+        var totals = await sessions.DailyTotalsAsync(userId, timeZone, ct);
+        return totals is null ? badZone : SyncResult.Ok(ReadingStats.Build(period!, totals.Today, totals.Days));
     }
 
     public async Task<SyncResult> SaveSessionAsync(Guid userId, Guid clientSessionId, ReadingSessionRequest r, CancellationToken ct)

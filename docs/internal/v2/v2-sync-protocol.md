@@ -879,7 +879,7 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.2 | `PUT /books/{bookId}/reading-state` | reading state | 200 state · 409 `stale_revision` / `reset` / `file_replaced` / `unknown_file` / `chapter_not_found` (M2.7a, `textstack-position-v1`) · 404 |
 | M2.2 | `POST /books/{bookId}/reading-state/reset` | `{expectedRevision}` | 200 state · 409 `stale_revision` (own write if `current` is the reset) · 404 |
 | M2.2 | `PUT /reading/sessions/{clientSessionId}` | session | 201 · 200 replay · 404 `book_not_found` |
-| #1366 | `GET /stats?period=week\|month\|halfyear\|year&tz=<IANA>` | — | 200 `{period, from, to, minutes, daysRead, currentStreak, bestStreak, bars[{start, minutes}]}` (calendar period holding today in `tz`; a session counts on its start day; streaks all time) · 400 `invalid_payload` (`period`, `tz`) |
+| #1366 | `GET /stats?period=week\|month\|halfyear\|year&tz=<IANA>` | — | 200 `{period, from, to, minutes, daysRead, currentStreak, bestStreak, bars[{start, minutes}]}` (the period holding today in `tz`: week Mon–Sun, calendar month, halfyear = this month and the 5 before it, calendar year; a session counts on its start day, future ones not yet; `minutes` = sum of the bars; streaks all time; Postgres resolves `tz`) · 400 `invalid_payload` (`period`, `tz`) |
 | M2.2 | `GET /annotations/changes` | — | 200 feed |
 | M2.2 | `PUT /annotations/{id}` | annotation | 201 · 200 · 409 `stale_revision` / `deleted` / `unknown_file` / `chapter_not_found` (M2.7a, `textstack-anchor-v1`) / `id_conflict` · 404 `book_not_found` |
 | M2.2 | `DELETE /annotations/{id}` | — | 200 tombstone (idempotent) · 404 |
