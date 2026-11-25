@@ -7,6 +7,7 @@ import { BookActionMenu } from './BookActionMenu'
 import { TagPill } from './TagPill'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useReadingPace } from '../../hooks/useReadingPace'
+import { useCoverRetry } from '../../hooks/useCoverRetry'
 import { formatTimeLeft } from '../../lib/timeEstimate'
 import { bookMinutesLeft } from '@textstack/shared'
 
@@ -52,6 +53,8 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
   // Ready = the file's bytes are in: the reader parses the file itself (ADR-033).
   const readable = book.status === 'Ready'
   const hasOriginalPdf = !!book.hasOriginalPdf
+  const coverUrl = getUserBookCoverUrl(book.coverPath)
+  const [coverHidden, onCoverError] = useCoverRetry(coverUrl)
 
   const targetSlug = progress?.chapterSlug
   const readerBase = `/${language}/library/my/${book.id}`
@@ -101,18 +104,18 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
           className={`user-book-card__cover ${!readable ? 'user-book-card__cover--disabled' : ''}`}
           onClick={(e) => !readable && e.preventDefault()}
         >
-          {book.coverPath ? (
+          {!coverHidden ? (
             <img
-              src={getUserBookCoverUrl(book.coverPath)}
+              src={coverUrl}
               alt={book.title}
               loading="lazy"
-              onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden') }}
+              onError={onCoverError}
             />
           ) : null}
           <GeneratedCover
             title={book.title || '?'}
             author={book.author}
-            className={book.coverPath ? 'hidden' : ''}
+            className={coverHidden ? '' : 'hidden'}
           />
 
           {readable && !book.completedAt && percent > 0 && (

@@ -157,6 +157,7 @@
   "highlights.emptyTitle": "No highlights yet",
   "highlights.filterByColor": "Filter by color",
   "highlights.highlightCount": "{count} highlights",
+  "highlights.loadFailed": "Could not load your highlights.",
   "highlights.loadMore": "Load more",
   "highlights.note": "Note",
   "highlights.search": "Search highlights...",

@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { syncApi } from '@textstack/shared'
+import { syncApi, NETWORK_RETRY_MS } from '@textstack/shared'
 import '../../api/client' // initApi, as the app does on load
 import { HighlightsPage } from '../HighlightsPage'
 import { emitDataChange } from '../../lib/dataEvents'
@@ -15,15 +15,23 @@ const item = (over: Partial<HighlightListItem>) => ({
   deletedBookTitle: null, userBookCoverVersion: null, ...over,
 }) as HighlightListItem
 
-const items = vi.hoisted(() => ({ list: [] as HighlightListItem[] }))
+const items = vi.hoisted(() => ({ list: [] as HighlightListItem[], fail: false }))
 vi.mock('@textstack/shared', async (importOriginal) => {
   const shared = await importOriginal<typeof import('@textstack/shared')>()
-  return { ...shared, highlightsApi: { ...shared.highlightsApi, getAllHighlights: async () => ({ items: items.list, totalCount: items.list.length }) } }
+  return { ...shared, highlightsApi: { ...shared.highlightsApi, getAllHighlights: async () => {
+    if (items.fail) throw new Error('502')
+    return { items: items.list, totalCount: items.list.length }
+  } } }
 })
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true }) }))
 vi.mock('../../context/LanguageContext', () => ({
   useLanguage: () => ({ language: 'en', getLocalizedPath: (p: string) => `/en${p}` }),
 }))
+
+beforeEach(() => {
+  items.list = []
+  items.fail = false
+})
 
 async function renderCovers(list: HighlightListItem[]) {
   items.list = list
@@ -62,6 +70,24 @@ describe('HighlightsPage cover', () => {
     expect(container.querySelector('img')?.getAttribute('src')).toBe(syncApi.coverUrl('b1', '2026-11-24T09:30:15Z'))
   })
 
+  // #1591: a 502 or a timeout while the network stays up: the cover is tried once more after a delay.
+  it('cover that failed while online is tried again once after a delay', async () => {
+    const container = await renderCovers([item({ userBookCoverVersion: '2026-11-24T09:30:15Z' })])
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      fireEvent.error(container.querySelector('img')!)
+      expect(container.querySelector('img')).toBeNull()
+      act(() => { vi.advanceTimersByTime(NETWORK_RETRY_MS) })
+      expect(container.querySelector('img')).not.toBeNull()
+
+      fireEvent.error(container.querySelector('img')!)
+      act(() => { vi.advanceTimersByTime(NETWORK_RETRY_MS * 2) })
+      expect(container.querySelector('img')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('failed cover with a new version for the same book renders again', async () => {
     const container = await renderCovers([item({ userBookCoverVersion: '2026-11-24T09:30:15Z' })])
     fireEvent.error(container.querySelector('img')!)
@@ -86,5 +112,36 @@ describe('HighlightsPage cover', () => {
       item({ id: 'h4', userBookCoverVersion: null }),
     ])
     expect(removed.querySelector('img')).toBeNull()
+  })
+})
+
+// #1591: a failed list is not "no highlights": the page says so and loads again back online.
+describe('HighlightsPage load failure', () => {
+  it('failed load shows an error, then the list once the browser is back online', async () => {
+    items.list = [item({})]
+    items.fail = true
+    const { container } = render(<MemoryRouter><HighlightsPage embedded /></MemoryRouter>)
+    await waitFor(() => expect(container.textContent).toContain('Could not load your highlights'))
+    expect(container.textContent).not.toContain('Your highlights will appear here')
+
+    items.fail = false
+    act(() => { window.dispatchEvent(new Event('offline')) })
+    act(() => { window.dispatchEvent(new Event('online')) })
+
+    await waitFor(() => expect(container.textContent).toContain('quote'))
+  })
+
+  it('failed re-pull under the same filters keeps the list on screen', async () => {
+    items.list = [item({})]
+    const { container } = render(<MemoryRouter><HighlightsPage embedded /></MemoryRouter>)
+    await waitFor(() => expect(container.textContent).toContain('quote'))
+
+    items.fail = true
+    act(() => emitDataChange('highlights'))
+    await waitFor(() => expect(container.querySelector('.highlights-page__loading')).toBeNull())
+    await act(async () => {})
+
+    expect(container.textContent).toContain('quote')
+    expect(container.textContent).not.toContain('Could not load your highlights')
   })
 })

@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ImageSource } from 'expo-image'
-import { getStorageUrl } from '@textstack/shared'
+import { getStorageUrl, NETWORK_RETRY_MS } from '@textstack/shared'
 import { APP_HEADERS, getAccessToken } from '../lib/api'
+import { useReconnectCount } from './useOnline'
 
 /**
  * A cover for expo-image, and the `onError` to give it. A storage path is public; a V2 cover is a
  * full `/me/v2/books/{id}/cover` URL that needs the Bearer, so it waits for the token. expo-image
  * caches by URL, so a cover seen once shows offline; one that fails (offline, never cached) turns
- * the source undefined, so the caller shows its placeholder.
+ * the source undefined, so the caller shows its placeholder. It is tried again on reconnect, and once
+ * after NETWORK_RETRY_MS, with the token re-read (#1591).
  */
 export function useCoverSource(path: string | null | undefined): [ImageSource | undefined, () => void] {
   const authed = !!path && /^https?:\/\//.test(path)
@@ -19,6 +21,24 @@ export function useCoverSource(path: string | null | undefined): [ImageSource | 
     getAccessToken().then((t) => { if (live) setToken(t) }, () => { if (live) setToken(null) })
     return () => { live = false }
   }, [authed])
+  const retried = useRef<string | null>(null)
+  const reconnects = useReconnectCount()
+  // A retry re-reads the stored token (the API layer may have refreshed it); a passive image never refreshes itself.
+  const retry = () => {
+    if (!authed) { setFailed(null); return }
+    getAccessToken().then((t) => { if (t) setToken(t) }, () => {}).finally(() => setFailed(null))
+  }
+  useEffect(() => {
+    if (reconnects === 0 || !failed) return
+    retried.current = null
+    retry()
+  }, [reconnects]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!failed || retried.current === failed) return
+    retried.current = failed
+    const id = setTimeout(retry, NETWORK_RETRY_MS)
+    return () => clearTimeout(id)
+  }, [failed]) // eslint-disable-line react-hooks/exhaustive-deps
   const onError = () => setFailed(path ?? null)
   if (!path || path === failed) return [undefined, onError]
   if (!authed) return [{ uri: getStorageUrl(path) }, onError]
