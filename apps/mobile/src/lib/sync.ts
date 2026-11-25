@@ -405,9 +405,10 @@ export async function uploadPicked(
 export function deviceUploadIo(isCancelled: () => boolean): UploadIo {
   return {
     open(uri) {
-      const { File } = require('expo-file-system') as typeof import('expo-file-system')
+      const { File, FileMode } = require('expo-file-system') as typeof import('expo-file-system')
       const file = new File(uri)
-      const handle = file.open()
+      // Read-only: Android's default READ_WRITE ("rw") creates a missing file, leaving a 0-byte book (#1610).
+      const handle = file.open(FileMode.ReadOnly)
       return {
         size: file.size,
         read(offset, length) {

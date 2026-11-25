@@ -45,3 +45,9 @@ describe('#1143 — the upload screen honours Cancel and drops the picker copy',
     expect(upload).toContain('await uploadPicked(')
   })
 })
+
+describe('#1610 — an upload never creates the book file it reads', () => {
+  it('the device upload opens the file read-only', () => {
+    expect(read('src/lib/sync.ts')).toContain('const handle = file.open(FileMode.ReadOnly)')
+  })
+})
