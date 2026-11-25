@@ -231,11 +231,18 @@ the Android host stages and retains every format as `*.epub`, the web host opens
     PDF took too long to read"), while the page keeps answering. A busy worker that keeps answering is kept. A render
     no longer wanted (its frame left the document, or a newer render of the same page) is cancelled when another
     starts (`RenderTask.cancel`), so the page wanted now does not queue behind it. The host's own `opened` deadline
-    is unchanged: a bomb in the load shows the host's "taking too long" first, then `open-failed`.
+    is unchanged: a load the worker never answers shows the host's "taking too long" first, then `open-failed`.
     A page that fails to draw for any reason but a cancel is the book stopped too (`book-stopped` with the reason), never
     a blank page nobody hears of: pdf.js draws past what it can ignore, so a page that still fails is one the worker
     could not do; past its memory, pdf.js ignores the out-of-memory in the drawing and rejects the page's text ("Array
-    buffer allocation failed"), and the worker, having answered, never goes silent. A worker `error` or `messageerror`
+    buffer allocation failed"), and the worker, having answered, never goes silent. A bomb no longer gets that far (#1585): the
+    fork's pdf.js caps what one stream decodes to at 384 MiB (a local patch to `vendor/pdfjs/pdf.worker.mjs`: the
+    DecompressionStream loop stops past it, the sync decoder's buffer is clamped to it; an A3 page scanned at 600 dpi
+    still fits), so a page bomb is `book-stopped` ("a PDF stream decodes past 384 MiB") at a few hundred MB, before
+    Android kills the whole WebView, and a bomb in the metadata is skipped (the PDF opens). A stream past the cap is
+    refused at once after (no second inflate for the page's text or a re-render), a failed allocation is never retried by
+    the slower decoder, and an image over 80 M px (`maxImageSize`, the fork's getDocument) is skipped, not drawn. Not
+    bounded: the total over a page's many streams, and the copy at the end of a decode (up to twice the cap at once). A worker `error` or `messageerror`
     after the load stops the book at once. Before the swap that is the open's `open-failed` (a decompression bomb in
     the load); with the book on screen the page sends `book-stopped` (once) instead of leaving blank pages, and the
     hosts say the book stopped responding, with Retry (a new page load, the book opened again). A worker that cannot

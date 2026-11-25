@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_URL, bookAt } from './bookOriginRoute.mjs'
-import { bombPagePdf, bombPdf, fb2, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
+import { bombPagePdf, bombPdf, fb2, underCapBombPagePdf, hostilePdf, pdf, writeAlignmentEpub, writeFormatFixtures } from './fixtures.mjs'
 import { chromium, drive, hostPage as harnessPage } from './pageHarness.mjs'
 import { readerAndroidPageHtml as readerPageHtml } from './readerPage.generated.ts'
 
@@ -81,8 +81,8 @@ try {
 
   /**
    * #1204 (emulator): a phone's memory, on any machine. Each Worker the page makes runs behind a shim that refuses any
-   * ArrayBuffer over 64 MiB with the error a phone gives ("Array buffer allocation failed"); then page 2's bomb (1 GiB as
-   * its content) runs out of memory in pdf.js's decode, at the default silence. pdf.js ignores that in the page's drawing
+   * ArrayBuffer over 64 MiB with the error a phone gives ("Array buffer allocation failed"); then page 2's bomb (256 MiB as
+   * its content, under pdf.js's decode cap, #1585) runs out of memory in pdf.js's decode, at the default silence. pdf.js ignores that in the page's drawing
    * and rejects the page's text: the worker answered, so no watchdog. The failed page must be the book stopped, never a
    * blank page nobody hears of, and nothing goes unhandled.
    */
@@ -111,7 +111,8 @@ try {
     await low.goto(PAGE_URL)
     const { call: lowCall, waitFor: lowWait, open: lowOpen } = drive(low, got, TIMEOUT_MS)
     await lowWait(0, (x) => x.type === 'ready', 'ready')
-    const opened = await lowOpen(bookAt('tsbombpage.pdf'), 'tsbombpage.pdf')
+    writeFileSync(resolve(dir, 'tsbombpage256.pdf'), underCapBombPagePdf())
+    const opened = await lowOpen(bookAt('tsbombpage256.pdf'), 'tsbombpage256.pdf')
     const from = got.length
     lowCall('window.__fol.next()')
     const stopped = await lowWait(from, (x) => x.type === 'book-stopped', 'book-stopped (out of memory)').catch(() => null)
@@ -470,42 +471,75 @@ try {
   const handed = messages.slice(from).filter((x) => x.type === 'openLink').map((x) => x.href)
   check(handed.length === 2 && handed[0].startsWith(`${evil}/gotor.pdf`) && handed[1] === `${evil}/uri`, `only the two http links are handed to the host, never followed (${handed.join(', ')})`)
 
-  // #1204: pdf.js parses in a Worker: a decompression bomb (1 GiB of XMP in 2 KB) keeps that worker busy and silent, not
-  // the page; past the watchdog's silence (shortened here, PDF_SILENCE_MS by default) the worker is terminated and the
-  // open fails, the book on screen still reading.
+  // The page's next Workers (pdf.js's, page.mjs `pdfWorker`) drop the messages `deaf` (source of a predicate on pdf.js's
+  // message) names, so a worker goes silent on cue, on any machine; `hear()` puts the page's own Worker back.
+  const deafTo = (deaf) => page.evaluate((deaf) => {
+    const W = (window.__Worker ??= Worker)
+    window.Worker = function (url, options) {
+      const x = new XMLHttpRequest()
+      x.open('GET', url, false)
+      x.send()
+      const prefix = `(() => { const deaf = ${deaf}, add = self.addEventListener
+        self.addEventListener = function (t, f, o) { return add.call(this, t, t === 'message' ? (e) => { if (!deaf(e.data)) f.call(this, e) } : f, o) } })();\n`
+      return new W(URL.createObjectURL(new Blob([prefix + x.responseText], { type: 'text/javascript' })), options)
+    }
+  }, deaf)
+  const hear = () => call('window.Worker = window.__Worker ?? Worker')
+  const ticking = () => call('window.__gap = 0; window.__tick = performance.now(); window.__ticker = setInterval(() => { const t = performance.now(); window.__gap = Math.max(window.__gap, t - window.__tick); window.__tick = t }, 20)')
+  const ticked = () => call('clearInterval(window.__ticker), Math.round(window.__gap)')
+
+  // #1204: pdf.js parses in a Worker: a load it never answers (a decompression bomb did, before #1585's cap) keeps that
+  // worker silent, not the page; past the watchdog's silence (shortened here, PDF_SILENCE_MS by default) the worker is
+  // terminated and the open fails, the book on screen still reading.
   console.log('pdf bomb')
-  writeFileSync(resolve(dir, 'tsbomb.pdf'), bombPdf())
   m = await open('tsformat.pdf')
   await call('window.__fol.__testPdfSilence(1000)')
-  await call('window.__gap = 0; window.__tick = performance.now(); window.__ticker = setInterval(() => { const t = performance.now(); window.__gap = Math.max(window.__gap, t - window.__tick); window.__tick = t }, 20)')
-  const bombAt = Date.now()
-  const bomb = await open('tsbomb.pdf')
-  const bombMs = Date.now() - bombAt
-  const gap = await call('clearInterval(window.__ticker), Math.round(window.__gap)')
+  await deafTo('(d) => d?.action === "GetDocRequest"')
+  await ticking()
+  const silentAt = Date.now()
+  const silent = await open('tsformat.pdf')
+  const silentMs = Date.now() - silentAt
+  const gap = await ticked()
+  await hear()
   await call('window.__fol.__testPdfSilence(0)')
-  check(bomb.type === 'open-failed' && /took too long/.test(bomb.error) && bombMs < 1000 + 5000, `the bomb fails at the watchdog's silence (${bomb.type}: ${bomb.error}, ${bombMs} ms)`)
-  check(!messages.slice(bomb.from).some((x) => x.type === 'book-stopped'), 'a failed open says `open-failed` only, never `book-stopped`')
+  check(silent.type === 'open-failed' && /took too long/.test(silent.error) && silentMs < 1000 + 5000, `a load the worker never answers fails at the watchdog's silence (${silent.type}: ${silent.error}, ${silentMs} ms)`)
+  check(!messages.slice(silent.from).some((x) => x.type === 'book-stopped'), 'a failed open says `open-failed` only, never `book-stopped`')
   check(gap < 500, `and the page answers all the while (longest gap between 20 ms ticks: ${gap} ms)`)
-  check(!!(await turnSaves('a store after the bomb')), 'the PDF open before it still turns and saves')
+  check(!!(await turnSaves('a store after the silent load')), 'the PDF open before it still turns and saves')
+  // #1585: a bomb (1 GiB of XMP in 2 KB) stops at pdf.js's decode cap (384 MiB, fork patch), at the default silence:
+  // pdf.js skips the metadata and the PDF opens.
+  writeFileSync(resolve(dir, 'tsbomb.pdf'), bombPdf())
+  const bomb = await open('tsbomb.pdf')
+  check(bomb.type === 'opened' && !messages.slice(bomb.from).some((x) => x.type === 'book-stopped'), `a bomb in the metadata stops at the decode cap, the PDF opens without it (${bomb.type}${bomb.error ? `: ${bomb.error}` : ''})`)
   m = await open('tsformat.pdf')
   // Drawn before the next open (an open over a page still rendering cancels it: a page error).
   check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `a PDF opens and draws after it (${m.type})`)
-  // #1204 review: a page that never finishes drawing after `opened` (the bomb as page 2's content) leaves the worker silent:
-  // the watchdog (PDF_SILENCE_MS; shortened here) terminates it and the hosts are told, `book-stopped` for that book.
-  writeFileSync(resolve(dir, 'tsbombpage.pdf'), bombPagePdf())
+  // #1204 review: a page that never finishes drawing after `opened` (page 2, its drawing and text never answered) leaves
+  // the worker silent: the watchdog (PDF_SILENCE_MS; shortened here) terminates it and the hosts are told, `book-stopped`.
   await call('window.__fol.__testPdfSilence(1000)')
-  m = await open('tsbombpage.pdf')
-  await call('window.__gap = 0; window.__tick = performance.now(); window.__ticker = setInterval(() => { const t = performance.now(); window.__gap = Math.max(window.__gap, t - window.__tick); window.__tick = t }, 20)')
+  await deafTo('(d) => (d?.action === "GetOperatorList" || d?.action === "GetTextContent") && d.data?.pageIndex === 1')
+  m = await open('tsformat.pdf')
+  await ticking()
   from = messages.length
   const turnAt = Date.now()
   call('window.__fol.next()')
   const stopped = await waitFor(from, (x) => x.type === 'book-stopped', 'book-stopped').catch(() => null)
   const stoppedMs = Date.now() - turnAt
-  const pageGap = await call('clearInterval(window.__ticker), Math.round(window.__gap)')
+  const pageGap = await ticked()
+  await hear()
   await call('window.__fol.__testPdfSilence(0)')
   check(m.type === 'opened' && stopped?.key === m.book.sha256 && /took too long/.test(stopped?.error) && stoppedMs < 1000 + 5000,
     `a page that never finishes after \`opened\` says \`book-stopped\` for its book (${m.type}; ${JSON.stringify(stopped)}, ${stoppedMs} ms)`)
   check(pageGap < 500 && messages.slice(from).filter((x) => x.type === 'book-stopped').length === 1, `once, and the page answers all the while (longest gap: ${pageGap} ms)`)
+  // #1585: the bomb as page 2's content, at the default silence: its inflate stops at the decode cap, as a phone's memory
+  // would only GBs later (Android kills the WebView first), and the book is stopped with the reason.
+  writeFileSync(resolve(dir, 'tsbombpage.pdf'), bombPagePdf())
+  m = await open('tsbombpage.pdf')
+  from = messages.length
+  call('window.__fol.next()')
+  const capped = await waitFor(from, (x) => x.type === 'book-stopped', 'book-stopped (cap)').catch(() => null)
+  check(m.type === 'opened' && capped?.key === m.book.sha256 && /could not be drawn: .*decodes past 384 MiB/.test(capped?.error),
+    `a page bomb stops at the decode cap: \`book-stopped\` with the reason (${m.type}; ${capped?.error ?? 'no notice'})`)
   m = await open('tsformat.pdf')
   check(m.type === 'opened' && await shown(() => !!document.querySelector('.textLayer')?.textContent.includes('Page 1. Sphinx'), m.stale), `the next PDF opens and draws (${m.type})`)
 
