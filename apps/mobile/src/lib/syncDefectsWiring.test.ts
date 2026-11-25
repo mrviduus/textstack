@@ -10,8 +10,20 @@ const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), '
 describe('#1191 — a V2 store reset never lets a listing delete downloads', () => {
   it('the library screen re-loads instead of failing when a reset dropped its load, and a sign-out supersedes it', () => {
     const lib = read('app/(tabs)/library.tsx')
-    expect(lib.indexOf('const myGen = ++loadGenRef.current')).toBeLessThan(lib.indexOf('if (!isAuthenticated) { setLoading(false); return }'))
+    expect(lib.indexOf('const myGen = ++loadGenRef.current')).toBeLessThan(lib.indexOf('if (!isAuthenticated) {'))
     expect(lib).toContain('if (syncEpoch() !== epoch) return void loadData()')
+  })
+})
+
+describe('#1608 — signed out, the library still lists the books on this device', () => {
+  it('a reader whose account is gone sees the device\'s books, not a sign-in wall, and the server is not asked', () => {
+    const lib = read('app/(tabs)/library.tsx')
+    const signedOut = lib.slice(lib.indexOf('if (!isAuthenticated) {'), lib.indexOf('const epoch = syncEpoch()'))
+    expect(signedOut).toContain('await deviceBooks()')
+    expect(signedOut).not.toContain('userBooksApi')
+    // The sign-in screen is only for an empty device; with books it is a banner above them.
+    expect(lib).toContain('if (!isAuthenticated && userBooks.length === 0) {')
+    expect(lib).not.toMatch(/\n  if \(!isAuthenticated\) \{\n\s*\/\/ Two honest/)
   })
 })
 

@@ -40,6 +40,17 @@ const VIEW_MODE_KEY = 'textstack_library_view'
 const NO_CATALOG: UserLibraryItem[] = []
 const NO_CATALOG_PROGRESS: Record<string, ReadingProgressDto> = {}
 
+/** The books whose file is on this device, with their places (#1532): read with no account or network. */
+async function deviceBooks() {
+  const lib = deviceLocalLibrary()
+  const [onDevice, progress, removed] = await Promise.all([
+    lib.books().then(bs => bs.filter(b => b.local)),
+    lib.progress(),
+    deviceRemovals(),
+  ])
+  return { books: onDevice.map(c => cachedUserBook(c, progress.get(c.id))), removed }
+}
+
 export default function LibraryScreen() {
   const { isAuthenticated } = useAuth()
   const { colors } = useTheme()
@@ -68,8 +79,7 @@ export default function LibraryScreen() {
   //     reload; the slower response would otherwise overwrite fresher data.
   //  2. Set-state-after-unmount — tab swap during an in-flight request.
   // Set to -1 on unmount so trailing resolutions are dropped (B-10).
-  // Must sit above the early returns below — it is a hook, and `loading` /
-  // `!isAuthenticated` both bail out before the render body.
+  // Must sit above the early returns below — it is a hook, and `loading` bails out before the render body.
   /** This device's opens of uploads (the V2 reader marks them): "Recently opened" and Continue (#1385) without a server write. Read on focus. */
   const [openedAt, setOpenedAt] = useState<Record<string, number>>({})
   useFocusEffect(useCallback(() => { AsyncStorage.getItem(OPENED_AT_KEY).then((j) => setOpenedAt(parseOpenedAt(j))).catch(() => {}) }, []))
@@ -81,7 +91,15 @@ export default function LibraryScreen() {
   const loadData = useCallback(async () => {
     // Bumped before the session check: a sign-out supersedes a load still in flight (#1191).
     const myGen = ++loadGenRef.current
-    if (!isAuthenticated) { setLoading(false); return }
+    // Signed out (#1608: the server lost the account, or no session yet): the device's own books, no server call.
+    if (!isAuthenticated) {
+      const here = await deviceBooks().catch(() => null)
+      if (myGen !== loadGenRef.current) return
+      setUserBooks(here?.books ?? [])
+      setLoadError(null)
+      setLoading(false)
+      return
+    }
     const epoch = syncEpoch()
     try {
       const books = await userBooksApi.getUserBooks()
@@ -101,16 +119,10 @@ export default function LibraryScreen() {
       // the list is partial rather than pretending it is whole.
       if (offline) {
         try {
-          const lib = deviceLocalLibrary()
-          const [onDevice, progress, removed] = await Promise.all([
-            lib.books().then(bs => bs.filter(b => b.local)),
-            // The reader's places (#1532): progress and Continue with no account or network.
-            lib.progress(),
-            deviceRemovals(),
-          ])
+          const { books, removed } = await deviceBooks()
           if (myGen !== loadGenRef.current) return
           // #1189: a book deleted here offline leaves the kept list too.
-          setUserBooks(prev => (prev.length > 0 ? prev.filter(b => !removed.has(b.id)) : onDevice.map(c => cachedUserBook(c, progress.get(c.id)))))
+          setUserBooks(prev => (prev.length > 0 ? prev.filter(b => !removed.has(b.id)) : books))
         } catch { /* cache unavailable — the banner still explains the empty list */ }
       }
     } finally {
@@ -154,7 +166,26 @@ export default function LibraryScreen() {
     setRefreshing(false)
   }
 
-  if (!isAuthenticated) {
+  if (loading) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.skeletonList}>
+          {[0, 1, 2, 3].map(i => (
+            <View key={i} style={[styles.bookRow, { borderBottomColor: colors.border }]}>
+              <SkeletonLoader width={70} height={105} borderRadius={6} />
+              <View style={styles.bookInfo}>
+                <SkeletonLoader width="70%" height={16} />
+                <SkeletonLoader width="40%" height={13} style={{ marginTop: 6 }} />
+                <SkeletonLoader width="90%" height={4} style={{ marginTop: 12 }} />
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    )
+  }
+
+  if (!isAuthenticated && userBooks.length === 0) {
     // Two honest answers for an empty shelf, and until 2026-09-28 only the
     // second was offered. A reader with no session was sent to Sign In — the
     // one thing that was never required to add a book, since a guest may
@@ -172,25 +203,6 @@ export default function LibraryScreen() {
           secondaryLabel="Sign in"
           onSecondaryPress={() => router.push('/(auth)/login')}
         />
-      </View>
-    )
-  }
-
-  if (loading) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.skeletonList}>
-          {[0, 1, 2, 3].map(i => (
-            <View key={i} style={[styles.bookRow, { borderBottomColor: colors.border }]}>
-              <SkeletonLoader width={70} height={105} borderRadius={6} />
-              <View style={styles.bookInfo}>
-                <SkeletonLoader width="70%" height={16} />
-                <SkeletonLoader width="40%" height={13} style={{ marginTop: 6 }} />
-                <SkeletonLoader width="90%" height={4} style={{ marginTop: 12 }} />
-              </View>
-            </View>
-          ))}
-        </View>
       </View>
     )
   }
@@ -245,6 +257,10 @@ export default function LibraryScreen() {
       {/* Above everything, because it changes how the whole list should be read:
           uploads and saved-but-undownloaded books are not cached at all. */}
       {loadError === 'offline' && <OfflineBanner message={t('library.offline.partial')} />}
+      {/* #1608: signed out, the books on this device still read; the account only carries them elsewhere. */}
+      {!isAuthenticated && (
+        <OfflineBanner message="Signed out — showing books on this device." actionLabel="Sign in" onAction={() => router.push('/(auth)/login')} />
+      )}
       <LibrarySearch value={query} onChange={setQuery} onClear={clearQuery} />
       <View style={styles.controlRow}>
         <View style={{ flex: 1 }}>
