@@ -1,7 +1,7 @@
 /**
  * The V2 local library's sync client (R6, #1038; PDD v2-sync-protocol.md "Pull and push", "The
  * revision rule", "Conflict codes", "File sync upload protocol"). One pass: pull the library, reading and annotations
- * feeds from their cursors, page by page, push the outbox kind by kind (books → states → sessions → annotations), pull the
+ * feeds from their cursors, page by page, push the outbox kind by kind (books → states → sessions → annotations → removals), pull the
  * vocabulary feed the reader's marks read offline (#1271: after the pushes, its failure the pass's own only),
  * then — only with file sync on — send the bytes the server lacks. Opportunistic: the reading path
  * never waits for it. Offline or 503 `v2_unavailable` ends the pass; any other failure of one
@@ -21,6 +21,7 @@ import { uuid } from 'expo-modules-core'
 import { withDeadline } from '../deadline'
 import { createSingleFlight } from '../singleFlight'
 import { clearDeviceFiles, deviceLocalLibrary } from './deviceLibrary'
+import { bookFile, type HostFiles } from './hostStorage'
 import { FEEDS, MAX_FAILURES, identityStep, wipeLibrary, type BookRow, type LocalFeed, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
 
 export interface SyncHost {
@@ -151,7 +152,7 @@ export function syncLibrary(lib: LocalLibrary, host: SyncHost): Promise<SyncResu
   })())
 }
 
-const PUSHES = [['book', pushBook], ['state', pushState], ['session', pushSession], ['annotation', pushAnnotation]] as const
+const PUSHES = [['book', pushBook], ['state', pushState], ['session', pushSession], ['annotation', pushAnnotation], ['removal', pushBookRemoval]] as const
 
 async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = false): Promise<SyncResult> {
   if (reset()) return 'dropped'
@@ -245,6 +246,18 @@ export async function claimLibraryFor(userId: string, lib: () => LocalLibrary = 
 export async function tryAgainBook(lib: LocalLibrary, bookId: string, refresh: () => Promise<unknown>, sync: () => void) {
   await lib.unpark(bookId)
   uploadFailures.delete(bookId)
+  await refresh()
+  sync()
+}
+
+/**
+ * #1189: Delete Book on this device, offline and with no account: its rows and queued writes (`removeBook`), its retained
+ * file (best effort: a file left behind is only space), the list refreshed at once, then a pass that pushes the server's
+ * removal (as `tryAgainBook`).
+ */
+export async function removeLocalBook(lib: LocalLibrary, files: Pick<HostFiles, 'remove'>, bookId: string, refresh: () => Promise<unknown>, sync: () => void) {
+  const sha256 = await lib.removeBook(bookId)
+  if (sha256) try { files.remove(bookFile(sha256)) } catch (e) { console.warn('[v2] deleted book file not removed:', (e as Error | null)?.name) }
   await refresh()
   sync()
 }
@@ -535,6 +548,19 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
 async function pushRemoval(lib: LocalLibrary, reset: Reset, item: OutboxItem, id: string): Promise<void> {
   try {
     await current(reset, syncApi.deleteAnnotation(id), (s) => Promise.all([lib.setAnnotation(s), lib.done(item)]))
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return drop(lib, reset, item)
+    throw e
+  }
+}
+
+/**
+ * #1189: a book deleted here: `DELETE /books/{id}`, a hide (decision 11), idempotent (204 again). 404: the server has no
+ * such book (another identity's, or gone): done too. Last: a book's own writes were dropped with it.
+ */
+async function pushBookRemoval(lib: LocalLibrary, _host: SyncHost, reset: Reset, item: OutboxItem): Promise<void> {
+  try {
+    await current(reset, syncApi.removeBook(item.target), () => lib.done(item))
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return drop(lib, reset, item)
     throw e

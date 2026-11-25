@@ -86,3 +86,6 @@ export const deviceSignOutLoss = (): Promise<SignOutLoss> => deviceLocalLibrary(
 
 /** Sign-out (#1070, owner 2026-11-12: V2 books belong to the account): rows, then files (`wipeLibrary`). */
 export const wipeDeviceLibrary = (): Promise<void> => wipeLibrary(deviceLocalLibrary(), clearDeviceFiles)
+
+/** #1189: books deleted on this device whose removal the server has not taken yet: kept out of the server's list meanwhile. */
+export const deviceRemovals = async (): Promise<Set<string>> => new Set((await deviceLocalLibrary().outbox('removal')).map((i) => i.target))

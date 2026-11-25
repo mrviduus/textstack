@@ -21,8 +21,8 @@
  *                  marks, offline too. Nothing here is queued (a save goes to the API first), so a wipe loses nothing
  *   reading_sessions  the reader's ended sessions (#1313, sessionTracker.mjs) by client session id, until pushed
  *                  (append-only facts: the row leaves with its outbox entry)
- *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'session' | 'annotation',
- *                  pushed in that order (PDD "Push"). Coalescing: the payload is read from the row at
+ *   outbox         what still has to be pushed: (kind, target), kind 'book' | 'state' | 'session' | 'annotation' |
+ *                  'removal' (#1189: a book deleted here, its row gone), pushed in that order (PDD "Push"). Coalescing: the payload is read from the row at
  *                  push time, so one entry per row; `gen` grows on every re-queue, so a push only
  *                  clears the entry it read (a save landing mid-push stays queued); `failures` counts
                   transient failures of that gen (a re-queue resets it; sync.ts `MAX_FAILURES`)
@@ -212,7 +212,7 @@ export interface SessionRow {
   end_percent: number
 }
 
-export type OutboxKind = 'book' | 'state' | 'session' | 'annotation'
+export type OutboxKind = 'book' | 'state' | 'session' | 'annotation' | 'removal'
 /**
  * #1271 review: what an own vocabulary write carries from the moment its save was asked: the user who asked, and
  * whether that session has ended since (`resetSince()`, the shared epoch: every sign-in and sign-out bumps it, so a
@@ -439,6 +439,8 @@ export function createLocalLibrary(db: Db) {
     await rekeyIn({ [local.id]: server.id }, local.file_id && f && local.sha256 === f.sha256 ? { [local.file_id]: f.id } : {})
     await setServer(server)
     await dequeue('book', server.id)
+    // #1189: the bytes of a book deleted here opened again before its removal was pushed: the book is kept after all.
+    await dequeue('removal', server.id)
   }
 
   /** A pulled book's server copy becomes this device's copy (picked bytes, or a download). */
@@ -741,7 +743,7 @@ export function createLocalLibrary(db: Db) {
     /** The queue in push order; one kind's entries in queue order. */
     outbox: (kind?: OutboxKind) => job(() => (kind
       ? all<OutboxItem>('SELECT kind, target, gen, failures FROM outbox WHERE kind = ? ORDER BY rowid', [kind])
-      : all<OutboxItem>(`SELECT kind, target, gen, failures FROM outbox ORDER BY CASE kind WHEN 'book' THEN 0 WHEN 'state' THEN 1 WHEN 'session' THEN 2 ELSE 3 END, rowid`))),
+      : all<OutboxItem>(`SELECT kind, target, gen, failures FROM outbox ORDER BY CASE kind WHEN 'book' THEN 0 WHEN 'state' THEN 1 WHEN 'session' THEN 2 WHEN 'annotation' THEN 3 ELSE 4 END, rowid`))),
     /**
      * What a pass pushes, one kind in queue order: entries still retried (under MAX_FAILURES) whose book
      * is not parked — a stuck entry or a parked book's child costs no read at all.
@@ -901,6 +903,8 @@ export function createLocalLibrary(db: Db) {
      */
     applyBooks: (items: Book[], cursor?: string | null) => tx(async () => {
       for (const b of items) {
+        // #1189: deleted here, its removal not pushed yet: a pull still showing it live does not bring it back.
+        if (await queued('removal', b.id)) continue
         const f = b.currentFile
         if (await bookById(b.id)) {
           await setServer(b)
@@ -1042,6 +1046,24 @@ export function createLocalLibrary(db: Db) {
     uploadable: () => job(() => all<BookRow>(
       `SELECT * FROM books WHERE imported_at IS NOT NULL AND server_file_id = file_id AND has_content = 0 AND content_removed = 0 AND removed_at IS NULL`,
     )),
+
+    /**
+     * #1189: Delete Book on this device, in one transaction: the book's row, reading state, highlights, sessions and
+     * every queued write of it. A book the server knows (`server_file_id`: a push or a pull named its file), or one with
+     * no row here (listed by the server, never pulled), leaves a queued 'removal': the DELETE sync.ts pushes, and the
+     * tombstone that keeps a pull from bringing it back (`applyBooks`). One never pushed leaves nothing. Other devices
+     * keep their copies (decision 11: a removal is a hide). Resolves to the sha256 of the retained copy to delete
+     * (null: none here; books_sha256 is UNIQUE, so no other row holds those bytes).
+     */
+    removeBook: (bookId: string) => tx(async () => {
+      const b = await bookById(bookId)
+      // The outbox first: BOOK_OF reads the annotation and session rows.
+      await run(`DELETE FROM outbox WHERE ${BOOK_OF} = ?`, [bookId])
+      for (const table of ['reading_state', 'annotations', 'reading_sessions']) await run(`DELETE FROM ${table} WHERE book_id = ?`, [bookId])
+      await run('DELETE FROM books WHERE id = ?', [bookId])
+      if (!b || b.server_file_id) await enqueue('removal', bookId)
+      return b?.imported_at != null ? b.sha256 : null
+    }),
 
     // ---- Sign-out and another account (#1070: V2 books belong to the account) ------------------
 

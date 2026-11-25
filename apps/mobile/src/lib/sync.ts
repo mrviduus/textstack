@@ -18,6 +18,7 @@ import {
 
 export { FileUploadError }
 import { createSingleFlight } from './singleFlight'
+import { deviceRemovals } from './reader/deviceLibrary'
 
 // ---- The probe ----------------------------------------------------------------------------------
 
@@ -202,6 +203,8 @@ const coverOf = (b: Book) => syncApi.bookCoverUrl(b)
  * The cover is the authed V2 route; `useCoverSource` sends the Bearer an <Image> needs.
  */
 export async function getUserBooks(): Promise<UserBookDto[]> {
+  // #1189: read before the pull, so a removal pushed meanwhile still hides the book this pull may list. No device library (web, a failed open): none.
+  const removed = await deviceRemovals().catch(() => new Set<string>())
   const pulled = await whileCurrent(Promise.all([pullBooks(), syncApi.pullFeed<ReadingState>('reading')]), ([, reading]) => {
     for (const s of reading.items) syncStore.states.set(s.bookId, s)
   })
@@ -210,7 +213,7 @@ export async function getUserBooks(): Promise<UserBookDto[]> {
   if (!pulled) throw new ApiError(503, 'Library pull interrupted, retry')
   const [list] = pulled
   const stateOf = syncStore.states
-  return list.filter(isShelfBook).map((b): UserBookDto => {
+  return list.filter((b) => isShelfBook(b) && !removed.has(b.id)).map((b): UserBookDto => {
     const file = b.currentFile
     const state = stateOf.get(b.id)
     return {

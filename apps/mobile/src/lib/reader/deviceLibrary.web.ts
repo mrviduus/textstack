@@ -18,3 +18,4 @@ export const clearDeviceFiles = (): void => {}
 export const deviceLibraryBytes = (): number => 0
 export const deviceSignOutLoss = async (): Promise<SignOutLoss> => NOTHING_LOST
 export const wipeDeviceLibrary = async (): Promise<void> => {}
+export const deviceRemovals = async (): Promise<Set<string>> => new Set()
