@@ -1416,9 +1416,10 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
         return
       }
       case 'bookmark-list': {
-        // #1314, untrusted: only what readBookmarkList takes; a previous book's is dropped.
-        const l = readBookmarkList(m)
-        if (l && isOpenKey(l.key)) setBookmarks(l)
+        // #1314, untrusted: only what readBookmarkList takes; a previous book's is dropped. Without its list (#1354:
+        // unchanged) the one held is kept.
+        const sha = openShaRef.current
+        setBookmarks((prev) => readBookmarkList(m, { open: sha, prev }) ?? prev)
         return
       }
       case 'search-results': {

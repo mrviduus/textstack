@@ -212,6 +212,29 @@ describe('v2 reader bookmarks', () => {
       r.selectNodeContents(other.body)
       expect(atTop(at('#b', 0), r, { scrolled: true, rects: rects() })).toBe(false)
     })
+
+    it('atTop_AMarkOnALineBelow_DecidedByTheFirstLines_NoSpanMeasured', () => {
+      document.body.innerHTML = HTML
+      // #1354: every range measured is recorded.
+      let measured: Range[] = []
+      const counted = (r: Range) => { measured.push(r); return rects()(r) }
+      const asked = (place: Range, mark: Range, opts = {}) => { measured = []; return [atTop(place, mark, { scrolled: true, rects: counted, ...opts }), measured.length] }
+      // Below, on another line: the mark's and the place's own rects only; the place's given, the mark's alone.
+      expect(asked(at('#b', 0), at('#c', 0))).toEqual([false, 2])
+      expect(asked(at('#b', 0), at('#c', 0), { placeLine: () => rects()(at('#b', 0))[0] })).toEqual([false, 1])
+      // On the place's line, or above it (a tall image between may still be two lines): the span between them decides.
+      expect(asked(at('#b', 0), at('#b', 30))).toEqual([true, 3])
+      expect(asked(at('#b', 40), at('#b', 0))).toEqual([true, 1])
+    })
+
+    it('atTop_NoLineToCompare_TheSpanDecides', () => {
+      document.body.innerHTML = HTML
+      // A mark with no rect of its own (a collapsed point): measured by the span, as before #1354.
+      const pointless = (r: Range) => (r.collapsed ? [] : rects()(r))
+      const mark = at('#b', 30)
+      mark.collapse(true)
+      expect(atTop(at('#b', 0), mark, { rects: pointless })).toBe(true)
+    })
   })
 
   it('startsWithin_AtOrAfterTheStartAndBeforeTheEnd', () => {
@@ -279,5 +302,22 @@ describe('v2 reader bookmarks', () => {
     const m = { type: 'bookmark-list', key: 'abc', bookmarks: [], here: null, can: false }
     expect(readBookmarkList(m)).toEqual({ key: 'abc', bookmarks: [], here: null, can: false, placing: false })
     for (const bad of [null, 'x', { ...m, type: 'highlight-list' }, { ...m, key: 5 }, { ...m, bookmarks: {} }]) expect(readBookmarkList(bad)).toBeNull()
+  })
+
+  it('readBookmarkList_NoList_KeepsTheHeldOneOfThatBook_ElseNull', () => {
+    const prev = readBookmarkList({ type: 'bookmark-list', key: 'abc', bookmarks: [{ id: 'b1', cfi: CFI, text: 't', at: 1 }], here: null, can: true })
+    const turn = { type: 'bookmark-list', key: 'abc', here: 'b1', can: false, placing: false }
+    expect(readBookmarkList(turn, { open: 'ABC', prev })).toEqual({ key: 'abc', bookmarks: prev!.bookmarks, here: 'b1', can: false, placing: false })
+    // Nothing held, or another book's: nothing to keep.
+    expect(readBookmarkList(turn)).toBeNull()
+    expect(readBookmarkList({ ...turn, key: 'other' }, { prev })).toBeNull()
+    expect(readBookmarkList({ ...turn, bookmarks: null }, { prev })).toBeNull()
+  })
+
+  it('readBookmarkList_AnotherBookThanTheOpenOne_Null_KeysCaseBlind', () => {
+    const m = { type: 'bookmark-list', key: 'abc', bookmarks: [], here: null, can: true }
+    expect(readBookmarkList(m, { open: 'ABC' })?.key).toBe('abc')
+    expect(readBookmarkList(m, { open: 'bb' })).toBeNull()
+    expect(readBookmarkList(m, { open: null })).toBeNull()
   })
 })

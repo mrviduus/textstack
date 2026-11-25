@@ -768,9 +768,10 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           return
         }
         case 'bookmark-list': {
-          // #1314, untrusted: only what readBookmarkList takes; another book's (a previous open's) is dropped.
-          const l = readBookmarkList(m)
-          if (l && l.key === openedSha.current) setBookmarks(l)
+          // #1314, untrusted: only what readBookmarkList takes; another book's (a previous open's) is dropped. Without
+          // its list (#1354: unchanged) the one held is kept.
+          const sha = openedSha.current
+          setBookmarks((prev) => readBookmarkList(m, { open: sha, prev }) ?? prev)
           return
         }
         case 'highlight-tap': {
