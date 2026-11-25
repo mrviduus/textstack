@@ -22,7 +22,7 @@ import { withDeadline } from '../deadline'
 import { createSingleFlight } from '../singleFlight'
 import { clearDeviceFiles, deviceLocalLibrary } from './deviceLibrary'
 import { bookFile, type HostFiles } from './hostStorage'
-import { FEEDS, MAX_FAILURES, identityStep, wipeLibrary, type BookRow, type LocalFeed, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
+import { FEEDS, MAX_FAILURES, identityStep, wipeLibrary, type BookRow, type SignOutLoss, type LocalFeed, type LocalLibrary, type OutboxItem, type PositionAction } from './localLibrary'
 
 export interface SyncHost {
   /** The session's user id (a guest's too: ADR-014). */
@@ -237,6 +237,19 @@ async function account(lib: LocalLibrary, host: SyncHost, reset: Reset) {
       console.warn('[v2 sync] the local V2 library belongs to another account: pass refused (it is wiped at that sign-in)')
       throw REFUSED
   }
+}
+
+/**
+ * #1611: what signing `userId` in would wipe that the server lacks: the loss when another real account owns the
+ * library and something of it is only on this phone, else null (nothing to ask; `claimLibraryFor` wipes silently).
+ * Read before the wipe, so the sign-in can ask first. Android only.
+ */
+export async function foreignLoss(userId: string, lib: () => LocalLibrary = deviceLocalLibrary): Promise<SignOutLoss | null> {
+  if (Platform.OS === 'web') return null
+  const l = lib()
+  if (identityStep(await l.owner(), userId) !== 'foreign') return null
+  const loss = await l.signOutLoss()
+  return loss.books + loss.writes > 0 ? loss : null
 }
 
 /**

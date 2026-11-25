@@ -38,8 +38,30 @@ describe('sign-in V2 wipe wiring (#1070 rule B: another account wipes at sign-in
     expect(claim).toBeLessThan(fn.indexOf('setUser(res.user)'))
   })
 
-  it('restoredSession_ClaimRetriedNotAwaited', () => {
-    expect(between('// Restore session on mount', 'sessionReadyRef.current')).toContain('void claimLibrary(restored.id)')
+  it('restoredSession_ClaimRetriedNotAwaited_NeverAsks', () => {
+    const restore = between('// Restore session on mount', 'sessionReadyRef.current')
+    expect(restore).toContain('void claimLibrary(restored.id)')
+    expect(restore).not.toContain('mayClaim')
+  })
+
+  // #1611: another account's unsynced books are wiped only after a yes, asked before any token is written.
+  it('signInWithTokens_AsksBeforeTokensAndClaim_NoReturnsFalse', () => {
+    const fn = between('const signInWithTokens = useCallback', '[runExclusive],')
+    const ask = fn.indexOf('if (!(await mayClaim(userData.id)))')
+    expect(ask).toBeGreaterThan(fn.indexOf('bumpEpoch()'))
+    expect(ask).toBeLessThan(fn.indexOf("SecureStore.setItemAsync('access_token'"))
+    expect(fn.slice(ask)).toMatch(/^[^\n]+\n[^\n]*\n\s+return false/)
+  })
+
+  it('guestMint_AsksBeforeTokensAndClaim_NoIsAFailedMint', () => {
+    const fn = between('const createGuestOnce = useCallback', '[runExclusive])')
+    const ask = fn.indexOf("if (!(await mayClaim(res.user.id))) return { status: 'failed'")
+    expect(ask).toBeGreaterThan(-1)
+    expect(ask).toBeLessThan(fn.indexOf("SecureStore.setItemAsync('access_token'"))
+  })
+
+  it('ask_NotInsideTheWipeDeadline', () => {
+    expect(between('const mayClaim = async', 'tRef.current\n')).toContain('withDeadline(foreignLoss(userId), LIBRARY_WIPE_MS)')
   })
 })
 

@@ -10,7 +10,7 @@ import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
 import { CHANGES_NOT_SYNCED, FILE_NOT_UPLOADED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage } from './hostStorage'
-import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, holdReaderHost, openBookHost, pushBeforeSignOut, removeLocalBook, syncLibrary, tryAgainBook, type SyncHost } from './sync'
+import { adoptLocalAccount, claimLibraryFor, downloadBook, foreignLoss, MAX_FAILURES, holdReaderHost, openBookHost, pushBeforeSignOut, removeLocalBook, syncLibrary, tryAgainBook, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
@@ -1392,6 +1392,38 @@ describe('V2 local library sync (R6)', () => {
         const empty = createLocalLibrary(memoryDb())
         await claimLibraryFor('u2', () => empty, clear)
         expect(cleared).toBe(0)
+      })
+
+      // #1611: sign-in asks before wiping another account's books only on this phone; nothing lost → no question.
+      it('foreignLoss_AnotherAccountsUnsentBook_AskedNoKeepsYesWipes', async () => {
+        const { lib, bookId } = await withUnsent()
+        const loss = await foreignLoss('u2', () => lib)
+        expect(loss).toEqual({ books: 1, writes: 0 })
+        // "Cancel": the sign-in stops here, the library is untouched (still u1's, its book and queue kept).
+        expect(await lib.owner()).toEqual({ id: 'u1', guest: false })
+        expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
+        expect(cleared).toBe(0)
+        // "Delete": the sign-in goes on, its claim wipes as before.
+        await claimLibraryFor('u2', () => lib, clear)
+        expect(await lib.books()).toEqual([])
+        expect(cleared).toBe(1)
+      })
+
+      it('foreignLoss_NothingOnlyOnThisPhone_NoQuestionClaimWipes', async () => {
+        const lib = createLocalLibrary(memoryDb())
+        await lib.setAccount('u1', false)
+        expect(await foreignLoss('u2', () => lib)).toBeNull()
+        await claimLibraryFor('u2', () => lib, clear)
+        expect(await lib.owner()).toBeNull()
+        expect(cleared).toBe(1)
+      })
+
+      it('foreignLoss_SameAccountGuestOwnedOrUnowned_NoQuestion', async () => {
+        const { lib } = await withUnsent()
+        expect(await foreignLoss('u1', () => lib)).toBeNull()
+        await lib.setAccount('g1', true)
+        expect(await foreignLoss('u2', () => lib)).toBeNull()
+        expect(await foreignLoss('u2', () => createLocalLibrary(memoryDb()))).toBeNull()
       })
 
       it('claim_RowWipeFails_FilesAndOwnerKept_PassesStillRefused', async () => {
