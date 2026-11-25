@@ -1,6 +1,6 @@
 import type { UserBookDetailResponse, UserBookDto } from '@textstack/shared'
 import type { LibraryBook } from './reader/hostStorage'
-import type { BookPlace } from './reader/localLibrary'
+import type { BookPlace, LocalLibrary } from './reader/localLibrary'
 
 /**
  * The detail payload for a book whose file is on this device (the V2 local library), so the book's
@@ -63,4 +63,10 @@ export function cachedUserBook(b: LibraryBook, progress: BookPlace | undefined):
     progressChapterSlug: null,
     hasOriginalPdf: false,
   }
+}
+
+/** The Library's rows for the books whose file is on this device, with their places: no account or network (#1532, #1608). */
+export async function deviceUserBooks(lib: Pick<LocalLibrary, 'books' | 'progress'>): Promise<UserBookDto[]> {
+  const [here, progress] = await Promise.all([lib.books().then(bs => bs.filter(b => b.local)), lib.progress()])
+  return here.map(b => cachedUserBook(b, progress.get(b.id)))
 }

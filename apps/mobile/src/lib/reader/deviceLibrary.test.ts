@@ -162,6 +162,22 @@ describe('device V2 local library', () => {
     // No row is left naming a missing file: the files stay until the rows can go.
     expect(files.has(`doc/v2/books/${SHA}.epub`)).toBe(true)
   })
+
+  it('signedOutMayList_AccountLostOnServer_TheBooksStillListed_SignOutWipeFailed_NotListed', async () => {
+    // #1608: the server lost the account; nobody signed out here, so the device's books are still this reader's.
+    const m = await fresh()
+    await used(m)
+    expect(await m.signedOutMayList()).toBe(true)
+    // A sign-out whose wipe failed leaves the signed-out account's rows: the signed-out Library lists none of them.
+    failOpen = 'disk busy'
+    const m2 = await fresh()
+    await m2.wipeDeviceLibrary().catch(() => {})
+    expect(await m2.signedOutMayList()).toBe(false)
+    // A wipe that worked: the library is empty, nothing to hide.
+    failOpen = null
+    await m2.wipeDeviceLibrary()
+    expect(await m2.signedOutMayList()).toBe(true)
+  })
 })
 
 describe('signOutLoss (what a wipe deletes that the server lacks)', () => {

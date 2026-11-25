@@ -21,6 +21,7 @@ export function OfflineBanner({
   message,
   actionLabel,
   onAction,
+  signedOut = false,
 }: {
   message: string
   /** Optional retry. A banner with no way out is a status light, not a control —
@@ -28,14 +29,16 @@ export function OfflineBanner({
    *  reader could press. */
   actionLabel?: string
   onAction?: () => void
+  /** Signed out, not offline (#1608): a person icon and no alert role — a status, not a problem. */
+  signedOut?: boolean
 }) {
   const { colors } = useTheme()
   return (
     <View
       style={[styles.banner, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}
-      accessibilityRole="alert"
+      accessibilityRole={signedOut ? undefined : 'alert'}
     >
-      <Ionicons name="cloud-offline-outline" size={16} color={colors.primary} />
+      <Ionicons name={signedOut ? 'person-circle-outline' : 'cloud-offline-outline'} size={16} color={colors.primary} />
       <Text style={[styles.text, { color: colors.primary }]}>{message}</Text>
       {actionLabel && onAction && (
         <TouchableOpacity onPress={onAction} hitSlop={8} accessibilityRole="button">

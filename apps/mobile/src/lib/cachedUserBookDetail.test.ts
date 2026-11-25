@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { rankContinueReading } from '@textstack/shared'
-import { cachedUserBook, cachedUserBookDetail } from './cachedUserBookDetail'
+import { cachedUserBook, cachedUserBookDetail, deviceUserBooks } from './cachedUserBookDetail'
 import type { LibraryBook } from './reader/hostStorage'
 import { createLocalLibrary } from './reader/localLibrary'
 import { memoryDb } from './reader/sqliteShim'
@@ -60,5 +60,28 @@ describe('cachedUserBook (#1532)', () => {
 
     expect(cachedUserBook(book, undefined).completedAt).toBe('2026-11-20T10:00:00.000Z')
     expect(cachedUserBookDetail(book).completedAt).toBe('2026-11-20T10:00:00.000Z')
+  })
+})
+
+describe('deviceUserBooks (#1608)', () => {
+  it('deviceUserBooks_SignedOutWithABookReadHereAndOneOnlyOnTheServer_ListsTheBookOnTheDeviceWithItsPlace', async () => {
+    const db = memoryDb()
+    const SHA = 'ef'.repeat(32)
+    let n = 0
+    const newId = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
+    const lib = createLocalLibrary(db)
+    await lib.addOpened({ sha256: SHA, size: 10, title: 'Here', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+    const position = { cfi: 'epubcfi(/6/14!/4/2/1:0)', quote: 'q', index: 6, fraction: 0.5, at: Date.now() }
+    await lib.writeEntry(SHA, JSON.stringify({ v: 1, book: { sha256: SHA, size: 10, name: 'b.epub' }, position, highlights: [] }), newId)
+    // A book the server listed but whose file never came to this device.
+    await lib.applyBooks([{
+      id: 'server-only', title: 'Elsewhere', author: null, tags: [], hasCover: false, revision: 1, createdAt: '2026-11-10T00:00:00Z', updatedAt: '2026-11-10T00:00:00Z', removedAt: null,
+      currentFile: { id: 'f-server', sha256: '12'.repeat(32), byteSize: 10, originalName: 'e.epub', format: 'epub', hasContent: false, contentRemovedAt: null, isCurrent: true },
+    } as never])
+
+    const rows = await deviceUserBooks(lib)
+
+    expect(rows.map(r => r.title)).toEqual(['Here'])
+    expect(rows[0]).toMatchObject({ status: 'Ready', progressPercent: 0.5 })
   })
 })

@@ -16,14 +16,13 @@ describe('#1191 — a V2 store reset never lets a listing delete downloads', () 
 })
 
 describe('#1608 — signed out, the library still lists the books on this device', () => {
-  it('a reader whose account is gone sees the device\'s books, not a sign-in wall, and the server is not asked', () => {
+  it('signed out, the screen reads the device (gated by the sign-out wipe), never the server, and keeps sign-in for an empty shelf', () => {
     const lib = read('app/(tabs)/library.tsx')
     const signedOut = lib.slice(lib.indexOf('if (!isAuthenticated) {'), lib.indexOf('const epoch = syncEpoch()'))
-    expect(signedOut).toContain('await deviceBooks()')
+    expect(signedOut).toContain('signedOutMayList()')
+    expect(signedOut).toContain('deviceUserBooks(')
     expect(signedOut).not.toContain('userBooksApi')
-    // The sign-in screen is only for an empty device; with books it is a banner above them.
-    expect(lib).toContain('if (!isAuthenticated && userBooks.length === 0) {')
-    expect(lib).not.toMatch(/\n  if \(!isAuthenticated\) \{\n\s*\/\/ Two honest/)
+    expect(lib).toContain('!isAuthenticated && userBooks.length === 0')
   })
 })
 

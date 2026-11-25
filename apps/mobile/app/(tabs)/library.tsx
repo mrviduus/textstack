@@ -17,8 +17,8 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
-import { deviceLocalLibrary, deviceRemovals } from '../../src/lib/reader/deviceLibrary'
-import { cachedUserBook } from '../../src/lib/cachedUserBookDetail'
+import { deviceLocalLibrary, deviceRemovals, signedOutMayList } from '../../src/lib/reader/deviceLibrary'
+import { deviceUserBooks } from '../../src/lib/cachedUserBookDetail'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
 import { LibraryViewSheet } from '../../src/components/library/LibraryViewSheet'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
@@ -39,17 +39,6 @@ const VIEW_MODE_KEY = 'textstack_library_view'
 // stable — a fresh [] each render would invalidate useContinueReadingList's memo on every keystroke.
 const NO_CATALOG: UserLibraryItem[] = []
 const NO_CATALOG_PROGRESS: Record<string, ReadingProgressDto> = {}
-
-/** The books whose file is on this device, with their places (#1532): read with no account or network. */
-async function deviceBooks() {
-  const lib = deviceLocalLibrary()
-  const [onDevice, progress, removed] = await Promise.all([
-    lib.books().then(bs => bs.filter(b => b.local)),
-    lib.progress(),
-    deviceRemovals(),
-  ])
-  return { books: onDevice.map(c => cachedUserBook(c, progress.get(c.id))), removed }
-}
 
 export default function LibraryScreen() {
   const { isAuthenticated } = useAuth()
@@ -85,7 +74,16 @@ export default function LibraryScreen() {
   useFocusEffect(useCallback(() => { AsyncStorage.getItem(OPENED_AT_KEY).then((j) => setOpenedAt(parseOpenedAt(j))).catch(() => {}) }, []))
   const resumeList = useContinueReadingList(NO_CATALOG, NO_CATALOG_PROGRESS, userBooks, openedAt)
 
+  // A session change (#1608: sign-out, a lost account) drops the list in the same render: the previous
+  // session's server list never shows under the signed-out banner, nor a device list under an account.
   const loadGenRef = useRef(0)
+  const [listSession, setListSession] = useState(isAuthenticated)
+  if (listSession !== isAuthenticated) {
+    setListSession(isAuthenticated)
+    setUserBooks([])
+    setLoading(true)
+    loadGenRef.current++ // a load of the previous session still in flight lands nowhere
+  }
   useEffect(() => () => { loadGenRef.current = -1 }, [])
 
   const loadData = useCallback(async () => {
@@ -93,11 +91,20 @@ export default function LibraryScreen() {
     const myGen = ++loadGenRef.current
     // Signed out (#1608: the server lost the account, or no session yet): the device's own books, no server call.
     if (!isAuthenticated) {
-      const here = await deviceBooks().catch(() => null)
-      if (myGen !== loadGenRef.current) return
-      setUserBooks(here?.books ?? [])
-      setLoadError(null)
-      setLoading(false)
+      try {
+        // After a sign-out whose wipe is late or failed, the rows left are the signed-out account's: not listed.
+        const here = (await signedOutMayList()) ? await deviceUserBooks(deviceLocalLibrary()) : []
+        if (myGen !== loadGenRef.current) return
+        setUserBooks(here)
+        setLoadError(null)
+      } catch (e) {
+        if (myGen !== loadGenRef.current) return
+        logLoadError('Library device read error:', e)
+        setUserBooks([])
+        setLoadError('failed')
+      } finally {
+        if (myGen === loadGenRef.current) setLoading(false)
+      }
       return
     }
     const epoch = syncEpoch()
@@ -119,7 +126,7 @@ export default function LibraryScreen() {
       // the list is partial rather than pretending it is whole.
       if (offline) {
         try {
-          const { books, removed } = await deviceBooks()
+          const [books, removed] = await Promise.all([deviceUserBooks(deviceLocalLibrary()), deviceRemovals()])
           if (myGen !== loadGenRef.current) return
           // #1189: a book deleted here offline leaves the kept list too.
           setUserBooks(prev => (prev.length > 0 ? prev.filter(b => !removed.has(b.id)) : books))
@@ -135,10 +142,14 @@ export default function LibraryScreen() {
   useEffect(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     const hasProcessing = userBooks.some(b => b.status.toLowerCase() === 'processing')
-    if (!hasProcessing) return
+    // Signed out: no server list to poll (#1608).
+    if (!hasProcessing || !isAuthenticated) return
     pollRef.current = setInterval(async () => {
+      const gen = loadGenRef.current
       try {
         const books = await userBooksApi.getUserBooks()
+        // A load since (a sign-out included) owns the list.
+        if (gen !== loadGenRef.current) return
         setUserBooks(books)
       } catch (e) {
         // Don't toast here — polling errors should stay quiet, otherwise a
@@ -147,7 +158,7 @@ export default function LibraryScreen() {
       }
     }, 5000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [userBooks])
+  }, [userBooks, isAuthenticated])
 
   // Persist view mode
   useEffect(() => {
@@ -185,6 +196,22 @@ export default function LibraryScreen() {
     )
   }
 
+  // Nothing to show AND a reason for it — never the welcome screen. `loadError`
+  // is what separates "no books" from "no answer"; conflating them was the bug.
+  if (userBooks.length === 0 && loadError) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <EmptyState
+          icon={loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
+          title={loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
+          subtitle={loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
+          buttonLabel={t('common.retry')}
+          onButtonPress={() => { setLoading(true); loadData() }}
+        />
+      </View>
+    )
+  }
+
   if (!isAuthenticated && userBooks.length === 0) {
     // Two honest answers for an empty shelf, and until 2026-09-28 only the
     // second was offered. A reader with no session was sent to Sign In — the
@@ -202,22 +229,6 @@ export default function LibraryScreen() {
           onButtonPress={() => router.push('/my-books/upload')}
           secondaryLabel="Sign in"
           onSecondaryPress={() => router.push('/(auth)/login')}
-        />
-      </View>
-    )
-  }
-
-  // Nothing to show AND a reason for it — never the welcome screen. `loadError`
-  // is what separates "no books" from "no answer"; conflating them was the bug.
-  if (userBooks.length === 0 && loadError) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <EmptyState
-          icon={loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
-          title={loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
-          subtitle={loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
-          buttonLabel={t('common.retry')}
-          onButtonPress={() => { setLoading(true); loadData() }}
         />
       </View>
     )
@@ -259,7 +270,7 @@ export default function LibraryScreen() {
       {loadError === 'offline' && <OfflineBanner message={t('library.offline.partial')} />}
       {/* #1608: signed out, the books on this device still read; the account only carries them elsewhere. */}
       {!isAuthenticated && (
-        <OfflineBanner message="Signed out — showing books on this device." actionLabel="Sign in" onAction={() => router.push('/(auth)/login')} />
+        <OfflineBanner signedOut message={t('library.signedOut.banner')} actionLabel={t('library.signedOut.signIn')} onAction={() => router.push('/(auth)/login')} />
       )}
       <LibrarySearch value={query} onChange={setQuery} onClear={clearQuery} />
       <View style={styles.controlRow}>

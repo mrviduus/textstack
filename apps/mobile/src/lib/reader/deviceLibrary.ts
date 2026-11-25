@@ -84,8 +84,23 @@ export function deviceLibraryBytes(): number {
 /** What signing out would delete that the server does not hold (#1070). */
 export const deviceSignOutLoss = (): Promise<SignOutLoss> => deviceLocalLibrary().signOutLoss()
 
+/** This process's last sign-out wipe: true once done, false when it failed (#1608). */
+let signOutWipe: Promise<boolean> | null = null
+
 /** Sign-out (#1070, owner 2026-11-12: V2 books belong to the account): rows, then files (`wipeLibrary`). */
-export const wipeDeviceLibrary = (): Promise<void> => wipeLibrary(deviceLocalLibrary(), clearDeviceFiles)
+export const wipeDeviceLibrary = (): Promise<void> => {
+  const wipe = wipeLibrary(deviceLocalLibrary(), clearDeviceFiles)
+  signOutWipe = wipe.then(() => true, () => false)
+  return wipe
+}
+
+/**
+ * #1608: may the signed-out Library list this device's books? Yes when the session was lost (the server dropped
+ * the account): they are still this reader's. After a sign-out, only once its wipe is done (so nothing), never
+ * while it runs late or after it failed: those rows are the account's that signed out.
+ * ponytail: per process; a failed wipe then a restart lists the rows again. Persist a marker if that matters.
+ */
+export const signedOutMayList = async (): Promise<boolean> => !signOutWipe || (await signOutWipe)
 
 /** #1189: books deleted on this device whose removal the server has not taken yet: kept out of the server's list meanwhile. */
 export const deviceRemovals = async (): Promise<Set<string>> => new Set((await deviceLocalLibrary().outbox('removal')).map((i) => i.target))
