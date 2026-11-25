@@ -10,7 +10,7 @@ import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage } from './hostStorage'
-import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, openBookHost, pushBeforeSignOut, removeLocalBook, resetUploadFailures, syncLibrary, tryAgainBook, type SyncHost } from './sync'
+import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, holdReaderHost, openBookHost, pushBeforeSignOut, removeLocalBook, resetUploadFailures, syncLibrary, tryAgainBook, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
@@ -735,6 +735,24 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.book(bookId)).toBeNull()
       expect(h.readerAsked).toEqual([{ restoreApplied: true, moved: true, index: 6 }])
       expect(h.applied).toEqual([{ sha256: SHA, action: 'prompt', position: expect.objectContaining({ quote: 'theirs' }) }])
+    })
+
+    it('pull_PassAskedWithoutAReaderWhileOneIsMounted_TheMountedReaderSeenAndTheMoveApplied', async () => {
+      const { lib } = await seeded()
+      fakeApi({
+        'GET /library/changes': feed(serverBook(sid, sfid)),
+        'GET /reading/changes': feed(theirs(sid, sfid, 3)),
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(sid, sfid, 1), 201)],
+      })
+      const mounted = openHost({ restoreApplied: true, moved: false, index: 6 })
+      const release = holdReaderHost(mounted)
+      try {
+        await syncLibrary(lib, host({ onPosition: undefined })) // the app's pass (#1598): no reader of its own
+      } finally {
+        release()
+      }
+      expect(mounted.readerAsked).toEqual([{ restoreApplied: true, moved: false, index: 6 }])
+      expect(mounted.applied).toEqual([{ sha256: SHA, action: 'move', position: expect.objectContaining({ quote: 'theirs' }) }])
     })
 
     it('openBookHost_AnotherBookOrNoBytes_NoReaderNothingApplied', () => {

@@ -17,8 +17,8 @@ import { downloadIo, hostFile } from '../../lib/reader/deviceDownload'
 import { bookFile, createHostStorage, nonceFromUuid, sha256Key, type LibraryBook, type HostFiles, type HostStorage } from '../../lib/reader/hostStorage'
 import { deviceLocalLibrary, makeFileDirs, sweepStaging } from '../../lib/reader/deviceLibrary'
 import { capabilitiesFor } from '../../lib/capabilities'
-import type { BookNotes, BookRow } from '../../lib/reader/localLibrary'
-import { downloadBook, openBookHost, syncLibrary, tryAgainBook, type SyncHost } from '../../lib/reader/sync'
+import type { BookNotes, BookRow, PositionAction } from '../../lib/reader/localLibrary'
+import { downloadBook, holdReaderHost, openBookHost, syncLibrary, tryAgainBook, type SyncHost } from '../../lib/reader/sync'
 import { DESCRIBE_MS, PAGE_WEBVIEW_PROPS, pageSource } from './pageWebView'
 import { createOpenTracker, isBookKey, type Take } from '../../../../../packages/reader/src/openTracker.mjs'
 import { createMovedTracker } from '../../../../../packages/reader/src/movedTracker.mjs'
@@ -965,6 +965,21 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     call(`window.__fol.goTo(${JSON.stringify(p)}, ${chosen})`)
   }
 
+  /** What a pulled or lost-to position owes the open book: go there, or ask. */
+  const positionOwed = useRef((_a: PositionAction) => {})
+  positionOwed.current = (a) => {
+    if (a.action === 'prompt') setOffer(a.position)
+    else goTo(a.position)
+  }
+  // Any pass, the app's too (start, reconnect, foreground: #1598), owes this reader its book's pulled positions.
+  // A pass it did not ask for may have pulled notes, words or books too.
+  const pulled = useRef(() => {})
+  useEffect(() => holdReaderHost({
+    ...openBookHost(() => openShaRef.current, () => place.reader(), (a) => positionOwed.current(a)),
+    upload: uploadRetained,
+    passed: () => pulled.current(),
+  }), [place])
+
   // Opportunistic sync (R6): with a session (a guest's too), on open, after saves, never on the reading path.
   const sync = useRef((_retryFailed?: boolean) => {})
   sync.current = (retryFailed = false) => {
@@ -974,20 +989,18 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
       retryFailed,
       newId: uuid.v4,
       // By the open book's bytes, not an id taken at open: this pass may re-key it (#1303).
-      ...openBookHost(() => openShaRef.current, () => place.reader(), (a) => {
-        if (a.action === 'prompt') setOffer(a.position)
-        else goTo(a.position)
-      }),
+      ...openBookHost(() => openShaRef.current, () => place.reader(), (a) => positionOwed.current(a)),
       upload: uploadRetained,
       guest: capabilitiesFor(user).isGuest,
-    }).then(() => {
-      // A pull may have brought another device's notes (#1312 review): the editor and the sheet read them again.
-      refreshNotes()
-      // And saved words (#1271): the marks too.
-      refreshVocab()
-      // The pass counts once its books are on screen: a linked book it pulled is found first (#1361).
-      return refreshBooks()
-    }, fail('sync')).finally(() => setSyncPasses((n) => n + 1))
+    }).then(() => pulled.current(), fail('sync')).finally(() => setSyncPasses((n) => n + 1))
+  }
+  pulled.current = () => {
+    // A pull may have brought another device's notes (#1312 review): the editor and the sheet read them again.
+    refreshNotes()
+    // And saved words (#1271): the marks too.
+    refreshVocab()
+    // The pass counts once its books are on screen: a linked book it pulled is found first (#1361).
+    return refreshBooks()
   }
   /** Sync passes ended (either way): a linked book not in the library after one is not coming by itself. */
   const [syncPasses, setSyncPasses] = useState(0)

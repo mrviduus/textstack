@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { AppState } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { uuid } from 'expo-modules-core'
 import { userBooksApi } from '../lib/userBooksApi'
@@ -13,6 +13,7 @@ import { syncLibrary } from '../lib/reader/sync'
 import { capabilitiesFor } from '../lib/capabilities'
 import { CACHE_BUDGET_BYTES } from '../lib/originalFilePolicy'
 import { useAuth } from './AuthContext'
+import { useReconnectCount } from '../hooks/useOnline'
 
 interface DownloadContextValue {
   /** Books whose file is retained on this device (hostStorage `books/<sha256>`): what "downloaded" means. */
@@ -80,14 +81,25 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated])
 
   /** A sync pass so the device's library knows the server's books (the reader runs the same on open). */
-  const pull = useCallback(async () => {
-    if (user) await syncLibrary(deviceLocalLibrary(), { userId: user.id, newId: uuid.v4, reader: () => null, guest: capabilitiesFor(user).isGuest })
+  const pull = useCallback(async (retryFailed = false) => {
+    if (user && Platform.OS !== 'web') await syncLibrary(deviceLocalLibrary(), { userId: user.id, newId: uuid.v4, reader: () => null, guest: capabilitiesFor(user).isGuest, retryFailed })
   }, [user])
 
-  /**
-   * `pullFirst` only where no reader is open (the book page, the upload screen): a pass with no reader would
-   * not offer the open book a pulled position (ADR-019). The automatic sweep fetches what the library knows.
-   */
+  // The app's own pass (#1598): what was saved offline goes on start (a session's first pass retries what had
+  // stopped), when the network is back and when the app returns, not only when a reader opens. An open reader
+  // takes part in any pass (`holdReaderHost`). The library is Android-only.
+  const appPass = useRef(pull)
+  appPass.current = pull
+  const passNow = (retryFailed = false) => { appPass.current(retryFailed).catch(err => console.warn('[sync] app pass failed:', err)) }
+  const reconnects = useReconnectCount()
+  useEffect(() => { passNow(true) }, [user?.id])
+  useEffect(() => { if (reconnects) passNow() }, [reconnects])
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', next => { if (next === 'active') passNow() })
+    return () => sub.remove()
+  }, [])
+
+  /** `pullFirst` for a Download press: the library learns the server's books first. The automatic sweep fetches what it knows. */
   const fetchFile = useCallback(async (bookId: string, pullFirst: boolean) => {
     setDownloading(prev => new Set(prev).add(bookId))
     try {
