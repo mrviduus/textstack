@@ -63,6 +63,8 @@ export interface HostFiles {
   /** Overwrites `to`. */
   move(from: string, to: string): Promise<void>
   exists(name: string): boolean
+  /** Bytes of the file; null when not known (not there, or unreadable). Absent: `exists` alone is trusted. */
+  size?(name: string): number | null
   remove(name: string): void
   /** Copies the file at `uri` (a picker's `content://`) to `to`. */
   copyIn(uri: string, to: string): Promise<void>
@@ -113,6 +115,18 @@ async function readOrKeepAside(files: HostFiles, name: string, ok: (text: string
 export const bookFile = (sha256: string) => `books/${sha256}.epub`
 
 /**
+ * A retained book file worth opening (#1602): there and not empty. A 0-byte copy (seen on a device) is treated as
+ * absent, so an import or a Download of those bytes puts a good one in its place.
+ * ponytail: emptiness only, not the book's size (a row's size can be stale); hash it if a truncated copy shows up.
+ */
+export function intactBook(files: Pick<HostFiles, 'exists' | 'size'>, sha256: string): boolean {
+  const name = bookFile(sha256)
+  const n = files.size?.(name) ?? null
+  // An unreadable size is not a damaged file: the reading path never goes to the network for it.
+  return n === null ? files.exists(name) : n > 0
+}
+
+/**
  * The host's storage: the files here, the rows in the local library (localLibrary.ts, R6). `newId`
  * mints v4 UUIDs (library.mjs's default needs `crypto`, which Hermes lacks: the RN host passes Expo's).
  * The first call imports R2's JSON library (library.json + store/<sha256>.json) into the rows, once,
@@ -151,7 +165,7 @@ export function createHostStorage(files: HostFiles, newId: () => string, lib: Lo
       return afterMigration(() => queue.run(async () => {
         const sha256 = sha256Key(book.sha256)
         const retained = bookFile(sha256)
-        const moved = staged !== null && !files.exists(retained)
+        const moved = staged !== null && !intactBook(files, sha256)
         if (moved) await files.move(staged, retained)
         else if (staged) files.remove(staged)
         try {

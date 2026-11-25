@@ -13,7 +13,7 @@ import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { deviceUploadIo, resetSince, uploadBook } from '../../lib/sync'
-import { downloadIo, hostFile } from '../../lib/reader/deviceDownload'
+import { bookFileIntact, downloadIo, hostFile, hostFileSize } from '../../lib/reader/deviceDownload'
 import { bookFile, createHostStorage, nonceFromUuid, sha256Key, type LibraryBook, type HostFiles, type HostStorage } from '../../lib/reader/hostStorage'
 import { deviceLocalLibrary, makeFileDirs, sweepStaging } from '../../lib/reader/deviceLibrary'
 import { capabilitiesFor } from '../../lib/capabilities'
@@ -102,6 +102,7 @@ function deviceFiles(): HostFiles {
     },
     move: (from, to) => hostFile(from).move(hostFile(to), { overwrite: true }),
     exists: (name) => hostFile(name).exists,
+    size: hostFileSize,
     remove: (name) => {
       const file = hostFile(name)
       if (file.exists) file.delete()
@@ -184,10 +185,6 @@ const sessionKey = (sha: unknown) => {
   }
 }
 
-/** The file's size for its `opened` deadline; unknown (null) gives the floor. */
-const sizeOf = (file: string) => {
-  try { return hostFile(file).size } catch { return null }
-}
 
 /** The WebView's verdict for the process (#1228, webViewVersion.ts): the reader page's first `ua` answer. */
 const webViewCheck = createWebViewCheck()
@@ -1116,7 +1113,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     showBars()
     setOpens((n) => n + 1)
     if (!ready.current) return
-    deadlines.waitOpened(sizeOf(target.file))
+    deadlines.waitOpened(hostFileSize(target.file)) // unknown (null) gives the floor
     // The library's format for the file: a clip ('html') opens as one, never guessed from its bytes.
     call(`window.__fol.openUrl(${JSON.stringify(url)}, ${JSON.stringify(target.file)}, ${JSON.stringify(target.format ?? null)})`)
   }
@@ -1624,7 +1621,8 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
     // Before the download path returns: its open takes it too.
     contentsOnOpen.current = params.contents === '1' ? bookFile(b.sha256) : null
     const highlight = typeof params.highlight === 'string' ? params.highlight : null
-    if (!b.local) {
+    // Not here, or a damaged copy (#1602): fetched (again) first.
+    if (!b.local || !bookFileIntact(b.sha256)) {
       download(b, highlight).then((ok) => {
         if (ok) return
         setLinkFailed(true)
@@ -1951,7 +1949,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
               {books.map((b) => (
                 <Pressable
                   key={b.id}
-                  onPress={() => (b.local ? open({ file: bookFile(b.sha256), name: b.originalName, format: b.format }) : download(b))}
+                  onPress={() => (b.local && bookFileIntact(b.sha256) ? open({ file: bookFile(b.sha256), name: b.originalName, format: b.format }) : download(b))}
                   accessibilityRole="button"
                   style={[styles.book, { borderColor: colors.border }]}
                 >

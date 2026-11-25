@@ -626,23 +626,30 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
 }
 
 /**
- * Download on demand: a book the server holds bytes for, not imported here. `fetch` lands the bytes
+ * Download on demand: a book the server holds bytes for, not imported here, or imported with a damaged copy of
+ * those same bytes (#1602: fetched again over it). `fetch` lands the bytes
  * (checked against the sha256) in staging; `retain` makes them the retained copy, then the row says
  * so. A session change while it downloads keeps nothing (staging is cleared on the next start).
  */
 export async function downloadBook(lib: LocalLibrary, bookId: string, io: {
   fetch(url: string, sha256: string): Promise<string>
   retain(staged: string, sha256: string): Promise<void>
+  /** Whether the retained file of these bytes can be opened (`intactBook`); absent: it can. */
+  intact?(sha256: string): boolean
 }): Promise<boolean> {
   const reset = resetSince()
   const b = await lib.book(bookId)
-  if (!b?.server_file_id || !b.server_sha256 || !b.has_content || b.imported_at != null) return false
+  if (!b?.server_file_id || !b.server_sha256 || !b.has_content) return false
   const sha = b.server_sha256
+  // Imported here: only a damaged copy of the server's same bytes is fetched again, over it (#1602).
+  const repair = b.imported_at != null
+  if (repair && (b.sha256 !== sha || (io.intact?.(sha) ?? true))) return false
   // Bytes another book here already holds: never a second local copy (books_sha256 is UNIQUE).
-  if (await lib.hasLocalBytes(sha)) return false
+  if (!repair && (await lib.hasLocalBytes(sha))) return false
   try {
     const staged = await current(reset, io.fetch(syncApi.contentUrl(b.id, b.server_file_id), sha))
     await checked(reset, () => io.retain(staged, sha))
+    if (repair) return true
     return await checked(reset, () => lib.markDownloaded(b.id))
   } catch (e) {
     if (e === DROPPED) return false

@@ -1164,6 +1164,24 @@ describe('V2 local library sync (R6)', () => {
       }
     })
 
+    it('downloadBook_LocalCopyDamagedAndTheServerHoldsTheSameBytes_FetchedAgainOverIt_IntactCopyNever (#1602)', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
+      const sfid = 'aaaaaaaa-0000-4000-8000-000000000002'
+      fakeApi({ 'GET /library/changes': feed(serverBook(sid, sfid, {}, { hasContent: true })) })
+      await syncLibrary(lib, host())
+      const io = { fetch: vi.fn(async () => 'staging/dl.epub'), retain: vi.fn(async () => {}), intact: vi.fn(() => true) }
+      expect(await downloadBook(lib, sid, io)).toBe(true) // on this device now
+      expect(await downloadBook(lib, sid, io)).toBe(false) // its copy intact: nothing fetched
+      expect(io.fetch).toHaveBeenCalledTimes(1)
+      io.intact.mockReturnValue(false) // the copy damaged (0 bytes)
+      expect(await downloadBook(lib, sid, io)).toBe(true) // here again
+      expect(io.intact).toHaveBeenLastCalledWith(SHA)
+      expect(io.fetch).toHaveBeenCalledTimes(2)
+      expect(io.retain).toHaveBeenLastCalledWith('staging/dl.epub', SHA)
+      expect((await lib.books()).map((b) => [b.id, b.local])).toEqual([[sid, true]]) // still one local row
+    })
+
     it('androidHost_ServerOnlyPdf_DownloadOpenTurn_RestoresPullAndPushesPdfPageOnItsRevision', async () => {
       // R7 (#1039), the dev route's calls in order: pull, download on demand, open (restore, addOpened
       // with the page's `format`), a page turn's `store`, the next pass.

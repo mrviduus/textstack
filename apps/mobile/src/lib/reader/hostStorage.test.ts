@@ -124,6 +124,18 @@ describe('v2 host storage', () => {
     expect(ops.some((o) => o.startsWith('move staging/'))).toBe(false)
   })
 
+  it('addOpened_RetainedCopyEmpty_StagedCopyReplacesIt (#1602)', async () => {
+    const m = memoryFiles()
+    m.files.size = (name) => m.data.get(name)?.length ?? null // the stored string's length stands for the bytes
+    m.data.set(`books/${SHA_A_KEY}.epub`, '') // a damaged copy: 0 bytes
+    m.data.set('staging/1.epub', 'staged')
+    const { storage: s, data } = storage(m)
+    const { books } = await s.addOpened(book(SHA_A_KEY), 'staging/1.epub')
+    expect(data.get(`books/${SHA_A_KEY}.epub`)).toBe('staged')
+    expect(data.has('staging/1.epub')).toBe(false)
+    expect(books.map((b) => [b.sha256, b.local])).toEqual([[SHA_A_KEY, true]])
+  })
+
   it('addOpened_RowWriteFailsAfterTheMove_RemovesTheRetainedCopyAndRethrows', async () => {
     const { storage: s, data, lib } = storage()
     data.set('staging/1.epub', 'staged')

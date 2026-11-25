@@ -4,13 +4,25 @@ import { Platform } from 'react-native'
 import { File } from 'expo-file-system'
 import { APP_HEADERS, freshAccessToken } from '../api'
 import { deviceUploadIo, sha256Of } from '../sync'
-import { bookFile } from './hostStorage'
+import { bookFile, intactBook } from './hostStorage'
 import { deviceLocalLibrary, filesRoot, makeFileDirs } from './deviceLibrary'
 import { downloadBook, removeLocalBook } from './sync'
 import { userBooksApi } from '../userBooksApi'
 
 /** `name` under <documents>/v2/ (`filesRoot`, shared with the wipe and the measure), e.g. `books/<sha256>.epub`. */
 export const hostFile = (name: string) => new File(filesRoot(), ...name.split('/'))
+
+/** Bytes of `name` under the root; null when it is not there or cannot be read (`HostFiles.size`). */
+export const hostFileSize = (name: string): number | null => {
+  try {
+    return hostFile(name).size ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Whether the retained copy of these bytes can be opened: there and not empty (#1602). */
+export const bookFileIntact = (sha256: string) => intactBook({ exists: (name) => hostFile(name).exists, size: hostFileSize }, sha256)
 
 /**
  * A download's time in its staged name, one apart from the last: two downloads in one millisecond (the reader's and a
@@ -39,6 +51,7 @@ export const downloadIo = {
     return staged
   },
   retain: async (staged: string, sha256: string) => hostFile(staged).move(hostFile(bookFile(sha256)), { overwrite: true }),
+  intact: bookFileIntact,
 }
 
 /** The ids of the books whose file is on this device. Empty on web (no local library there). */
