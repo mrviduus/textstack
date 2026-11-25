@@ -192,6 +192,20 @@ describe('device V2 local library', () => {
     expect(await m2.deviceLocalLibrary().books()).toEqual([])
   })
 
+  it('deviceOwnedLoss_RealOwnersBook_AskedUnlessASignOutWipeIsOwed_UnreadableIsUnknown', async () => {
+    // #1611: what a sign-in to a different account would wipe.
+    const m = await fresh()
+    await used(m)
+    expect(await m.deviceOwnedLoss()).toEqual({ books: 1, writes: 0 })
+    // A sign-out confirmed the loss and its wipe failed (#1608): not asked again.
+    await (await storage()).setItem(PENDING, '1')
+    expect(await m.deviceOwnedLoss()).toBeNull()
+    // The database cannot open: unknown, never "nothing lost".
+    failOpen = 'disk busy'
+    const m1 = await fresh()
+    expect(await m1.deviceOwnedLoss()).toBe('unknown')
+  })
+
   it('clearWipePending_ASessionClaimedTheLibrary_ItsBooksListAfterALostSession', async () => {
     failOpen = 'disk busy'
     const m = await fresh()

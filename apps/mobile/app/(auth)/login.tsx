@@ -13,6 +13,7 @@ import { capabilitiesFor } from '../../src/lib/capabilities'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useToast } from '../../src/context/ToastContext'
 import { useLanguage } from '../../src/context/LanguageContext'
+import { deviceOwnedLoss } from '../../src/lib/reader/deviceLibrary'
 import { fonts } from '../../src/theme/typography'
 
 // Google OAuth Client IDs, sourced from app.json → expo.extra.googleAuth.
@@ -51,6 +52,27 @@ export default function LoginScreen() {
   const isGuest = capabilitiesFor(user).isGuest
   const { show: showToast } = useToast()
   const { t: translate } = useLanguage()
+
+  /**
+   * #1611: signing in to a different account wipes the books of the one signed in here (`claimLibrary`); some may
+   * be only on this phone. Asked before any server call, so "Cancel" leaves no account, merge or session behind.
+   * Nothing only here (or a guest's library, or a sign-out wipe already confirmed): no question.
+   */
+  const confirmLibraryLoss = async (): Promise<boolean> => {
+    const loss = await deviceOwnedLoss()
+    if (!loss) return true
+    return new Promise<boolean>((resolve) => Alert.alert(
+      translate('profile.signInLossTitle'),
+      loss === 'unknown'
+        ? translate('profile.signInLossUnknownMessage')
+        : translate('profile.signInLossMessage').replace('{{books}}', String(loss.books)).replace('{{writes}}', String(loss.writes)),
+      [
+        { text: translate('profile.signOutLossCancel'), style: 'cancel', onPress: () => resolve(false) },
+        { text: translate('profile.signInLossConfirm'), style: 'destructive', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    ))
+  }
 
   /**
    * Says so when the sign-in did not bring the reader's earlier work across.
@@ -136,6 +158,7 @@ export default function LoginScreen() {
       return
     }
     if (mode !== 'forgot' && password.length < 8) { setError('Password must be at least 8 characters.'); return }
+    if (mode !== 'forgot' && !(await confirmLibraryLoss())) return
 
     setLoading(true)
     try {
@@ -145,13 +168,13 @@ export default function LoginScreen() {
       } else if (mode === 'register') {
         const wasGuest = isGuest
         const result = await authApi.registerWithEmail(email.trim(), password, name.trim() || undefined)
-        if (!(await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge))) return
+        await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge)
         warnIfNothingCarried(result, wasGuest)
         landAfterAuth(result.user)
       } else {
         const wasGuest = isGuest
         const result = await authApi.loginWithEmail(email.trim(), password)
-        if (!(await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge))) return
+        await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge)
         warnIfNothingCarried(result, wasGuest)
         landAfterAuth(result.user)
       }
@@ -200,6 +223,7 @@ export default function LoginScreen() {
   }
 
   const handleGoogleSignIn = async () => {
+    if (!(await confirmLibraryLoss())) return
     const wasGuest = isGuest
     setLoading(true)
     try {
@@ -209,7 +233,7 @@ export default function LoginScreen() {
       if (!idToken) throw new Error('No ID token')
 
       const result = await authApi.loginWithGoogle(idToken)
-      if (!(await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge))) return
+      await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge)
       warnIfNothingCarried(result, wasGuest)
       landAfterAuth(result.user)
     } catch (e: any) {
@@ -231,6 +255,7 @@ export default function LoginScreen() {
 
   const handleAppleSignIn = async () => {
     if (!AppleAuthentication) return
+    if (!(await confirmLibraryLoss())) return
     const wasGuest = isGuest
     setLoading(true)
     try {
@@ -257,7 +282,7 @@ export default function LoginScreen() {
         credential.email,
       )
 
-      if (!(await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge))) return
+      await signInWithTokens(result.accessToken, result.refreshToken, result.user, result.merge)
       warnIfNothingCarried(result, wasGuest)
       landAfterAuth(result.user)
     } catch (e: any) {

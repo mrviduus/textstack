@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
-import { Alert, Platform } from 'react-native'
+import { Platform } from 'react-native'
 import type { UserDto, MergeMap } from '@textstack/shared'
 import { authApi } from '@textstack/shared'
 import { onAuthFailure } from '../lib/authEvents'
@@ -18,11 +18,10 @@ import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
 import { forgetSyncAnswer, reprobeSyncAfterReconnect, syncStore } from '../lib/sync'
 import { applyMergeMap } from '../lib/merge'
-import { adoptLocalAccount, claimLibraryFor, foreignLoss } from '../lib/reader/sync'
-import { clearWipePending, LIBRARY_WIPE_MS, wipeDeviceLibrary } from '../lib/reader/deviceLibrary'
+import { adoptLocalAccount, claimLibraryFor } from '../lib/reader/sync'
+import { clearWipePending, deviceOwnedLoss, LIBRARY_WIPE_MS, wipeDeviceLibrary } from '../lib/reader/deviceLibrary'
 import { withDeadline } from '../lib/deadline'
 import { capabilitiesFor } from '../lib/capabilities'
-import { useLanguage } from './LanguageContext'
 
 /**
  * Sign-in's another-account wipe (#1070 rule B), bounded; a failure or a late one only warns. Done, the library
@@ -115,8 +114,7 @@ interface AuthState {
   // truth for one policy is how the profile screen shipped the pencil bug.
   isLoading: boolean
   /** `merge`: the sign-in's V2 id map (a guest merged); the local stores are re-keyed before the user is set. */
-  /** False: the user kept another account's unsynced books on this phone (#1611); nothing was signed in. */
-  signInWithTokens: (accessToken: string, refreshToken: string, user: UserDto, merge?: MergeMap) => Promise<boolean>
+  signInWithTokens: (accessToken: string, refreshToken: string, user: UserDto, merge?: MergeMap) => Promise<void>
   updateUser: (user: UserDto) => Promise<void>
   getAccessToken: () => Promise<string | null>
   signOut: () => Promise<void>
@@ -143,7 +141,7 @@ const AuthContext = createContext<AuthState>({
   user: null,
   isAuthenticated: false,
   isLoading: true,
-  signInWithTokens: async () => false,
+  signInWithTokens: async () => {},
   updateUser: async () => {},
   getAccessToken: async () => null,
   signOut: async () => {},
@@ -167,29 +165,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // close over the first render's `isLoading`.
   const isLoadingRef = useRef(true)
   isLoadingRef.current = isLoading
-  const { t } = useLanguage()
-  const tRef = useRef(t)
-  tRef.current = t
-
-  /**
-   * #1611: a new session over another account's library holding books or changes the server lacks asks
-   * first (the sign-out warning's twin); nothing lost → no question. Before the bounded wipe, never inside
-   * its deadline: a "no" is an answer, not a failure. False = keep the library, start no session.
-   */
-  const mayClaim = async (userId: string): Promise<boolean> => {
-    const loss = await withDeadline(foreignLoss(userId), LIBRARY_WIPE_MS).catch(() => null)
-    if (!loss) return true
-    const tr = tRef.current
-    return new Promise<boolean>((resolve) => Alert.alert(
-      tr('profile.signInLossTitle'),
-      tr('profile.signInLossMessage').replace('{{books}}', String(loss.books)).replace('{{writes}}', String(loss.writes)),
-      [
-        { text: tr('profile.signOutLossCancel'), style: 'cancel', onPress: () => resolve(false) },
-        { text: tr('profile.signInLossConfirm'), style: 'destructive', onPress: () => resolve(true) },
-      ],
-      { cancelable: true, onDismiss: () => resolve(false) },
-    ))
-  }
 
   /**
    * The serial write queue and the session epoch — both live in
@@ -290,12 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Synchronous, and before anything can yield: this is what an in-flight
       // guest mint reads to discover that it lost.
       queueRef.current.bumpEpoch()
-      return runExclusive(async () => {
-        // Asked before anything is written: a "no" leaves no session and the library as it was.
-        if (!(await mayClaim(userData.id))) {
-          try { await googleSigninModule?.GoogleSignin?.signOut?.() } catch {}
-          return false
-        }
+      await runExclusive(async () => {
         await SecureStore.setItemAsync('access_token', accessToken)
         await SecureStore.setItemAsync('refresh_token', refreshToken)
         await SecureStore.setItemAsync('user', JSON.stringify(userData))
@@ -319,7 +289,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // again (the latch is one-shot per session).
         resetAuthFailureLatch()
         setUser(userData)
-        return true
       })
     },
     [runExclusive],
@@ -451,6 +420,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const createGuestOnce = useCallback(async (): Promise<EnsureSessionResult> => {
     // Captured BEFORE the first await, per the epoch contract.
     const epochAtStart = queueRef.current.epoch
+    // #1611: a guest's claim would wipe a real account's books (or ones that could not be checked) that only this
+    // phone holds, and a mint has no one to ask: no mint, no server call. A failed mint leaves Upload on its
+    // sign-in state, where the sign-in asks.
+    if ((await deviceOwnedLoss()) !== null) return { status: 'failed', error: new Error('the device library holds another account\'s unsynced books') }
     let res: Awaited<ReturnType<typeof authApi.createGuestSession>>
     try {
       res = await authApi.createGuestSession()
@@ -469,8 +442,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // All three writes and the setUser, or none of them. The queue
       // guarantees no sign-in can slip between them after this point.
       if (decision.action === 'discard') return { status: 'discarded', reason: decision.reason }
-      // The user kept another account's unsynced books (#1611): no session, so the gated upload offers sign-in.
-      if (!(await mayClaim(res.user.id))) return { status: 'failed', error: new Error('kept the device library') }
       try {
         await SecureStore.setItemAsync('access_token', res.accessToken)
         await SecureStore.setItemAsync('refresh_token', res.refreshToken)

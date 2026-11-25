@@ -38,30 +38,34 @@ describe('sign-in V2 wipe wiring (#1070 rule B: another account wipes at sign-in
     expect(claim).toBeLessThan(fn.indexOf('setUser(res.user)'))
   })
 
-  it('restoredSession_ClaimRetriedNotAwaited_NeverAsks', () => {
-    const restore = between('// Restore session on mount', 'sessionReadyRef.current')
-    expect(restore).toContain('void claimLibrary(restored.id)')
-    expect(restore).not.toContain('mayClaim')
+  it('restoredSession_ClaimRetriedNotAwaited', () => {
+    expect(between('// Restore session on mount', 'sessionReadyRef.current')).toContain('void claimLibrary(restored.id)')
   })
+})
 
-  // #1611: another account's unsynced books are wiped only after a yes, asked before any token is written.
-  it('signInWithTokens_AsksBeforeTokensAndClaim_NoReturnsFalse', () => {
-    const fn = between('const signInWithTokens = useCallback', '[runExclusive],')
-    const ask = fn.indexOf('if (!(await mayClaim(userData.id)))')
-    expect(ask).toBeGreaterThan(fn.indexOf('bumpEpoch()'))
-    expect(ask).toBeLessThan(fn.indexOf("SecureStore.setItemAsync('access_token'"))
-    expect(fn.slice(ask)).toMatch(/^[^\n]+\n[^\n]*\n\s+return false/)
-  })
+// #1611: another account's books only on this phone are asked about before any server call; a guest mint never asks.
+describe('sign-in over another account\'s unsynced books (#1611)', () => {
+  const login = readFileSync(resolve(__dirname, '../../app/(auth)/login.tsx'), 'utf8')
+  /** The handler's source from `name` to the next handler. */
+  const handler = (name: string) => login.slice(login.indexOf(`const ${name} = async`), login.indexOf('\n  const ', login.indexOf(`const ${name} = async`) + 1))
 
-  it('guestMint_AsksBeforeTokensAndClaim_NoIsAFailedMint', () => {
-    const fn = between('const createGuestOnce = useCallback', '[runExclusive])')
-    const ask = fn.indexOf("if (!(await mayClaim(res.user.id))) return { status: 'failed'")
+  it('everySignIn_AsksBeforeItsServerCall', () => {
+    const email = handler('handleEmailAuth')
+    const ask = email.indexOf('confirmLibraryLoss()')
     expect(ask).toBeGreaterThan(-1)
-    expect(ask).toBeLessThan(fn.indexOf("SecureStore.setItemAsync('access_token'"))
+    for (const call of ['authApi.registerWithEmail(', 'authApi.loginWithEmail(']) expect(email.indexOf(call)).toBeGreaterThan(ask)
+    for (const [name, call] of [['handleGoogleSignIn', 'authApi.loginWithGoogle('], ['handleAppleSignIn', 'authApi.loginWithApple(']]) {
+      const fn = handler(name)
+      expect(fn.indexOf('confirmLibraryLoss()'), name).toBeGreaterThan(-1)
+      expect(fn.indexOf(call), name).toBeGreaterThan(fn.indexOf('confirmLibraryLoss()'))
+    }
   })
 
-  it('ask_NotInsideTheWipeDeadline', () => {
-    expect(between('const mayClaim = async', 'tRef.current\n')).toContain('withDeadline(foreignLoss(userId), LIBRARY_WIPE_MS)')
+  it('guestMint_LossOrUnknownMintsNothing', () => {
+    const fn = between('const createGuestOnce = useCallback', '[runExclusive])')
+    const check = fn.indexOf('await deviceOwnedLoss()) !== null')
+    expect(check).toBeGreaterThan(-1)
+    expect(check).toBeLessThan(fn.indexOf('authApi.createGuestSession()'))
   })
 })
 

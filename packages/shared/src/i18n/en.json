@@ -43,9 +43,10 @@
     "signOutLossConfirm": "Sign out",
     "signOutLossCancel": "Cancel",
     "signOutLossUnknownMessage": "Could not check what exists only on this phone. Signing out deletes the V2 reader's books from this device, and some may not be on the server.",
-    "signInLossTitle": "Sign in and lose the previous account's books?",
-    "signInLossMessage": "This phone holds {{books}} book(s) and {{writes}} change(s) of the previous account that aren't on the server. Signing in deletes them.",
-    "signInLossConfirm": "Delete"
+    "signInLossTitle": "Delete the previous account's books?",
+    "signInLossMessage": "This phone holds {{books}} book(s) and {{writes}} change(s) of the account that was signed in here that aren't on the server. Signing in to a different account deletes them.",
+    "signInLossConfirm": "Delete",
+    "signInLossUnknownMessage": "Could not check what exists only on this phone. Signing in to a different account deletes the books of the account that was signed in here, and some may not be on the server."
   },
   "guest": {
     "createAccount": "Create free account",

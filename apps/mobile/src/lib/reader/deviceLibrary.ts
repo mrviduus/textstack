@@ -2,7 +2,7 @@
 // deviceLibrary.web.ts is its twin: the web bundle (which mobile e2e runs against) must never resolve
 // expo-sqlite from here.
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { createLocalLibrary, wipeLibrary, type Db, type LocalLibrary, type SignOutLoss } from './localLibrary'
+import { createLocalLibrary, ownedLoss, wipeLibrary, type Db, type LocalLibrary, type SignOutLoss } from './localLibrary'
 import { withDeadline } from '../deadline'
 
 let device: LocalLibrary | null = null
@@ -98,6 +98,15 @@ export async function wipeDeviceLibrary(): Promise<void> {
   await AsyncStorage.setItem(WIPE_PENDING, '1').catch(() => {})
   await wipeLibrary(deviceLocalLibrary(), clearDeviceFiles)
   await AsyncStorage.removeItem(WIPE_PENDING)
+}
+
+/**
+ * #1611 `ownedLoss` of the device, bounded (a timeout is 'unknown'). A sign-out wipe owed (#1608) was confirmed
+ * at that sign-out: nothing to ask again.
+ */
+export async function deviceOwnedLoss(): Promise<SignOutLoss | 'unknown' | null> {
+  if (await AsyncStorage.getItem(WIPE_PENDING).catch(() => null)) return null
+  return withDeadline(ownedLoss(deviceLocalLibrary()), LIBRARY_WIPE_MS).catch(() => 'unknown' as const)
 }
 
 /** A live session took the library (`claimLibraryFor` done): no sign-out wipe is owed any more. */

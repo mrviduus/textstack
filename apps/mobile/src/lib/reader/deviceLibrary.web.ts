@@ -17,6 +17,7 @@ export const sweepStaging = (): void => {}
 export const clearDeviceFiles = (): void => {}
 export const deviceLibraryBytes = (): number => 0
 export const deviceSignOutLoss = async (): Promise<SignOutLoss> => NOTHING_LOST
+export const deviceOwnedLoss = async (): Promise<SignOutLoss | 'unknown' | null> => null
 export const wipeDeviceLibrary = async (): Promise<void> => {}
 export const LIBRARY_WIPE_MS = 5000
 export const clearWipePending = async (): Promise<void> => {}

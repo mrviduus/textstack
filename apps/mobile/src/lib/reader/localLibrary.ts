@@ -311,6 +311,22 @@ export function signOutLoss(
   return { books: lost.size, writes: changes.filter((c) => !c.book_id || !lost.has(c.book_id)).length }
 }
 
+/**
+ * #1611: what a sign-in to a different account would wipe that the server lacks, asked before any server call: the
+ * loss when a real account owns the library and something of it is only here; 'unknown' when it cannot be read
+ * (never "nothing lost"); null when a guest's or nobody's (carried or claimed, never wiped) or nothing is lost.
+ */
+export async function ownedLoss(lib: Pick<LocalLibrary, 'owner' | 'signOutLoss'>): Promise<SignOutLoss | 'unknown' | null> {
+  try {
+    const owner = await lib.owner()
+    if (!owner || owner.guest) return null
+    const loss = await lib.signOutLoss()
+    return loss.books + loss.writes > 0 ? loss : null
+  } catch {
+    return 'unknown'
+  }
+}
+
 export function createLocalLibrary(db: Db) {
   const queue = createWriteQueue()
   let ready: Promise<void> | null = null
