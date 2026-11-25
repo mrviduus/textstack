@@ -582,7 +582,8 @@
     "note": "Note",
     "highlightCount": "{count} highlights",
     "filterByColor": "Filter by color",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "loadFailed": "Could not load your highlights. They load again when you are back online."
   },
   "practice": {
     "empty": {

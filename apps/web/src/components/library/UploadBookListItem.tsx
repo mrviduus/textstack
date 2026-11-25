@@ -3,6 +3,7 @@
 import { Link } from 'react-router-dom'
 import { getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
 import { BookActionMenu } from './BookActionMenu'
+import { useCoverRetry } from '../../hooks/useCoverRetry'
 import { stringToColor } from '../../utils/colors'
 import { formatTimeAgo } from '@textstack/shared'
 
@@ -32,19 +33,20 @@ export function UploadBookListItem({
       : null
   const showContinue = readable && !!continueHref && !book.completedAt
   const coverUrl = getUserBookCoverUrl(book.coverPath)
+  const [coverHidden, onCoverError] = useCoverRetry(coverUrl)
   return (
     <article data-book-id={book.id} className={`library-list-item${highlighted ? ' library-list-item--highlighted' : ''}`}>
       {readable ? (
         <Link to={destination} className="library-list-item__cover">
-          {coverUrl ? (
+          {!coverHidden ? (
             <img
               src={coverUrl}
               alt={book.title}
-              onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden') }}
+              onError={onCoverError}
             />
           ) : null}
           <div
-            className={`library-list-item__cover-placeholder ${coverUrl ? 'hidden' : ''}`}
+            className={`library-list-item__cover-placeholder ${coverHidden ? '' : 'hidden'}`}
             style={{ backgroundColor: stringToColor(book.title) }}
           >
             {book.title?.[0] || '?'}
@@ -52,15 +54,15 @@ export function UploadBookListItem({
         </Link>
       ) : (
         <div className="library-list-item__cover library-list-item__cover--disabled">
-          {coverUrl ? (
+          {!coverHidden ? (
             <img
               src={coverUrl}
               alt={book.title}
-              onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden') }}
+              onError={onCoverError}
             />
           ) : null}
           <div
-            className={`library-list-item__cover-placeholder ${coverUrl ? 'hidden' : ''}`}
+            className={`library-list-item__cover-placeholder ${coverHidden ? '' : 'hidden'}`}
             style={{ backgroundColor: stringToColor(book.title) }}
           >
             {book.title?.[0] || '?'}

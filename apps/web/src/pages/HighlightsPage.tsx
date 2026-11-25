@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
@@ -6,6 +6,7 @@ import { useTranslation } from '../hooks/useTranslation'
 import { highlightCoverUrl, highlightsApi, type HighlightListItem } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
 import { useOnline } from '../hooks/useOnline'
+import { useCoverRetry, COVER_RETRY_MS } from '../hooks/useCoverRetry'
 import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
 import { useDataChange } from '../lib/dataEvents'
@@ -36,6 +37,9 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   const [colorFilter, setColorFilter] = useState<string | ''>('')
   const [offset, setOffset] = useState(0)
   const [collapsedBooks, setCollapsedBooks] = useState<Set<string>>(new Set())
+  const [loadFailed, setLoadFailed] = useState(false)
+  const retriedOnce = useRef(false)
+  const online = useOnline()
 
   const fetchHighlights = useCallback(async (reset = false) => {
     try {
@@ -56,8 +60,11 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
         setOffset(prev => prev + PAGE_SIZE)
       }
       setTotalCount(result.totalCount)
+      setLoadFailed(false)
+      retriedOnce.current = false
     } catch {
-      // ignore
+      // A failed first page is not "no highlights" (#1591); a failed "load more" keeps its button.
+      if (reset) setLoadFailed(true)
     } finally {
       setLoading(false)
     }
@@ -75,6 +82,17 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
     setOffset(0)
     fetchHighlights(true)
   })
+
+  // A failed load is tried again once after a delay (a 502, a timeout) and whenever the browser is back online (#1591).
+  useEffect(() => {
+    if (!loadFailed || retriedOnce.current) return
+    retriedOnce.current = true
+    const id = setTimeout(() => fetchHighlights(true), COVER_RETRY_MS)
+    return () => clearTimeout(id)
+  }, [loadFailed]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (online && loadFailed) fetchHighlights(true)
+  }, [online]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Group by book
   const groups = useMemo(() => {
@@ -167,6 +185,13 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
 
         {loading && highlights.length === 0 ? (
           <div className="highlights-page__loading">{t('common.loading')}</div>
+        ) : highlights.length === 0 && loadFailed ? (
+          <EmptyState
+            icon="⚠️"
+            title={t('highlights.loadFailed')}
+            buttonLabel={t('common.retry')}
+            onButtonClick={() => fetchHighlights(true)}
+          />
         ) : highlights.length === 0 ? (
           <EmptyState icon="🎨" title={t('highlights.empty.title')} />
         ) : (
@@ -250,14 +275,9 @@ export function highlightReaderPath(h: HighlightListItem): string | null {
   return null
 }
 
-/**
- * A book's cover; one that fails to load hides for that URL only, so a newer version renders again (#1580). Back online,
- * it is tried again (#1584): a network blip never hides it until a reload.
- */
+/** A book's cover; a failed one hides and is retried (useCoverRetry). */
 function BookCover({ url }: { url: string | null }) {
-  const [failed, setFailed] = useState<string | null>(null)
-  const online = useOnline()
-  useEffect(() => { if (online) setFailed(null) }, [online])
-  if (!url || url === failed) return null
-  return <img className="highlights-page__book-cover" src={url} alt="" onError={() => setFailed(url)} />
+  const [hidden, onError] = useCoverRetry(url)
+  if (hidden) return null
+  return <img className="highlights-page__book-cover" src={url!} alt="" onError={onError} />
 }
