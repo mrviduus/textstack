@@ -124,6 +124,30 @@ async function failedOnce(lib: LocalLibrary, reset: Reset, item: OutboxItem, e: 
   else console.warn(`[v2 sync] ${item.kind} ${item.target} failed ${n} times (last: ${brief(e)}): kept on the device, not retried until it changes, "Try again" or the next session`)
 }
 
+/** A mounted reader, as sync sees it (#1598); `passed`: a pass it did not ask for ended (its screen reads again). */
+type ReaderHost = Pick<SyncHost, 'reader' | 'onPosition' | 'upload'> & { passed?(): void }
+/** Mounted readers, the top one last (a reader opened over another, then closed, leaves the first in place). */
+const mountedReaders: ReaderHost[] = []
+const mountedReader = (): ReaderHost | undefined => mountedReaders[mountedReaders.length - 1]
+
+/**
+ * The mounted reader's host, released on unmount: a pass asked without one (the app's on start, reconnect or
+ * return; a book page's) still gives the open book ADR-019's adopt/move/prompt and sends its bytes. Its reader is read
+ * when a state is applied, so a reader opened mid-pass is seen.
+ */
+export function holdReaderHost(h: ReaderHost) {
+  mountedReaders.push(h)
+  return () => { const i = mountedReaders.indexOf(h); if (i >= 0) mountedReaders.splice(i, 1) }
+}
+
+/** A reader's own pass keeps its host; any other takes the mounted reader's reader and onPosition as a pair. */
+const withMountedReader = (host: SyncHost): SyncHost => host.onPosition ? host : {
+  ...host,
+  reader: (sha256) => mountedReader()?.reader(sha256) ?? null,
+  onPosition: (a) => mountedReader()?.onPosition?.(a),
+  upload: host.upload ?? mountedReader()?.upload,
+}
+
 let running: Promise<SyncResult> | null = null
 let next: { lib: LocalLibrary; host: SyncHost; reset: Reset } | null = null
 
@@ -143,7 +167,9 @@ export function syncLibrary(lib: LocalLibrary, host: SyncHost): Promise<SyncResu
       while (next) {
         const asked = next
         next = null
-        result = await pass(asked.lib, asked.host, asked.reset)
+        result = await pass(asked.lib, withMountedReader(asked.host), asked.reset)
+        // A pass no reader asked for may have pulled what the open one shows.
+        if (!asked.host.onPosition) mountedReader()?.passed?.()
       }
       return result
     } finally {
