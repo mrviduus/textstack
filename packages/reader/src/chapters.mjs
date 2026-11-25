@@ -16,11 +16,9 @@ import { readToc } from './toc.mjs'
 
 /** The server's cap on a share's text (`SyncLimits.MaxChapterTextBytes`), as UTF-8. */
 export const MAX_CHAPTER_TEXT_BYTES = 200 * 1024
-/** The server's caps on a share's key and title (`SyncLimits.MaxChapterKey`, `MaxChapterTitle`). */
-export const MAX_CHAPTER_KEY = 200
-export const MAX_CHAPTER_TITLE = 500
 const MAX_INDEX = 100000
-const MAX_REQUEST = 64
+/** The longest `chapter-text` request id: the page answers none longer, a host reads none longer. */
+export const MAX_REQUEST = 64
 const MAX_TITLE = 200
 
 const whole = (n) => Number.isInteger(n) && n >= 0 && n <= MAX_INDEX

@@ -29,21 +29,26 @@ public class DiscussionSyncServiceTests
 
         var created = await Service.ShareAsync(User, BookId, share, Ct);
 
-        Assert.Equal((201, "ch02.xhtml"), (created.Status, Assert.IsType<SharedChapterDto>(created.Body).ChapterKey));
+        // The answer leaves out the text the app just sent (#1352).
+        var dto = Assert.IsType<SharedChapterDto>(created.Body);
+        Assert.Equal((201, "ch02.xhtml", null), (created.Status, dto.ChapterKey, dto.ChapterText));
         await _shares.Received(1).ShareAsync(Arg.Is<SharedChapter>(c =>
             c.UserId == User && c.BookId == BookId && c.FileId == FileId && c.NotesSnapshot == """[{ "text": "night" }]"""
             && c.PayloadSha256 == DiscussionPayloads.ShareSha256(BookId, share)), Arg.Any<CancellationToken>());
 
         // The same operation again (a retry) replays; its id reused for another payload is refused with what is stored.
-        var stored = new SharedChapter { Id = Guid.NewGuid(), ChapterKey = "ch02.xhtml", NotesSnapshot = "[]" };
+        var stored = new SharedChapter { Id = Guid.NewGuid(), ChapterKey = "ch02.xhtml", ChapterText = "Stored text.", NotesSnapshot = "[]" };
         _shares = SyncFakes.Shares(WriteOutcome.Replayed, stored);
         var replayed = await Service.ShareAsync(User, BookId, share, Ct);
         _shares = SyncFakes.Shares(WriteOutcome.OperationConflict, stored);
         var conflict = await Service.ShareAsync(User, BookId, share with { ChapterKey = "ch03.xhtml" }, Ct);
 
-        Assert.Equal((200, stored.Id), (replayed.Status, Assert.IsType<SharedChapterDto>(replayed.Body).Id));
+        // A replay leaves the text out too; a conflict's stored row keeps it (the app did not send that text).
+        var replayedDto = Assert.IsType<SharedChapterDto>(replayed.Body);
+        Assert.Equal((200, stored.Id, null), (replayed.Status, replayedDto.Id, replayedDto.ChapterText));
         var error = SyncFakes.Error(conflict);
-        Assert.Equal((409, SyncCodes.OperationConflict, stored.Id), (conflict.Status, error.Code, Assert.IsType<SharedChapterDto>(error.Current).Id));
+        var current = Assert.IsType<SharedChapterDto>(error.Current);
+        Assert.Equal((409, SyncCodes.OperationConflict, stored.Id, "Stored text."), (conflict.Status, error.Code, current.Id, current.ChapterText));
     }
 
     [Fact]

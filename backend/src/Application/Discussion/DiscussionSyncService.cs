@@ -38,7 +38,10 @@ public sealed class DiscussionSyncService(IBookAccess library, ISharedChapterRep
             OperationId = r.OperationId!.Value,
             PayloadSha256 = DiscussionPayloads.ShareSha256(bookId, r),
         }, ct);
-        return SyncResult.Written(written.Outcome, written.Row?.ToDto());
+        // The caller has the text it sent: a 201 or a replay leaves it out (up to 200 KB, #1352). A conflict's
+        // `current` is the stored row, whose text the caller did not send: kept.
+        var dto = written.Row?.ToDto();
+        return SyncResult.Written(written.Outcome, written.Outcome == WriteOutcome.OperationConflict || dto is null ? dto : dto with { ChapterText = null });
     }
 
     private static SyncResult? Share(ShareChapterRequest r) =>

@@ -164,7 +164,8 @@ const FOLIATE_SHA = 'be4abb9c1a4f6225f506e0c1bdfaf7cd2b8d543a'
 // +318 (#1204 review): a page's own budget (PDF_PAGE_MS) and `book-stopped` when the worker of the book on screen is terminated.
 // −99 (#1579 review): one silence watchdog (PDF_SILENCE_MS) for the deadlines; `toc` and `book-stopped` said again after a
 // newer open fails (`said`); a missing worker chunk fails at once; one base64 helper (`fromBase64`).
-const BUDGET = 350838
+// +163 (#1352): a relocate's text nodes and chapter starts cached per section document; one section-end test.
+const BUDGET = 351001
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

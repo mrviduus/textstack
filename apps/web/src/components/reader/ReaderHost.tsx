@@ -977,7 +977,6 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
     if (barsHidden && at && (header.current?.contains(at) || footer.current?.contains(at))) main.current?.focus({ preventScroll: true })
   }, [barsHidden])
 
-  /** Finish book: through the open book's session; an answer for a book no longer the open one changes nothing. */
   /**
    * #1316: the chapter's text, read by the page, is shared with the reader's account, then the chat can open with
    * the share's id. Guarded by the identity it started under (this open, this account's store epoch): once either
@@ -1025,11 +1024,11 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
     discuss.reset()
     discussLocks.reset()
   }, [accountId])
-  /** The chapter Discuss is offered for: the one whose end is on screen, when the host can name it (its contents entry, or a book with no contents). */
   /** Discuss is offered for the chapter the page says ended (its title the page's too), by the hosts' one rule. */
   const discussEnd = discussBook && offersDiscuss(chapterEnd) ? chapterEnd : null
   const finishShown = !!finish && finish.completedAt !== undefined && showsFinishBook({ atEnd, format: finish.format })
 
+  /** Finish book: through the open book's session; an answer for a book no longer the open one changes nothing. */
   const finishBook = async () => {
     const s = sync.current
     if (!s) throw new Error('no book to finish')
