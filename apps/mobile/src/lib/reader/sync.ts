@@ -85,10 +85,20 @@ const drop = async (lib: LocalLibrary, reset: Reset, item: OutboxItem) => void (
 
 /**
  * An error that ends the pass (no point pushing the rest), counted against no entry: offline, or the
- * server down — any 503, `v2_unavailable` or not. Known limit: one entry answered 503 (or failing at
- * fetch level) ends the pass for the entries after it too.
+ * server down — any 503, `v2_unavailable` or not. Every 503 under /me/v2 is server-wide (readiness, a write
+ * freeze, the account guard, sync paused: #1198), so no single entry can answer one and starve the rest.
  */
 const endsPass = (e: unknown) => e === DROPPED || isOfflineError(e) || (e as { status?: number } | null)?.status === 503
+
+/**
+ * #1198: failed uploads per book (file sync), this app run's: at `MAX_FAILURES` a book's upload waits for
+ * the next session's first pass or "Try again", as an outbox entry does; an outage or offline is never counted.
+ * ponytail: in memory, no resume: a retried upload re-sends every part (the server lists no stored parts); a parts
+ * listing is the upgrade if big files fail often.
+ */
+const uploadFailures = new Map<string, number>()
+/** Tests only: every count gone (module state outlives a test). */
+export const resetUploadFailures = () => uploadFailures.clear()
 
 export { MAX_FAILURES }
 
@@ -148,7 +158,10 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = 
   try {
     if (!(await syncOn())) return 'off'
     await account(lib, host, reset)
-    if (host.retryFailed) await checked(reset, () => lib.retryAll())
+    if (host.retryFailed) {
+      await checked(reset, () => lib.retryAll())
+      uploadFailures.clear()
+    }
     if (!pushOnly) for (const feed of FEEDS) if (feed !== 'vocabulary') await pull(lib, host, reset, feed)
     let failed = false
     // Kind by kind, the outbox read again each time: a book push can re-key the ids its children name.
@@ -231,6 +244,7 @@ export async function claimLibraryFor(userId: string, lib: () => LocalLibrary = 
  */
 export async function tryAgainBook(lib: LocalLibrary, bookId: string, refresh: () => Promise<unknown>, sync: () => void) {
   await lib.unpark(bookId)
+  uploadFailures.delete(bookId)
   await refresh()
   sync()
 }
@@ -537,11 +551,13 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
   const { maxPartBytes } = await startSyncProbe()
   for (const b of await lib.uploadable()) {
     if (reset()) throw DROPPED
+    if ((uploadFailures.get(b.id) ?? 0) >= MAX_FAILURES) continue
     try {
       await host.upload(b, maxPartBytes, reset)
+      uploadFailures.delete(b.id)
       await checked(reset, () => lib.setHasContent(b.id))
     } catch (e) {
-      if (e === DROPPED || reset() || isOfflineError(e)) throw e
+      if (endsPass(e) || reset()) throw e
       if (e instanceof UploadNotOnServer) {
         // The server's copy of this book is not the one this device knows: push the book again
         // (sha256 first pairs it, or imports it under this device's ids), then its bytes.
@@ -549,8 +565,10 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
         await bookFirst(lib, reset, b)
         continue
       }
-      console.warn('[v2 sync] upload failed:', b.id, e)
-      if (e instanceof FileUploadError && e.code === 'quota_exceeded') return
+      if (e instanceof FileUploadError && e.code === 'quota_exceeded') return console.warn('[v2 sync] upload stopped, quota full:', b.id)
+      const n = (uploadFailures.get(b.id) ?? 0) + 1
+      uploadFailures.set(b.id, n)
+      console.warn(`[v2 sync] upload of ${b.id} failed (${n}/${MAX_FAILURES})${n >= MAX_FAILURES ? ', not retried until the next session or "Try again"' : ''}:`, brief(e))
     }
   }
 }

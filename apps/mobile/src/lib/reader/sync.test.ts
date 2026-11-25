@@ -5,12 +5,12 @@
  * `whileCurrent` epoch guard), plus the pull merges, id re-keying, opt-in file sync and download.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { initApi, UploadNotOnServer, type OpenReader } from '@textstack/shared'
+import { ApiError, initApi, UploadNotOnServer, type OpenReader } from '@textstack/shared'
 import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage } from './hostStorage'
-import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, openBookHost, pushBeforeSignOut, syncLibrary, tryAgainBook, type SyncHost } from './sync'
+import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, openBookHost, pushBeforeSignOut, resetUploadFailures, syncLibrary, tryAgainBook, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
@@ -85,6 +85,7 @@ const restoredEntry = async (lib: LocalLibrary) => JSON.parse((await lib.readEnt
 
 describe('V2 local library sync (R6)', () => {
   beforeEach(async () => {
+    resetUploadFailures()
     resetSyncForTests()
     n = 0
     cleared = 0
@@ -2207,15 +2208,30 @@ describe('V2 local library sync (R6)', () => {
       expect(await counts(lib)).toEqual(['book:0', 'book:0', 'state:0', 'annotation:0'])
     })
 
-    // File sync has its own catch: failures are not counted; the upload is retried every pass.
-    it('qa_fileSyncUploadFailing_NotCounted_RetriedEveryPass_OutboxUntouched', async () => {
-      const { lib } = await synced()
+    // #1198: a failing upload is counted per book: at the limit it waits for the next session or "Try again", and
+    // the outbox is untouched (the book's writes still go). An outage (a 503) ends the pass and is never counted.
+    it('qa_fileSyncUploadFailing_CountedPerBook_StopsAtTheLimit_OutageNotCounted_NextSessionOrTryAgainRetries', async () => {
+      const { lib, bookId } = await synced()
       await lib.setFileSync(true)
       fakeApi({})
+      const outage = vi.fn(async () => { throw new ApiError(503, 'paused') })
+      expect(await syncLibrary(lib, host({ upload: outage }))).toBe('failed')
+      await passes(lib, MAX_FAILURES + 1, host({ upload: outage }))
+      expect(outage).toHaveBeenCalledTimes(MAX_FAILURES + 2)
+
       const upload = vi.fn(async () => { throw new Error('upload 500') })
       await passes(lib, MAX_FAILURES + 2, host({ upload }))
-      expect(upload).toHaveBeenCalledTimes(MAX_FAILURES + 2)
+      expect(upload).toHaveBeenCalledTimes(MAX_FAILURES)
       expect(await lib.outbox()).toEqual([])
+
+      await syncLibrary(lib, host({ upload, retryFailed: true }))
+      expect(upload).toHaveBeenCalledTimes(MAX_FAILURES + 1)
+
+      await passes(lib, MAX_FAILURES, host({ upload }))
+      expect(upload).toHaveBeenCalledTimes(2 * MAX_FAILURES)
+      await tryAgainBook(lib, bookId, async () => {}, () => {})
+      await syncLibrary(lib, host({ upload }))
+      expect(upload).toHaveBeenCalledTimes(2 * MAX_FAILURES + 1)
     })
   })
 
