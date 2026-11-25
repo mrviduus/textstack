@@ -289,19 +289,26 @@ export interface ClusterBonusResponse {
   cards: ReviewCardDto[]
 }
 
-// Reading Stats
+// Reading Stats — `GET /me/v2/stats` (#1366)
+export type ReadingStatsPeriod = 'week' | 'month' | 'halfyear' | 'year'
+
+/** One chart bar: a day (week, month) or a calendar month (halfyear, year). Future days are 0. */
+export interface ReadingStatsBar {
+  /** `YYYY-MM-DD`, the bar's first day in the asked time zone. */
+  start: string
+  minutes: number
+}
+
+/** The period's totals and bars; the streaks are period-independent. Week = Monday..Sunday. */
 export interface ReadingStatsDto {
-  totalSeconds: number
-  totalWords: number
-  booksFinished: number
+  period: ReadingStatsPeriod
+  from: string
+  to: string
+  minutes: number
+  daysRead: number
   currentStreak: number
-  longestStreak: number
-  todaySeconds: number
-  weekSeconds: number
-  monthSeconds: number
-  avgDailyMinutes: number
-  avgWordsPerMinute: number
-  dailyGoal: { target: number; today: number; met: boolean } | null
+  bestStreak: number
+  bars: ReadingStatsBar[]
 }
 
 export interface DailyStatDto {

@@ -13,6 +13,7 @@
 import { authFetch, authFetchResponse, ApiError, buildQuery, getApiConfig, jsonBody, networkError } from './client'
 import { locatorToPlace } from '../reader/locators'
 import { chapterAtFraction } from '../reader/bookProgress'
+import type { ReadingStatsDto, ReadingStatsPeriod } from '../types/api'
 
 const V2 = '/me/v2'
 
@@ -583,3 +584,7 @@ export const addExample = (wordId: string, body: ExampleWrite) =>
   authFetch<Example>(`${V2}/vocabulary/words/${wordId}/examples`, jsonBody('POST', body))
 export const getDue = (limit?: number) => authFetch<Word[]>(`${V2}/vocabulary/due${buildQuery({ limit })}`)
 export const recordReview = (body: ReviewWrite) => authFetch<RecordedReview>(`${V2}/vocabulary/reviews`, jsonBody('POST', body))
+
+/** Reading time for a calendar period in the reader's zone, plus the streaks (#1366). */
+export const readingStats = (period: ReadingStatsPeriod, tz = Intl.DateTimeFormat().resolvedOptions().timeZone) =>
+  authFetch<ReadingStatsDto>(`${V2}/stats${buildQuery({ period, tz })}`)

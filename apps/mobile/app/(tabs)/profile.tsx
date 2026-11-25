@@ -24,6 +24,7 @@ import { getLanguage } from '@textstack/shared'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
 import { VocabReminderSettingsRow } from '../../src/components/profile/VocabReminderSettingsRow'
 import { DeviceStorageRow } from '../../src/components/library/DeviceStorageRow'
+import { ReadingStatsBlock } from '../../src/components/profile/ReadingStatsBlock'
 import { authApi, getStorageUrl } from '@textstack/shared'
 import { deleteAccount, freshAccessToken } from '../../src/lib/api'
 import { versionLine, updateLine } from '../../src/lib/buildInfo'
@@ -396,6 +397,8 @@ export default function ProfileScreen() {
         <Text style={[styles.email, { color: colors.textSecondary }]}>{user?.email || ''}</Text>
       </View>
       )}
+
+      <ReadingStatsBlock />
 
       <View style={styles.menu}>
         {/* The device figure. Not gated on a session:
