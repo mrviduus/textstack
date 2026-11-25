@@ -178,3 +178,13 @@ public sealed record InsightRequest(string? ChapterKey, string? Text, string? Qu
 public sealed record InsightDto(
     Guid Id, Guid BookId, string? ChapterKey, int? ChapterNumber, string? ChapterTitle, string Text, string? Question,
     string Source, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+
+/// <summary>
+/// <c>GET /me/v2/stats</c> (#1366): reading time in a calendar period of the user's zone. <see cref="From"/>..<see cref="To"/> are
+/// inclusive; the streaks are over all time. One bar per day (week, month) or per month (halfyear, year), zeros included.
+/// </summary>
+public sealed record ReadingStatsDto(
+    string Period, DateOnly From, DateOnly To, int Minutes, int DaysRead, int CurrentStreak, int BestStreak, IReadOnlyList<ReadingStatsBarDto> Bars);
+
+/// <summary>One bucket of <see cref="ReadingStatsDto.Bars"/>; <see cref="Start"/> is its first date.</summary>
+public sealed record ReadingStatsBarDto(DateOnly Start, int Minutes);

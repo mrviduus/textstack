@@ -32,4 +32,22 @@ public sealed class ReadingSessionRepository(AppDataSource dataSource) : IReadin
             new CommandDefinition(UpsertSession, session, cancellationToken: ct), (row, isNew) => (row, isNew), splitOn: "inserted")).Single();
         return new(inserted ? WriteOutcome.Created : WriteOutcome.Replayed, stored);
     }
+
+    // ponytail: a session counts whole on the day it started (in the zone); one crossing midnight is not split.
+    // All time, one row per day read: the streaks need every day, and a reader's days are a few thousand at most.
+    private const string DailyTotals = """
+        SELECT (started_at AT TIME ZONE @TimeZone)::date AS day, sum(duration_seconds)::bigint AS seconds
+        FROM reading_sessions
+        WHERE user_id = @UserId AND duration_seconds > 0
+        GROUP BY 1
+        ORDER BY 1
+        """;
+
+    public async Task<IReadOnlyList<DailyReading>> DailyTotalsAsync(Guid userId, string timeZone, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<(DateTime Day, long Seconds)>(
+            new CommandDefinition(DailyTotals, new { UserId = userId, TimeZone = timeZone }, cancellationToken: ct));
+        return [.. rows.Select(r => new DailyReading(DateOnly.FromDateTime(r.Day), r.Seconds))];
+    }
 }

@@ -115,6 +115,20 @@ public sealed class ReadingSyncService(
         return result.Current is { } stored ? SyncResult.StaleRevision(stored.Revision, stored.ToDto()) : await MissingAsync(userId, bookId, ct);
     }
 
+    /// <summary>
+    /// <c>GET /me/v2/stats</c> (#1366): the calendar <paramref name="period"/> holding today in <paramref name="timeZone"/>
+    /// (week, month, halfyear, year), with all-time streaks. Both are required: days are the user's, not the server's.
+    /// </summary>
+    public async Task<SyncResult> StatsAsync(Guid userId, string? period, string? timeZone, CancellationToken ct)
+    {
+        if (!ReadingStats.IsPeriod(period)) return SyncResult.Invalid("period", "period is week, month, halfyear or year.");
+        // HasIanaId refuses a Windows id; Postgres reads the same IANA name in the query.
+        if (timeZone is null || !TimeZoneInfo.TryFindSystemTimeZoneById(timeZone, out var zone) || !zone.HasIanaId)
+            return SyncResult.Invalid("tz", "tz is an IANA time zone, such as Europe/Kyiv.");
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(), zone).DateTime);
+        return SyncResult.Ok(ReadingStats.Build(period!, today, await sessions.DailyTotalsAsync(userId, timeZone, ct)));
+    }
+
     public async Task<SyncResult> SaveSessionAsync(Guid userId, Guid clientSessionId, ReadingSessionRequest r, CancellationToken ct)
     {
         var invalid = ClientId(clientSessionId, "clientSessionId") ?? Required(r.StartedAt, "startedAt") ?? Required(r.EndedAt, "endedAt")

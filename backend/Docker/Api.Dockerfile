@@ -24,7 +24,8 @@ RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH"
     && dotnet publish backend/src/Api/Api.csproj -c Release -r "$RID" --self-contained false -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:11.0-alpine@sha256:d39b72ad1534fa0faf52b488bffb0762df7ba269d120f0338713d4dda2a41bf5 AS runtime
-RUN apk add --no-cache krb5-libs \
+# tzdata: /me/v2/stats resolves the reader's IANA zone (#1366); the alpine base ships no zoneinfo, only UTC resolves.
+RUN apk add --no-cache krb5-libs tzdata \
     && deluser app 2>/dev/null; delgroup app 2>/dev/null; \
        addgroup -g 1000 app && adduser -D -u 1000 -G app app
 RUN mkdir -p /storage/users /data/textstack /data/tts-cache && chown -R app:app /storage /data/textstack /data/tts-cache
