@@ -220,11 +220,11 @@ export function createHostStorage(files: HostFiles, newId: () => string, lib: Lo
      * #1596: the retained copy of these bytes deleted unless a book here holds them (one deleted while it downloaded), on
      * the file queue so an open of the same bytes (`addOpened`) never loses its copy. True: no book holds them.
      */
-    dropUnheld: (sha256: string) => queue.run(async () => {
+    dropUnheld: (sha256: string) => afterMigration(() => queue.run(async () => {
       if (await lib.hasLocalBytes(sha256)) return false
       try { files.remove(bookFile(sha256)) } catch (e) { console.warn('[v2] deleted book file not removed:', (e as Error | null)?.name) }
       return true
-    }),
+    })),
 
     /** "Finish book" (#1266): the book with these bytes finished on this device and queued for the server; resolves to the library's books. */
     finishBook: (sha256: string) => afterMigration(async () => {

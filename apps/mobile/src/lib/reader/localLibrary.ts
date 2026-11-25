@@ -253,6 +253,9 @@ const parse = <T>(json: string | null): T | null => {
 const uploadStopped = (b: BookRow) => b.upload_failures >= MAX_FAILURES && b.imported_at != null && b.server_file_id === b.file_id
   && !b.has_content && !b.content_removed && !b.removed_at
 
+/** #1596: a books row that is not a deleted book's kept name (`removeBook`): the server's file is never written onto one. */
+const NOT_REMOVED = `id NOT IN (SELECT target FROM outbox WHERE kind = 'removal')`
+
 /** The server's current file, as the `server_*` columns and `has_content`. */
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
@@ -571,7 +574,7 @@ export function createLocalLibrary(db: Db) {
           if (existing.blocked && b.format && b.format !== existing.format) await unblock(existing.id)
           return
         }
-        const pulled = await one<BookRow>('SELECT * FROM books WHERE imported_at IS NULL AND server_sha256 = ? AND server_size = ?', [b.sha256, b.size])
+        const pulled = await one<BookRow>(`SELECT * FROM books WHERE imported_at IS NULL AND server_sha256 = ? AND server_size = ? AND ${NOT_REMOVED}`, [b.sha256, b.size])
         if (pulled) {
           await importServerCopy(pulled.id, b.format, now, now)
           return
@@ -863,9 +866,9 @@ export function createLocalLibrary(db: Db) {
       return true
     }),
 
-    setServerFile: (bookId: string, f: BookFile | null) => job(() => run(`UPDATE books SET ${SERVER_FILE} WHERE id = ?`, [...serverFile(f), bookId])),
+    setServerFile: (bookId: string, f: BookFile | null) => job(() => run(`UPDATE books SET ${SERVER_FILE} WHERE id = ? AND ${NOT_REMOVED}`, [...serverFile(f), bookId])),
 
-    setHasContent: (bookId: string) => job(() => run('UPDATE books SET has_content = 1, upload_failures = 0 WHERE id = ?', [bookId])),
+    setHasContent: (bookId: string) => job(() => run(`UPDATE books SET has_content = 1, upload_failures = 0 WHERE id = ? AND ${NOT_REMOVED}`, [bookId])),
 
     /** #1593: one more failed upload of the book's bytes: its count now (at MAX_FAILURES the list shows it not synced). */
     uploadFailed: (bookId: string) => job(async () => {

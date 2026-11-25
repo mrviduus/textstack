@@ -1586,7 +1586,8 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
   useEffect(() => {
     if (linked.current || !linkedBook) return
     const b = books.find((x) => x.id === linkedBook)
-    if (!b) {
+    // A book deleted here (#1596: listed only for Try again) is not found either.
+    if (!b || b.deleted) {
       if (syncPasses > 0) setLinkFailed(true)
       return
     }

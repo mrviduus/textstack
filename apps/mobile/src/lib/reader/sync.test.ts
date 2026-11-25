@@ -2925,6 +2925,17 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.books()).toEqual([])
     })
 
+    // #1596: a server answer about a deleted book's file (file_replaced, an upload landing) never lists it again.
+    it('setServerFile_DeletedBooksKeptRow_NotWritten_NotListedNorImportedInto', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.removeBook(bookId)
+      await lib.setServerFile(bookId, serverFile(fileId, { hasContent: true }) as never)
+      await lib.setHasContent(bookId)
+      expect(await lib.books()).toEqual([])
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      expect(await lib.localBookId(SHA)).not.toBe(bookId)
+    })
+
     // #1596: a position write in flight when the book is deleted keeps nothing of it.
     it('removeBook_WhileItsPositionWriteIsInFlight_NoStateKept', async () => {
       const { lib, bookId, fileId } = await synced()

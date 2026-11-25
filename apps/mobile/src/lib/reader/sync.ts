@@ -637,15 +637,20 @@ export async function downloadBook(lib: LocalLibrary, bookId: string, io: {
   if (repair && (b.sha256 !== sha || (io.intact?.(sha) ?? true))) return false
   // Bytes another book here already holds: never a second local copy (books_sha256 is UNIQUE).
   if (!repair && (await lib.hasLocalBytes(sha))) return false
+  // #1596: a book deleted (or a session ended) while it downloaded: no book holds these bytes now, so the file the
+  // retain moved in goes too. True: dropped. A failed drop is only space: logged.
+  const drop = () => io.dropUnheld?.(sha).catch((e) => void console.warn('[v2] downloaded file not dropped:', (e as Error | null)?.name)) ?? false
+  let retained = false
   try {
     const staged = await current(reset, io.fetch(syncApi.contentUrl(b.id, b.server_file_id), sha))
     await checked(reset, () => io.retain(staged, sha))
+    retained = true
     const kept = repair || (await checked(reset, () => lib.markDownloaded(b.id)))
-    // #1596: deleted while it downloaded: no book holds these bytes now, so the file the retain moved in goes too.
-    if (await io.dropUnheld?.(sha)) return false
+    if (await drop()) return false
     return kept
   } catch (e) {
-    if (e === DROPPED) return false
-    throw e
+    if (e !== DROPPED) throw e
+    if (retained) await drop()
+    return false
   }
 }
