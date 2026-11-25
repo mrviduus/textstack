@@ -20,6 +20,8 @@ export interface LibraryBook {
   openedAt: number
   /** False: not imported here; the server holds its bytes (sync.ts `downloadBook`). */
   local: boolean
+  /** #1596: deleted here, the server refusing its removal: only its name and "Try again" (no bytes, no download). */
+  deleted?: boolean
   /**
    * Why it is not synced, shown with "Try again" (localLibrary `unpark`): the park reason (the book
    * and its children are not sent), or a fixed one when its entry or a child's stopped being
@@ -213,6 +215,16 @@ export function createHostStorage(files: HostFiles, newId: () => string, lib: Lo
     removeHighlight: (id: string) => afterMigration(() => lib.removeHighlight(id)),
     notes: (key: string) => afterMigration(() => lib.notes(sha256Key(key))),
     realId: (id: string) => lib.realId(id),
+
+    /**
+     * #1596: the retained copy of these bytes deleted unless a book here holds them (one deleted while it downloaded), on
+     * the file queue so an open of the same bytes (`addOpened`) never loses its copy. True: no book holds them.
+     */
+    dropUnheld: (sha256: string) => queue.run(async () => {
+      if (await lib.hasLocalBytes(sha256)) return false
+      try { files.remove(bookFile(sha256)) } catch (e) { console.warn('[v2] deleted book file not removed:', (e as Error | null)?.name) }
+      return true
+    }),
 
     /** "Finish book" (#1266): the book with these bytes finished on this device and queued for the server; resolves to the library's books. */
     finishBook: (sha256: string) => afterMigration(async () => {

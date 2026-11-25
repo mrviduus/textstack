@@ -623,8 +623,8 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
 export async function downloadBook(lib: LocalLibrary, bookId: string, io: {
   fetch(url: string, sha256: string): Promise<string>
   retain(staged: string, sha256: string): Promise<void>
-  /** #1596: the retained file of these bytes deleted (the book was deleted while it downloaded); absent: kept. */
-  remove?(sha256: string): void
+  /** #1596: the retained file of these bytes deleted unless a book holds them (`HostStorage.dropUnheld`); true: deleted. Absent: kept. */
+  dropUnheld?(sha256: string): Promise<boolean>
   /** Whether the retained file of these bytes can be opened (`intactBook`); absent: it can. */
   intact?(sha256: string): boolean
 }): Promise<boolean> {
@@ -642,10 +642,7 @@ export async function downloadBook(lib: LocalLibrary, bookId: string, io: {
     await checked(reset, () => io.retain(staged, sha))
     const kept = repair || (await checked(reset, () => lib.markDownloaded(b.id)))
     // #1596: deleted while it downloaded: no book holds these bytes now, so the file the retain moved in goes too.
-    if (!(await lib.hasLocalBytes(sha))) {
-      io.remove?.(sha)
-      return false
-    }
+    if (await io.dropUnheld?.(sha)) return false
     return kept
   } catch (e) {
     if (e === DROPPED) return false

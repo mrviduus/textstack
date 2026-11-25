@@ -517,12 +517,14 @@ export function createLocalLibrary(db: Db) {
          ORDER BY imported_at IS NULL, imported_at, rowid`,
         [MAX_FAILURES],
       )
+      const deleted = new Set((await all<{ target: string }>(`SELECT target FROM outbox WHERE kind = 'removal'`)).map((r) => r.target))
       return rows.map((b) => {
         const local = b.imported_at != null
         return {
           id: b.id, title: b.title, author: b.author, originalName: b.original_name,
-          sha256: (local ? b.sha256 : b.server_sha256)!, size: (local ? b.size : b.server_size)!,
-          importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
+          // A deleted book's row (`removeBook`) holds no bytes: none named.
+          sha256: (local ? b.sha256 : b.server_sha256) ?? '', size: (local ? b.size : b.server_size) ?? 0,
+          importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local, ...(deleted.has(b.id) ? { deleted: true } : {}),
           notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : fileSync && uploadStopped(b) ? FILE_NOT_UPLOADED : null),
           finished: finished.has(b.id),
           completedAt: finished.get(b.id) ?? null,
@@ -881,6 +883,8 @@ export function createLocalLibrary(db: Db) {
      * the write's to clear, so it stays unless the server has one.
      */
     takeState: (bookId: string, s: ReadingState | null, sent: string | null) => tx(async () => {
+      // #1596: deleted here while its write was in flight: nothing of it kept (as `applyStates`).
+      if (await queued('removal', bookId)) return
       await upsertRevision(bookId, s?.revision ?? null, s?.fileId ?? null)
       const theirs = s?.completedAt ?? null
       await run(

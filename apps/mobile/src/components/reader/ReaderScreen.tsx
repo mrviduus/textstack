@@ -6,16 +6,15 @@ import { StatusBar } from 'expo-status-bar'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as DocumentPicker from 'expo-document-picker'
-import { File } from 'expo-file-system'
 import { uuid } from 'expo-modules-core'
 import { MAX_VOCABULARY_TEXT, bookTitle as titleOf, fillBookMeta, FALLBACK_WPM, OPENED_AT_KEY, serverNow, withOpened, chooseChat, createDiscussLocks, createDiscuss, handoffUrl, oauthGrantsApi, placeTimeLeftLabel, runDiscuss, timeLeftAt, syncApi, ttsHasVoice, type PagePosition, type ClientFormat, type DiscussShared, type DiscussState, type FileDetails } from '@textstack/shared'
 import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { deviceUploadIo, resetSince, uploadBook } from '../../lib/sync'
-import { bookFileIntact, downloadIo, hostFile, hostFileSize, removeHostFile } from '../../lib/reader/deviceDownload'
-import { bookFile, createHostStorage, nonceFromUuid, sha256Key, type LibraryBook, type HostFiles, type HostStorage } from '../../lib/reader/hostStorage'
-import { deviceLocalLibrary, makeFileDirs, sweepStaging } from '../../lib/reader/deviceLibrary'
+import { bookFileIntact, downloadIo, hostFile, hostFileSize, readerStorage } from '../../lib/reader/deviceDownload'
+import { bookFile, nonceFromUuid, sha256Key, type LibraryBook } from '../../lib/reader/hostStorage'
+import { deviceLocalLibrary } from '../../lib/reader/deviceLibrary'
 import { capabilitiesFor } from '../../lib/capabilities'
 import type { BookNotes, BookRow, PositionAction } from '../../lib/reader/localLibrary'
 import { downloadBook, holdReaderHost, openBookHost, syncLibrary, tryAgainBook, type SyncHost } from '../../lib/reader/sync'
@@ -90,28 +89,6 @@ import { createListener, speakingJs, spokenOf, ttsLang } from '../../../../../pa
  * Hosts the generated page and drives the contract in src/lib/reader/README.md:
  * ready → openUrl → opened → restore → restored, then store / relocate / word / openLink.
  */
-
-function deviceFiles(): HostFiles {
-  // Anything an earlier process staged and never finished; this process's own (a Download, an upload) stay (#1526).
-  sweepStaging()
-  makeFileDirs()
-  return {
-    read: async (name) => {
-      const file = hostFile(name)
-      return file.exists ? file.text() : null
-    },
-    move: (from, to) => hostFile(from).move(hostFile(to), { overwrite: true }),
-    exists: (name) => hostFile(name).exists,
-    size: hostFileSize,
-    remove: removeHostFile,
-    // expo-file-system copies a SAF/content:// source to a local file (Android, since 56.0.0).
-    copyIn: (uri, to) => new File(uri).copy(hostFile(to)),
-  }
-}
-
-// One storage for the process, so every read and write goes through its one queue.
-let storage: HostStorage | null = null
-const readerStorage = () => (storage ??= createHostStorage(deviceFiles(), uuid.v4, deviceLocalLibrary(), resetSince))
 
 /**
  * File sync (opt-in): the retained copy's bytes through the shared upload sequence, with the format
@@ -1946,11 +1923,12 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
               {books.map((b) => (
                 <Pressable
                   key={b.id}
-                  onPress={() => (b.local && bookFileIntact(b.sha256) ? open({ file: bookFile(b.sha256), name: b.originalName, format: b.format }) : download(b))}
+                  onPress={b.deleted ? undefined : () => (b.local && bookFileIntact(b.sha256) ? open({ file: bookFile(b.sha256), name: b.originalName, format: b.format }) : download(b))}
+                  disabled={b.deleted}
                   accessibilityRole="button"
                   style={[styles.book, { borderColor: colors.border }]}
                 >
-                  <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local ? b.title : `↓ ${b.title}`}</Text>
+                  <Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{b.local || b.deleted ? b.title : `↓ ${b.title}`}</Text>
                   {b.finished && <Text style={[styles.meta, { color: colors.primary }]}>{t('reader.chrome.finished')}</Text>}
                   {b.notSynced && (
                     <>
