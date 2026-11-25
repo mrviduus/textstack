@@ -587,5 +587,9 @@ export const recordReview = (body: ReviewWrite) => authFetch<RecordedReview>(`${
 
 /** Reading time for a calendar period in the reader's zone, plus the streaks (#1366). UTC when the
  * runtime knows no zone (Hermes without ICU answers an empty one). */
-export const readingStats = (period: ReadingStatsPeriod, tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC') =>
+export const readingStats = (period: ReadingStatsPeriod, tz = deviceZone()) =>
   authFetch<ReadingStatsDto>(`${V2}/stats${buildQuery({ period, tz })}`)
+
+function deviceZone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
+}

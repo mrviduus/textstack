@@ -17,6 +17,8 @@ export function ReadingStatsSection() {
   /** The last answer of any period: the streaks, and whether the section has ever loaded. */
   const [last, setLast] = useState<ReadingStatsDto | null>(null)
   const [failed, setFailed] = useState(false)
+  /** Bumped by a click on the selected period after a failure: the same period is fetched again. */
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => {
     let live = true
@@ -25,10 +27,13 @@ export function ReadingStatsSection() {
       () => { if (live) setFailed(true) },
     )
     return () => { live = false }
-  }, [period])
+  }, [period, retry])
 
   const choose = (p: ReadingStatsPeriod) => {
-    if (p === period) return
+    if (p === period) {
+      if (failed) { setFailed(false); setRetry(r => r + 1) }
+      return
+    }
     setStats(null)
     setFailed(false)
     setPeriod(p)
@@ -47,6 +52,7 @@ export function ReadingStatsSection() {
   let body
   if (stats) {
     const labels = readingStatsBarLabels(stats, t)
+    const monthly = stats.period === 'halfyear' || stats.period === 'year'
     const max = Math.max(1, ...stats.bars.map(b => b.minutes))
     body = (
       <>
@@ -56,7 +62,7 @@ export function ReadingStatsSection() {
         </div>
         <div className="reading-stats__chart" role="img" aria-label={t('profile.stats.chartLabel')}>
           {stats.bars.map((b, i) => (
-            <div key={b.start} className="reading-stats__col" title={`${b.start}: ${formatReadingMinutes(b.minutes, t)}`} data-testid="reading-stats-bar">
+            <div key={b.start} className="reading-stats__col" title={`${monthly ? labels[i] : b.start}: ${formatReadingMinutes(b.minutes, t)}`} data-testid="reading-stats-bar">
               <div className="reading-stats__track">
                 {b.minutes > 0 && <div className="reading-stats__bar" style={{ height: `${(b.minutes / max) * 100}%` }} />}
               </div>

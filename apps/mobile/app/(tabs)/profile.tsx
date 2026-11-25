@@ -399,7 +399,7 @@ export default function ProfileScreen() {
       )}
 
       {/* Keyed by user: a guest -> account switch starts the block over, never shows the other session's numbers. */}
-      <ReadingStatsBlock key={user?.id ?? 'none'} />
+      <ReadingStatsBlock key={user!.id} />
 
       <View style={styles.menu}>
         {/* The device figure. Not gated on a session:
