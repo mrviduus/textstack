@@ -12,6 +12,7 @@ import { useTheme } from '../../src/context/ThemeContext'
 import { useToast } from '../../src/context/ToastContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useDownload } from '../../src/context/DownloadContext'
+import { useAuth } from '../../src/context/AuthContext'
 import { fonts } from '../../src/theme/typography'
 import { useReconnectCount } from '../../src/hooks/useOnline'
 import { LoadingScreen } from '../../src/components/ui/LoadingScreen'
@@ -21,7 +22,7 @@ import { shareOriginalFile } from '../../src/lib/shareOriginal'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
-import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
+import { deviceLocalLibrary, signedOutMayList } from '../../src/lib/reader/deviceLibrary'
 import { deleteBook } from '../../src/lib/reader/deviceDownload'
 import { failedLoadView } from '../../src/lib/deletedOnServer'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
@@ -106,7 +107,9 @@ export default function UserBookDetailScreen() {
   const [book, setBook] = useState<UserBookDetailResponse | null>(null)
   const [coverSource, onCoverError] = useCoverSource(book?.coverPath)
   const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<'offline' | 'failed' | 'notfound' | null>(null)
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  // 'device': signed out, and this book's copy is not on the device (#1608).
+  const [loadError, setLoadError] = useState<'offline' | 'failed' | 'notfound' | 'device' | null>(null)
   const [attempt, setAttempt] = useState(0)
   const reconnects = useReconnectCount()
   const [savedProgress, setSavedProgress] = useState<{ chapterSlug: string | null; percent: number | null; locator: string | null } | null>(null)
@@ -125,12 +128,24 @@ export default function UserBookDetailScreen() {
   }, [])
 
   useEffect(() => {
-    if (!id) return
+    if (!id || authLoading) return
     // A newer run (reconnect, Retry) supersedes this one: it must not overwrite that run's state,
     // nor record an answer that is no longer the latest.
     let stale = false
     const live = () => !stale && !unmountedRef.current
     ;(async () => {
+      // Signed out (#1608): the device's copy, read straight away; no account to ask the server with.
+      if (!isAuthenticated) {
+        // After a sign-out whose wipe is owed, the copy is the signed-out account's: not shown.
+        const here = (await signedOutMayList().catch(() => false)) ? await rehydrateFromDevice(id) : null
+        if (!live()) return
+        setBook(here?.book ?? null)
+        setSavedProgress(here?.progress ?? null)
+        setOfflineMode(here !== null)
+        setLoadError(here ? null : 'device')
+        setLoading(false)
+        return
+      }
       try {
         const [b, p] = await Promise.all([
           userBooksApi.getUserBook(id),
@@ -182,7 +197,7 @@ export default function UserBookDetailScreen() {
     return () => { stale = true }
     // `reconnects` so the screen recovers on its own — until now a failed load
     // left it showing a spinner until the reader backed out and came in again.
-  }, [id, reconnects, attempt])
+  }, [id, reconnects, attempt, isAuthenticated, authLoading])
 
   // Re-read the progress when this screen comes back into view.
   //
@@ -203,6 +218,11 @@ export default function UserBookDetailScreen() {
     // Back from the reader, which fetches the book it opens: "Downloaded" reads the device again.
     refreshOnDevice().catch(() => {})
     let cancelled = false
+    // Signed out (#1608): the reader's place is on the device.
+    if (!isAuthenticated) {
+      rehydrateFromDevice(id).then(r => { if (!cancelled && r) setSavedProgress(r.progress) })
+      return () => { cancelled = true }
+    }
     userBooksApi.getUserBookProgress(id)
       .then(p => {
         if (cancelled || !p) return
@@ -220,7 +240,7 @@ export default function UserBookDetailScreen() {
     : null
 
   const isReady = book?.status.toLowerCase() === 'ready'
-  const { insights, reviews } = useBookReviews(isReady && book ? book.id : null)
+  const { insights, reviews } = useBookReviews(isReady && book && isAuthenticated ? book.id : null)
   const isFailed = book?.status.toLowerCase() === 'failed'
 
   // A PDF read in Original layout is chapterless: its position is a `page:<N>`
@@ -337,10 +357,10 @@ export default function UserBookDetailScreen() {
           {/* 'notfound' keeps Retry: a successful load undoes it. */}
           <EmptyState
             icon={loadError === 'notfound' ? 'help-circle-outline' : loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
-            title={loadError === 'notfound' ? t('myBooks.deleted.title') : loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
+            title={loadError === 'notfound' ? t('myBooks.deleted.title') : loadError === 'offline' ? t('library.offline.title') : loadError === 'device' ? t('library.signedOut.readFailed') : t('library.loadFailed.title')}
             subtitle={loadError === 'notfound'
               ? t('myBooks.deleted.bodyNoCopy')
-              : loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
+              : loadError === 'offline' ? t('library.offline.body') : loadError === 'device' ? undefined : t('library.loadFailed.body')}
             buttonLabel={t('common.retry')}
             onButtonPress={() => { setLoading(true); setAttempt(a => a + 1) }}
           />
@@ -414,11 +434,13 @@ export default function UserBookDetailScreen() {
           </View>
         </View>
 
-        {offlineMode && (
+        {offlineMode && (isAuthenticated ? (
           <OfflineBanner
             message="You're offline — reading the downloaded copy."
           />
-        )}
+        ) : (
+          <OfflineBanner signedOut message={t('library.signedOut.banner')} actionLabel={t('library.signedOut.signIn')} onAction={() => router.push('/(auth)/login')} />
+        ))}
 
         {/* Description */}
         {book.description && (
@@ -500,18 +522,21 @@ export default function UserBookDetailScreen() {
         {/* Secondary actions */}
         {isReady && (
           <View style={styles.secondaryActions}>
-            <TouchableOpacity
-              style={[styles.secondaryBtn, { borderColor: colors.border }]}
-              onPress={handleMarkComplete}
-              accessibilityRole="button"
-              accessibilityLabel={book.completedAt ? 'Mark book as unread' : 'Mark book as read'}
-              accessibilityState={{ selected: !!book.completedAt }}
-            >
-              <Ionicons name={book.completedAt ? 'close-circle-outline' : 'checkmark-circle-outline'} size={18} color={colors.text} />
-              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
-                {book.completedAt ? 'Mark as unread' : 'Mark as read'}
-              </Text>
-            </TouchableOpacity>
+            {/* A server write: signed out (#1608) there is no account to write it to. */}
+            {isAuthenticated && (
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { borderColor: colors.border }]}
+                onPress={handleMarkComplete}
+                accessibilityRole="button"
+                accessibilityLabel={book.completedAt ? 'Mark book as unread' : 'Mark book as read'}
+                accessibilityState={{ selected: !!book.completedAt }}
+              >
+                <Ionicons name={book.completedAt ? 'close-circle-outline' : 'checkmark-circle-outline'} size={18} color={colors.text} />
+                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
+                  {book.completedAt ? 'Mark as unread' : 'Mark as read'}
+                </Text>
+              </TouchableOpacity>
+            )}
             {/* Offline download: the book's file to this device (DownloadContext). */}
             <DownloadButton
               cached={cached}

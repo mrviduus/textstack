@@ -24,6 +24,15 @@ describe('#1608 — signed out, the library still lists the books on this device
     expect(signedOut).not.toContain('userBooksApi')
     expect(lib).toContain('!isAuthenticated && userBooks.length === 0')
   })
+
+  it('signed out, the book page shows the device copy without asking the server, and no server write is offered', () => {
+    const page = read('app/my-books/[id].tsx')
+    const signedOut = page.slice(page.indexOf('if (!isAuthenticated) {'), page.indexOf('userBooksApi.getUserBook(id)'))
+    expect(signedOut).toContain('signedOutMayList()')
+    expect(signedOut).toContain('rehydrateFromDevice(id)')
+    expect(signedOut).toContain('return')
+    expect(read('src/hooks/useBookActions.ts')).toContain('isReady && isAuthenticated')
+  })
 })
 
 describe('#1143 — the upload screen honours Cancel and drops the picker copy', () => {

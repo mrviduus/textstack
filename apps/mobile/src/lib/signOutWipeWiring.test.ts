@@ -18,7 +18,7 @@ const between = (from: string, to: string) => {
 
 describe('sign-in V2 wipe wiring (#1070 rule B: another account wipes at sign-in)', () => {
   it('claim_BoundedByTheWipeDeadline', () => {
-    expect(src).toMatch(/const claimLibrary = \(userId: string\) =>\s+withDeadline\(claimLibraryFor\(userId\), LIBRARY_WIPE_MS\)/)
+    expect(src).toMatch(/const claimLibrary = \(userId: string\) =>\s+withDeadline\(claimLibraryFor\(userId\)\.then\(clearWipePending\), LIBRARY_WIPE_MS\)/)
   })
 
   it('signInWithTokens_ClaimAfterTheEpochBumpBeforeAdoptAndSetUser', () => {

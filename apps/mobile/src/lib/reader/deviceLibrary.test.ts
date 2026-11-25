@@ -52,6 +52,11 @@ const fresh = async () => {
   return import('./deviceLibrary')
 }
 const SHA = 'cd'.repeat(32)
+/** AsyncStorage as the current module registry sees it (the mock is per registry, like a process's view of the disk). */
+const storage = async () => (await import('@react-native-async-storage/async-storage')).default
+const PENDING = 'textstack_v2_wipe_pending'
+/** The disk after a restart: the marker carried over into the new registry's storage. */
+const restore = async (marker: string | null) => { if (marker) await (await storage()).setItem(PENDING, marker) }
 const rows = (table: string) => (db!.raw.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
 const HOST_DIRS = ['doc/v2', 'doc/v2/books', 'doc/v2/store', 'doc/v2/staging']
 
@@ -163,20 +168,40 @@ describe('device V2 local library', () => {
     expect(files.has(`doc/v2/books/${SHA}.epub`)).toBe(true)
   })
 
-  it('signedOutMayList_AccountLostOnServer_TheBooksStillListed_SignOutWipeFailed_NotListed', async () => {
+  it('signedOutMayList_LostAccountLists_FailedSignOutWipeHiddenAcrossARestartUntilARetryOrASignIn', async () => {
     // #1608: the server lost the account; nobody signed out here, so the device's books are still this reader's.
     const m = await fresh()
     await used(m)
     expect(await m.signedOutMayList()).toBe(true)
-    // A sign-out whose wipe failed leaves the signed-out account's rows: the signed-out Library lists none of them.
+
+    // The reader signs out and the wipe fails: the rows left are the signed-out account's.
     failOpen = 'disk busy'
+    const m1 = await fresh()
+    await m1.wipeDeviceLibrary().catch(() => {})
+    expect(await m1.signedOutMayList()).toBe(false)
+
+    // The app restarts (a new module; the marker is on disk): still hidden while the wipe cannot run.
+    const marker = await (await storage()).getItem(PENDING)
     const m2 = await fresh()
-    await m2.wipeDeviceLibrary().catch(() => {})
+    await restore(marker)
     expect(await m2.signedOutMayList()).toBe(false)
-    // A wipe that worked: the library is empty, nothing to hide.
+
+    // The disk is back: the gate retries the wipe, which works, so the (now empty) library may list.
     failOpen = null
-    await m2.wipeDeviceLibrary()
     expect(await m2.signedOutMayList()).toBe(true)
+    expect(await m2.deviceLocalLibrary().books()).toEqual([])
+  })
+
+  it('clearWipePending_ASessionClaimedTheLibrary_ItsBooksListAfterALostSession', async () => {
+    failOpen = 'disk busy'
+    const m = await fresh()
+    await m.wipeDeviceLibrary().catch(() => {})
+    failOpen = null
+    await used(m)
+    // The same account signs in again (claimLibrary done): the library is its, not a wipe owed.
+    await m.clearWipePending()
+    expect(await m.signedOutMayList()).toBe(true)
+    expect(await m.deviceLocalLibrary().books()).toHaveLength(1)
   })
 })
 

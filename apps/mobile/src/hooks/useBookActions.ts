@@ -5,6 +5,7 @@ import { userBooksApi } from '../lib/userBooksApi'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
 import { useDownload } from '../context/DownloadContext'
+import { useAuth } from '../context/AuthContext'
 import { deleteBook } from '../lib/reader/deviceDownload'
 
 interface UploadCtx {
@@ -17,6 +18,7 @@ export function useBookActions() {
   const { t } = useLanguage()
   const { show: showToast } = useToast()
   const { refreshOnDevice, syncDevice } = useDownload()
+  const { isAuthenticated } = useAuth()
 
   const showUploadActions = useCallback((item: UserBookDto, ctx: UploadCtx) => {
     const s = item.status.toLowerCase()
@@ -37,6 +39,9 @@ export function useBookActions() {
 
     if (isReady) {
       buttons.push({ text: t('library.actions.viewDetails'), onPress: () => ctx.openDetails(item.id) })
+    }
+    // A server write: signed out (#1608) there is no account to write it to.
+    if (isReady && isAuthenticated) {
       buttons.push({
         text: isFinished ? t('library.actions.markUnfinished') : t('library.actions.markFinished'),
         onPress: () => run(
@@ -71,7 +76,7 @@ export function useBookActions() {
     buttons.push({ text: t('library.actions.cancel'), style: 'cancel' })
 
     Alert.alert(item.title || 'Untitled', undefined, buttons)
-  }, [t, showToast, refreshOnDevice, syncDevice])
+  }, [t, showToast, refreshOnDevice, syncDevice, isAuthenticated])
 
   return { showUploadActions }
 }

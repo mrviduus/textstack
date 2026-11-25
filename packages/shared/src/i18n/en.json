@@ -207,7 +207,8 @@
       "partial": "You're offline — showing downloaded books only."
     },
     "signedOut": {
-      "banner": "Signed out — showing the books on this device.",
+      "banner": "Signed out — these books are on this device. Sign in to keep them.",
+      "readFailed": "Couldn't read the books on this device.",
       "signIn": "Sign in"
     },
     "loadFailed": {

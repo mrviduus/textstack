@@ -19,15 +19,16 @@ import { clearReaderCache } from '../lib/readerOfflineCache'
 import { forgetSyncAnswer, reprobeSyncAfterReconnect, syncStore } from '../lib/sync'
 import { applyMergeMap } from '../lib/merge'
 import { adoptLocalAccount, claimLibraryFor } from '../lib/reader/sync'
-import { wipeDeviceLibrary } from '../lib/reader/deviceLibrary'
+import { clearWipePending, LIBRARY_WIPE_MS, wipeDeviceLibrary } from '../lib/reader/deviceLibrary'
 import { withDeadline } from '../lib/deadline'
 import { capabilitiesFor } from '../lib/capabilities'
 
-/** Every V2 local wipe at a session change is bounded: a hung database open must not hold the auth queue (#1070). */
-const LIBRARY_WIPE_MS = 5000
-/** Sign-in's another-account wipe (#1070 rule B), bounded; a failure or a late one only warns. */
+/**
+ * Sign-in's another-account wipe (#1070 rule B), bounded; a failure or a late one only warns. Done, the library
+ * belongs to this session: a sign-out wipe still owed is not (#1608).
+ */
 const claimLibrary = (userId: string) =>
-  withDeadline(claimLibraryFor(userId), LIBRARY_WIPE_MS).catch((e) => console.warn('[v2] sign-in wipe failed or late:', e))
+  withDeadline(claimLibraryFor(userId).then(clearWipePending), LIBRARY_WIPE_MS).catch((e) => console.warn('[v2] sign-in wipe failed or late:', e))
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
 // that don't ship it (e.g. Expo Go web preview, where this package may

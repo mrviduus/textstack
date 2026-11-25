@@ -1,7 +1,9 @@
 // The device's V2 local library over expo-sqlite (R6), and its files under <documents>/v2/.
 // deviceLibrary.web.ts is its twin: the web bundle (which mobile e2e runs against) must never resolve
 // expo-sqlite from here.
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { createLocalLibrary, wipeLibrary, type Db, type LocalLibrary, type SignOutLoss } from './localLibrary'
+import { withDeadline } from '../deadline'
 
 let device: LocalLibrary | null = null
 let opened: Promise<any> | null = null
@@ -84,23 +86,33 @@ export function deviceLibraryBytes(): number {
 /** What signing out would delete that the server does not hold (#1070). */
 export const deviceSignOutLoss = (): Promise<SignOutLoss> => deviceLocalLibrary().signOutLoss()
 
-/** This process's last sign-out wipe: true once done, false when it failed (#1608). */
-let signOutWipe: Promise<boolean> | null = null
+/** Every V2 local wipe at a session change is bounded: a hung database open must not hold the auth queue (#1070). */
+export const LIBRARY_WIPE_MS = 5000
+
+/** #1608: set while a sign-out's wipe is owed (written before it, cleared after it or by a session's claim); survives a restart. */
+const WIPE_PENDING = 'textstack_v2_wipe_pending'
 
 /** Sign-out (#1070, owner 2026-11-12: V2 books belong to the account): rows, then files (`wipeLibrary`). */
-export const wipeDeviceLibrary = (): Promise<void> => {
-  const wipe = wipeLibrary(deviceLocalLibrary(), clearDeviceFiles)
-  signOutWipe = wipe.then(() => true, () => false)
-  return wipe
+export async function wipeDeviceLibrary(): Promise<void> {
+  // Best effort: the wipe itself is the privacy step, so a marker that cannot be written never stops it.
+  await AsyncStorage.setItem(WIPE_PENDING, '1').catch(() => {})
+  await wipeLibrary(deviceLocalLibrary(), clearDeviceFiles)
+  await AsyncStorage.removeItem(WIPE_PENDING)
 }
 
+/** A live session took the library (`claimLibraryFor` done): no sign-out wipe is owed any more. */
+export const clearWipePending = (): Promise<void> => AsyncStorage.removeItem(WIPE_PENDING)
+
 /**
- * #1608: may the signed-out Library list this device's books? Yes when the session was lost (the server dropped
- * the account): they are still this reader's. After a sign-out, only once its wipe is done (so nothing), never
- * while it runs late or after it failed: those rows are the account's that signed out.
- * ponytail: per process; a failed wipe then a restart lists the rows again. Persist a marker if that matters.
+ * #1608: may the signed-out Library list this device's books? Yes when no sign-out wipe is owed (the server
+ * lost the account): they are still this reader's. When one is owed (a sign-out's wipe failed or ran late,
+ * this process or an earlier one), the rows are the signed-out account's: the wipe is retried under the
+ * same deadline, and only a wipe that worked (an empty library) may list.
  */
-export const signedOutMayList = async (): Promise<boolean> => !signOutWipe || (await signOutWipe)
+export async function signedOutMayList(): Promise<boolean> {
+  if (!(await AsyncStorage.getItem(WIPE_PENDING))) return true
+  return withDeadline(wipeDeviceLibrary(), LIBRARY_WIPE_MS).then(() => true, () => false)
+}
 
 /** #1189: books deleted on this device whose removal the server has not taken yet: kept out of the server's list meanwhile. */
 export const deviceRemovals = async (): Promise<Set<string>> => new Set((await deviceLocalLibrary().outbox('removal')).map((i) => i.target))

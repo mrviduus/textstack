@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, TouchableOpacity } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter, useFocusEffect } from 'expo-router'
@@ -41,7 +41,7 @@ const NO_CATALOG: UserLibraryItem[] = []
 const NO_CATALOG_PROGRESS: Record<string, ReadingProgressDto> = {}
 
 export default function LibraryScreen() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
   const { colors } = useTheme()
   const { t } = useLanguage()
   const router = useRouter()
@@ -61,7 +61,8 @@ export default function LibraryScreen() {
   // "you have no books" from "I could not ask", and it showed the first-run
   // welcome to an offline reader with twelve books — indistinguishable from
   // having lost the account.
-  const [loadError, setLoadError] = useState<'offline' | 'failed' | null>(null)
+  // 'device': signed out, the device's own library could not be read (#1608).
+  const [loadError, setLoadError] = useState<'offline' | 'failed' | 'device' | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Generation counter guards against:
   //  1. Out-of-order resolution — pull-to-refresh racing a focus-effect
@@ -82,13 +83,16 @@ export default function LibraryScreen() {
     setListSession(isAuthenticated)
     setUserBooks([])
     setLoading(true)
-    loadGenRef.current++ // a load of the previous session still in flight lands nowhere
   }
+  // Before paint: a load of the previous session still in flight lands nowhere.
+  useLayoutEffect(() => { loadGenRef.current++ }, [isAuthenticated])
   useEffect(() => () => { loadGenRef.current = -1 }, [])
 
   const loadData = useCallback(async () => {
     // Bumped before the session check: a sign-out supersedes a load still in flight (#1191).
     const myGen = ++loadGenRef.current
+    // The session is not known yet (SecureStore still answering): neither list is the reader's. Re-run when it is.
+    if (authLoading) return
     // Signed out (#1608: the server lost the account, or no session yet): the device's own books, no server call.
     if (!isAuthenticated) {
       try {
@@ -101,7 +105,7 @@ export default function LibraryScreen() {
         if (myGen !== loadGenRef.current) return
         logLoadError('Library device read error:', e)
         setUserBooks([])
-        setLoadError('failed')
+        setLoadError('device')
       } finally {
         if (myGen === loadGenRef.current) setLoading(false)
       }
@@ -135,7 +139,7 @@ export default function LibraryScreen() {
     } finally {
       if (myGen === loadGenRef.current) setLoading(false)
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, authLoading])
 
 
   // Auto-refresh while processing books exist
@@ -177,7 +181,7 @@ export default function LibraryScreen() {
     setRefreshing(false)
   }
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.skeletonList}>
@@ -203,8 +207,8 @@ export default function LibraryScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <EmptyState
           icon={loadError === 'offline' ? 'cloud-offline-outline' : 'alert-circle-outline'}
-          title={loadError === 'offline' ? t('library.offline.title') : t('library.loadFailed.title')}
-          subtitle={loadError === 'offline' ? t('library.offline.body') : t('library.loadFailed.body')}
+          title={loadError === 'offline' ? t('library.offline.title') : loadError === 'device' ? t('library.signedOut.readFailed') : t('library.loadFailed.title')}
+          subtitle={loadError === 'offline' ? t('library.offline.body') : loadError === 'device' ? undefined : t('library.loadFailed.body')}
           buttonLabel={t('common.retry')}
           onButtonPress={() => { setLoading(true); loadData() }}
         />
