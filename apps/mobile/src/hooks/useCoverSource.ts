@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ImageSource } from 'expo-image'
 import { getStorageUrl, NETWORK_RETRY_MS } from '@textstack/shared'
-import { APP_HEADERS, freshAccessToken, getAccessToken } from '../lib/api'
+import { APP_HEADERS, getAccessToken } from '../lib/api'
 import { useReconnectCount } from './useOnline'
 
 /**
@@ -9,7 +9,7 @@ import { useReconnectCount } from './useOnline'
  * full `/me/v2/books/{id}/cover` URL that needs the Bearer, so it waits for the token. expo-image
  * caches by URL, so a cover seen once shows offline; one that fails (offline, never cached) turns
  * the source undefined, so the caller shows its placeholder. It is tried again on reconnect, and once
- * after NETWORK_RETRY_MS, with a refreshed token (#1591).
+ * after NETWORK_RETRY_MS, with the token re-read (#1591).
  */
 export function useCoverSource(path: string | null | undefined): [ImageSource | undefined, () => void] {
   const authed = !!path && /^https?:\/\//.test(path)
@@ -23,10 +23,10 @@ export function useCoverSource(path: string | null | undefined): [ImageSource | 
   }, [authed])
   const retried = useRef<string | null>(null)
   const reconnects = useReconnectCount()
-  // A retry re-reads the token: the one that failed may have expired.
+  // A retry re-reads the stored token (the API layer may have refreshed it); a passive image never refreshes itself.
   const retry = () => {
     if (!authed) { setFailed(null); return }
-    freshAccessToken().then(setToken, () => {}).finally(() => setFailed(null))
+    getAccessToken().then((t) => { if (t) setToken(t) }, () => {}).finally(() => setFailed(null))
   }
   useEffect(() => {
     if (reconnects === 0 || !failed) return

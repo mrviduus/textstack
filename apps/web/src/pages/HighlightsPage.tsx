@@ -44,9 +44,12 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   const genRef = useRef(0)
   const retryTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const fetchRef = useRef<(reset?: boolean) => Promise<void>>(async () => {})
+  /** The search + color of the list on screen; a failed re-pull under the same filters keeps it. */
+  const shownFilter = useRef<string | null>(null)
 
   const fetchHighlights = useCallback(async (reset = false) => {
     const gen = ++genRef.current
+    const filter = `${search}\u0000${colorFilter}`
     clearTimeout(retryTimer.current)
     try {
       setLoading(true)
@@ -62,6 +65,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
       if (reset) {
         setHighlights(result.items)
         setOffset(PAGE_SIZE)
+        shownFilter.current = filter
       } else {
         setHighlights(prev => [...prev, ...result.items])
         setOffset(prev => prev + PAGE_SIZE)
@@ -74,8 +78,11 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
       // A failed reload is not "no highlights", nor the last filter's list (#1591); a failed "load more" keeps its button.
       if (!reset) return
       setLoadFailed(true)
-      setHighlights([])
-      setTotalCount(0)
+      if (filter !== shownFilter.current) {
+        setHighlights([])
+        setTotalCount(0)
+        shownFilter.current = null
+      }
       // One delayed retry (a 502, a timeout while online), with the filters current by then.
       if (!retriedOnce.current) {
         retriedOnce.current = true
@@ -86,7 +93,18 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
     }
   }, [search, colorFilter, offset])
   fetchRef.current = fetchHighlights
-  useEffect(() => () => clearTimeout(retryTimer.current), [])
+  // Unmounted or signed out: drop what is in flight (no timer armed after) and any pending retry.
+  const stop = () => { genRef.current++; clearTimeout(retryTimer.current) }
+  useEffect(() => stop, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (isAuthenticated) return
+    stop()
+    setLoadFailed(false)
+  }, [isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
+  const retryNow = () => {
+    retriedOnce.current = false
+    fetchHighlights(true)
+  }
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -98,12 +116,12 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   // the list so this page stays current without remount.
   useDataChange('highlights', () => {
     setOffset(0)
-    fetchHighlights(true)
+    fetchRef.current(true)
   })
 
   // A failed load is tried again whenever the browser is back online (#1591).
   useEffect(() => {
-    if (online && loadFailed) fetchHighlights(true)
+    if (isAuthenticated && online && loadFailed) retryNow()
   }, [online]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Group by book
@@ -202,7 +220,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
             icon="⚠️"
             title={t('highlights.loadFailed')}
             buttonLabel={t('common.retry')}
-            onButtonClick={() => fetchHighlights(true)}
+            onButtonClick={retryNow}
           />
         ) : highlights.length === 0 ? (
           <EmptyState icon="🎨" title={t('highlights.empty.title')} />

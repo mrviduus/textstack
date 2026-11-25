@@ -130,4 +130,18 @@ describe('HighlightsPage load failure', () => {
 
     await waitFor(() => expect(container.textContent).toContain('quote'))
   })
+
+  it('failed re-pull under the same filters keeps the list on screen', async () => {
+    items.list = [item({})]
+    const { container } = render(<MemoryRouter><HighlightsPage embedded /></MemoryRouter>)
+    await waitFor(() => expect(container.textContent).toContain('quote'))
+
+    items.fail = true
+    act(() => emitDataChange('highlights'))
+    await waitFor(() => expect(container.querySelector('.highlights-page__loading')).toBeNull())
+    await act(async () => {})
+
+    expect(container.textContent).toContain('quote')
+    expect(container.textContent).not.toContain('Could not load your highlights')
+  })
 })
