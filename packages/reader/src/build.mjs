@@ -41,7 +41,10 @@ const FOLIATE_REPO = process.env.FOLIATE_REPO || 'https://github.com/mrviduus/fo
 // none before), view history kept for 'turn'; a view still loading relocates nothing (its expand no longer repeats the
 // crossing's place first), the anchor of a turn set before the load (a navigation's: 0), no visible range of the old
 // document kept through it.
-const FOLIATE_SHA = '46ea71bb5bf2af4d861afa0a2c41b6bcbd3e0ce3'
+// #1585 (branch pdf-cap-1585, on #1333's): pdf.js's worker caps what one stream decodes to at 384 MiB (a local patch to
+// vendor/pdfjs/pdf.worker.mjs, re-applied on a pdf.js update), so a page bomb is `book-stopped` before Android kills the WebView,
+// a stream past it refused at once after; an image over 80 M px skipped (`maxImageSize`).
+const FOLIATE_SHA = 'c18e1898a8a3b4201b48ecff0b2dc5c6055a958e'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // the retired reader engine's 64 KB budget.
@@ -190,12 +193,15 @@ const BUDGET = 352294
 // pdf +98 (#1204 review): the fork's `pageDeadline` and `onFail`, a render the terminated worker never answers ends quietly.
 // pdf +279 (#1579 review): the fork's silence watchdog in place of per-call timers; a render no longer wanted cancelled.
 // pdf +116 (#1579 emulator): a page that fails to draw, or a worker that dies after the load, is the book stopped.
+// pdfworker +659 (#1585 pin): pdf.js caps what one stream decodes to (384 MiB), a stream past it refused at once after.
+// pdf +55 (#1585): the fork's maxImageSize (80 M px); the polyfilled stream iterator cancels its stream when a loop
+// leaves early, as the spec's does.
 // pdfwasm (#1204) = OpenJPEG's openjpeg.wasm (250009 bytes) as base64 + its two BSD notices, run only for a JPEG 2000 image.
 // pdfcmaps (#1128 S5) = pdf.js's 168 predefined cMaps as base64, run only when a PDF names one.
 // dyslexic (#1260) = OpenDyslexic-Regular.woff2 (115280 bytes, the file the web app serves) as base64 + its OFL
 // notice, run only when the reader picks that family. Not a reader; it rides the same carrier.
 // serif: Literata's four full Latin/Cyrillic faces and OFL notice, plus the Latin-only brand font's four (English in TextStack).
-const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478929, pdfworker: 1234278, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
+const FORMAT_BUDGET = { mobi: 52048, fb2: 11417, cbz: 2030, pdf: 478984, pdfworker: 1234937, pdfwasm: 336968, pdfcmaps: 1559883, dyslexic: 158436, serif: 880055, sans: 525327 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'readerPage.generated.ts')

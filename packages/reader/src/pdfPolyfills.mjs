@@ -50,8 +50,13 @@ define(URL, 'parse', (url, base) => { try { return new URL(url, base) } catch { 
 if (typeof ReadableStream !== 'undefined') {
   define(ReadableStream.prototype, Symbol.asyncIterator, async function* () {
     const reader = this.getReader()
+    let done = false
     try {
-      for (;;) { const { done, value } = await reader.read(); if (done) return; yield value }
-    } finally { reader.releaseLock() }
+      for (;;) { const r = await reader.read(); if ((done = r.done)) return; yield r.value }
+    } finally {
+      // A loop left early cancels the stream, as the spec's iterator does (#1585: pdf.js's capped inflate stops there).
+      if (!done) await reader.cancel().catch(() => {})
+      reader.releaseLock()
+    }
   })
 }
