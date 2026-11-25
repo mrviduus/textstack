@@ -10,7 +10,7 @@ import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage } from './hostStorage'
-import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, holdReaderHost, openBookHost, pushBeforeSignOut, removeLocalBook, resetUploadFailures, syncLibrary, tryAgainBook, type SyncHost } from './sync'
+import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, holdReaderHost, openBookHost, pushBeforeSignOut, removeLocalBook, syncLibrary, tryAgainBook, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
@@ -85,7 +85,6 @@ const restoredEntry = async (lib: LocalLibrary) => JSON.parse((await lib.readEnt
 
 describe('V2 local library sync (R6)', () => {
   beforeEach(async () => {
-    resetUploadFailures()
     resetSyncForTests()
     n = 0
     cleared = 0
@@ -2246,7 +2245,7 @@ describe('V2 local library sync (R6)', () => {
 
     // #1198: a failing upload is counted per book: at the limit it waits for the next session or "Try again", and
     // the outbox is untouched (the book's writes still go). An outage (a 503) ends the pass and is never counted.
-    it('qa_fileSyncUploadFailing_CountedPerBook_StopsAtTheLimit_OutageNotCounted_NextSessionOrTryAgainRetries', async () => {
+    it('qa_fileSyncUploadFailing_CountedPerBook_StopsAtTheLimitShownNotSynced_OutageNotCounted_NextSessionOrTryAgainRetries', async () => {
       const { lib, bookId } = await synced()
       await lib.setFileSync(true)
       fakeApi({})
@@ -2259,6 +2258,8 @@ describe('V2 local library sync (R6)', () => {
       await passes(lib, MAX_FAILURES + 2, host({ upload }))
       expect(upload).toHaveBeenCalledTimes(MAX_FAILURES)
       expect(await lib.outbox()).toEqual([])
+      // #1593: the stop shows on the book, as a stuck outbox entry does.
+      expect((await lib.books())[0].notSynced).toBe(CHANGES_NOT_SYNCED)
 
       await syncLibrary(lib, host({ upload, retryFailed: true }))
       expect(upload).toHaveBeenCalledTimes(MAX_FAILURES + 1)
@@ -2266,6 +2267,7 @@ describe('V2 local library sync (R6)', () => {
       await passes(lib, MAX_FAILURES, host({ upload }))
       expect(upload).toHaveBeenCalledTimes(2 * MAX_FAILURES)
       await tryAgainBook(lib, bookId, async () => {}, () => {})
+      expect((await lib.books())[0].notSynced).toBeNull()
       await syncLibrary(lib, host({ upload }))
       expect(upload).toHaveBeenCalledTimes(2 * MAX_FAILURES + 1)
     })
