@@ -10,8 +10,12 @@ export function useCoverRetry(url: string | null | undefined): [hidden: boolean,
   const [failed, setFailed] = useState<string | null>(null)
   const retried = useRef<string | null>(null)
   const online = useOnline()
+  const wasOnline = useRef(online)
   useEffect(() => {
-    if (!online) return
+    // Only a return to online retries: on mount this would undo an error that fired before effects ran.
+    const back = online && !wasOnline.current
+    wasOnline.current = online
+    if (!back) return
     retried.current = null
     setFailed(null)
   }, [online])
