@@ -69,7 +69,8 @@
       "hours": "{{h}} h",
       "hoursMinutes": "{{h}} h {{m}} min",
       "weekdays": "Mon Tue Wed Thu Fri Sat Sun",
-      "months": "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec"
+      "months": "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec",
+      "loadFailed": "Couldn't load this period."
     }
   },
   "guest": {

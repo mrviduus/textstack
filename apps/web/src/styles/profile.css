@@ -352,11 +352,12 @@
   height: 80px;
   display: flex;
   align-items: flex-end;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .reading-stats__bar {
   width: 100%;
-  min-height: 2px;
+  min-height: 2px; /* only rendered for minutes > 0 */
   background: var(--color-brand);
   border-radius: 2px 2px 0 0;
 }

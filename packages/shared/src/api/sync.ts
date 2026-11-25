@@ -585,6 +585,7 @@ export const addExample = (wordId: string, body: ExampleWrite) =>
 export const getDue = (limit?: number) => authFetch<Word[]>(`${V2}/vocabulary/due${buildQuery({ limit })}`)
 export const recordReview = (body: ReviewWrite) => authFetch<RecordedReview>(`${V2}/vocabulary/reviews`, jsonBody('POST', body))
 
-/** Reading time for a calendar period in the reader's zone, plus the streaks (#1366). */
-export const readingStats = (period: ReadingStatsPeriod, tz = Intl.DateTimeFormat().resolvedOptions().timeZone) =>
+/** Reading time for a calendar period in the reader's zone, plus the streaks (#1366). UTC when the
+ * runtime knows no zone (Hermes without ICU answers an empty one). */
+export const readingStats = (period: ReadingStatsPeriod, tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC') =>
   authFetch<ReadingStatsDto>(`${V2}/stats${buildQuery({ period, tz })}`)

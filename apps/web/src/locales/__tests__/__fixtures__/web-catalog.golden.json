@@ -1100,5 +1100,6 @@
   "profile.stats.hours": "{{h}} h",
   "profile.stats.hoursMinutes": "{{h}} h {{m}} min",
   "profile.stats.weekdays": "Mon Tue Wed Thu Fri Sat Sun",
-  "profile.stats.months": "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec"
+  "profile.stats.months": "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec",
+  "profile.stats.loadFailed": "Couldn't load this period."
 }

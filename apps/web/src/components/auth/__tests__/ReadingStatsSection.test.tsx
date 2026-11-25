@@ -41,13 +41,38 @@ describe('Profile reading stats', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Year' }))
 
+    // The week's bars go at once; the new period loads under a skeleton.
+    expect(screen.queryAllByTestId('reading-stats-bar')).toHaveLength(0)
+    expect(screen.getByTestId('reading-stats-skeleton')).toBeTruthy()
     await waitFor(() => expect(screen.getAllByTestId('reading-stats-bar')).toHaveLength(12))
     expect(api.readingStats).toHaveBeenLastCalledWith('year')
     expect(screen.getByRole('button', { name: 'Year' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('Dec')).toBeTruthy()
   })
 
-  it('a failed request hides the section without an error', async () => {
+  it('a failed switch keeps the section and says the period could not load', async () => {
+    api.readingStats.mockResolvedValueOnce(stats('week', 7)).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    render(<ReadingStatsSection />)
+    await screen.findByText('3 days')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+
+    expect(await screen.findByText("Couldn't load this period.")).toBeTruthy()
+    expect(screen.getByText('3 days')).toBeTruthy()
+    expect(screen.queryAllByTestId('reading-stats-bar')).toHaveLength(0)
+  })
+
+  it('a day without reading draws no bar', async () => {
+    api.readingStats.mockResolvedValue(stats('week', 7)) // day 1 has 0 minutes
+    render(<ReadingStatsSection />)
+    await screen.findByText('3 days')
+
+    const cols = screen.getAllByTestId('reading-stats-bar')
+    expect(cols[0].querySelector('.reading-stats__bar')).toBeNull()
+    expect(cols[1].querySelector('.reading-stats__bar')).not.toBeNull()
+  })
+
+  it('a failed first request hides the section without an error', async () => {
     api.readingStats.mockRejectedValue(new TypeError('Failed to fetch'))
     const { container } = render(<ReadingStatsSection />)
 

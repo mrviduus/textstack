@@ -58,6 +58,13 @@ describe('v2 api', () => {
     expect(sent(fetchMock).url).toBe(`http://api/me/v2/stats?period=week&tz=${encodeURIComponent(tz)}`)
   })
 
+  it('reading stats send UTC when the runtime knows no time zone', async () => {
+    const fetchMock = stubFetch({ status: 200, body: {} })
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({ timeZone: '' } as Intl.ResolvedDateTimeFormatOptions)
+    await v2.readingStats('week')
+    expect(sent(fetchMock).url).toBe('http://api/me/v2/stats?period=week&tz=UTC')
+  })
+
   it('pulls a feed page by page until hasMore is false and returns the last cursor', async () => {
     const fetchMock = stubFetch(
       { status: 200, body: { items: [1, 2], cursor: 'c1', hasMore: true } },
