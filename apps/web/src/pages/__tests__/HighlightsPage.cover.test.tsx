@@ -1,11 +1,10 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { syncApi } from '@textstack/shared'
+import { syncApi, NETWORK_RETRY_MS } from '@textstack/shared'
 import '../../api/client' // initApi, as the app does on load
 import { HighlightsPage } from '../HighlightsPage'
 import { emitDataChange } from '../../lib/dataEvents'
-import { COVER_RETRY_MS } from '../../hooks/useCoverRetry'
 import type { HighlightListItem } from '@textstack/shared'
 
 const item = (over: Partial<HighlightListItem>) => ({
@@ -28,6 +27,11 @@ vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated:
 vi.mock('../../context/LanguageContext', () => ({
   useLanguage: () => ({ language: 'en', getLocalizedPath: (p: string) => `/en${p}` }),
 }))
+
+beforeEach(() => {
+  items.list = []
+  items.fail = false
+})
 
 async function renderCovers(list: HighlightListItem[]) {
   items.list = list
@@ -69,15 +73,15 @@ describe('HighlightsPage cover', () => {
   // #1591: a 502 or a timeout while the network stays up: the cover is tried once more after a delay.
   it('cover that failed while online is tried again once after a delay', async () => {
     const container = await renderCovers([item({ userBookCoverVersion: '2026-11-24T09:30:15Z' })])
-    vi.useFakeTimers()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
       fireEvent.error(container.querySelector('img')!)
       expect(container.querySelector('img')).toBeNull()
-      act(() => { vi.advanceTimersByTime(COVER_RETRY_MS) })
+      act(() => { vi.advanceTimersByTime(NETWORK_RETRY_MS) })
       expect(container.querySelector('img')).not.toBeNull()
 
       fireEvent.error(container.querySelector('img')!)
-      act(() => { vi.advanceTimersByTime(COVER_RETRY_MS * 2) })
+      act(() => { vi.advanceTimersByTime(NETWORK_RETRY_MS * 2) })
       expect(container.querySelector('img')).toBeNull()
     } finally {
       vi.useRealTimers()

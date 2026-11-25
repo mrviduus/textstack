@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
-import { highlightCoverUrl, highlightsApi, type HighlightListItem } from '@textstack/shared'
+import { highlightCoverUrl, highlightsApi, NETWORK_RETRY_MS, type HighlightListItem } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
 import { useOnline } from '../hooks/useOnline'
-import { useCoverRetry, COVER_RETRY_MS } from '../hooks/useCoverRetry'
+import { useCoverRetry } from '../hooks/useCoverRetry'
 import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
 import { useDataChange } from '../lib/dataEvents'
@@ -40,8 +40,14 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   const [loadFailed, setLoadFailed] = useState(false)
   const retriedOnce = useRef(false)
   const online = useOnline()
+  // Generation: a superseded response (older filter, a retry overtaken by a newer fetch) is dropped.
+  const genRef = useRef(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const fetchRef = useRef<(reset?: boolean) => Promise<void>>(async () => {})
 
   const fetchHighlights = useCallback(async (reset = false) => {
+    const gen = ++genRef.current
+    clearTimeout(retryTimer.current)
     try {
       setLoading(true)
       const newOffset = reset ? 0 : offset
@@ -52,6 +58,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
         search: search || undefined,
         color: colorFilter || undefined,
       })
+      if (gen !== genRef.current) return
       if (reset) {
         setHighlights(result.items)
         setOffset(PAGE_SIZE)
@@ -63,12 +70,23 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
       setLoadFailed(false)
       retriedOnce.current = false
     } catch {
-      // A failed first page is not "no highlights" (#1591); a failed "load more" keeps its button.
-      if (reset) setLoadFailed(true)
+      if (gen !== genRef.current) return
+      // A failed reload is not "no highlights", nor the last filter's list (#1591); a failed "load more" keeps its button.
+      if (!reset) return
+      setLoadFailed(true)
+      setHighlights([])
+      setTotalCount(0)
+      // One delayed retry (a 502, a timeout while online), with the filters current by then.
+      if (!retriedOnce.current) {
+        retriedOnce.current = true
+        retryTimer.current = setTimeout(() => fetchRef.current(true), NETWORK_RETRY_MS)
+      }
     } finally {
-      setLoading(false)
+      if (gen === genRef.current) setLoading(false)
     }
   }, [search, colorFilter, offset])
+  fetchRef.current = fetchHighlights
+  useEffect(() => () => clearTimeout(retryTimer.current), [])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -83,13 +101,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
     fetchHighlights(true)
   })
 
-  // A failed load is tried again once after a delay (a 502, a timeout) and whenever the browser is back online (#1591).
-  useEffect(() => {
-    if (!loadFailed || retriedOnce.current) return
-    retriedOnce.current = true
-    const id = setTimeout(() => fetchHighlights(true), COVER_RETRY_MS)
-    return () => clearTimeout(id)
-  }, [loadFailed]) // eslint-disable-line react-hooks/exhaustive-deps
+  // A failed load is tried again whenever the browser is back online (#1591).
   useEffect(() => {
     if (online && loadFailed) fetchHighlights(true)
   }, [online]) // eslint-disable-line react-hooks/exhaustive-deps
