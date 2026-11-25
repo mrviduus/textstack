@@ -10,7 +10,7 @@ import { resetSyncForTests, syncStore, FileUploadError } from '../sync'
 import { CHANGES_NOT_SYNCED, createLocalLibrary, identityStep, wipeLibrary, type LocalLibrary, type PositionAction } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage } from './hostStorage'
-import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, openBookHost, pushBeforeSignOut, resetUploadFailures, syncLibrary, tryAgainBook, type SyncHost } from './sync'
+import { adoptLocalAccount, claimLibraryFor, downloadBook, MAX_FAILURES, openBookHost, pushBeforeSignOut, removeLocalBook, resetUploadFailures, syncLibrary, tryAgainBook, type SyncHost } from './sync'
 import {
   fakeApi as fakeV2, card, conflict, feed, resetMidCall, type Answer, type Call,
 } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
@@ -2730,5 +2730,84 @@ describe('V2 local library sync (R6)', () => {
     const calls = fakeApi({})
     expect(await syncLibrary(lib, host())).toBe('done')
     expect(writes(calls)).toEqual([])
+  })
+
+  describe('Delete Book on this device (#1189)', () => {
+    const SESSION = { startedAt: '2026-11-24T10:00:00Z', endedAt: '2026-11-24T10:10:00Z', durationSeconds: 600, wordsRead: 900, startPercent: 0.4, endPercent: 0.5 }
+
+    it('deleteOffline_SyncedBook_GoneWithItsWritesThenOneDeleteAndAPullDoesNotBringItBack', async () => {
+      const { lib, bookId, fileId } = await synced()
+      // Read further and a session ended, offline: queued, never sent.
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      await lib.addSession(SHA, SESSION, newId)
+      const [session] = await lib.outbox('session')
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Network request failed') }))
+      expect(await lib.removeBook(bookId)).toBe(SHA)
+      expect(await lib.books()).toEqual([])
+      expect([await lib.book(bookId), await lib.state(bookId), await lib.annotation(HL), await lib.session(session.target)]).toEqual([null, null, null, null])
+      expect(await lib.outbox()).toEqual([{ kind: 'removal', target: bookId, gen: 1, failures: 0 }])
+      await syncLibrary(lib, host())
+      expect((await lib.outbox()).map((o) => o.kind)).toEqual(['removal'])
+      // Back online: the server still lists the book live; the removal goes, the book does not come back.
+      const calls = fakeApi({
+        'GET /library/changes': feed(serverBook(bookId, fileId, {}, { hasContent: true })),
+        'GET /reading/changes': feed(serverState(bookId, fileId, 1)),
+        [`DELETE /books/${bookId}`]: [{ status: 204 }],
+      })
+      expect(await syncLibrary(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`DELETE /books/${bookId}`])
+      expect(await lib.books()).toEqual([])
+      expect(await lib.outbox()).toEqual([])
+      const after = fakeApi({})
+      expect(await syncLibrary(lib, host())).toBe('done')
+      expect(writes(after)).toEqual([])
+    })
+
+    // Its first push may be in flight when it is deleted: the removal is queued all the same; the server lacking it answers 404.
+    it('delete_NeverSyncedBook_RowGoneRemovalQueued_404DropsIt', async () => {
+      const { lib, bookId } = await seeded()
+      expect(await lib.removeBook(bookId)).toBe(SHA)
+      expect(await lib.book(bookId)).toBeNull()
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.target}`)).toEqual([`removal:${bookId}`])
+      const calls = fakeApi({ [`DELETE /books/${bookId}`]: [{ status: 404, body: { code: 'not_found', message: 'not_found' } }] })
+      expect(await syncLibrary(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`DELETE /books/${bookId}`])
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    // Review: a delete made as a guest follows the merge to the account's id, and an offline sign-out warns about it.
+    it('delete_AsAGuestThenMerged_TheRemovalTargetsTheAccountsBook_SignOutCountsIt', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.removeBook(bookId)
+      expect(await lib.signOutLoss()).toEqual({ books: 0, writes: 1 })
+      await lib.adoptAccount('u1', { [bookId]: 'acct-book' }, { [fileId]: 'acct-file' }, 'acct')
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.target}`)).toEqual(['removal:acct-book'])
+    })
+
+    it('delete_ServerAnswers404_EntryDropped', async () => {
+      const { lib, bookId } = await synced()
+      await lib.removeBook(bookId)
+      const calls = fakeApi({ [`DELETE /books/${bookId}`]: [{ status: 404, body: { code: 'not_found', message: 'not_found' } }] })
+      expect(await syncLibrary(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`DELETE /books/${bookId}`])
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('delete_SameBytesOpenedAgainBeforeThePush_TheBookIsKept', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.removeBook(bookId)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      const calls = fakeApi({ [`GET /books/by-sha256/${SHA}`]: [ok(serverBook(bookId, fileId))] })
+      expect(await syncLibrary(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([])
+      expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
+    })
+
+    it('removeLocalBook_RetainedFileDeletedListRefreshedThenAPass', async () => {
+      const { lib, bookId } = await synced()
+      const order: string[] = []
+      await removeLocalBook(lib, { remove: (name) => order.push(`remove ${name}`) }, bookId, async () => order.push('refresh'), () => order.push('sync'))
+      expect(order).toEqual([`remove books/${SHA}.epub`, 'refresh', 'sync'])
+    })
   })
 })

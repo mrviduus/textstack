@@ -22,6 +22,7 @@ import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { formatBytes } from '../../src/lib/formatBytes'
 import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
+import { deleteBook } from '../../src/lib/reader/deviceDownload'
 import { failedLoadView } from '../../src/lib/deletedOnServer'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
 import { DownloadButton } from '../../src/components/library/DownloadButton'
@@ -238,12 +239,13 @@ export default function UserBookDetailScreen() {
           if (deleting) return
           setDeleting(true)
           try {
-            await userBooksApi.deleteUserBook(id)
+            // #1189: off this device at once, offline too; the server's removal goes with the pass.
+            await deleteBook(id, refreshOnDevice, () => { syncDevice().catch(() => {}) })
             // Don't reset `deleting` on success — the screen unmounts on router.back()
             // and any lingering state change would warn. (P2-2)
             router.back()
           } catch (err) {
-            console.warn('deleteUserBook failed:', err)
+            console.warn('deleteBook failed:', err)
             // Surface the failure so the user knows retry is OK.
             showToast({
               message: "Couldn't delete this book. Try again.",

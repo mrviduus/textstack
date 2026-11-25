@@ -17,7 +17,7 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
-import { deviceLocalLibrary } from '../../src/lib/reader/deviceLibrary'
+import { deviceLocalLibrary, deviceRemovals } from '../../src/lib/reader/deviceLibrary'
 import { cachedUserBook } from '../../src/lib/cachedUserBookDetail'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
 import { LibraryViewSheet } from '../../src/components/library/LibraryViewSheet'
@@ -102,13 +102,15 @@ export default function LibraryScreen() {
       if (offline) {
         try {
           const lib = deviceLocalLibrary()
-          const [onDevice, progress] = await Promise.all([
+          const [onDevice, progress, removed] = await Promise.all([
             lib.books().then(bs => bs.filter(b => b.local)),
             // The reader's places (#1532): progress and Continue with no account or network.
             lib.progress(),
+            deviceRemovals(),
           ])
           if (myGen !== loadGenRef.current) return
-          setUserBooks(prev => (prev.length > 0 ? prev : onDevice.map(c => cachedUserBook(c, progress.get(c.id)))))
+          // #1189: a book deleted here offline leaves the kept list too.
+          setUserBooks(prev => (prev.length > 0 ? prev.filter(b => !removed.has(b.id)) : onDevice.map(c => cachedUserBook(c, progress.get(c.id)))))
         } catch { /* cache unavailable — the banner still explains the empty list */ }
       }
     } finally {

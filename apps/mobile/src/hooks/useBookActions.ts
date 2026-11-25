@@ -4,6 +4,8 @@ import type { UserBookDto } from '@textstack/shared'
 import { userBooksApi } from '../lib/userBooksApi'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
+import { useDownload } from '../context/DownloadContext'
+import { deleteBook } from '../lib/reader/deviceDownload'
 
 interface UploadCtx {
   onChange: () => void
@@ -14,6 +16,7 @@ interface UploadCtx {
 export function useBookActions() {
   const { t } = useLanguage()
   const { show: showToast } = useToast()
+  const { refreshOnDevice, syncDevice } = useDownload()
 
   const showUploadActions = useCallback((item: UserBookDto, ctx: UploadCtx) => {
     const s = item.status.toLowerCase()
@@ -58,11 +61,8 @@ export function useBookActions() {
             {
               text: t('library.actions.confirmDeleteConfirm'),
               style: 'destructive',
-              onPress: () => run(async () => {
-                await userBooksApi.deleteUserBook(item.id)
-                // Invalidate shelves so the deleted upload disappears from
-                // Continue reading / Recently added immediately.
-              }, 'Delete book'),
+              // #1189: off this device at once, offline too; the server's removal goes with the pass.
+              onPress: () => run(() => deleteBook(item.id, refreshOnDevice, () => { syncDevice().catch(() => {}) }), 'Delete book'),
             },
           ],
         )
@@ -71,7 +71,7 @@ export function useBookActions() {
     buttons.push({ text: t('library.actions.cancel'), style: 'cancel' })
 
     Alert.alert(item.title || 'Untitled', undefined, buttons)
-  }, [t, showToast])
+  }, [t, showToast, refreshOnDevice, syncDevice])
 
   return { showUploadActions }
 }
