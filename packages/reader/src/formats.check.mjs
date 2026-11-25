@@ -6,7 +6,7 @@
 // never takes a CFI; `describe` reads every format's details and cover beside the open book; a DRM, damaged, entity-declaring or unknown file is refused, leaving the open book reading;
 // a hostile PDF neither runs script nor leaves the file; a decompression bomb fails at the watchdog while the page answers
 // (#1204: pdf.js in a Worker); a JPEG 2000 image draws (OpenJPEG's wasm); a PDF's outline comes after `opened` (#1557);
-// an older WebView still reads a PDF or says why not.
+// an older WebView still reads a PDF or says why not; the reader's turn, into the next section too, is `cause` `turn` (#1333).
 // The reader's features (selection, search, highlights, bookmarks, chrome) are not this check's: their modules'
 // unit tests and the web e2e cover them.
 //
@@ -138,6 +138,27 @@ try {
   /** The text of the book `m` opened, in a frame made after its open (a stale one from the previous book never passes). */
   const showsText = (m) => shown(() => document.body?.innerText.includes('Paragraph 1. Sphinx'), m.stale)
   const turnSaves = async (what) => { const from = messages.length; call('window.__fol.next()'); return storeFrom(from, what) }
+  /**
+   * #1333: next() until the view is in section `index`, each turn made while a navigation is pending (asNav); the first
+   * relocate there away from where the turn started (a same-place relocate is no move): its `cause` and `moved`. After
+   * each next(), a marker posted on the host channel says every relocate of the turn has arrived (the channel keeps order).
+   * The fork tags the reader's own turns, so the page never guesses `nav`.
+   */
+  const turnInto = async (index) => {
+    for (let i = 0; i < 100; i++) {
+      const from = messages.length
+      const start = messages.findLast((x) => x.type === 'relocate')?.cfi
+      call('window.__fol.__testHoldNav(5000)')
+      await call('window.__fol.next()')
+      await call(`window.ReactNativeWebView.postMessage('{"type":"turned"}')`)
+      await waitFor(from, (x) => x.type === 'turned', 'the turn marker')
+      const sent = messages.slice(from).filter((x) => x.type === 'relocate' && x.cfi !== start)
+      if (!sent.length) return 'no move'
+      const r = sent.find((x) => x.index === index)
+      if (r) return `${r.cause}${r.moved ? ', moved' : ''}`
+    }
+    return 'never got there'
+  }
 
   await waitFor(0, (m) => m.type === 'ready', 'ready')
   check(await loaded() === '', 'no format reader has run before a book opens')
@@ -156,6 +177,22 @@ try {
   check(m.type === 'opened' && m.format === 'mobi' && m.textual && m.title === 'TS MOBI' && m.sections === 2, `opened as mobi, 2 sections (${m.format}, ${m.title}, ${m.sections}${m.error ? `, ${m.error}` : ''})`)
   check(await loaded() === 'mobi', 'the MOBI reader ran on the first MOBI, and only it')
   check(await showsText(m), 'its text is rendered')
+  // #1333: the reader's turns are `turn`, a navigation pending or not; a section crossed moves the place (saved).
+  let turn = await turnInto(0)
+  check(turn === 'turn, moved', `scrolled flow: next() within a section is the reader's turn (${turn})`)
+  turn = await turnInto(1)
+  check(turn === 'turn, moved', `scrolled flow: next() into the next section is the reader's turn (${turn})`)
+  await call('window.__fol.flow("paginated")')
+  m = await open('tsformat.mobi')
+  turn = await turnInto(1)
+  check(turn === 'turn, moved', `paginated: next() into the next section is the reader's turn (${turn})`)
+  // One-page sections: each next() crosses one, and its first relocate there is the turn, never the new section's re-layout.
+  for (const flow of ['paginated', 'scrolled']) {
+    await call(`window.__fol.flow("${flow}")`)
+    m = await open('tsshort.epub')
+    const turns = [await turnInto(1), await turnInto(2)]
+    check(turns.every((t) => t === 'turn, moved'), `${flow}: next() into a short section, twice, is the reader's turn and moves the place (${turns.join('; ')})`)
+  }
   call('window.__fol.flow("paginated")')
 
   console.log('fb2')

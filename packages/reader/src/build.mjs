@@ -35,8 +35,13 @@ const FOLIATE_REPO = process.env.FOLIATE_REPO || 'https://github.com/mrviduus/fo
 // terminated past a deadline, OpenJPEG's wasm vendored, the outline after open (`getTOC`, `view.updateTOC`), a page's
 // blob: URL kept until its frame has loaded it; a page's calls on a budget of their own (`pageDeadline`), a terminated worker
 // reported (`onFail`); then (#1579 review) one watchdog on the worker's silence instead of per-call timers (`silence`), a
-// render no longer wanted cancelled; a page that fails to draw, or a worker that dies, the book stopped.
-const FOLIATE_SHA = 'be4abb9c1a4f6225f506e0c1bdfaf7cd2b8d543a'
+// render no longer wanted cancelled; a page that fails to draw, or a worker that dies, the book stopped;
+// #1333 (branch turn-cause-1333): a section crossed by the reader's own turn (#turnPage, a swipe's snap) relocates
+// with reason 'turn', not 'navigation'; a scrolled prev/next with 'page' and a fixed layout's goTo with 'navigation' (both
+// none before), view history kept for 'turn'; a view still loading relocates nothing (its expand no longer repeats the
+// crossing's place first), the anchor of a turn set before the load (a navigation's: 0), no visible range of the old
+// document kept through it.
+const FOLIATE_SHA = '46ea71bb5bf2af4d861afa0a2c41b6bcbd3e0ce3'
 // Unminified characters of the bundled script: a tripwire at the committed size, not a ceiling. Any
 // growth fails --check until the PR that grows the page raises it (ADR-029 Decision 3). Not
 // the retired reader engine's 64 KB budget.
@@ -168,7 +173,10 @@ const FOLIATE_SHA = 'be4abb9c1a4f6225f506e0c1bdfaf7cd2b8d543a'
 // +455 (#1354): a mark not starting on screen is never asked (`hereOf`, but one above in scrolled flow); `atTop` decides a
 // mark on a line below the place's by first lines (no span; the place's measured once, on demand); `bookmark-list` carries
 // its list only when it changed (`listSent`); text.ts `textPartsIn` / `brBetween` shared with tap.mjs.
-const BUDGET = 351456
+// +838 (#1333): the fork tags every move (a crossing 'turn', a scrolled page 'page', a fixed layout's goTo 'navigation') and a
+// loading view relocates nothing, anchored to its start for a navigation, with no visible range of the old document; the
+// page reads `cause` from the renderer's reason (`causeOf`), a turn even while a navigation lands.
+const BUDGET = 352294
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

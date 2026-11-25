@@ -109,16 +109,36 @@ let hostMoving = false
 let lastCfi = null
 /**
  * #1313: the navigations of the view on screen still landing (a restore, a host `goTo`, `section()`, a followed link):
- * their relocates are `cause` `nav`. Foliate reports a turn across a section with the same reason ('navigation') as a
- * jump, so only the page knows which navigations it asked for. Reset at the swap; one of a closed view never counts
- * again, however it ends.
+ * while one lands, a relocate that is not an explicit turn is `nav` (`causeOf`). A landing also relocates with reason
+ * 'anchor' (as a re-layout does) and may snap or scroll, so only the page knows which navigations it asked for. Reset
+ * at the swap; one of a closed view never counts again, however it ends.
  * ponytail: one that has not settled after NAV_BOUND_MS stops counting: the bound exists only for a navigation that
  * never settles (a hung load must not make the rest of the book a navigation); a landing slower than it (a 2 MB
- * single-file section can lay out for seconds on Android) is counted as the reader's. A restore is not bounded: its
- * own end clears `awaitingRestore`, and while it runs its relocates are `nav`.
+ * single-file section can lay out for seconds on Android) relocates after it as a re-layout (`layout`), or its scroll as
+ * a turn. A restore is not bounded: its own end clears `awaitingRestore`, and while it runs its relocates are
+ * `nav`.
  */
 let navs = 0
 const NAV_BOUND_MS = 15_000
+/**
+ * #1313/#1333, what moved the place to `d` (a view relocate), by the renderer's reason (the fork tags every move):
+ * - `layout`: the same place again, whatever asked for it;
+ * - `nav`: an open's restore the reader has not acted in;
+ * - `turn`: the reader's explicit turn ('turn': a section crossed by a turn or a swipe; 'page': a page, a scrolled
+ *   prev/next, a fixed layout's spread; 'snap': a swipe), even while a navigation lands;
+ * - `nav`: anything else while a navigation of the page lands;
+ * - `turn`: a scroll ('scroll');
+ * - `layout`: a re-layout ('anchor': a resize, a font or flow change, a section expanding);
+ * - `nav`: any other reason ('navigation', 'selection': foliate's own).
+ */
+function causeOf(d) {
+  if (d.cfi === lastCfi) return 'layout'
+  if (awaitingRestore && !readerActed) return 'nav'
+  if (d.reason === 'turn' || d.reason === 'page' || d.reason === 'snap') return 'turn'
+  if (navs > 0) return 'nav'
+  if (d.reason === 'scroll') return 'turn'
+  return d.reason === 'anchor' ? 'layout' : 'nav'
+}
 const asNav = async (fn, bounded = true) => {
   const mine = viewSeq
   let counting = true
@@ -1402,13 +1422,7 @@ async function open(bytes, name, kind, mine) {
     // The save rule's own test: the reader moved the place (not a re-layout, not the same place again, not the
     // host moving the view). Sent as `moved`, so a host never guesses it from CFIs.
     const moved = d.reason !== 'anchor' && d.cfi !== lastCfi && !hostMoving
-    // #1313, what moved the place: nothing (the same place again: `layout`, whatever asked for it); the landing of a
-    // navigation (`nav`; foliate often reports a landing with reason 'anchor', as the new section expands); outside one,
-    // a re-layout ('anchor': `layout`) or the reader's own turn (a swipe, a scroll, a tap or key turn, prev()/next()).
-    // ponytail: a turn across a section in scrolled flow is foliate's re-anchoring (`layout`, about a screen uncounted
-    // per section), and a swipe while a navigation lands is `nav`; the root fix is the fork tagging its own turn
-    // crossings (paginator #turnPage/snap passing reason 'turn').
-    const cause = d.cfi === lastCfi ? 'layout' : navs > 0 || (awaitingRestore && !readerActed) ? 'nav' : d.reason === 'anchor' ? 'layout' : 'turn'
+    const cause = causeOf(d)
     lastCfi = d.cfi
     post({ type: 'relocate', index: d.section?.current, sections: d.section?.total, fraction: d.fraction, toc: d.tocItem?.label ?? null, tocIndex: d.tocItem?.id ?? null, cfi: d.cfi, dir: pagedDir(), moved, cause, atEnd: atBookEnd(d.section?.current), chapterEnd: chapterEndFor(d), ...lengthAt(d.section?.current) })
     // A selection moved (or left the screen) with the view, a font or flow change's re-layout included: sent
