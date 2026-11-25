@@ -2,6 +2,7 @@ using Application.Common;
 using Application.Reading;
 using Dapper;
 using Domain.Reading;
+using Npgsql;
 
 namespace Infrastructure.Persistence.Repositories;
 
@@ -31,5 +32,35 @@ public sealed class ReadingSessionRepository(AppDataSource dataSource) : IReadin
         var (stored, inserted) = (await conn.QueryAsync<ReadingSession, bool, (ReadingSession, bool)>(
             new CommandDefinition(UpsertSession, session, cancellationToken: ct), (row, isNew) => (row, isNew), splitOn: "inserted")).Single();
         return new(inserted ? WriteOutcome.Created : WriteOutcome.Replayed, stored);
+    }
+
+    // ponytail: a session counts whole on the day it started (in the zone); one crossing midnight is not split.
+    // All time, one row per day read: the streaks need every day, and a reader's days are a few thousand at most.
+    // Today comes from the same clock and zone database as the days; a future session (a skewed device clock) waits for its time.
+    private const string SelectDailyTotals = """
+        SELECT (now() AT TIME ZONE @TimeZone)::date;
+        SELECT (started_at AT TIME ZONE @TimeZone)::date AS day, sum(duration_seconds)::bigint AS seconds
+        FROM reading_sessions
+        WHERE user_id = @UserId AND duration_seconds > 0 AND started_at <= now()
+        GROUP BY 1
+        ORDER BY 1;
+        """;
+
+    public async Task<DailyTotals?> DailyTotalsAsync(Guid userId, string timeZone, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        try
+        {
+            await using var grid = await conn.QueryMultipleAsync(
+                new CommandDefinition(SelectDailyTotals, new { UserId = userId, TimeZone = timeZone }, cancellationToken: ct));
+            // Npgsql reads a date as DateOnly.
+            var today = await grid.ReadSingleAsync<DateOnly>();
+            var days = await grid.ReadAsync<(DateOnly Day, long Seconds)>();
+            return new(today, [.. days.Select(d => new DailyReading(d.Day, d.Seconds))]);
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.InvalidParameterValue)
+        {
+            return null; // time zone "…" not recognized
+        }
     }
 }

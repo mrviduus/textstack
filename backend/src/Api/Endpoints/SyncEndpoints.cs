@@ -79,6 +79,8 @@ public static class SyncEndpoints
             Send(s.ResetAsync(User(h, a), bookId, body, ct)));
         v2.MapPut("/reading/sessions/{clientSessionId:guid}", (HttpContext h, IAuthService a, ReadingSyncService s, Guid clientSessionId, ReadingSessionRequest body, CancellationToken ct) =>
             Send(s.SaveSessionAsync(User(h, a), clientSessionId, body, ct)));
+        v2.MapGet("/stats", (HttpContext h, IAuthService a, ReadingSyncService s, string? period, string? tz, CancellationToken ct) =>
+            Send(s.StatsAsync(User(h, a), period, tz, ct)));
 
         v2.MapGet("/annotations/changes", (HttpContext h, IAuthService a, AnnotationSyncService s, string? cursor, string? limit, CancellationToken ct) =>
             Send(s.ChangesAsync(User(h, a), cursor, limit, ct)));
