@@ -1049,9 +1049,9 @@ export function createLocalLibrary(db: Db) {
 
     /**
      * #1189: Delete Book on this device, in one transaction: the book's row, reading state, highlights, sessions and
-     * every queued write of it. A book the server knows (`server_file_id`: a push or a pull named its file), or one with
-     * no row here (listed by the server, never pulled), leaves a queued 'removal': the DELETE sync.ts pushes, and the
-     * tombstone that keeps a pull from bringing it back (`applyBooks`). One never pushed leaves nothing. Other devices
+     * every queued write of it, and a queued 'removal': the DELETE sync.ts pushes, and the tombstone that keeps a pull
+     * from bringing it back (`applyBooks`). Always queued, even for a book this device never saw land on the server: its
+     * first push may still be in flight, and a book the server lacks answers 404 (the entry dropped). Other devices
      * keep their copies (decision 11: a removal is a hide). Resolves to the sha256 of the retained copy to delete
      * (null: none here; books_sha256 is UNIQUE, so no other row holds those bytes).
      */
@@ -1061,7 +1061,7 @@ export function createLocalLibrary(db: Db) {
       await run(`DELETE FROM outbox WHERE ${BOOK_OF} = ?`, [bookId])
       for (const table of ['reading_state', 'annotations', 'reading_sessions']) await run(`DELETE FROM ${table} WHERE book_id = ?`, [bookId])
       await run('DELETE FROM books WHERE id = ?', [bookId])
-      if (!b || b.server_file_id) await enqueue('removal', bookId)
+      await enqueue('removal', bookId)
       return b?.imported_at != null ? b.sha256 : null
     }),
 

@@ -2763,14 +2763,16 @@ describe('V2 local library sync (R6)', () => {
       expect(writes(after)).toEqual([])
     })
 
-    it('delete_NeverSyncedBook_RowGoneNothingQueuedNoRequest', async () => {
+    // Its first push may be in flight when it is deleted: the removal is queued all the same; the server lacking it answers 404.
+    it('delete_NeverSyncedBook_RowGoneRemovalQueued_404DropsIt', async () => {
       const { lib, bookId } = await seeded()
       expect(await lib.removeBook(bookId)).toBe(SHA)
       expect(await lib.book(bookId)).toBeNull()
-      expect(await lib.outbox()).toEqual([])
-      const calls = fakeApi({})
+      expect((await lib.outbox()).map((o) => `${o.kind}:${o.target}`)).toEqual([`removal:${bookId}`])
+      const calls = fakeApi({ [`DELETE /books/${bookId}`]: [{ status: 404, body: { code: 'not_found', message: 'not_found' } }] })
       expect(await syncLibrary(lib, host())).toBe('done')
-      expect(writes(calls)).toEqual([])
+      expect(writes(calls)).toEqual([`DELETE /books/${bookId}`])
+      expect(await lib.outbox()).toEqual([])
     })
 
     it('delete_ServerAnswers404_EntryDropped', async () => {
