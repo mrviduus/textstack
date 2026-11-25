@@ -2876,6 +2876,80 @@ describe('V2 local library sync (R6)', () => {
       expect((await lib.books()).map((b) => b.id)).toEqual([bookId])
     })
 
+    // #1596: a removal the server keeps refusing is listed not synced, as a stuck write is; Try again sends it again.
+    it('removeBook_ServerKeepsRefusing_ListedNotSyncedWithTryAgain', async () => {
+      const { lib, bookId } = await synced()
+      await lib.removeBook(bookId)
+      expect(await lib.books()).toEqual([])
+      const calls = fakeApi({ [`DELETE /books/${bookId}`]: [{ status: 500, body: { code: 'internal', message: 'boom' } }] })
+      for (let i = 0; i < MAX_FAILURES + 1; i++) await syncLibrary(lib, host())
+      expect(writes(calls)).toHaveLength(MAX_FAILURES)
+      expect((await lib.books()).map((b) => [b.id, b.title, b.local, b.deleted, b.notSynced])).toEqual([[bookId, 'T', false, true, CHANGES_NOT_SYNCED]])
+      expect(await lib.book(bookId)).toBeNull()
+      await tryAgainBook(lib, bookId, async () => {}, () => {})
+      expect(await lib.books()).toEqual([])
+      fakeApi({ [`DELETE /books/${bookId}`]: [{ status: 204 }] })
+      expect(await syncLibrary(lib, host())).toBe('done')
+      expect([await lib.outbox(), await lib.books(), await lib.signOutLoss()]).toEqual([[], [], { books: 0, writes: 0 }])
+    })
+
+    // #1596: deleted while its first push asked the server for its bytes: the server's book is the one removed.
+    it('removeBook_DuringTheFirstPushShaLookup_TheServersBookIsRemoved', async () => {
+      const { lib, bookId } = await seeded()
+      const S = 'aaaaaaaa-0000-4000-8000-000000000009'
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [ok(serverBook(S, 'aaaaaaaa-0000-4000-8000-00000000000a'))],
+        [`DELETE /books/${S}`]: [{ status: 204 }],
+      })
+      const answer = globalThis.fetch
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        if (url.includes('/by-sha256/')) await lib.removeBook(bookId)
+        return answer(url, init)
+      })
+      expect(await syncLibrary(lib, host())).toBe('done')
+      expect(writes(calls)).toEqual([`DELETE /books/${S}`])
+      expect([await lib.outbox(), await lib.books()]).toEqual([[], []])
+    })
+
+    // #1596: deleted while it downloaded: the bytes the retain moved in are deleted too, no orphan file.
+    it('downloadBook_DeletedWhileItDownloads_TheRetainedFileIsRemoved', async () => {
+      const lib = createLocalLibrary(memoryDb())
+      const sid = 'aaaaaaaa-0000-4000-8000-000000000001'
+      fakeApi({ 'GET /library/changes': feed(serverBook(sid, 'aaaaaaaa-0000-4000-8000-000000000002', {}, { hasContent: true })) })
+      await syncLibrary(lib, host())
+      const remove = vi.fn()
+      const storage = createHostStorage({ read: async () => null, move: async () => {}, exists: () => true, remove, copyIn: async () => {} }, newId, lib)
+      const io = { fetch: async () => 'staging/dl.epub', retain: async () => void (await lib.removeBook(sid)), dropUnheld: storage.dropUnheld }
+      expect(await downloadBook(lib, sid, io)).toBe(false)
+      expect(remove).toHaveBeenCalledWith(`books/${SHA}.epub`)
+      expect(await lib.books()).toEqual([])
+    })
+
+    // #1596: a server answer about a deleted book's file (file_replaced, an upload landing) never lists it again.
+    it('setServerFile_DeletedBooksKeptRow_NotWritten_NotListedNorImportedInto', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.removeBook(bookId)
+      await lib.setServerFile(bookId, serverFile(fileId, { hasContent: true }) as never)
+      await lib.setHasContent(bookId)
+      expect(await lib.books()).toEqual([])
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
+      expect(await lib.localBookId(SHA)).not.toBe(bookId)
+    })
+
+    // #1596: a position write in flight when the book is deleted keeps nothing of it.
+    it('removeBook_WhileItsPositionWriteIsInFlight_NoStateKept', async () => {
+      const { lib, bookId, fileId } = await synced()
+      await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 100 }), newId)
+      fakeApi({ [`PUT /books/${bookId}/reading-state`]: [ok(serverState(bookId, fileId, 2))], [`DELETE /books/${bookId}`]: [{ status: 204 }] })
+      const answer = globalThis.fetch
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/reading-state')) await lib.removeBook(bookId)
+        return answer(url, init)
+      })
+      await syncLibrary(lib, host())
+      expect(await lib.state(bookId)).toBeNull()
+    })
+
     it('removeLocalBook_RetainedFileDeletedListRefreshedThenAPass', async () => {
       const { lib, bookId } = await synced()
       const order: string[] = []

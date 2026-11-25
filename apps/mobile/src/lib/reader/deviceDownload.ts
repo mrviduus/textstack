@@ -2,15 +2,22 @@
 // book page (#1522): "on this device" = the retained copy under <documents>/v2/books/ (hostStorage.ts).
 import { Platform } from 'react-native'
 import { File } from 'expo-file-system'
+import { uuid } from 'expo-modules-core'
 import { APP_HEADERS, freshAccessToken } from '../api'
-import { deviceUploadIo, sha256Of } from '../sync'
-import { bookFile, intactBook } from './hostStorage'
-import { deviceLocalLibrary, filesRoot, makeFileDirs } from './deviceLibrary'
+import { deviceUploadIo, resetSince, sha256Of } from '../sync'
+import { bookFile, createHostStorage, intactBook, type HostFiles, type HostStorage } from './hostStorage'
+import { deviceLocalLibrary, filesRoot, makeFileDirs, sweepStaging } from './deviceLibrary'
 import { downloadBook, removeLocalBook } from './sync'
 import { userBooksApi } from '../userBooksApi'
 
 /** `name` under <documents>/v2/ (`filesRoot`, shared with the wipe and the measure), e.g. `books/<sha256>.epub`. */
 export const hostFile = (name: string) => new File(filesRoot(), ...name.split('/'))
+
+/** `name` under the root deleted, when it is there: the one device file removal (the reader's host, Delete Book, a download). */
+export const removeHostFile = (name: string) => {
+  const file = hostFile(name)
+  if (file.exists) file.delete()
+}
 
 /** Bytes of `name` under the root; null when it is not there or cannot be read (`HostFiles.size`). */
 export const hostFileSize = (name: string): number | null => {
@@ -20,6 +27,29 @@ export const hostFileSize = (name: string): number | null => {
     return null
   }
 }
+
+/** The reader host's files under the root (hostStorage.ts `HostFiles`). */
+function deviceFiles(): HostFiles {
+  // Anything an earlier process staged and never finished; this process's own (a Download, an upload) stay (#1526).
+  sweepStaging()
+  makeFileDirs()
+  return {
+    read: async (name) => {
+      const file = hostFile(name)
+      return file.exists ? file.text() : null
+    },
+    move: (from, to) => hostFile(from).move(hostFile(to), { overwrite: true }),
+    exists: (name) => hostFile(name).exists,
+    size: hostFileSize,
+    remove: removeHostFile,
+    // expo-file-system copies a SAF/content:// source to a local file (Android, since 56.0.0).
+    copyIn: (uri, to) => new File(uri).copy(hostFile(to)),
+  }
+}
+
+// One storage for the process, so every read and write goes through its one queue.
+let storage: HostStorage | null = null
+export const readerStorage = () => (storage ??= createHostStorage(deviceFiles(), uuid.v4, deviceLocalLibrary(), resetSince))
 
 /** Whether the retained copy of these bytes can be opened: there and not empty (#1602). */
 export const bookFileIntact = (sha256: string) => intactBook({ exists: (name) => hostFile(name).exists, size: hostFileSize }, sha256)
@@ -51,6 +81,7 @@ export const downloadIo = {
     return staged
   },
   retain: async (staged: string, sha256: string) => hostFile(staged).move(hostFile(bookFile(sha256)), { overwrite: true }),
+  dropUnheld: (sha256: string) => readerStorage().dropUnheld(sha256),
   intact: bookFileIntact,
 }
 
@@ -90,6 +121,5 @@ export async function retainBook(bookId: string, pull: () => Promise<unknown>): 
  */
 export async function deleteBook(bookId: string, refresh: () => Promise<unknown>, sync: () => void): Promise<void> {
   if (Platform.OS === 'web') return userBooksApi.deleteUserBook(bookId)
-  const files = { remove: (name: string) => { const f = hostFile(name); if (f.exists) f.delete() } }
-  await removeLocalBook(deviceLocalLibrary(), files, bookId, refresh, sync)
+  await removeLocalBook(deviceLocalLibrary(), { remove: removeHostFile }, bookId, refresh, sync)
 }

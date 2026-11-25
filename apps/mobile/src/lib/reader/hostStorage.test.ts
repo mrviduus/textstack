@@ -84,6 +84,29 @@ describe('v2 host storage', () => {
     expect((await s.addOpened(book(SHA_B), 'staging/2.epub')).books.map((b) => b.sha256)).toEqual([SHA_B])
   })
 
+  // #1596: a download's drop of bytes no book holds waits for an open of the same bytes: its copy is kept.
+  it('dropUnheld_WhileTheSameBytesAreOpened_TheOpenedCopyIsKept', async () => {
+    const m = memoryFiles()
+    let moved!: () => void, release!: () => void
+    const copied = new Promise<void>((r) => (moved = r))
+    const move = m.files.move
+    m.files.move = async (from, to) => {
+      await move(from, to)
+      moved()
+      await new Promise<void>((r) => (release = r)) // the copy in place, its row not written yet
+    }
+    const { storage: s, data } = storage(m)
+    data.set('staging/1.epub', 'bytes')
+    const opened = s.addOpened(book(SHA_B), 'staging/1.epub')
+    await copied
+    const dropped = s.dropUnheld(SHA_B)
+    await new Promise((r) => setTimeout(r, 10))
+    release()
+    await opened
+    expect(await dropped).toBe(false)
+    expect(data.has(`books/${SHA_B}.epub`)).toBe(true)
+  })
+
   it('addOpened_TwoConcurrentImports_BothLand', async () => {
     const { storage: s } = storage()
     await Promise.all([s.addOpened(book(SHA_A), null), s.addOpened(book(SHA_B), null)])
