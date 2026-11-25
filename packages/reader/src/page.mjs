@@ -31,7 +31,7 @@ import { checkFb2, comicName, fb2AsUtf8, imageType, isTextual, sniffFormat, zipF
 import { createLightbox, imageAt } from './lightbox.mjs'
 import { clipBook } from './clip.mjs'
 import { tapAction } from './tapZone.mjs'
-import { MAX_CHAPTER_TEXT_BYTES, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween, tocEntries } from './chapters.mjs'
+import { MAX_CHAPTER_TEXT_BYTES, MAX_REQUEST, fileSummary, fitText, hasContents, placeOf, segmentsIn, startsIn, textBetween, tocEntries } from './chapters.mjs'
 import { MAX_RESULTS, SEARCH_FILL, readQuery, searchItems } from './search.mjs'
 import { PDF_SILENCE_MS } from './deadlines.mjs'
 import { bookMeta, coverJpeg, isRequestId } from './describe.mjs'
@@ -462,17 +462,15 @@ const navigate = (fn) => {
  */
 function atBookEnd(index) {
   try {
-    const r = view.renderer
     const last = view.book.sections.map((s) => s.linear !== 'no').lastIndexOf(true)
     if (last < 0) return false
     if (view.isFixedLayout) return arrivedAt(last)
-    if (index !== last) return false
-    return r.scrolled ? r.end >= r.viewSize - 1 : r.page >= r.pages - 2
+    return index === last && sectionEndShown()
   } catch { return false }
 }
 
-/** The end of the shown section is on screen (the test `atBookEnd` makes for the last one). */
-const sectionEndShown = () => {
+/** The end of the shown section is on screen (`atBookEnd`'s test for the last one). */
+function sectionEndShown() {
   const r = view.renderer
   return r.scrolled ? r.end >= r.viewSize - 1 : r.page >= r.pages - 2
 }
@@ -483,9 +481,17 @@ const sectionEndShown = () => {
  */
 const ink = (n) => /\S/.test(n.data) && (n.parentElement?.getClientRects().length ?? 0) > 0
 const atOrAfter = (el, n) => !!(el.compareDocumentPosition(n) & (Node.DOCUMENT_POSITION_FOLLOWING | Node.DOCUMENT_POSITION_CONTAINED_BY))
+/**
+ * #1352: what a relocate reads of a shown section's document, once per document (as `lengthAt`'s word counts): its
+ * text nodes and its chapter starts. A document is one view's, its text never changed once loaded (marks and
+ * highlights are drawn over it), and its view's `places` are fixed by the time its starts are read.
+ */
+const docNodes = new WeakMap()
+const docStarts = new WeakMap()
 /** The last text to read in `doc` before element `to` (null: before its end) and not before element `from` (null: its start), or null. */
 function lastInk(doc, from, to) {
-  const nodes = textNodes(doc.body)
+  if (!docNodes.has(doc)) docNodes.set(doc, textNodes(doc.body))
+  const nodes = docNodes.get(doc)
   for (let i = nodes.length - 1; i >= 0; i--) {
     const n = nodes[i]
     if (to && atOrAfter(to, n)) continue
@@ -606,7 +612,8 @@ function chapterEndNow(v, d) {
     const doc = v.renderer.getContents?.().find((x) => x.index === index)?.doc
     if (!doc?.body) return { value: null }
     if (!hasContents(places)) return sectionEndShown() && lastInk(doc, null, null) ? here(null) : { value: null }
-    const groups = startsIn(places, index, doc)
+    if (!docStarts.has(doc)) docStarts.set(doc, startsIn(places, index, doc))
+    const groups = docStarts.get(doc)
     let carry = null
     if (!groups.length || groups[0].el) {
       const r = carryInto(v, index)
@@ -665,7 +672,7 @@ function refineChapterEnd(v, tries = 0) {
  */
 async function chapterText(request, tocIndex, section) {
   // The host's own id, echoed as it came: anything else gets no answer.
-  if (typeof request !== 'string' || !request || request.length > 64) return
+  if (typeof request !== 'string' || !request || request.length > MAX_REQUEST) return
   const v = view
   const answer = (a) => { if (v === view) post({ type: 'chapter-text', request, ...a }) }
   try {

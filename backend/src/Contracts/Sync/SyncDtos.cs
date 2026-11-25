@@ -150,8 +150,10 @@ public sealed record RecordedReviewDto(VocabularyReviewDto Review, VocabularyWor
 public sealed record ShareChapterRequest(
     Guid? OperationId, Guid? FileId, string? ChapterKey, string? ChapterTitle, string? ChapterText, JsonElement? Notes, string? Language);
 
+/// <summary>A share; <c>ChapterText</c> null (left out) where the caller sent it: a write's 201 or replay (#1352).</summary>
 public sealed record SharedChapterDto(
-    Guid Id, Guid OperationId, Guid BookId, Guid? FileId, string ChapterKey, string? ChapterTitle, string ChapterText,
+    Guid Id, Guid OperationId, Guid BookId, Guid? FileId, string ChapterKey, string? ChapterTitle,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ChapterText,
     [property: JsonConverter(typeof(RawJsonConverter))] string Notes, string? Language, DateTimeOffset CreatedAt);
 
 /// <summary>One saved stage of a discussion: the four sections may be empty, not all four.</summary>

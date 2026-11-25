@@ -10,6 +10,10 @@ import { clip } from '../reader/textAnchor'
 import { ApiError, isOfflineError } from '../api/client'
 import { syncErrorOf, type Share, type ShareWrite } from '../api/sync'
 
+/** The server's caps on a share's title and language (`SyncLimits.MaxChapterTitle`, `MaxLanguage`). */
+const MAX_CHAPTER_TITLE = 500
+const MAX_LANGUAGE = 16
+
 /** The id line of a V2 handoff: the book, and the share the chat is about. The vocabulary is the MCP server's instructions'. */
 export const shareIdLine = (bookId: string, shareId: string) => `(TextStack: book ${bookId}, share ${shareId})`
 
@@ -82,7 +86,7 @@ export interface DiscussChapter {
   chapterTitle: string | null
   bookTitle: string
   author?: string | null
-  /** The book's language as the page read it; left out when it does not fit the server's 16 characters. */
+  /** The book's language as the page read it; left out when it does not fit the server's cap (`MAX_LANGUAGE`). */
   language?: string | null
 }
 
@@ -115,10 +119,10 @@ export async function shareChapterForDiscuss(chapter: DiscussChapter, deps: Disc
       operationId: deps.operationId,
       fileId: chapter.fileId,
       chapterKey: chapter.chapterKey,
-      chapterTitle: chapter.chapterTitle ? clip(chapter.chapterTitle, 500) : null,
+      chapterTitle: chapter.chapterTitle ? clip(chapter.chapterTitle, MAX_CHAPTER_TITLE) : null,
       chapterText: text,
       notes: [],
-      language: chapter.language && chapter.language.length <= 16 ? chapter.language : null,
+      language: chapter.language && chapter.language.length <= MAX_LANGUAGE ? chapter.language : null,
     })
   } catch (e) {
     if (!deps.current()) return null

@@ -1,7 +1,6 @@
 // Types for chapters.mjs (apps/web type-checks it without allowJs); a change to one must update the other.
 export const MAX_CHAPTER_TEXT_BYTES: number
-export const MAX_CHAPTER_KEY: number
-export const MAX_CHAPTER_TITLE: number
+export const MAX_REQUEST: number
 /** A place in the book a contents entry leads to: its spine section and its href (two places of one section differ by it). */
 export interface ChapterPlace { sec: number; at: string; top: boolean; anchor: ((doc: Document) => unknown) | null }
 /** The chapter whose end is on screen: a contents entry (`tocIndex`), or spine section `section` in a book with no contents; `title` as the page read it. */

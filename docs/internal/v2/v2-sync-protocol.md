@@ -317,6 +317,8 @@ accepted: two devices answering the same card offline both advance it.
 | `notes` | json array | yes | may be `[]`; the selected annotations as the client renders them |
 | `language` | string | no | |
 
+`POST` answers (201, 200 replay) omit `chapterText`, which the caller sent; a 409's `current` keeps it; `GET /shares/{id}` returns it (#1352).
+
 **Checkpoint** (`discussion_checkpoints`; a row is never updated, only deleted on the reader's request)
 
 | Field | Type | Req | Rule |
