@@ -12,6 +12,12 @@ import { userBooksApi } from '../userBooksApi'
 /** `name` under <documents>/v2/ (`filesRoot`, shared with the wipe and the measure), e.g. `books/<sha256>.epub`. */
 export const hostFile = (name: string) => new File(filesRoot(), ...name.split('/'))
 
+/** `name` under the root deleted, when it is there: the one device file removal (the reader's host, Delete Book, a download). */
+export const removeHostFile = (name: string) => {
+  const file = hostFile(name)
+  if (file.exists) file.delete()
+}
+
 /** Bytes of `name` under the root; null when it is not there or cannot be read (`HostFiles.size`). */
 export const hostFileSize = (name: string): number | null => {
   try {
@@ -51,6 +57,7 @@ export const downloadIo = {
     return staged
   },
   retain: async (staged: string, sha256: string) => hostFile(staged).move(hostFile(bookFile(sha256)), { overwrite: true }),
+  remove: (sha256: string) => removeHostFile(bookFile(sha256)),
   intact: bookFileIntact,
 }
 
@@ -90,6 +97,5 @@ export async function retainBook(bookId: string, pull: () => Promise<unknown>): 
  */
 export async function deleteBook(bookId: string, refresh: () => Promise<unknown>, sync: () => void): Promise<void> {
   if (Platform.OS === 'web') return userBooksApi.deleteUserBook(bookId)
-  const files = { remove: (name: string) => { const f = hostFile(name); if (f.exists) f.delete() } }
-  await removeLocalBook(deviceLocalLibrary(), files, bookId, refresh, sync)
+  await removeLocalBook(deviceLocalLibrary(), { remove: removeHostFile }, bookId, refresh, sync)
 }

@@ -618,11 +618,13 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
  * Download on demand: a book the server holds bytes for, not imported here, or imported with a damaged copy of
  * those same bytes (#1602: fetched again over it). `fetch` lands the bytes
  * (checked against the sha256) in staging; `retain` makes them the retained copy, then the row says
- * so. A session change while it downloads keeps nothing (staging is cleared on the next start).
+ * so. A session change while it downloads keeps nothing (staging is cleared on the next start); nor does a delete (#1596).
  */
 export async function downloadBook(lib: LocalLibrary, bookId: string, io: {
   fetch(url: string, sha256: string): Promise<string>
   retain(staged: string, sha256: string): Promise<void>
+  /** #1596: the retained file of these bytes deleted (the book was deleted while it downloaded); absent: kept. */
+  remove?(sha256: string): void
   /** Whether the retained file of these bytes can be opened (`intactBook`); absent: it can. */
   intact?(sha256: string): boolean
 }): Promise<boolean> {
@@ -638,8 +640,13 @@ export async function downloadBook(lib: LocalLibrary, bookId: string, io: {
   try {
     const staged = await current(reset, io.fetch(syncApi.contentUrl(b.id, b.server_file_id), sha))
     await checked(reset, () => io.retain(staged, sha))
-    if (repair) return true
-    return await checked(reset, () => lib.markDownloaded(b.id))
+    const kept = repair || (await checked(reset, () => lib.markDownloaded(b.id)))
+    // #1596: deleted while it downloaded: no book holds these bytes now, so the file the retain moved in goes too.
+    if (!(await lib.hasLocalBytes(sha))) {
+      io.remove?.(sha)
+      return false
+    }
+    return kept
   } catch (e) {
     if (e === DROPPED) return false
     throw e

@@ -13,7 +13,7 @@ import { loadReviewAssistant } from '../../lib/chapterReviewLaunch'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { deviceUploadIo, resetSince, uploadBook } from '../../lib/sync'
-import { bookFileIntact, downloadIo, hostFile, hostFileSize } from '../../lib/reader/deviceDownload'
+import { bookFileIntact, downloadIo, hostFile, hostFileSize, removeHostFile } from '../../lib/reader/deviceDownload'
 import { bookFile, createHostStorage, nonceFromUuid, sha256Key, type LibraryBook, type HostFiles, type HostStorage } from '../../lib/reader/hostStorage'
 import { deviceLocalLibrary, makeFileDirs, sweepStaging } from '../../lib/reader/deviceLibrary'
 import { capabilitiesFor } from '../../lib/capabilities'
@@ -103,10 +103,7 @@ function deviceFiles(): HostFiles {
     move: (from, to) => hostFile(from).move(hostFile(to), { overwrite: true }),
     exists: (name) => hostFile(name).exists,
     size: hostFileSize,
-    remove: (name) => {
-      const file = hostFile(name)
-      if (file.exists) file.delete()
-    },
+    remove: removeHostFile,
     // expo-file-system copies a SAF/content:// source to a local file (Android, since 56.0.0).
     copyIn: (uri, to) => new File(uri).copy(hostFile(to)),
   }

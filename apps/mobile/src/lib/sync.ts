@@ -212,7 +212,8 @@ export async function getUserBooks(): Promise<UserBookDto[]> {
   // download missing from a listing (#1191). Retryable 503, the same rule as `liveBook` (#1174).
   if (!pulled) throw new ApiError(503, 'Library pull interrupted, retry')
   const [list] = pulled
-  const removed = await removedRead
+  // #1596: and after it, so a delete made while this pull ran hides the book too (no stale snapshot).
+  const removed = new Set([...(await removedRead), ...(await deviceRemovals().catch(() => new Set<string>()))])
   const stateOf = syncStore.states
   return list.filter((b) => isShelfBook(b) && !removed.has(b.id)).map((b): UserBookDto => {
     const file = b.currentFile
@@ -240,6 +241,8 @@ export async function getUserBooks(): Promise<UserBookDto[]> {
 
 /** The book page and the reader's book: the chapter list is the current file's. */
 export async function getUserBook(id: string): Promise<UserBookDetailResponse> {
+  // #1596: deleted here, its removal not pushed yet: not found, as `getUserBooks` hides it.
+  if ((await deviceRemovals().catch(() => new Set<string>())).has(id)) throw new ApiError(404, 'Book not found')
   const b = await liveBook(id)
   const toc = await bookChapters(b)
   return {

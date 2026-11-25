@@ -512,7 +512,10 @@ export function createLocalLibrary(db: Db) {
         `SELECT * FROM books WHERE imported_at IS NOT NULL
            OR (removed_at IS NULL AND has_content = 1 AND content_removed = 0 AND server_sha256 IS NOT NULL
                AND NOT EXISTS (SELECT 1 FROM books l WHERE l.sha256 = books.server_sha256))
+           -- #1596: a book deleted here whose removal the server kept refusing: listed not synced, with Try again.
+           OR id IN (SELECT target FROM outbox WHERE kind = 'removal' AND failures >= ?)
          ORDER BY imported_at IS NULL, imported_at, rowid`,
+        [MAX_FAILURES],
       )
       return rows.map((b) => {
         const local = b.imported_at != null
@@ -777,6 +780,8 @@ export function createLocalLibrary(db: Db) {
     done: (item: OutboxItem) => tx(async () => {
       await run('DELETE FROM outbox WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])
       if (item.kind === 'session') await run(`DELETE FROM reading_sessions WHERE id = ? AND NOT EXISTS (SELECT 1 FROM outbox WHERE kind = 'session' AND target = ?)`, [item.target, item.target])
+      // #1596: a deleted book's name (`removeBook`) leaves with its removal.
+      if (item.kind === 'removal') await run(`DELETE FROM books WHERE id = ? AND imported_at IS NULL AND NOT EXISTS (SELECT 1 FROM outbox WHERE kind = 'removal' AND target = ?)`, [item.target, item.target])
     }),
     /**
      * One more failed attempt, counted only against the gen that failed: the row's count now, or null
@@ -806,7 +811,8 @@ export function createLocalLibrary(db: Db) {
     }),
     /** The reader's "Try again" (PDD "Outbox"): a parked book sent again; its children retried from zero, the book not re-sent if it was not parked. */
     unpark: (bookId: string) => tx(() => unblock(bookId)),
-    book: (id: string) => job(() => bookById(id)),
+    /** A book deleted here (its removal queued) is no book, though its name is kept for the list (`removeBook`). */
+    book: (id: string) => job(async () => ((await queued('removal', id)) ? null : bookById(id))),
     state: (bookId: string) => job(() => stateOf(bookId)),
     annotation: (id: string) => job(() => annotationById(id)),
     session: (id: string) => job(() => one<SessionRow>('SELECT * FROM reading_sessions WHERE id = ?', [id])),
@@ -814,7 +820,10 @@ export function createLocalLibrary(db: Db) {
     /** The server's book for a local one (import answer, `duplicate_file`, an adopt by sha256): its ids win. */
     adoptServerBook: (localId: string, server: Book) => tx(async () => {
       const local = await bookById(localId)
-      if (local) await adoptIn(local, server)
+      if (!local) return
+      // #1596: deleted here while its first push asked the server: the removal names the server's book; it stays deleted.
+      if (await queued('removal', localId)) return void (await rekeyIn({ [localId]: server.id }, {}))
+      await adoptIn(local, server)
     }),
 
     /** `id_conflict` on import: the id is someone else's; mint new book and file ids. */
@@ -961,7 +970,7 @@ export function createLocalLibrary(db: Db) {
       const owed: PositionAction[] = []
       for (const s of items) {
         const book = await bookById(s.bookId)
-        if (!book) continue
+        if (!book || (await queued('removal', s.bookId))) continue
         const st = await stateOf(s.bookId)
         if (st?.revision === s.revision && st.revision_file_id === s.fileId) continue
         // The format of the state's file: a PDF takes a page position only (#1128 S5).
@@ -1081,8 +1090,9 @@ export function createLocalLibrary(db: Db) {
      * every queued write of it, and a queued 'removal': the DELETE sync.ts pushes, and the tombstone that keeps a pull
      * from bringing it back (`applyBooks`). Always queued, even for a book this device never saw land on the server: its
      * first push may still be in flight, and a book the server lacks answers 404 (the entry dropped). Other devices
-     * keep their copies (decision 11: a removal is a hide). Resolves to the sha256 of the retained copy to delete
-     * (null: none here; books_sha256 is UNIQUE, so no other row holds those bytes).
+     * keep their copies (decision 11: a removal is a hide). The book's name stays, nothing else (#1596): a removal the
+     * server keeps refusing is listed not synced (`books`); it leaves with the removal (`done`). Resolves to the sha256 of
+     * the retained copy to delete (null: none here; books_sha256 is UNIQUE, so no other row holds those bytes).
      */
     removeBook: (bookId: string) => tx(async () => {
       const b = await bookById(bookId)
@@ -1090,6 +1100,7 @@ export function createLocalLibrary(db: Db) {
       await run(`DELETE FROM outbox WHERE ${BOOK_OF} = ?`, [bookId])
       for (const table of ['reading_state', 'annotations', 'reading_sessions']) await run(`DELETE FROM ${table} WHERE book_id = ?`, [bookId])
       await run('DELETE FROM books WHERE id = ?', [bookId])
+      if (b) await run('INSERT INTO books (id, title, author, original_name) VALUES (?, ?, ?, ?)', [b.id, b.title, b.author, b.original_name])
       await enqueue('removal', bookId)
       return b?.imported_at != null ? b.sha256 : null
     }),

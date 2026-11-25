@@ -11,6 +11,15 @@ import { userBooksApi } from './userBooksApi'
 import { vocabularyApi } from './vocabularyApi'
 import { flushPendingSessions, enqueuePendingSession, clearPendingSessions } from './pendingSessions'
 
+/** #1596: books deleted on this device, their removal not pushed yet (the device library's outbox). */
+const removals = vi.hoisted(() => ({ ids: new Set<string>(), read: 0, onRead: () => {} }))
+vi.mock('./reader/deviceLibrary', () => ({ deviceRemovals: async () => {
+  const now = new Set(removals.ids)
+  removals.read++
+  removals.onRead()
+  return now
+} }))
+
 
 type Answer = { status: number; body?: unknown }
 interface Call { method: string; path: string; body: unknown }
@@ -32,6 +41,9 @@ function fakeApi(routes: Record<string, Answer[] | ((c: Call) => Answer)>, fallb
 }
 
 beforeEach(async () => {
+  removals.ids.clear()
+  removals.onRead = () => {}
+  removals.read = 0
   resetSyncForTests()
   initApi({ baseUrl: 'http://api', getAccessToken: async () => 't', onUnauthorized: async () => null })
   await clearPendingSessions()
@@ -133,6 +145,23 @@ describe('reading-state write outcomes', () => {
       'GET /me/v2/books/b1/reading-state': [{ status: 200, body: { ...state(2), completedAt: '2026-11-02T00:00:00Z' } }],
     })
     expect((await getUserBook('b1')).completedAt).toBe('2026-11-02T00:00:00Z')
+  })
+
+  // #1596: the book page (Continue, a deep link) of a book deleted here, its removal not pushed yet: not found.
+  it('getUserBook_DeletedHereRemovalNotPushed_NotFound', async () => {
+    removals.ids.add('b1')
+    fakeApi({ ...on, 'GET /me/v2/library/changes': [{ status: 200, body: { items: [{ id: 'b1', title: 't', currentFile: null }], hasMore: false, cursor: null } }] })
+    await expect(getUserBook('b1')).rejects.toMatchObject({ status: 404 })
+  })
+
+  // #1596: a list reload already pulling when the book is deleted does not show it once more.
+  it('getUserBooks_DeletedWhileTheReloadPulls_NotListed', async () => {
+    removals.onRead = () => { if (removals.read === 1) removals.ids.add('b1') } // the delete lands after the first read
+    fakeApi({ ...on,
+      'GET /me/v2/library/changes': [{ status: 200, body: { items: [{ id: 'b1', title: 't', currentFile: { id: 'f1', format: 'epub', hasContent: true } }, { id: 'b2', title: 'u', currentFile: { id: 'f2', format: 'epub', hasContent: true } }], hasMore: false, cursor: null } }],
+      'GET /me/v2/reading/changes': [{ status: 200, body: { items: [], hasMore: false, cursor: null } }],
+    })
+    expect((await userBooksApi.getUserBooks()).map((b) => b.id)).toEqual(['b2'])
   })
 
 })
