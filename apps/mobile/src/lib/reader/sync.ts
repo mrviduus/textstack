@@ -91,16 +91,6 @@ const drop = async (lib: LocalLibrary, reset: Reset, item: OutboxItem) => void (
  */
 const endsPass = (e: unknown) => e === DROPPED || isOfflineError(e) || (e as { status?: number } | null)?.status === 503
 
-/**
- * #1198: failed uploads per book (file sync), this app run's: at `MAX_FAILURES` a book's upload waits for
- * the next session's first pass or "Try again", as an outbox entry does; an outage or offline is never counted.
- * ponytail: in memory, no resume: a retried upload re-sends every part (the server lists no stored parts); a parts
- * listing is the upgrade if big files fail often.
- */
-const uploadFailures = new Map<string, number>()
-/** Tests only: every count gone (module state outlives a test). */
-export const resetUploadFailures = () => uploadFailures.clear()
-
 export { MAX_FAILURES }
 
 /**
@@ -187,7 +177,6 @@ async function pass(lib: LocalLibrary, host: SyncHost, reset: Reset, pushOnly = 
     await account(lib, host, reset)
     if (host.retryFailed) {
       await checked(reset, () => lib.retryAll())
-      uploadFailures.clear()
     }
     if (!pushOnly) for (const feed of FEEDS) if (feed !== 'vocabulary') await pull(lib, host, reset, feed)
     let failed = false
@@ -271,7 +260,6 @@ export async function claimLibraryFor(userId: string, lib: () => LocalLibrary = 
  */
 export async function tryAgainBook(lib: LocalLibrary, bookId: string, refresh: () => Promise<unknown>, sync: () => void) {
   await lib.unpark(bookId)
-  uploadFailures.delete(bookId)
   await refresh()
   sync()
 }
@@ -596,17 +584,19 @@ async function pushBookRemoval(lib: LocalLibrary, _host: SyncHost, reset: Reset,
 /**
  * Story B5, opt-in (off by default): each pushed book whose bytes the server lacks — and that no
  * device stopped syncing (`contentRemovedAt`) — goes up through the shared `uploadFile` to its
- * known ids. A full quota stops the round (the books stay local); offline ends the pass.
+ * known ids. A full quota stops the round (the books stay local); offline ends the pass. A failed upload is
+ * counted on the book's row (#1198, #1593): at `MAX_FAILURES` it waits for the next launch, session's first pass or
+ * "Try again", and the list shows it not synced; an outage or offline is never counted.
+ * ponytail: no resume: a retried upload re-sends every part (the server lists no stored parts); a parts listing is
+ * the upgrade if big files fail often.
  */
 async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
   if (!host.upload || !(await lib.fileSync())) return
   const { maxPartBytes } = await startSyncProbe()
   for (const b of await lib.uploadable()) {
     if (reset()) throw DROPPED
-    if ((uploadFailures.get(b.id) ?? 0) >= MAX_FAILURES) continue
     try {
       await host.upload(b, maxPartBytes, reset)
-      uploadFailures.delete(b.id)
       await checked(reset, () => lib.setHasContent(b.id))
     } catch (e) {
       if (endsPass(e) || reset()) throw e
@@ -618,8 +608,7 @@ async function fileSync(lib: LocalLibrary, host: SyncHost, reset: Reset) {
         continue
       }
       if (e instanceof FileUploadError && e.code === 'quota_exceeded') return console.warn('[v2 sync] upload stopped, quota full:', b.id)
-      const n = (uploadFailures.get(b.id) ?? 0) + 1
-      uploadFailures.set(b.id, n)
+      const n = await checked(reset, () => lib.uploadFailed(b.id))
       console.warn(`[v2 sync] upload of ${b.id} failed (${n}/${MAX_FAILURES})${n >= MAX_FAILURES ? ', not retried until the next session or "Try again"' : ''}:`, brief(e))
     }
   }

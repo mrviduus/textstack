@@ -61,7 +61,8 @@ const SCHEMA = `
     has_content INTEGER NOT NULL DEFAULT 0,
     content_removed INTEGER NOT NULL DEFAULT 0,
     removed_at TEXT,
-    blocked TEXT
+    blocked TEXT,
+    upload_failures INTEGER NOT NULL DEFAULT 0
   );
   CREATE UNIQUE INDEX IF NOT EXISTS books_sha256 ON books (sha256);
   CREATE TABLE IF NOT EXISTS reading_state (
@@ -131,6 +132,7 @@ const ADDED_COLUMNS = [
   'ALTER TABLE annotations ADD COLUMN note TEXT',
   'ALTER TABLE annotations ADD COLUMN note_dirty INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE annotations ADD COLUMN note_known INTEGER NOT NULL DEFAULT 1',
+  'ALTER TABLE books ADD COLUMN upload_failures INTEGER NOT NULL DEFAULT 0',
 ]
 /** SQLite's own text (sqlite3_errmsg), in node:sqlite's message and expo-sqlite's "Error code 1: …" alike. */
 const isDuplicateColumn = (e: unknown) => /duplicate column name/i.test(String((e as Error | null)?.message ?? e))
@@ -145,6 +147,8 @@ const isDuplicateColumn = (e: unknown) => /duplicate column name/i.test(String((
 export const MAX_FAILURES = 5
 /** A book's not-synced text when its entry or a child's stopped being retried: fixed, no error text. */
 export const CHANGES_NOT_SYNCED = 'some changes not synced'
+/** #1593: a book's not-synced text when the upload of its file (file sync) stopped being retried. */
+export const FILE_NOT_UPLOADED = 'book file not uploaded'
 /** The book an outbox entry belongs to (its own entry, its state, its annotation, its session): the one definition. */
 const BOOK_OF = `CASE outbox.kind WHEN 'annotation' THEN (SELECT a.book_id FROM annotations a WHERE a.id = outbox.target)
   WHEN 'session' THEN (SELECT s.book_id FROM reading_sessions s WHERE s.id = outbox.target) ELSE outbox.target END`
@@ -168,6 +172,8 @@ export interface BookRow {
   content_removed: number
   removed_at: string | null
   blocked: string | null
+  /** #1593: failed uploads of its bytes (file sync) since the last success, "Try again" or session's first pass; at MAX_FAILURES not retried. */
+  upload_failures: number
 }
 
 export interface StateRow {
@@ -243,6 +249,10 @@ const parse = <T>(json: string | null): T | null => {
   try { return JSON.parse(json) as T } catch { return null }
 }
 
+/** #1593: a book still `uploadable` whose upload failed MAX_FAILURES times (the same predicate as that query). */
+const uploadStopped = (b: BookRow) => b.upload_failures >= MAX_FAILURES && b.imported_at != null && b.server_file_id === b.file_id
+  && !b.has_content && !b.content_removed && !b.removed_at
+
 /** The server's current file, as the `server_*` columns and `has_content`. */
 const SERVER_FILE = 'server_file_id = ?, server_sha256 = ?, server_size = ?, server_format = ?, has_content = ?'
 const serverFile = (f: BookFile | null | undefined) => [f?.id ?? null, f?.sha256 ?? null, f?.byteSize ?? null, f?.format ?? null, f?.hasContent ? 1 : 0]
@@ -308,6 +318,8 @@ export function createLocalLibrary(db: Db) {
       await db.execAsync(alter).catch((e) => { if (!isDuplicateColumn(e)) throw e })
     }
     if (!(await db.getFirstAsync('SELECT 1 FROM meta WHERE key = ?', [NOTES_UPGRADE]))) await db.withTransactionAsync(() => db.execAsync(NOTES_UPGRADE_SQL))
+    // #1593: failed uploads count per app run: every launch retries them, whatever its first pass did.
+    await db.execAsync('UPDATE books SET upload_failures = 0 WHERE upload_failures > 0')
   }
   /** A job on the one queue; the schema runs before the first (a failed one is tried again). */
   const job = <T>(fn: () => Promise<T>): Promise<T> => queue.run(async () => {
@@ -368,6 +380,7 @@ export function createLocalLibrary(db: Db) {
       await enqueue('book', bookId)
     }
     await run(`UPDATE outbox SET failures = 0 WHERE ${BOOK_OF} = ?`, [bookId])
+    await run('UPDATE books SET upload_failures = 0 WHERE id = ?', [bookId])
   }
   const dequeue = (kind: OutboxKind, target: string) => run('DELETE FROM outbox WHERE kind = ? AND target = ?', [kind, target])
   /**
@@ -492,6 +505,7 @@ export function createLocalLibrary(db: Db) {
 
     /** Books on this device, in import order, then the server's that can be downloaded (bytes not already here). */
     books: (): Promise<LibraryBook[]> => job(async () => {
+      const fileSync = (await getMeta('file_sync')) === '1'
       const stuck = new Set((await all<{ id: string }>(`SELECT ${BOOK_OF} AS id FROM outbox WHERE failures >= ? GROUP BY 1`, [MAX_FAILURES])).map((r) => r.id))
       const finished = new Map((await all<{ book_id: string; completed_at: string }>('SELECT book_id, completed_at FROM reading_state WHERE completed_at IS NOT NULL')).map((r) => [r.book_id, r.completed_at]))
       const rows = await all<BookRow>(
@@ -506,7 +520,7 @@ export function createLocalLibrary(db: Db) {
           id: b.id, title: b.title, author: b.author, originalName: b.original_name,
           sha256: (local ? b.sha256 : b.server_sha256)!, size: (local ? b.size : b.server_size)!,
           importedAt: b.imported_at ?? 0, openedAt: b.opened_at ?? 0, local,
-          notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : null),
+          notSynced: b.blocked ?? (stuck.has(b.id) ? CHANGES_NOT_SYNCED : fileSync && uploadStopped(b) ? FILE_NOT_UPLOADED : null),
           finished: finished.has(b.id),
           completedAt: finished.get(b.id) ?? null,
           format: (local ? b.format : b.server_format) ?? null,
@@ -754,8 +768,11 @@ export function createLocalLibrary(db: Db) {
          AND NOT EXISTS (SELECT 1 FROM books b WHERE b.id = ${BOOK_OF} AND b.blocked IS NOT NULL) ORDER BY rowid`,
       [kind, MAX_FAILURES],
     )),
-    /** A session's first pass: every entry retried again (an outage heals itself on the next launch). */
-    retryAll: () => job(() => run('UPDATE outbox SET failures = 0 WHERE failures > 0')),
+    /** A session's first pass: every entry and upload retried again (an outage heals itself on the next launch). */
+    retryAll: () => tx(async () => {
+      await run('UPDATE outbox SET failures = 0 WHERE failures > 0')
+      await run('UPDATE books SET upload_failures = 0 WHERE upload_failures > 0')
+    }),
     /** The entry leaves the outbox only if it was not queued again since it was read; a session's row leaves with it. */
     done: (item: OutboxItem) => tx(async () => {
       await run('DELETE FROM outbox WHERE kind = ? AND target = ? AND gen = ?', [item.kind, item.target, item.gen])
@@ -837,7 +854,13 @@ export function createLocalLibrary(db: Db) {
 
     setServerFile: (bookId: string, f: BookFile | null) => job(() => run(`UPDATE books SET ${SERVER_FILE} WHERE id = ?`, [...serverFile(f), bookId])),
 
-    setHasContent: (bookId: string) => job(() => run('UPDATE books SET has_content = 1 WHERE id = ?', [bookId])),
+    setHasContent: (bookId: string) => job(() => run('UPDATE books SET has_content = 1, upload_failures = 0 WHERE id = ?', [bookId])),
+
+    /** #1593: one more failed upload of the book's bytes: its count now (at MAX_FAILURES the list shows it not synced). */
+    uploadFailed: (bookId: string) => job(async () => {
+      await run('UPDATE books SET upload_failures = upload_failures + 1 WHERE id = ?', [bookId])
+      return (await one<{ upload_failures: number }>('SELECT upload_failures FROM books WHERE id = ?', [bookId]))?.upload_failures ?? 0
+    }),
 
     /** A reading-state write landed or lost to a row we keep ours over: the revision the next write names. */
     setStateRevision: (bookId: string, revision: number | null, fileId: string | null) => job(() => upsertRevision(bookId, revision, fileId)),
@@ -1043,9 +1066,14 @@ export function createLocalLibrary(db: Db) {
     fileSync: () => job(async () => (await getMeta('file_sync')) === '1'),
     setFileSync: (on: boolean) => job(() => setMeta('file_sync', on ? '1' : null)),
 
-    /** Books whose bytes the server lacks and may take: on this device, pushed, current there, not stopped (`contentRemovedAt`). */
+    /**
+     * Books whose bytes the server lacks and may take: on this device, pushed, current there, not stopped (`contentRemovedAt`),
+     * and not failed MAX_FAILURES times (#1593).
+     */
     uploadable: () => job(() => all<BookRow>(
-      `SELECT * FROM books WHERE imported_at IS NOT NULL AND server_file_id = file_id AND has_content = 0 AND content_removed = 0 AND removed_at IS NULL`,
+      `SELECT * FROM books WHERE imported_at IS NOT NULL AND server_file_id = file_id AND has_content = 0 AND content_removed = 0 AND removed_at IS NULL
+         AND upload_failures < ?`,
+      [MAX_FAILURES],
     )),
 
     /**
@@ -1089,7 +1117,7 @@ export function createLocalLibrary(db: Db) {
       await run('DELETE FROM vocabulary')
       // A park's entry is gone (deleted when it parked): the new identity is sent every book it clears.
       for (const { id } of await all<{ id: string }>('SELECT id FROM books WHERE blocked IS NOT NULL')) await enqueue('book', id)
-      await run('UPDATE books SET server_file_id = NULL, server_sha256 = NULL, server_size = NULL, server_format = NULL, has_content = 0, content_removed = 0, removed_at = NULL, blocked = NULL')
+      await run('UPDATE books SET server_file_id = NULL, server_sha256 = NULL, server_size = NULL, server_format = NULL, has_content = 0, content_removed = 0, removed_at = NULL, blocked = NULL, upload_failures = 0')
       await run('UPDATE reading_state SET revision = NULL, revision_file_id = NULL')
       await run('UPDATE annotations SET revision = NULL')
       await run('UPDATE outbox SET failures = 0')
