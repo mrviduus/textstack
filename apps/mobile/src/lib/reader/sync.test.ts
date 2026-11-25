@@ -1395,15 +1395,23 @@ describe('V2 local library sync (R6)', () => {
       })
 
       // #1611: asked before a sign-in's server call: a real owner's books or changes only on this phone.
-      it('ownedLoss_RealOwnersUnsentBook_TheLoss_GuestUnownedOrNothingLost_Null_ReadFails_Unknown', async () => {
+      it('ownedLoss_RealOwnersUnsentBook_ReturnsTheLoss', async () => {
         const { lib } = await withUnsent()
         expect(await ownedLoss(lib)).toEqual({ books: 1, writes: 0 })
+      })
+
+      it('ownedLoss_NothingLostUnownedOrGuestOwned_ReturnsNull', async () => {
+        const { lib } = await withUnsent()
         const synced = createLocalLibrary(memoryDb())
         await synced.setAccount('u1', false)
         expect(await ownedLoss(synced)).toBeNull()
         expect(await ownedLoss(createLocalLibrary(memoryDb()))).toBeNull()
         await lib.setAccount('g1', true)
         expect(await ownedLoss(lib)).toBeNull()
+      })
+
+      it('ownedLoss_ReadFails_ReturnsUnknown', async () => {
+        const { lib } = await withUnsent()
         expect(await ownedLoss({ ...lib, owner: () => Promise.reject(new Error('disk busy')) })).toBe('unknown')
       })
 

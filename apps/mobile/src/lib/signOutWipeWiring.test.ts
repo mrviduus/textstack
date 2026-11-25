@@ -18,12 +18,12 @@ const between = (from: string, to: string) => {
 
 describe('sign-in V2 wipe wiring (#1070 rule B: another account wipes at sign-in)', () => {
   it('claim_BoundedByTheWipeDeadline', () => {
-    expect(src).toMatch(/const claimLibrary = \(userId: string\) =>\s+withDeadline\(claimLibraryFor\(userId\)\.then\(clearWipePending\), LIBRARY_WIPE_MS\)/)
+    expect(src).toMatch(/const claimLibrary = \(user: UserDto\) =>\s+withDeadline\(\s+claimLibraryFor\(user\.id\)\.then\(clearWipePending\)\.then\(\(\) => rememberOwnerEmail\([^\n]+\),\s+LIBRARY_WIPE_MS,/)
   })
 
   it('signInWithTokens_ClaimAfterTheEpochBumpBeforeAdoptAndSetUser', () => {
     const fn = between('const signInWithTokens = useCallback', '[runExclusive],')
-    const claim = fn.indexOf('await claimLibrary(userData.id)')
+    const claim = fn.indexOf('await claimLibrary(userData)')
     expect(claim).toBeGreaterThan(fn.indexOf('syncStore.reset()'))
     expect(claim).toBeLessThan(fn.indexOf('adoptLocalAccount('))
     expect(claim).toBeLessThan(fn.indexOf('setUser(userData)'))
@@ -33,13 +33,13 @@ describe('sign-in V2 wipe wiring (#1070 rule B: another account wipes at sign-in
 
   it('guestMint_ClaimBeforeSetUser', () => {
     const fn = between('const createGuestOnce = useCallback', '[runExclusive])')
-    const claim = fn.indexOf('await claimLibrary(res.user.id)')
+    const claim = fn.indexOf('await claimLibrary(res.user)')
     expect(claim).toBeGreaterThan(-1)
     expect(claim).toBeLessThan(fn.indexOf('setUser(res.user)'))
   })
 
   it('restoredSession_ClaimRetriedNotAwaited', () => {
-    expect(between('// Restore session on mount', 'sessionReadyRef.current')).toContain('void claimLibrary(restored.id)')
+    expect(between('// Restore session on mount', 'sessionReadyRef.current')).toContain('void claimLibrary(restored)')
   })
 })
 
@@ -49,10 +49,13 @@ describe('sign-in over another account\'s unsynced books (#1611)', () => {
   /** The handler's source from `name` to the next handler. */
   const handler = (name: string) => login.slice(login.indexOf(`const ${name} = async`), login.indexOf('\n  const ', login.indexOf(`const ${name} = async`) + 1))
 
-  it('everySignIn_AsksBeforeItsServerCall', () => {
+  it('signInHandlers_EveryHandler_AskBeforeTheServerCall', () => {
     const email = handler('handleEmailAuth')
-    const ask = email.indexOf('confirmLibraryLoss()')
+    const ask = email.indexOf('confirmLibraryLoss(')
     expect(ask).toBeGreaterThan(-1)
+    // Busy first (no double ask); register never keeps the books by email.
+    expect(email.indexOf('setLoading(true)')).toBeLessThan(ask)
+    expect(email).toContain("confirmLibraryLoss(mode === 'register' ? undefined : email)")
     for (const call of ['authApi.registerWithEmail(', 'authApi.loginWithEmail(']) expect(email.indexOf(call)).toBeGreaterThan(ask)
     for (const [name, call] of [['handleGoogleSignIn', 'authApi.loginWithGoogle('], ['handleAppleSignIn', 'authApi.loginWithApple(']]) {
       const fn = handler(name)
@@ -61,11 +64,12 @@ describe('sign-in over another account\'s unsynced books (#1611)', () => {
     }
   })
 
-  it('guestMint_LossOrUnknownMintsNothing', () => {
+  it('createGuestOnce_KnownLoss_ChecksBoundedBeforeTheServerCall', () => {
     const fn = between('const createGuestOnce = useCallback', '[runExclusive])')
-    const check = fn.indexOf('await deviceOwnedLoss()) !== null')
+    const check = fn.indexOf('await deviceOwnedLoss(OWNED_LOSS_MINT_MS)')
     expect(check).toBeGreaterThan(-1)
     expect(check).toBeLessThan(fn.indexOf('authApi.createGuestSession()'))
+    expect(fn).toContain("owned.loss !== 'unknown'")
   })
 })
 
