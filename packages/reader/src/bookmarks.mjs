@@ -120,6 +120,22 @@ export function atTop(place, mark, { scrolled = false, vertical = false, rects =
 }
 
 /**
+ * #1350: a page-based book's bookmark (PDF, CBZ, pre-paginated EPUB) marks a whole page, and its label is where it is:
+ * "<the TOC entry covering it> · p. <page>" (`page`: the page's label from the book's page list, else its 1-based
+ * number), "p. <page>" with no entry. Stored as the bookmark's `selectedText` (synced: plain English, not the UI's).
+ */
+export function pageBookmarkText(title, page) {
+  const cap = (s, n) => Array.from(String(s ?? '').trim()).slice(0, n).join('')
+  const t = cap(title, 100)
+  const p = `p. ${cap(page, 20)}`
+  return t ? `${t} · ${p}` : p
+}
+
+/** #1350: the id of the placed bookmark on page (section) `index` of a page-based book, or null. */
+export const pageBookmarkOn = (highlights, placed, index) =>
+  highlights.find((h) => isBookmark(h) && placed.has(h.id) && h.index === index)?.id ?? null
+
+/**
  * The page's `bookmark-list` items: the entry's bookmarks found in this file (`placed`: their ids), in book order, each
  * `{ id, cfi, text, at }` (highlights.mjs `listItems`, the highlights' builder).
  */

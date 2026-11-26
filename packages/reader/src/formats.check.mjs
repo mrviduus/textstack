@@ -7,6 +7,7 @@
 // a hostile PDF neither runs script nor leaves the file; a decompression bomb fails at the watchdog while the page answers
 // (#1204: pdf.js in a Worker); a JPEG 2000 image draws (OpenJPEG's wasm); a PDF's outline comes after `opened` (#1557);
 // an older WebView still reads a PDF or says why not; the reader's turn, into the next section too, is `cause` `turn` (#1333).
+// #1350: CBZ, PDF and a pre-paginated EPUB bookmark the page on screen.
 // The reader's features (selection, search, highlights, bookmarks, chrome) are not this check's: their modules'
 // unit tests and the web e2e cover them.
 //
@@ -249,6 +250,23 @@ try {
   check(stored?.position?.page === 'p02.png' && !('quote' in stored.position) && stored.position.cfi.startsWith('epubcfi('), `a page turn saves page 2 by its entry name, no quote (${JSON.stringify(stored?.position)})`)
   m = await open('tsformat.cbz', JSON.stringify(stored))
   check(m.restored.position === 'restored' && !!(await waitFor(m.from, (x) => x.type === 'relocate' && x.index === 1, 'relocate to page 2').catch(() => null)), `reopened, the saved page is restored (${m.restored.position})`)
+  // #1350: a CBZ bookmark marks the page on screen; a turn to another page leaves it.
+  check(m.bookmarkable === true, 'a CBZ is bookmarkable')
+  from = messages.length
+  call('window.__fol.addBookmark()')
+  const cbzMarked = await storeFrom(from, 'a store after a CBZ bookmark')
+  const cm = cbzMarked?.highlights.find((h) => h.color === 'bookmark')
+  check(cm?.cfi === 'epubcfi(/6/4)' && cm.index === 1 && cm.selectedText === 'p02.png · p. 2', `addBookmark on CBZ page 2 keeps its page, labelled by its contents entry (the image's name) and number (${JSON.stringify(cm)})`)
+  from = messages.length
+  call('window.__fol.prev()')
+  check(!!(await waitFor(from, (x) => x.type === 'bookmark-list' && x.here === null && x.can === true, 'page 1 has none').catch(() => null)), 'on page 1 no bookmark is here, one can be made')
+  // #1350: a pre-paginated EPUB keeps its text highlights and takes page bookmarks: its first page's, by its section CFI.
+  m = await open('tsfixed.epub')
+  from = messages.length
+  call('window.__fol.addBookmark()')
+  const fm = (await storeFrom(from, 'a store after a pre-paginated bookmark'))?.highlights.find((h) => h.color === 'bookmark')
+  check(m.annotatable === true && m.bookmarkable === true && /^epubcfi\(\/6\/2(\[[^\]]*\])?\)$/.test(fm?.cfi) && fm.index === 0 && /(^| · )p\. 1$/.test(fm.selectedText),
+    `a pre-paginated EPUB is annotatable and bookmarks its page (${m.annotatable}, ${JSON.stringify(fm)})`)
   m = await open('tsupper.cbz')
   check(m.type === 'opened' && m.sections === 2, `a CBZ with upper-case extensions keeps every page (${m.sections ?? m.error})`)
   call('window.__fol.next()')
@@ -347,6 +365,26 @@ try {
   await call('window.__fol.goTo({ page: 4 })')
   const onFour = await waitFor(from, (x) => x.type === 'relocate' && x.index === 3, 'relocate to page 4').catch(() => null)
   check(onFour?.tocIndex === 1, `and the place's entry follows it (page 4: ${onFour?.tocIndex})`)
+  // #1350: a PDF bookmark marks the page on screen (page 4, from the check above), labelled by its outline entry and page, once per page; it is found
+  // again on reopen and a jump to its CFI (its page's section) lands on that page.
+  check(m.bookmarkable === true, 'a PDF is bookmarkable')
+  let at = messages.length
+  call('window.__fol.addBookmark()')
+  const marked = await storeFrom(at, 'a store after a PDF bookmark')
+  const pm = marked?.highlights.find((h) => h.color === 'bookmark')
+  check(marked?.highlights.length === 1 && pm?.cfi === 'epubcfi(/6/8)' && pm.index === 3 && pm.selectedText === 'Four · p. 4',
+    `addBookmark on PDF page 4 keeps its page, labelled "Four · p. 4" (${JSON.stringify(pm)})`)
+  const pdfList = await waitFor(at, (x) => x.type === 'bookmark-list' && x.here === pm?.id, 'bookmark-list after a PDF bookmark').catch(() => null)
+  check(pdfList?.bookmarks?.[0]?.text === 'Four · p. 4', 'the bookmark list has it, here')
+  at = messages.length
+  call('window.__fol.addBookmark()')
+  check(!!(await waitFor(at, (x) => x.type === 'log' && /this page is bookmarked/.test(x.msg), 'second bookmark refused').catch(() => null)), 'a second bookmark on the same PDF page is refused')
+  m = await open('tsoutline.pdf', JSON.stringify({ ...marked, position: null }))
+  check(m.restored?.highlights?.[0]?.status === 'restored' && await call('window.__fol.placedBookmarks()') === 1, `reopened, the PDF bookmark is found (${JSON.stringify(m.restored?.highlights)})`)
+  at = messages.length
+  call(`window.__fol.goTo(${JSON.stringify(pm?.cfi)}, true)`)
+  check(!!(await waitFor(at, (x) => x.type === 'relocate' && x.index === 3, 'relocate to the bookmark').catch(() => null))
+    && !!(await waitFor(at, (x) => x.type === 'bookmark-list' && x.here === pm?.id, 'here after the jump').catch(() => null)), 'a jump to the PDF bookmark lands on its page, where it is here')
   // #1557 review: a newer open that fails leaves this book on screen; a host that dropped its `toc` meanwhile (the newer
   // open in flight) takes it back, so the page says it again after the `open-failed`.
   const refused = await open('tsplain.txt')

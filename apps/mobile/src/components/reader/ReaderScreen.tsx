@@ -510,7 +510,7 @@ function ReaderPage({ verdict, onUserAgent }: { verdict: WebViewVerdict | null; 
    */
   const [bookmarks, setBookmarks] = useState<BookmarkList | null>(null)
   const [bookmarksOpen, setBookmarksOpen] = useState(false)
-  /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (false: an image book, a PDF, a pre-paginated EPUB). */
+  /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (#1350: a PDF, a CBZ, a pre-paginated EPUB too, by page). */
   const [bookmarkable, setBookmarkable] = useState(false)
   const [highlightColor, setHighlightColor] = useState<HighlightColor>('yellow')
   useEffect(() => { AsyncStorage.getItem(HIGHLIGHT_COLOR_KEY).then((c) => setHighlightColor(colorOf(c)), () => {}) }, [])

@@ -521,7 +521,10 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
   if (!a.note_known) return
   const b = await pushedBook(lib, reset, local)
   if (!b) return
-  const write = highlightWrite(JSON.parse(a.highlight) as PageHighlight, a.book_id, (a.file_id ?? b.file_id)!, a.revision, a.note ?? null)
+  const fileId = (a.file_id ?? b.file_id)!
+  // #1350: a PDF's bookmark is a pdf-page annotation; the format is the file's the row is on.
+  const format = fileId === b.file_id ? b.format : fileId === b.server_file_id ? b.server_format : null
+  const write = highlightWrite(JSON.parse(a.highlight) as PageHighlight, a.book_id, fileId, a.revision, a.note ?? null, format)
   if (!write) return drop(lib, reset, item)
   const landed = (revision: number) => Promise.all([lib.annotationLanded(a.id, revision, write.noteText ?? null), lib.done(item)])
   try {

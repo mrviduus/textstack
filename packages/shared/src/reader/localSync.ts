@@ -12,7 +12,7 @@ import { isFractionOnly } from './fractionPosition'
 import { isPdfPage } from './pdfPagePosition'
 import { decideNewerPosition, serverProvablyNewer, type NewerPositionAction } from './newerPosition'
 import { MAX_SELECTED_TEXT } from './locators'
-import { isQuotation, type PageQuotation } from './pageStore'
+import { isBookmark, isQuotation, type PageQuotation } from './pageStore'
 
 export interface PagePosition {
   /** Absent on a fraction-only position (a transitional server locator): restored by `fraction`, never pushed. */
@@ -161,11 +161,18 @@ export function statePosition(s: ReadingState, format: string | null = null): Pa
 /**
  * The page highlight as an annotation write; null when its text may not be synced (`syncableText`). `noteText`: the
  * note the host holds for it (#1312; the page holds none), always sent: the PUT replaces the row, so a write without
- * it would clear a note another device wrote.
+ * it would clear a note another device wrote. `format`: the file's; on a `pdf` only a page bookmark (#1350, its
+ * section CFI) is written, as a `pdf-page` locator on its whole page (no rects, no text: `SyncValidation.FitsFile`).
  */
-export function highlightWrite(h: PageHighlight, bookId: string, fileId: string, expectedRevision: number | null, noteText: string | null = null): AnnotationWrite | null {
+export function highlightWrite(h: PageHighlight, bookId: string, fileId: string, expectedRevision: number | null, noteText: string | null = null, format: string | null = null): AnnotationWrite | null {
   const selectedText = syncableText(h)
   if (!selectedText) return null
+  if (format === 'pdf') {
+    const index = spineIndexOf(h.cfi)
+    if (!isBookmark(h) || index === null) return null
+    const locator: Locator = { version: 1, scheme: 'pdf-page', value: { page: index + 1, rects: [], exact: '' } }
+    return { expectedRevision, bookId, fileId, selectedText, noteText, locator, color: h.color! }
+  }
   const locator: Locator = { version: 1, scheme: 'epub-cfi', value: h.cfi, quote: codePoints(h.quote, 64) }
   // The page's 30 characters of context: the server bounds each at 32 code points, kept nearest the selection.
   if (h.prefix) locator.prefix = codePoints(h.prefix, 32, true)
@@ -175,10 +182,19 @@ export function highlightWrite(h: PageHighlight, bookId: string, fileId: string,
 
 /**
  * A pulled annotation as the page's highlight; null for one the page cannot draw (no `epub-cfi`
- * locator: a `textstack-anchor-v1` quotation from the transitional reader, a catalog quotation).
+ * locator: a `textstack-anchor-v1` quotation from the transitional reader, a catalog quotation). A `pdf-page`
+ * bookmark (#1350) is the page's page bookmark: its page's section CFI (foliate's, page − 1).
  */
 export function annotationHighlight(a: Annotation): PageHighlight | null {
   const l = a.locator
+  const page = l?.scheme === 'pdf-page' && isBookmark(a) ? (l.value as { page?: unknown } | null)?.page : undefined
+  if (isPdfPage({ page })) {
+    const index = (page as number) - 1
+    return {
+      id: a.id, cfi: `epubcfi(/6/${2 * (index + 1)})`, index, quote: codePoints(a.selectedText, 64), selectedText: a.selectedText,
+      prefix: '', suffix: '', color: a.color, at: Date.parse(a.createdAt),
+    }
+  }
   if (!l || l.scheme !== 'epub-cfi' || typeof l.value !== 'string') return null
   return {
     id: a.id, cfi: l.value, index: spineIndexOf(l.value) ?? undefined,

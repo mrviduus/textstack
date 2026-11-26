@@ -400,7 +400,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
   const [highlightList, setHighlightList] = useState<HighlightItem[]>([])
   /** #1314: the open book's bookmarks, the one on screen and whether one can be made here (the page's `bookmark-list`); null until it comes. */
   const [bookmarks, setBookmarks] = useState<BookmarkList | null>(null)
-  /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (false: an image book, a PDF, a pre-paginated EPUB). */
+  /** `opened.bookmarkable`: a bookmark can be made somewhere in the open book (#1350: a PDF, a CBZ, a pre-paginated EPUB too, by page). */
   const [bookmarkable, setBookmarkable] = useState(false)
   const openedSha = useRef<string | null>(null)
   const devNotes = useRef(new Map<string, string | null>())
@@ -631,7 +631,8 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
             // bookmark until this call has placed them (its `bookmark-list` then says `can`).
             call('addHighlights', [list])
           },
-          highlights: m.annotatable !== false,
+          // #1350: a page-based book (PDF, CBZ) takes no highlights but bookmarks: its annotations are pulled too.
+          highlights: m.annotatable !== false || m.bookmarkable === true,
           // A later offer replaces the one shown (the newest place).
           onNewerPlace: setOffer,
           // Every server state the session takes: a reset elsewhere brings the button back.
@@ -1087,14 +1088,16 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
    * would duplicate one). The button adds one at the place on screen, or removes the one there; the page answers a
    * removal with `highlight-removed`, the tombstone's path.
    */
-  const bookmarkHere = offersHighlights && bookmarks ? bookmarks.here : null
+  // #1350: on a page-based book too (no highlights: a PDF, a CBZ), once the server's annotations are in.
+  const offersMarks = (annotatable || bookmarkable) && (dev || highlightsReady)
+  const bookmarkHere = offersMarks && bookmarks ? bookmarks.here : null
   // Only for the book being read, where the book takes bookmarks (or holds some). Kept on the bars while the page says
   // none can be made now (bookmarks being placed, nothing to keep on this screen): disabled, so the bars never shift.
-  const offersBookmark = reading && offersHighlights && (bookmarkable || !!bookmarks?.bookmarks.length)
+  const offersBookmark = reading && offersMarks && (bookmarkable || !!bookmarks?.bookmarks.length)
   const bookmarkEnabled = !!bookmarks && (bookmarks.can || !!bookmarks.here)
   const toggleBookmark = () => (bookmarkHere ? call('removeBookmark', [bookmarkHere]) : call('addBookmark'))
   /** The Bookmarks tab: where the book can take one, or holds some already. */
-  const bookmarksTab = offersHighlights && (bookmarkable || !!bookmarks?.bookmarks.length)
+  const bookmarksTab = offersMarks && (bookmarkable || !!bookmarks?.bookmarks.length)
     ? { items: bookmarks?.bookmarks ?? [], can: !!bookmarks?.can, placing: !bookmarks || bookmarks.placing, onGo: goHighlight, onRemove: (id: string) => call('removeBookmark', [id]) }
     : null
 

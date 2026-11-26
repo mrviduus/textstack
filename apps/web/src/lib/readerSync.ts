@@ -5,8 +5,8 @@
  *   retry); the page is restored only from the server's place, so nothing is ever written over a place unseen.
  * - **No annotations pull, no highlight writes.** The book's annotations are drawn when their pull lands
  *   (`onHighlights`); until then highlights are held, the host offers none, and the status says so; the pull
- *   is retried on the next `store` and flush. The position never waits for it. A book without highlights
- *   (`highlights: false`: a PDF, a CBZ) pulls nothing.
+ *   is retried on the next `store` and flush. The position never waits for it. A book without highlights or
+ *   bookmarks (`highlights: false`) pulls nothing; a PDF or a CBZ pulls for its bookmarks (#1350).
  * - Each `store` is diffed (`@textstack/shared` entryChanges, the mapping the Android local library uses)
  *   against what the server is known to hold and written with the expected revisions (PDD v2-sync-protocol.md
  *   "The revision rule", "Conflict codes"). A failed write stays a difference, written again on the next
@@ -166,7 +166,7 @@ export function createReaderSync(t: SyncTarget, o: {
   onCompleted?(completedAt: string | null): void
   /** Waited for before the first read; by default the last session of this book still writing (a reopen). */
   after?: Promise<unknown>
-  /** False where the page offers no highlights (a PDF, a CBZ): no annotations pull. */
+  /** False where the page offers neither highlights nor bookmarks: no annotations pull. */
   highlights?: boolean
   api?: ReaderSyncApi
   newId?: () => string
@@ -291,7 +291,7 @@ export function createReaderSync(t: SyncTarget, o: {
    * a tombstone wins. `pageId`: the id the page holds it under (another after an `id_conflict` re-key).
    */
   async function pushHighlight(h: Noted, expected: number | null, retried = false, pageId = h.id): Promise<boolean> {
-    const write = highlightWrite(h, t.bookId, t.fileId, expected, h.noteText)
+    const write = highlightWrite(h, t.bookId, t.fileId, expected, h.noteText, t.format)
     if (!write) return false
     /** The note sent is what this tab holds now: its edit is done (a newer edit meanwhile stays). */
     const landed = (a: Annotation) => {
@@ -555,7 +555,7 @@ export function createReaderSync(t: SyncTarget, o: {
       for (const id of removals) bodies.push([() => api.keepaliveDeleteAnnotation(id), ' '.repeat(100)])
       if (highlightsLoaded) {
         for (const { highlight: h } of changes.highlights) {
-          const w = highlightWrite(h, t.bookId, t.fileId, held.get(h.id)?.revision ?? null, h.noteText)
+          const w = highlightWrite(h, t.bookId, t.fileId, held.get(h.id)?.revision ?? null, h.noteText, t.format)
           if (w) bodies.push([(b) => api.keepalivePutAnnotation(h.id, b), JSON.stringify(w)])
         }
       }

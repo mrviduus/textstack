@@ -93,13 +93,23 @@ describe('ReaderHost bookmarks', () => {
     expect(button()).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('button_ABookWithoutAnnotations_NotOffered_NoTab', () => {
-    // (Whatever the page says of bookmarks: where the host offers no annotations it writes none.)
-    opened({ annotatable: false, bookmarkable: true, toc: [{ label: 'One', href: 'a.xhtml', depth: 0 }] })
+  it('button_ABookThatTakesNeitherHighlightsNorBookmarks_NotOffered_NoTab', () => {
+    opened({ annotatable: false, bookmarkable: false, toc: [{ label: 'One', href: 'a.xhtml', depth: 0 }] })
     list([], null, true)
     expect(button()).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Contents' }))
     expect(screen.queryByTestId('v2-bookmarks-tab')).toBeNull()
+  })
+
+  it('button_APageBasedBook_NoHighlightsButBookmarks_OfferedWithTheirTab', () => {
+    // #1350: a PDF or a CBZ: the page bookmarks the page on screen, and takes no highlight.
+    opened({ annotatable: false, bookmarkable: true })
+    list([item(ID1, 'Four · p. 4')])
+    fireEvent.click(button()!)
+    expect(calls('addBookmark')).toEqual([[]])
+    expect(screen.queryByRole('button', { name: 'Highlight' })).toBeNull()
+    expect(rows(openTab()).map((b) => b.textContent)).toEqual(['Four · p. 4'])
+    expect(screen.queryByTestId('v2-highlights-tab')).toBeNull()
   })
 
   it('list_InThePagesOrder_TapJumpsThereAsTheReadersChoice', () => {
@@ -263,6 +273,31 @@ describe('ReaderHost bookmarks', () => {
       fromPage({ type: 'store', key: SHA, json: entry([page, { ...page, id: ID2, cfi: 'epubcfi(/6/8!/4/2,/1:0,/1:3)' }]).replace(ID2, ID1).replace('epubcfi(/6/8!/4/2,/1:0,/1:3)', CFI) })
       await flush()
       expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+    })
+
+    it('aPdf_ItsAnnotationsPulled_ItsPageBookmarkWrittenAndReadAsAPdfPageAnnotation', async () => {
+      // #1350: a PDF takes no highlights, but its bookmarks are the server's annotations all the same.
+      const pdf: SyncTarget = { ...target, format: 'pdf', name: 'a.pdf' }
+      const mark = { id: ID2, cfi: 'epubcfi(/6/24)', index: 11, quote: 'Two · p. 12', selectedText: 'Two · p. 12', prefix: '', suffix: '', color: 'bookmark', at: Date.parse('2026-11-26T10:00:00Z') }
+      const onPage = (m: typeof mark) => ({
+        id: m.id, bookId: BOOK, fileId: FILE, selectedText: m.selectedText, noteText: null, color: 'bookmark',
+        locator: { version: 1, scheme: 'pdf-page', value: { page: m.index + 1, rects: [], exact: '' } },
+        createdAt: '2026-11-26T10:00:00Z', updatedAt: '2026-11-26T10:00:00Z', deletedAt: null, revision: 1,
+      })
+      api.getReadingState.mockResolvedValue(null)
+      api.pullAll.mockResolvedValue({ items: [onPage({ ...mark, id: ID1, cfi: 'epubcfi(/6/8)', index: 3, quote: 'p. 4', selectedText: 'p. 4' })] })
+      opened({ sync: pdf, annotatable: false, bookmarkable: true })
+      await flush()
+      expect(calls('addHighlights')).toEqual([[[{ id: ID1, cfi: 'epubcfi(/6/8)', index: 3, quote: 'p. 4', selectedText: 'p. 4', prefix: '', suffix: '', color: 'bookmark', at: mark.at }]]])
+      list([], null, true)
+      expect(button()).toBeEnabled()
+      api.putAnnotation.mockResolvedValue(onPage(mark))
+      fromPage({ type: 'store', key: SHA, json: entry([mark]) })
+      await flush()
+      expect(api.putAnnotation.mock.calls).toEqual([[ID2, {
+        expectedRevision: null, bookId: BOOK, fileId: FILE, selectedText: 'Two · p. 12', noteText: null, color: 'bookmark',
+        locator: { version: 1, scheme: 'pdf-page', value: { page: 12, rects: [], exact: '' } },
+      }]])
     })
 
     it('aRemovedBookmark_TombstonedOnTheServer_NeverWrittenAgain', async () => {

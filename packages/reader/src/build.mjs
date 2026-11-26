@@ -179,7 +179,9 @@ const FOLIATE_SHA = 'c18e1898a8a3b4201b48ecff0b2dc5c6055a958e'
 // +838 (#1333): the fork tags every move (a crossing 'turn', a scrolled page 'page', a fixed layout's goTo 'navigation') and a
 // loading view relocates nothing, anchored to its start for a navigation, with no visible range of the old document; the
 // page reads `cause` from the renderer's reason (`causeOf`), a turn even while a navigation lands.
-const BUDGET = 352294
+// +2,043 (#1350): page bookmarks on a PDF, a CBZ and a pre-paginated EPUB (`marksPages`, `pageOf`, `foundAt`;
+// bookmarks.mjs `pageBookmarkText`, `pageBookmarkOn`), a PDF goTo to one's CFI.
+const BUDGET = 354337
 // The same tripwire per format reader (#1128): unminified characters of each one's own IIFE, carried
 // as a string in the page and run only when a book of that format opens. EPUB is the page itself.
 // mobi = mobi.js + vendor/fflate.js; fb2 = fb2.js; cbz = comic-book.js (zip.js is the page's own).

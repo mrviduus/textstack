@@ -352,6 +352,32 @@ describe('localSync', () => {
     expect(BOOKMARK_COLOR).toBe('bookmark')
   })
 
+  it('pageBookmark_OnAPdf_WrittenAsAPdfPageAnnotationOnItsWholePage_SamePageFormBack', () => {
+    // #1350: the page's PDF bookmark is its page's section CFI (page 12 = section 11); the server takes it as pdf-page.
+    const at = Date.parse('2026-11-26T10:00:00Z')
+    const page: PageHighlight = { id: 'a', cfi: 'epubcfi(/6/24)', index: 11, quote: 'Chapter 2 · p. 12', selectedText: 'Chapter 2 · p. 12', prefix: '', suffix: '', color: 'bookmark', at }
+    const w = highlightWrite(page, 'b', 'f', null, null, 'pdf')!
+    expect(w).toEqual({
+      expectedRevision: null, bookId: 'b', fileId: 'f', selectedText: 'Chapter 2 · p. 12', noteText: null, color: 'bookmark',
+      locator: { version: 1, scheme: 'pdf-page', value: { page: 12, rects: [], exact: '' } },
+    })
+    const stored: Annotation = { id: 'a', bookId: 'b', fileId: 'f', selectedText: w.selectedText, noteText: null, locator: w.locator!, color: w.color!, createdAt: '2026-11-26T10:00:00Z', updatedAt: '2026-11-26T10:00:00Z', deletedAt: null, revision: 1 }
+    // Arrives on another device as the same page form: no write per store, and the page places it on page 12.
+    expect(annotationHighlight(stored)).toEqual(page)
+    // Only a bookmark: a PDF highlight is no page form, and the page never makes one on a PDF.
+    expect(annotationHighlight({ ...stored, color: 'yellow' })).toBeNull()
+    expect(highlightWrite({ ...page, color: 'yellow' }, 'b', 'f', null, null, 'pdf')).toBeNull()
+  })
+
+  it('pageBookmark_OnACbz_WrittenAsAnEpubCfiAnnotation_SamePageFormBack', () => {
+    // #1350: a CBZ (or pre-paginated EPUB) page bookmark is its section CFI, synced as any bookmark is.
+    const page: PageHighlight = { id: 'a', cfi: 'epubcfi(/6/8)', index: 3, quote: 'p. 4', selectedText: 'p. 4', prefix: '', suffix: '', color: 'bookmark', at: Date.parse('2026-11-26T10:00:00Z') }
+    const w = highlightWrite(page, 'b', 'f', null, null, 'cbz')!
+    expect(w.locator).toEqual({ version: 1, scheme: 'epub-cfi', value: 'epubcfi(/6/8)', quote: 'p. 4' })
+    const stored: Annotation = { id: 'a', bookId: 'b', fileId: 'f', selectedText: w.selectedText, noteText: null, locator: w.locator!, color: w.color!, createdAt: '2026-11-26T10:00:00Z', updatedAt: '2026-11-26T10:00:00Z', deletedAt: null, revision: 1 }
+    expect(annotationHighlight(stored)).toEqual(page)
+  })
+
   it('ownWrite_KeyOrderAndTimeZoneDiffer_StillOwn', () => {
     const sent = positionWrite(pos, 'f', null)!
     const stored = state({ currentLocator: { quote: pos.quote, value: CFI, scheme: 'epub-cfi', version: 1 }, clientRecordedAt: '2026-11-10T12:00:00+02:00' })
