@@ -220,8 +220,8 @@ describe('readerPageHtml', () => {
     // A PDF position is a page, never a CFI; a position of the other kind is refused on restore and goTo.
     expect(html).toMatch(/var fits = \((\w+)\) => format === "pdf" === isPdfPage\(\1\);/)
     expect(html).toMatch(/if \((\w+) && !fits\(\1\)\) \{\s*result\.position = "wrong position kind, stayed at start";/)
-    // goTo: a wrong-kind position, and a raw CFI string on a PDF.
-    expect(html).toMatch(/if \(isPosition\(target\) \? !fits\(target\) : format === "pdf" && String\(target\)\.startsWith\("epubcfi\("\)\) return log\("warn"/)
+    // goTo: a wrong-kind position, and a raw CFI string on a PDF, but a placed bookmark's (#1350: its page's).
+    expect(html).toMatch(/if \(isPosition\(target\) \? !fits\(target\) : format === "pdf" && !mark && String\(target\)\.startsWith\("epubcfi\("\)\) return log\("warn"/)
   })
 
   it('bundle_SyncPrereqs_UuidIdsCodePointQuotesSelectedText', () => {

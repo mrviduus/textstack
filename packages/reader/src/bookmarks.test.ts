@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { BOOKMARK_COLOR as BOOKMARK } from '../../shared/src/reader/pageStore'
-import { BOOKMARK_TEXT, atTop, lineCount, bookmarkList, bookmarkRange, bookmarkText, isBookmark, readBookmarkList, startsWithin } from './bookmarks.mjs'
+import { BOOKMARK_TEXT, atTop, lineCount, bookmarkList, bookmarkRange, bookmarkText, isBookmark, pageBookmarkOn, pageBookmarkText, readBookmarkList, startsWithin } from './bookmarks.mjs'
 import { foldText } from './store.mjs'
 import { HIGHLIGHT_COLORS, highlightList } from './highlights.mjs'
 
@@ -273,6 +273,31 @@ describe('v2 reader bookmarks', () => {
       { id: 'b0', cfi: 'epubcfi(/6/8)', text: 'same place, earlier', at: 0 },
       { id: 'b2', cfi: 'epubcfi(/6/8)', text: 'second', at: 1 },
     ])
+  })
+
+  describe('on a page-based book (#1350: PDF, CBZ, pre-paginated EPUB)', () => {
+    const mark = (id: string, index: number, color = BOOKMARK) => ({ id, cfi: `epubcfi(/6/${2 * (index + 1)})`, index, color })
+
+    it('pageBookmarkText_TheTocEntryAndThePage_OrThePageAlone', () => {
+      expect(pageBookmarkText('Chapter 2', 12)).toBe('Chapter 2 · p. 12')
+      expect(pageBookmarkText('  Chapter 2 ', 'xii')).toBe('Chapter 2 · p. xii')
+      expect(pageBookmarkText(undefined, 1)).toBe('p. 1')
+      expect(pageBookmarkText('   ', 3)).toBe('p. 3')
+      // A long title is cut by code points, never inside a surrogate pair.
+      expect(pageBookmarkText('\u{1F600}'.repeat(150), 7)).toBe(`${'\u{1F600}'.repeat(100)} · p. 7`)
+    })
+
+    it('pageBookmarkOn_ThePlacedBookmarkOfThatPage_ElseNull', () => {
+      const highlights = [mark('a', 3), mark('h', 5, 'yellow'), mark('b', 5), mark('c', 7)]
+      const placed = new Set(['a', 'h', 'b'])
+      // The page on screen has one: it is "here", and a second one on that page is refused.
+      expect(pageBookmarkOn(highlights, placed, 3)).toBe('a')
+      expect(pageBookmarkOn(highlights, placed, 5)).toBe('b')
+      // None on this page; one not placed (its page not in this file) is not here either.
+      expect(pageBookmarkOn(highlights, placed, 4)).toBeNull()
+      expect(pageBookmarkOn(highlights, placed, 7)).toBeNull()
+      expect(pageBookmarkOn(highlights, placed, undefined)).toBeNull()
+    })
   })
 
   it('highlightList_NeverListsABookmark_EvenIfDrawn', () => {

@@ -19,6 +19,10 @@ export function atTop(
   mark: Range,
   opts?: { scrolled?: boolean; vertical?: boolean; rects?: (r: Range) => Iterable<{ top: number; left: number; width: number; height: number }>; placeLine?: () => { top: number; left: number; width: number; height: number } | undefined },
 ): boolean
+/** #1350: a page bookmark's label: "<TOC title> · p. <page>", or "p. <page>". */
+export function pageBookmarkText(title: string | null | undefined, page: string | number): string
+/** #1350: the placed bookmark on section `index`, or null. */
+export function pageBookmarkOn(highlights: { id: string; index?: number; color?: string }[], placed: Set<string>, index: number | null | undefined): string | null
 /** One `bookmark-list` item, in book order; `text` is display only (cut). */
 export type BookmarkItem = ListItem
 export function bookmarkList(

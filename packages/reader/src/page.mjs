@@ -21,7 +21,7 @@ import { MAX_SELECTION_CFI, selectionMessage } from './selection.mjs'
 import { SPOKEN_FILL } from './listen.mjs'
 import { navKey } from './chrome.mjs'
 import { HIGHLIGHT_FILL, colorOf, highlightList, isHighlightColor, sameRangeHighlight } from './highlights.mjs'
-import { atTop, bookmarkList, firstLine, bookmarkRange, bookmarkText, isBookmark, startsWithin } from './bookmarks.mjs'
+import { atTop, bookmarkList, firstLine, bookmarkRange, bookmarkText, isBookmark, pageBookmarkOn, pageBookmarkText, startsWithin } from './bookmarks.mjs'
 import { BOOKMARK_COLOR } from '../../shared/src/reader/pageStore'
 import { MAX_SELECTED_TEXT } from '../../shared/src/reader/locators'
 import { THEMES, readSettings, settingsCss } from './settings.mjs'
@@ -74,6 +74,11 @@ const placedQuotes = new Set()
 let listed = []
 let listedVersion = 0
 let hereId = null
+/**
+ * #1350: the page a host goTo landed on, on a page-based book: the other side of a spread already shown gets no
+ * relocate, so `lastLocation` still names the side shown before. Null again after a turn or a navigation's relocate.
+ */
+let landedPage = null
 const placing = new Set()
 let awaitingMore = false
 let bookmarksSent = null
@@ -397,6 +402,12 @@ function settleSelection() {
   selectionTimer = setTimeout(sendSelection, SELECTION_SETTLE_MS)
 }
 addEventListener('resize', settleSelection)
+// #1350: a resize re-renders the side foliate calls current (no relocate): the page here is that one again.
+addEventListener('resize', () => {
+  if (landedPage === null) return
+  landedPage = null
+  postBookmarks()
+})
 
 const sameRange = (a, b) => a.startContainer === b.startContainer && a.startOffset === b.startOffset && a.endContainer === b.endContainer && a.endOffset === b.endOffset
 
@@ -1066,8 +1077,21 @@ function hereOf(loc, cause, place) {
   return entry.highlights.find((h) => placed.has(h.id) && atTheTop(rangeOn(h, loc)))?.id ?? null
 }
 
-/** Whether a bookmark can be made at `place` now: not where the book takes none, not while bookmarks are still being placed. */
-const canBookmark = (place) => annotatable && !awaitingMore && placing.size === 0 && !!place
+/** Whether a bookmark can be made at a place that takes one (`ok`) now: not while bookmarks are still being placed. */
+const canBookmark = (ok) => !awaitingMore && placing.size === 0 && !!ok
+/** #1350: a book whose bookmarks mark a whole page (PDF, CBZ, pre-paginated EPUB), never text on it. */
+const marksPages = () => format === 'pdf' || pageForm()
+/** A bookmark can be made somewhere in the open book: a page-based one, or text at a CFI (not a fixed-layout KF8). */
+const bookmarkable = () => marksPages() || (annotatable && !view.isFixedLayout)
+/** #1350: the page on screen of a page-based book (`landedPage`, else the side foliate calls current). */
+const pageOnScreen = (loc) => landedPage ?? loc?.section?.current
+/** #1350: the section a page bookmark's CFI names in this book, -1 if none. */
+function pageOf(h) {
+  try {
+    const { index } = view.resolveCFI(h.cfi)
+    return Number.isInteger(index) && view.book.sections[index] ? index : -1
+  } catch { return -1 }
+}
 
 /**
  * #1314: the open book's bookmarks in book order (`listed`), the one the place being read has (`here`) and whether one
@@ -1079,9 +1103,11 @@ function postBookmarks(loc = view?.lastLocation, cause) {
   if (!entry) return
   try {
     if (testBreakBookmarks) throw new Error('test: the bookmark pass broke')
-    const place = loc?.range ? bookmarkRange(loc.range) : null
-    hereId = hereOf(loc, cause, place)
-    const can = canBookmark(place)
+    // #1350: a page-based book's bookmark is the page on screen's (`pageOnScreen`).
+    const page = marksPages() ? pageOnScreen(loc) : undefined
+    const place = page === undefined && loc?.range ? bookmarkRange(loc.range) : null
+    hereId = page === undefined ? hereOf(loc, cause, place) : pageBookmarkOn(entry.highlights, placed, page)
+    const can = canBookmark(page === undefined ? annotatable && place : Number.isInteger(page))
     // Bookmarks still being placed (#1314 review): a host shows them loading, not "this page cannot be bookmarked".
     const loading = awaitingMore || placing.size > 0
     const list = `${viewSeq}:${listedVersion}`
@@ -1109,21 +1135,37 @@ function placingStarts() {
  * #1314: a bookmark at the place on screen: the first words there (≤ `BOOKMARK_TEXT`, `bookmarkText`) and their CFI,
  * kept in the entry as a highlight of colour `BOOKMARK_COLOR` (saved and synced as one, never drawn). It is the one
  * here at once (it starts where the screen does). Refused with a `warn`: before `restored`; while bookmarks are still being placed; where there is no
- * text to keep (an image page, a fixed-layout book, a PDF); where the place being read has a bookmark (`hereOf`: no
+ * text to keep (an image page, a fixed-layout KF8); where the place being read has a bookmark (`hereOf`: no
  * duplicate, no twin of one the host holds). A bookmark further down the screen does not refuse it.
+ * #1350: on a page-based book (`marksPages`) it marks the page on screen instead, once per page (`pageBookmarkText`).
  */
 function addBookmark() {
   if (!entry) return log('warn', 'addBookmark ignored: the stored entry is not restored yet')
   if (placing.size || awaitingMore) return log('warn', 'addBookmark ignored: bookmarks are still being placed')
   const loc = view.lastLocation
-  const range = annotatable && loc?.range ? bookmarkRange(loc.range) : null
-  if (!range) return log('warn', 'addBookmark ignored: no text to bookmark here')
-  // The place being read has one (`hereOf`: one that starts here, the one at the top, the one just jumped to).
-  if (hereOf(loc, undefined, range)) return log('warn', 'addBookmark ignored: this place is bookmarked')
-  const index = loc.section.current
-  // As a label reads (a space between blocks and lines); restore compares it with the same text at the CFI.
-  const selectedText = bookmarkText(range)
-  const h = { id: uuidV4(), cfi: view.getCFI(index, range), index, quote: quoteOf(selectedText), selectedText, prefix: '', suffix: '', color: BOOKMARK_COLOR, at: Date.now() }
+  let index, cfi, selectedText
+  if (marksPages()) {
+    // #1350: the whole page on screen, its CFI the section's; labelled by where it is, the page having no text to keep.
+    // ponytail: a CBZ page by its index, not its entry name (annotations take no page-name); a name in the CFI if devices
+    // ever order a CBZ's entries differently.
+    index = pageOnScreen(loc)
+    if (!Number.isInteger(index)) return log('warn', 'addBookmark ignored: no page here')
+    if (pageBookmarkOn(entry.highlights, placed, index)) return log('warn', 'addBookmark ignored: this page is bookmarked')
+    const { tocItem, pageItem } = view.getProgressOf(index) ?? {}
+    cfi = view.getCFI(index)
+    // A CBZ's contents are its images' names: its label is the page alone.
+    selectedText = pageBookmarkText(format === 'cbz' ? null : tocItem?.label, pageItem?.label ?? index + 1)
+  } else {
+    const range = annotatable && loc?.range ? bookmarkRange(loc.range) : null
+    if (!range) return log('warn', 'addBookmark ignored: no text to bookmark here')
+    // The place being read has one (`hereOf`: one that starts here, the one at the top, the one just jumped to).
+    if (hereOf(loc, undefined, range)) return log('warn', 'addBookmark ignored: this place is bookmarked')
+    index = loc.section.current
+    cfi = view.getCFI(index, range)
+    // As a label reads (a space between blocks and lines); restore compares it with the same text at the CFI.
+    selectedText = bookmarkText(range)
+  }
+  const h = { id: uuidV4(), cfi, index, quote: quoteOf(selectedText), selectedText, prefix: '', suffix: '', color: BOOKMARK_COLOR, at: Date.now() }
   entry = withHighlight(entry, h)
   placed.add(h.id)
   relist()
@@ -1410,6 +1452,7 @@ async function open(bytes, name, kind, mine) {
   // Bookmarks: nothing queued for the old book (an `addHighlights` behind a navigation that never settles) holds up
   // this one's. (`placed`, the list and `awaitingMore` are set again by this book's restore.)
   placing.clear()
+  landedPage = null
   spokenCfi = null
   view = document.createElement('foliate-view')
   document.body.append(view)
@@ -1434,6 +1477,7 @@ async function open(bytes, name, kind, mine) {
       persist(400)
     }
     // #1314, after the save (and never throwing): which bookmark the place has now, and whether one can be made here.
+    if (cause === 'turn' || cause === 'nav') landedPage = null
     postBookmarks(d, cause)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
@@ -1517,8 +1561,8 @@ async function open(bytes, name, kind, mine) {
     // reflowable: false for a fixed-layout book (CBZ, a pre-paginated EPUB), where flow() changes nothing.
     // annotatable: false where highlights and the translation label are refused (CBZ, PDF).
     type: 'opened', book, format, textual, annotatable, reflowable: !view.isFixedLayout,
-    // #1314: a bookmark can be made somewhere in this book (text at a CFI): not a CBZ, a PDF or a pre-paginated EPUB.
-    bookmarkable: annotatable && !view.isFixedLayout,
+    // #1314: a bookmark can be made somewhere in this book: text at a CFI, or a page (#1350: PDF, CBZ, pre-paginated EPUB).
+    bookmarkable: bookmarkable(),
     dir: pagedDir(),
     // Either may be missing, a string, or a language map ({ en: … }); the host falls back to the file name.
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
@@ -1577,6 +1621,20 @@ async function textAt(cfi, bookmark = false) {
 const stillThere = (h, { text, label }) => foldText(isBookmark(h) ? label : text) === foldText(h.selectedText ?? h.quote)
 
 /**
+ * Where stored highlight `h` is found in this file: `{ index, ok }`. A page bookmark (#1350) where its page is in the
+ * book; where the book takes no highlights, nothing else; any other where its text still is (`stillThere`).
+ */
+async function foundAt(h) {
+  if (marksPages() && isBookmark(h)) {
+    const index = pageOf(h)
+    return { index, ok: index >= 0 }
+  }
+  if (!annotatable) return { index: -1, ok: false }
+  const at = await textAt(h.cfi, isBookmark(h)).catch(() => ({ text: '', label: '' }))
+  return { index: at.index, ok: stillThere(h, at) }
+}
+
+/**
  * The host's stored entry for this file (or null). A CFI is used only while the text there is still
  * the saved quote; otherwise that item is reported and left out, never drawn somewhere else.
  */
@@ -1624,7 +1682,7 @@ async function addHighlightsNow(list) {
   const mine = viewSeq
   const result = []
   for (const raw of Array.isArray(list) ? list : []) {
-    if (!entry || !annotatable || mine !== viewSeq) return
+    if (!entry || !(annotatable || marksPages()) || mine !== viewSeq) return
     if (isQuotation(raw)) {
       if (!quotes.some((q) => q.id === raw.id)) quotes = [...quotes, raw]
       result.push({ id: raw.id, status: 'listed' })
@@ -1635,16 +1693,15 @@ async function addHighlightsNow(list) {
       result.push({ id: raw?.id, status: h ? 'already drawn' : 'not a highlight' })
       continue
     }
-    const at = await textAt(h.cfi, isBookmark(h)).catch(() => ({ text: '', label: '' }))
+    const { index, ok } = await foundAt(h)
     if (mine !== viewSeq || !entry) return
-    const ok = stillThere(h, at)
     result.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
     if (!ok) continue
     entry = withHighlight(entry, h)
     // A bookmark (#1314) is kept, never drawn.
     if (isBookmark(h)) placed.add(h.id)
     else if (savedQuote(h)) placedQuotes.add(h.id)
-    else annotate({ value: h.cfi, index: at.index, hl: { id: h.id, color: h.color } })
+    else annotate({ value: h.cfi, index, hl: { id: h.id, color: h.color } })
   }
   post({ type: 'highlights', key: book.sha256, highlights: result })
   postList()
@@ -1676,16 +1733,15 @@ async function restoreInto(json, stale) {
 async function restoreNow(json, stored, stale) {
   const result = { found: !!stored, rejected: !!json && !stored, position: 'none', highlights: [] }
   for (const h of entry.highlights) {
-    const at = await textAt(h.cfi, isBookmark(h)).catch(() => ({ text: '', label: '' }))
-    if (stale()) return result
     // An entry written before selectedText (#1078) kept the whole selection in quote.
-    const ok = stillThere(h, at)
+    const { index, ok } = await foundAt(h)
+    if (stale()) return result
     result.highlights.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
     if (!ok) continue
     // A bookmark (#1314) is kept, never drawn.
     if (isBookmark(h)) placed.add(h.id)
     else if (savedQuote(h)) placedQuotes.add(h.id)
-    else annotate({ value: h.cfi, index: at.index, hl: { id: h.id, color: h.color } })
+    else annotate({ value: h.cfi, index, hl: { id: h.id, color: h.color } })
   }
   const p = entry.position
   if (p && !fits(p)) {
@@ -1914,21 +1970,23 @@ window.__fol = {
     if (!view?.book) return
     if (target === '') return log('warn', 'goTo ignored: a quotation has no place')
     if (target && typeof target === 'object' && !isPosition(target)) return log('warn', 'goTo ignored: not a position')
-    if (isPosition(target) ? !fits(target) : format === 'pdf' && String(target).startsWith('epubcfi(')) return log('warn', 'goTo ignored: wrong position kind for this book')
+    // #1350: a PDF takes one CFI, a page bookmark's (its section's): gone to by its page.
+    const mark = format === 'pdf' && entry?.highlights.find((h) => placed.has(h.id) && h.cfi === target)
+    if (isPosition(target) ? !fits(target) : format === 'pdf' && !mark && String(target).startsWith('epubcfi(')) return log('warn', 'goTo ignored: wrong position kind for this book')
     if (isPdfPage(target) && target.page > view.book.sections.length) return log('warn', 'goTo ignored: page not in this book')
     const mine = viewSeq
     hostMoving = true
     let at = -1
-    try { at = await asNav(() => land(target)) } finally { if (mine === viewSeq) hostMoving = !entry }
+    try { at = await asNav(() => land(mark ? pageOf(mark) : target)) } finally { if (mine === viewSeq) hostMoving = !entry }
     if (mine !== viewSeq || !entry) return
     if (at < 0) return log('warn', 'goTo: the target did not land, position kept')
     // #1314: a jump to a bookmark's own CFI: that bookmark is the one here, wherever on the screen it landed.
     const cfi = isPosition(target) ? target.cfi : target
     const jumped = entry.highlights.find((h) => placed.has(h.id) && h.cfi === cfi)
-    if (jumped) {
-      hereId = jumped.id
-      postBookmarks()
-    }
+    // #1350: a page-based book's page here is the one landed on, a side of the spread shown before included.
+    if (marksPages()) landedPage = at
+    if (jumped) hereId = jumped.id
+    if (jumped || marksPages()) postBookmarks()
     if (!chosen) {
       if (isPosition(target)) entry = withPosition(entry, target)
       return
