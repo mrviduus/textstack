@@ -144,22 +144,41 @@ describe('V2 local library sync (R6)', () => {
       expect(await lib.outbox()).toEqual([])
     })
 
-    it('aBookmarkOnAFileOfUnknownFormat_NeverGuessedAsEpubCfi_KeptQueued', async () => {
-      // A row on a file version this device holds no format for (not its file, not the server's current one).
+    // A row on a file version this device holds no format for (not its file, not the server's current one).
+    async function onAnOldFile(format: 'pdf' | 'epub') {
       const db = memoryDb()
       const lib = createLocalLibrary(db)
-      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, newId)
+      const name = `b.${format}`
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: name, format }, newId)
       const bookId = (await lib.localBookId(SHA))!
       const fileId = (await lib.book(bookId))!.file_id!
       await lib.writeEntry(SHA, entry(null, [mark]), newId)
-      db.raw.prepare('UPDATE annotations SET file_id = ? WHERE id = ?').run('aaaaaaaa-0000-4000-8000-00000000000f', HL)
+      db.raw.prepare('UPDATE annotations SET file_id = ? WHERE id = ?').run(OLD_FILE, HL)
+      return { lib, bookId, fileId, name }
+    }
+    const OLD_FILE = 'aaaaaaaa-0000-4000-8000-00000000000f'
+
+    it('aPdfBookmarkOnAFileOfUnknownFormat_NeverGuessedAsEpubCfi_KeptQueued', async () => {
+      const { lib, bookId, fileId, name } = await onAnOldFile('pdf')
       const calls = fakeApi({
         [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
-        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { format: 'pdf', originalName: 'b.pdf' }), 201)],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { format: 'pdf', originalName: name }), 201)],
       })
       await syncLibrary(lib, host())
       expect(writes(calls)).toEqual([`PUT /books/${bookId}`])
       expect((await lib.outbox()).map((o) => o.target)).toContain(HL)
+    })
+
+    it('anEpubBookmarkOnAFileOfUnknownFormat_StillWrittenAsEpubCfi', async () => {
+      const { lib, bookId, fileId, name } = await onAnOldFile('epub')
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { originalName: name }), 201)],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, OLD_FILE, 1, { color: 'bookmark', selectedText: mark.selectedText, locator: { version: 1, scheme: 'epub-cfi', value: mark.cfi, quote: mark.quote } }), 201)],
+      })
+      await syncLibrary(lib, host())
+      const an = calls.find((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`)
+      expect(an?.body).toMatchObject({ fileId: OLD_FILE, color: 'bookmark', locator: { scheme: 'epub-cfi', value: mark.cfi, quote: mark.quote } })
     })
   })
 

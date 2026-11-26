@@ -402,6 +402,12 @@ function settleSelection() {
   selectionTimer = setTimeout(sendSelection, SELECTION_SETTLE_MS)
 }
 addEventListener('resize', settleSelection)
+// #1350: a resize re-renders the side foliate calls current (no relocate): the page here is that one again.
+addEventListener('resize', () => {
+  if (landedPage === null) return
+  landedPage = null
+  postBookmarks()
+})
 
 const sameRange = (a, b) => a.startContainer === b.startContainer && a.startOffset === b.startOffset && a.endContainer === b.endContainer && a.endOffset === b.endOffset
 

@@ -567,8 +567,8 @@ selectedText, prefix: '', suffix: '', color: 'bookmark', at }`, where `selectedT
   one still coming (a new id the host's diff takes for the pulled one and never saves).
 - **Where it can be made:** where there is text at a CFI, and on every page of a page-based book (`opened.bookmarkable`).
 - **Page bookmarks (#1350):** on a PDF, a CBZ or a pre-paginated EPUB (`marksPages`) a bookmark marks the whole page on
-  screen (a spread: the side foliate calls current, or the side a host `goTo` landed on until the next turn or
-  navigation, `landedPage`): its CFI is the section's, its label (`selectedText`) `pageBookmarkText`: "<TOC entry> · p.
+  screen (a spread: the side foliate calls current, or the side a host `goTo` landed on until the next turn,
+  navigation or resize, `landedPage`): its CFI is the section's, its label (`selectedText`) `pageBookmarkText`: "<TOC entry> · p.
   <page label or number>" (the entry foliate gives the page: the first starting on it, else the one in force), or "p. N"
   with no entry and on a CBZ (its entries are image names) (plain English: it is synced text; a PDF outline not read yet
   gives "p. N"). One per page (`pageBookmarkOn`: it is `here` on its page, a second add is refused). Placed on restore where its

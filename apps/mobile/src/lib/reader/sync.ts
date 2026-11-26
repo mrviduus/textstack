@@ -523,10 +523,11 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
   if (!b) return
   const fileId = (a.file_id ?? b.file_id)!
   // #1350: a PDF's bookmark is a pdf-page annotation; the format is the file's the row is on. A bookmark on a file of
-  // unknown format is kept queued, never guessed (an epub-cfi on a PDF is refused and the bookmark lost).
+  // unknown format in a book that is a PDF is kept queued, never guessed (an epub-cfi on a PDF is refused and the
+  // bookmark lost); any other book's goes as epub-cfi, as before.
   const format = (fileId === b.file_id ? b.format : null) ?? (fileId === b.server_file_id ? b.server_format : null)
   const h = JSON.parse(a.highlight) as PageHighlight
-  if (!format && isBookmark(h)) return
+  if (!format && isBookmark(h) && (b.format === 'pdf' || b.server_format === 'pdf')) return
   const write = highlightWrite(h, a.book_id, fileId, a.revision, a.note ?? null, format)
   if (!write) return drop(lib, reset, item)
   const landed = (revision: number) => Promise.all([lib.annotationLanded(a.id, revision, write.noteText ?? null), lib.done(item)])

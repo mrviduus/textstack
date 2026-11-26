@@ -292,6 +292,15 @@ try {
   from = messages.length
   await call(`window.__fol.goTo(${JSON.stringify(two?.cfi)}, true)`)
   check(!!(await waitFor(from, (x) => x.type === 'bookmark-list' && x.here === two?.id, 'page 2 here again').catch(() => null)), 'and a jump back to page 2\'s bookmark makes it the one here')
+  // A resize re-renders the side foliate calls current, with no relocate: "here" is that side's again.
+  from = messages.length
+  await call('window.__fol.goTo(2, true)')
+  await waitFor(from, (x) => x.type === 'bookmark-list' && x.here === both.find((h) => h.index === 2)?.id, 'page 3 here').catch(() => null)
+  const current = await call('document.querySelector("foliate-view").lastLocation.section.current')
+  from = messages.length
+  await page.setViewportSize({ width: 1000, height: 700 })
+  const resized = await waitFor(from, (x) => x.type === 'bookmark-list', 'bookmark-list after a resize').catch(() => null)
+  check(current === 1 && resized?.here === two?.id, `after a resize, here is the bookmark of the side foliate calls current again (page ${current + 1}: ${resized?.here === two?.id})`)
   await page.setViewportSize({ width: 420, height: 760 })
   m = await open('tsupper.cbz')
   check(m.type === 'opened' && m.sections === 2, `a CBZ with upper-case extensions keeps every page (${m.sections ?? m.error})`)
