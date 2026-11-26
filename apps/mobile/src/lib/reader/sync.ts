@@ -13,7 +13,7 @@
  */
 import { Platform } from 'react-native'
 import {
-  syncApi, ApiError, cleanBookTitle, clip, highlightWrite, isOfflineError, ownAnnotationWrite, ownStateWrite, pageNameRefusal, positionWrite, UploadNotOnServer,
+  syncApi, ApiError, cleanBookTitle, clip, highlightWrite, isBookmark, isOfflineError, ownAnnotationWrite, ownStateWrite, pageNameRefusal, positionWrite, UploadNotOnServer,
   type OpenReader, type PageHighlight, type Annotation, type Book, type BookFile, type ClientFormat, type MergeMap, type ReadingState, type Word,
 } from '@textstack/shared'
 import { syncOn, resetSince, startSyncProbe, whileCurrent, FileUploadError } from '../sync'
@@ -522,9 +522,12 @@ async function pushAnnotation(lib: LocalLibrary, host: SyncHost, reset: Reset, i
   const b = await pushedBook(lib, reset, local)
   if (!b) return
   const fileId = (a.file_id ?? b.file_id)!
-  // #1350: a PDF's bookmark is a pdf-page annotation; the format is the file's the row is on.
-  const format = fileId === b.file_id ? b.format : fileId === b.server_file_id ? b.server_format : null
-  const write = highlightWrite(JSON.parse(a.highlight) as PageHighlight, a.book_id, fileId, a.revision, a.note ?? null, format)
+  // #1350: a PDF's bookmark is a pdf-page annotation; the format is the file's the row is on. A bookmark on a file of
+  // unknown format is kept queued, never guessed (an epub-cfi on a PDF is refused and the bookmark lost).
+  const format = (fileId === b.file_id ? b.format : null) ?? (fileId === b.server_file_id ? b.server_format : null)
+  const h = JSON.parse(a.highlight) as PageHighlight
+  if (!format && isBookmark(h)) return
+  const write = highlightWrite(h, a.book_id, fileId, a.revision, a.note ?? null, format)
   if (!write) return drop(lib, reset, item)
   const landed = (revision: number) => Promise.all([lib.annotationLanded(a.id, revision, write.noteText ?? null), lib.done(item)])
   try {

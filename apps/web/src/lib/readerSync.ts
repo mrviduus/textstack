@@ -168,6 +168,8 @@ export function createReaderSync(t: SyncTarget, o: {
   after?: Promise<unknown>
   /** False where the page offers neither highlights nor bookmarks: no annotations pull. */
   highlights?: boolean
+  /** #1350: the book takes bookmarks only (a PDF, a CBZ): a pull not in yet says nothing of highlights (`noHighlights`). */
+  bookmarksOnly?: boolean
   api?: ReaderSyncApi
   newId?: () => string
 }): ReaderSync {
@@ -415,7 +417,7 @@ export function createReaderSync(t: SyncTarget, o: {
     }
     // A refused value this tab still holds stays unsaved, though it is not resent.
     const stuck = (!!refusedPosition && !!latest && sameJson(refusedPosition, latest.position)) || notedForms(latest).some((h) => isHeldAs(refused, h))
-    status(gone ? 'reopen' : !saved || stuck ? 'unsaved' : highlightsLoaded ? 'saved' : 'noHighlights')
+    status(gone ? 'reopen' : !saved || stuck ? 'unsaved' : highlightsLoaded || o.bookmarksOnly ? 'saved' : 'noHighlights')
   }
 
   /** One pass at a time; a `store` during one asks for one more, on the latest entry. */
@@ -498,7 +500,7 @@ export function createReaderSync(t: SyncTarget, o: {
         if (current()) o.onHighlights(drawn)
       } catch (e) {
         console.warn('[v2 sync] highlights not loaded:', errorCode(e))
-        status('noHighlights')
+        if (!o.bookmarksOnly) status('noHighlights')
       } finally {
         pulling = null
       }

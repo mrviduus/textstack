@@ -121,6 +121,48 @@ describe('V2 local library sync (R6)', () => {
     expect(calls.filter((c) => c.path.endsWith('/changes')).map((c) => c.path)).toEqual(['/library/changes', '/reading/changes', '/annotations/changes', '/vocabulary/changes'])
   })
 
+  describe('page bookmarks (#1350)', () => {
+    const mark = { id: HL, cfi: 'epubcfi(/6/24)', index: 11, quote: 'Two · p. 12', selectedText: 'Two · p. 12', prefix: '', suffix: '', color: 'bookmark', at: 1 }
+    async function bookOf(format: string | null) {
+      const lib = createLocalLibrary(memoryDb())
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format }, newId)
+      const bookId = (await lib.localBookId(SHA))!
+      await lib.writeEntry(SHA, entry(null, [mark]), newId)
+      return { lib, bookId, fileId: (await lib.book(bookId))!.file_id! }
+    }
+
+    it('aPdfBookmark_WrittenAsAPdfPageAnnotationOnItsPage', async () => {
+      const { lib, bookId, fileId } = await bookOf('pdf')
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { format: 'pdf', originalName: 'b.pdf' }), 201)],
+        [`PUT /annotations/${HL}`]: [ok(serverAnnotation(bookId, fileId, 1, { color: 'bookmark', selectedText: mark.selectedText, locator: { version: 1, scheme: 'pdf-page', value: { page: 12, rects: [], exact: '' } } }), 201)],
+      })
+      expect(await syncLibrary(lib, host())).toBe('done')
+      const an = calls.find((c) => c.method === 'PUT' && c.path === `/annotations/${HL}`)
+      expect(an?.body).toMatchObject({ selectedText: 'Two · p. 12', color: 'bookmark', locator: { version: 1, scheme: 'pdf-page', value: { page: 12, rects: [], exact: '' } } })
+      expect(await lib.outbox()).toEqual([])
+    })
+
+    it('aBookmarkOnAFileOfUnknownFormat_NeverGuessedAsEpubCfi_KeptQueued', async () => {
+      // A row on a file version this device holds no format for (not its file, not the server's current one).
+      const db = memoryDb()
+      const lib = createLocalLibrary(db)
+      await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.pdf', format: 'pdf' }, newId)
+      const bookId = (await lib.localBookId(SHA))!
+      const fileId = (await lib.book(bookId))!.file_id!
+      await lib.writeEntry(SHA, entry(null, [mark]), newId)
+      db.raw.prepare('UPDATE annotations SET file_id = ? WHERE id = ?').run('aaaaaaaa-0000-4000-8000-00000000000f', HL)
+      const calls = fakeApi({
+        [`GET /books/by-sha256/${SHA}`]: [{ status: 404 }],
+        [`PUT /books/${bookId}`]: [ok(serverBook(bookId, fileId, {}, { format: 'pdf', originalName: 'b.pdf' }), 201)],
+      })
+      await syncLibrary(lib, host())
+      expect(writes(calls)).toEqual([`PUT /books/${bookId}`])
+      expect((await lib.outbox()).map((o) => o.target)).toContain(HL)
+    })
+  })
+
   it('sync_NextPositionAfterASync_NamesTheRevisionLastSeen', async () => {
     const { lib, bookId, fileId } = await synced()
     await lib.writeEntry(SHA, entry({ ...pos, fraction: 0.5, at: NOW - 1000 }), newId)

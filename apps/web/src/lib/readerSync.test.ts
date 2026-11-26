@@ -60,9 +60,9 @@ beforeEach(() => {
   }
 })
 
-const open = (t: SyncTarget = T, after?: Promise<unknown>, highlights?: boolean) => createReaderSync(t, {
+const open = (t: SyncTarget = T, after?: Promise<unknown>, highlights?: boolean, bookmarksOnly?: boolean) => createReaderSync(t, {
   api: api as unknown as ReaderSyncApi, onStatus: (s) => statuses.push(s), onHighlights: (l) => drawnLists.push(l),
-  onNewerPlace: (p) => newer.push(p), newId: () => MINTED, after, highlights,
+  onNewerPlace: (p) => newer.push(p), newId: () => MINTED, after, highlights, bookmarksOnly,
 })
 const expectedOf = (call: unknown[]) => (call[1] as { expectedRevision: number | null }).expectedRevision
 const last = () => statuses[statuses.length - 1]
@@ -218,6 +218,18 @@ describe('createReaderSync', () => {
       await vi.waitFor(() => expect(statuses[statuses.length - 1]).toBe('saved'))
       expect(drawnLists).toEqual([[]])
       expect(api.putAnnotation).toHaveBeenCalledTimes(1)
+    })
+
+    it('pullFails_OnABookmarksOnlyBook_NoHighlightsStatus_PositionSaved', async () => {
+      // #1350: a PDF or a CBZ pulls for its bookmarks; it has no highlighting to say is missing.
+      api.annotations.mockRejectedValueOnce(offline())
+      const s = open(T, undefined, true, true)
+      await s.restore()
+      await s.loadHighlights()
+      await stored(s, entry(pos(2), []))
+      expect(api.putReadingState).toHaveBeenCalledTimes(1)
+      expect(statuses).not.toContain('noHighlights')
+      expect(last()).toBe('saved')
     })
 
     it('pullHangs_PositionWrittenAndCloseEnds_NeitherWaitsForIt', async () => {

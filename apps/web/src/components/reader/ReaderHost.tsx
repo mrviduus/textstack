@@ -633,6 +633,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           },
           // #1350: a page-based book (PDF, CBZ) takes no highlights but bookmarks: its annotations are pulled too.
           highlights: m.annotatable !== false || m.bookmarkable === true,
+          bookmarksOnly: m.annotatable === false,
           // A later offer replaces the one shown (the newest place).
           onNewerPlace: setOffer,
           // Every server state the session takes: a reset elsewhere brings the button back.

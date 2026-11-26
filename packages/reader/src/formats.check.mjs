@@ -256,7 +256,7 @@ try {
   call('window.__fol.addBookmark()')
   const cbzMarked = await storeFrom(from, 'a store after a CBZ bookmark')
   const cm = cbzMarked?.highlights.find((h) => h.color === 'bookmark')
-  check(cm?.cfi === 'epubcfi(/6/4)' && cm.index === 1 && cm.selectedText === 'p02.png · p. 2', `addBookmark on CBZ page 2 keeps its page, labelled by its contents entry (the image's name) and number (${JSON.stringify(cm)})`)
+  check(cm?.cfi === 'epubcfi(/6/4)' && cm.index === 1 && cm.selectedText === 'p. 2', `addBookmark on CBZ page 2 keeps its page, labelled "p. 2" (its contents are image names) (${JSON.stringify(cm)})`)
   from = messages.length
   call('window.__fol.prev()')
   check(!!(await waitFor(from, (x) => x.type === 'bookmark-list' && x.here === null && x.can === true, 'page 1 has none').catch(() => null)), 'on page 1 no bookmark is here, one can be made')
@@ -267,6 +267,32 @@ try {
   const fm = (await storeFrom(from, 'a store after a pre-paginated bookmark'))?.highlights.find((h) => h.color === 'bookmark')
   check(m.annotatable === true && m.bookmarkable === true && /^epubcfi\(\/6\/2(\[[^\]]*\])?\)$/.test(fm?.cfi) && fm.index === 0 && /(^| · )p\. 1$/.test(fm.selectedText),
     `a pre-paginated EPUB is annotatable and bookmarks its page (${m.annotatable}, ${JSON.stringify(fm)})`)
+  // #1350 review: in a spread (landscape: pages 2 and 3 side by side), a host goTo to the other side gets no relocate;
+  // "here" and a new bookmark follow the side it landed on, not the one foliate still calls current.
+  await page.setViewportSize({ width: 1100, height: 700 })
+  m = await open('tsfixed.epub')
+  // The first store holding `n` bookmarks (a chosen goTo stores its position first).
+  const spreadMarks = (n, what) => waitFor(from, (x) => x.type === 'store' && JSON.parse(x.json).highlights.filter((h) => h.color === 'bookmark').length === n, what)
+    .then((x) => JSON.parse(x.json).highlights.filter((h) => h.color === 'bookmark'), () => [])
+  from = messages.length
+  await call('window.__fol.goTo(1, true)')
+  await waitFor(from, (x) => x.type === 'relocate' && x.index === 1, 'relocate to page 2').catch(() => null)
+  from = messages.length
+  call('window.__fol.addBookmark()')
+  const [two] = await spreadMarks(1, 'a bookmark on page 2')
+  from = messages.length
+  await call('window.__fol.goTo(2, true)')
+  const sideHere = await waitFor(from, (x) => x.type === 'bookmark-list' && x.here === null && x.can === true, 'page 3: none here').catch(() => null)
+  const sideRelocated = messages.slice(from).some((x) => x.type === 'relocate')
+  from = messages.length
+  call('window.__fol.addBookmark()')
+  const both = await spreadMarks(2, 'a bookmark on page 3')
+  check(two?.index === 1 && !sideRelocated && !!sideHere && both.map((h) => h.index).sort().join() === '1,2',
+    `a goTo to the other side of the spread shown: none here, and a bookmark there is page 3's (relocated ${sideRelocated}; ${JSON.stringify(both.map((h) => h.index))})`)
+  from = messages.length
+  await call(`window.__fol.goTo(${JSON.stringify(two?.cfi)}, true)`)
+  check(!!(await waitFor(from, (x) => x.type === 'bookmark-list' && x.here === two?.id, 'page 2 here again').catch(() => null)), 'and a jump back to page 2\'s bookmark makes it the one here')
+  await page.setViewportSize({ width: 420, height: 760 })
   m = await open('tsupper.cbz')
   check(m.type === 'opened' && m.sections === 2, `a CBZ with upper-case extensions keeps every page (${m.sections ?? m.error})`)
   call('window.__fol.next()')

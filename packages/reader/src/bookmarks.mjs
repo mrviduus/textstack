@@ -121,8 +121,9 @@ export function atTop(place, mark, { scrolled = false, vertical = false, rects =
 
 /**
  * #1350: a page-based book's bookmark (PDF, CBZ, pre-paginated EPUB) marks a whole page, and its label is where it is:
- * "<the TOC entry covering it> · p. <page>" (`page`: the page's label from the book's page list, else its 1-based
- * number), "p. <page>" with no entry. Stored as the bookmark's `selectedText` (synced: plain English, not the UI's).
+ * "<the TOC entry> · p. <page>" (the entry foliate gives the page without a range: the first starting on it, else the one
+ * in force; `page`: the page's label from the book's page list, else its 1-based number), "p. <page>" with no entry
+ * (and on a CBZ, whose entries are its images' names). Stored as the bookmark's `selectedText` (synced: plain English, not the UI's).
  */
 export function pageBookmarkText(title, page) {
   const cap = (s, n) => Array.from(String(s ?? '').trim()).slice(0, n).join('')

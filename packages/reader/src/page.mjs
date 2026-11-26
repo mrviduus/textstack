@@ -74,6 +74,11 @@ const placedQuotes = new Set()
 let listed = []
 let listedVersion = 0
 let hereId = null
+/**
+ * #1350: the page a host goTo landed on, on a page-based book: the other side of a spread already shown gets no
+ * relocate, so `lastLocation` still names the side shown before. Null again after a turn or a navigation's relocate.
+ */
+let landedPage = null
 const placing = new Set()
 let awaitingMore = false
 let bookmarksSent = null
@@ -1072,6 +1077,8 @@ const canBookmark = (ok) => !awaitingMore && placing.size === 0 && !!ok
 const marksPages = () => format === 'pdf' || pageForm()
 /** A bookmark can be made somewhere in the open book: a page-based one, or text at a CFI (not a fixed-layout KF8). */
 const bookmarkable = () => marksPages() || (annotatable && !view.isFixedLayout)
+/** #1350: the page on screen of a page-based book (`landedPage`, else the side foliate calls current). */
+const pageOnScreen = (loc) => landedPage ?? loc?.section?.current
 /** #1350: the section a page bookmark's CFI names in this book, -1 if none. */
 function pageOf(h) {
   try {
@@ -1090,8 +1097,8 @@ function postBookmarks(loc = view?.lastLocation, cause) {
   if (!entry) return
   try {
     if (testBreakBookmarks) throw new Error('test: the bookmark pass broke')
-    // #1350: a page-based book's bookmark is the page on screen's (a spread: the side foliate calls current).
-    const page = marksPages() ? loc?.section?.current : undefined
+    // #1350: a page-based book's bookmark is the page on screen's (`pageOnScreen`).
+    const page = marksPages() ? pageOnScreen(loc) : undefined
     const place = page === undefined && loc?.range ? bookmarkRange(loc.range) : null
     hereId = page === undefined ? hereOf(loc, cause, place) : pageBookmarkOn(entry.highlights, placed, page)
     const can = canBookmark(page === undefined ? annotatable && place : Number.isInteger(page))
@@ -1135,12 +1142,13 @@ function addBookmark() {
     // #1350: the whole page on screen, its CFI the section's; labelled by where it is, the page having no text to keep.
     // ponytail: a CBZ page by its index, not its entry name (annotations take no page-name); a name in the CFI if devices
     // ever order a CBZ's entries differently.
-    index = loc?.section?.current
+    index = pageOnScreen(loc)
     if (!Number.isInteger(index)) return log('warn', 'addBookmark ignored: no page here')
     if (pageBookmarkOn(entry.highlights, placed, index)) return log('warn', 'addBookmark ignored: this page is bookmarked')
     const { tocItem, pageItem } = view.getProgressOf(index) ?? {}
     cfi = view.getCFI(index)
-    selectedText = pageBookmarkText(tocItem?.label, pageItem?.label ?? index + 1)
+    // A CBZ's contents are its images' names: its label is the page alone.
+    selectedText = pageBookmarkText(format === 'cbz' ? null : tocItem?.label, pageItem?.label ?? index + 1)
   } else {
     const range = annotatable && loc?.range ? bookmarkRange(loc.range) : null
     if (!range) return log('warn', 'addBookmark ignored: no text to bookmark here')
@@ -1438,6 +1446,7 @@ async function open(bytes, name, kind, mine) {
   // Bookmarks: nothing queued for the old book (an `addHighlights` behind a navigation that never settles) holds up
   // this one's. (`placed`, the list and `awaitingMore` are set again by this book's restore.)
   placing.clear()
+  landedPage = null
   spokenCfi = null
   view = document.createElement('foliate-view')
   document.body.append(view)
@@ -1462,6 +1471,7 @@ async function open(bytes, name, kind, mine) {
       persist(400)
     }
     // #1314, after the save (and never throwing): which bookmark the place has now, and whether one can be made here.
+    if (cause === 'turn' || cause === 'nav') landedPage = null
     postBookmarks(d, cause)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
@@ -1967,10 +1977,10 @@ window.__fol = {
     // #1314: a jump to a bookmark's own CFI: that bookmark is the one here, wherever on the screen it landed.
     const cfi = isPosition(target) ? target.cfi : target
     const jumped = entry.highlights.find((h) => placed.has(h.id) && h.cfi === cfi)
-    if (jumped) {
-      hereId = jumped.id
-      postBookmarks()
-    }
+    // #1350: a page-based book's page here is the one landed on, a side of the spread shown before included.
+    if (marksPages()) landedPage = at
+    if (jumped) hereId = jumped.id
+    if (jumped || marksPages()) postBookmarks()
     if (!chosen) {
       if (isPosition(target)) entry = withPosition(entry, target)
       return
