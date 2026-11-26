@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-11-18.** Where the project is *now*: what is live, half-finished, known-broken or deliberately not done. What the product does: [`docs/README.md`](README.md). What changed and when: [the changelog page](https://textstack.app/en/changelog) (merged PRs by week); before #1220, [`CHANGELOG.md`](../CHANGELOG.md) and [`changelog-archive/`](https://github.com/mrviduus/textstack/tree/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/changelog-archive). Closed items are deleted from here, not struck through; git history keeps them.
+**Last updated: 2026-11-26.** Where the project is *now*: what is live, half-finished, known-broken or deliberately not done. What the product does: [`docs/README.md`](README.md). What changed and when: [the changelog page](https://textstack.app/en/changelog) (merged PRs by week); before #1220, [`CHANGELOG.md`](../CHANGELOG.md) and [`changelog-archive/`](https://github.com/mrviduus/textstack/tree/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/changelog-archive). Closed items are deleted from here, not struck through; git history keeps them.
 
 > **Keeping it honest:** a PR that finishes a line here deletes or moves that line in the same PR. New open items go to [GitHub issues](https://github.com/mrviduus/textstack/issues) with a label; the items below move to an issue when someone touches them.
 
@@ -13,7 +13,7 @@ TextStack is a personal library: you upload your own books and read them. The pu
 | Area | State |
 |---|---|
 | **Reader** (web + Android) | One reader: our foliate-js fork in a sandboxed page ([ADR-029](architecture/adr/ADR-029-foliate-for-v2-epub.md), [ADR-032](architecture/adr/ADR-032-one-engine-foliate-fork.md)), built by `packages/reader/src/build.mjs`. EPUB, MOBI, AZW3, FB2, CBZ and PDF; highlights, notes, bookmarks, search in the book, TTS, saved-word marks, Discuss this chapter. On Android the book opens from the device, offline. iOS has no reader (M6 D4). `packages/reader-engine` is deleted ([ADR-025](architecture/adr/ADR-025-reader-engine-package.md) Superseded). |
-| **Data** | One Postgres database, `textstack_v2` ([ADR-030](architecture/adr/ADR-030-two-databases-one-cutover.md) Done, schema [ADR-031](architecture/adr/ADR-031-v2-schema.md)); Dapper only, no EF Core ([ADR-028](architecture/adr/ADR-028-dapper-and-repositories.md)); one SQL ledger in `database/` run by the `migrator` service ([ADR-026](architecture/adr/ADR-026-sql-first-migrations.md), [ADR-021](architecture/adr/ADR-021-migrations-owned-by-the-migrator.md)). Book bytes on their own volume (`data/library`). The legacy database was dropped 2026-11-17 after a verified archive restore ([archive](internal/ops/backup.md#the-legacy-archive-pre-v2)). |
+| **Data** | One Postgres database, `textstack_v2` ([ADR-030](architecture/adr/ADR-030-two-databases-one-cutover.md) Done, schema [ADR-031](architecture/adr/ADR-031-v2-schema.md)); Dapper only, no EF Core ([ADR-028](architecture/adr/ADR-028-dapper-and-repositories.md)); one SQL ledger in `database/` run by the `migrator` service ([ADR-026](architecture/adr/ADR-026-sql-first-migrations.md), [ADR-021](architecture/adr/ADR-021-migrations-owned-by-the-migrator.md)). Book bytes on their own volume (`data/library`). The server keeps no book text: the client is the only parser ([ADR-033](architecture/adr/ADR-033-client-is-the-only-parser.md)); `book_chapters` and `ingestion_jobs` are dropped. The legacy database was dropped 2026-11-17 after a verified archive restore ([archive](internal/ops/backup.md#the-legacy-archive-pre-v2)). |
 | **Sync** | `/me/v2/*`: revision + `operation_id` per write, change feeds, file sync in parts ([`v2-sync-protocol.md`](internal/v2/v2-sync-protocol.md)). |
 | **Security & ops** | All P0/P1 items of the [architecture review 2026-10](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/architecture/review-2026-10/00-summary.md) fixed. `/me` and `/internal` fail closed by path ([ADR-024](architecture/adr/ADR-024-auth-fails-closed-by-path.md)); every ungated route is in `tests/TextStack.UnitTests/Routes/routes.public.txt`. Catalog URLs answer `410 Gone` from nginx (M6 D1). |
 | **Backups** | Nightly `textstack_v2` dump + storage and library to Cloudflare R2 (restic), monthly restore drill. [`backup.md`](internal/ops/backup.md). The legacy archive (`pre-v2-cutover`) is kept outside restic and on the owner's Mac. |
@@ -33,12 +33,7 @@ The V2 program ([#1013](https://github.com/mrviduus/textstack/issues/1013)) fini
 
 **Focus (owner): no new side work.** Anything new goes into Known-broken below and is not started, unless it is a production outage or a security problem.
 
-- **One parser = the client ([ADR-033](architecture/adr/ADR-033-client-is-the-only-parser.md), [plan](internal/v2/one-parser-plan.md)):** book details on upload ([#1426](https://github.com/mrviduus/textstack/issues/1426)), then TOC sync, then server extraction deleted.
-- **M6 leftovers:** dead web CSS and params, the mobile offline download format, unused shared exports, two MCP gaps — [#1406](https://github.com/mrviduus/textstack/issues/1406).
-- **Bring back on V2:** goals, achievements, per-book stats, vocabulary settings/pending/lookups/concepts, highlight review — [#1366](https://github.com/mrviduus/textstack/issues/1366).
 - **Book page:** show saved conversations (MCP checkpoints) — [#1405](https://github.com/mrviduus/textstack/issues/1405).
-- **Reader follow-ups:** wave 18 review leftovers [#1364](https://github.com/mrviduus/textstack/issues/1364); opened mark, contents param, hidden-bar clicks [#1385](https://github.com/mrviduus/textstack/issues/1385).
-- **.NET base images:** [#1403](https://github.com/mrviduus/textstack/issues/1403).
 - **Delivery, owner steps (ADR-020):** repo settings (require actions pinned to a full SHA, allowed actions = GitHub + verified + listed, turn off "Actions can approve PRs", delete the unused `CLAUDE_CODE_OAUTH_TOKEN` secret, enable non-provider secret patterns). Making the `mobile` CI job a required check.
 - **Two-audience onboarding** ("I work in tech" / "I'm learning English"), planned, not started. [Plan](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/marketing/onboarding-consilium-2026-10-08.md).
 - **Article:** Sentry write-up, draft on vasyl.blog; needs edits, image, publish, then a DEV cross-post.
@@ -48,12 +43,8 @@ The V2 program ([#1013](https://github.com/mrviduus/textstack/issues/1013)) fini
 Each is a real defect, known and not yet fixed.
 
 **Server and ops**
-- **No guest reaper since B3** (#1412 deleted `GuestCleanupWorker` with EF; `RetentionCleanupWorker` sweeps sessions, tokens, grants and LLM traces, not guest users). Abandoned guest rows and their uploads stay. Needs an issue.
-- **Upload covers are readable by URL without auth** (`/storage`, ADR-024 step 2) — #956.
 - **`/internal` trusts a forwarded address from the home LAN** (ADR-024): `ForwardedHeaders` trusts `X-Forwarded-For` from 192.168/16. nginx refuses it from outside.
 - **Six user routes live outside `/me`** and rely on their handler's check: `GET /auth/me`, `POST /auth/device/approve|deny`, `POST /oauth/authorize/approve|deny`, `GET /oauth/token-status`. No plan to move them.
-- **The transitional tables' comment says "Dropped at M6.4"**; they are kept (ADR-031 Amended 2026-11-17, D8). Changing the comment is a migration.
-- **Mobile OTA targets one runtime only** (#762, issue #914): it publishes only to this commit's runtime. Compatible finished builds are reused even when newer testing builds have another runtime; genuinely different installed runtimes still need a store update. [Runbook](internal/ops/play-store-release.md#known-limits-of-the-automatic-ota).
 - **GitHub scheduled backups run hours late** (`backup.yml` cron 03:00 UTC started 10:12 on 2026-10-05). Consider triggering from the server's cron, GitHub schedule as a fallback.
 - **Server hygiene:** three `.env.bak*` files with live secrets; the server's `node_modules` does not match the lockfile.
 - **Review 2026-10 P2 still open:** #16 background services inside the API, #18 auth opt-in per endpoint, #19 admin API on the public host / no audit log, #26 (GDPR delete leaves LLM trace text, caches, backups).
