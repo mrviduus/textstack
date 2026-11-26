@@ -13,6 +13,7 @@
 import { authFetch, authFetchResponse, ApiError, buildQuery, getApiConfig, jsonBody, networkError } from './client'
 import { locatorToPlace } from '../reader/locators'
 import { chapterAtFraction } from '../reader/bookProgress'
+import type { ReadingStatsDto, ReadingStatsPeriod } from '../types/api'
 
 const V2 = '/me/v2'
 
@@ -583,3 +584,12 @@ export const addExample = (wordId: string, body: ExampleWrite) =>
   authFetch<Example>(`${V2}/vocabulary/words/${wordId}/examples`, jsonBody('POST', body))
 export const getDue = (limit?: number) => authFetch<Word[]>(`${V2}/vocabulary/due${buildQuery({ limit })}`)
 export const recordReview = (body: ReviewWrite) => authFetch<RecordedReview>(`${V2}/vocabulary/reviews`, jsonBody('POST', body))
+
+/** Reading time for a calendar period in the reader's zone, plus the streaks (#1366). UTC when the
+ * runtime knows no zone (Hermes without ICU answers an empty one). */
+export const readingStats = (period: ReadingStatsPeriod, tz = deviceZone()) =>
+  authFetch<ReadingStatsDto>(`${V2}/stats${buildQuery({ period, tz })}`)
+
+function deviceZone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
+}

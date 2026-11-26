@@ -50,7 +50,28 @@
     "signInLossBooks": "{{n}} book(s)",
     "signInLossChanges": "{{n}} change(s)",
     "signInLossBoth": "{{books}} and {{changes}}",
-    "signInLossUnknownMessage": "Could not check what exists only on this phone. Signing in to a different account deletes the books of the account that was signed in here, and some may not be on the server."
+    "signInLossUnknownMessage": "Could not check what exists only on this phone. Signing in to a different account deletes the books of the account that was signed in here, and some may not be on the server.",
+    "stats": {
+      "title": "Reading",
+      "currentStreak": "Current streak",
+      "bestStreak": "Best streak",
+      "dayOne": "{{n}} day",
+      "dayMany": "{{n}} days",
+      "periodLabel": "Period",
+      "week": "Week",
+      "month": "Month",
+      "halfyear": "Half year",
+      "year": "Year",
+      "timeRead": "Time read",
+      "daysRead": "Days read",
+      "chartLabel": "Minutes read",
+      "minutes": "{{m}} min",
+      "hours": "{{h}} h",
+      "hoursMinutes": "{{h}} h {{m}} min",
+      "weekdays": "Mon Tue Wed Thu Fri Sat Sun",
+      "months": "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec",
+      "loadFailed": "Couldn't load this period."
+    }
   },
   "guest": {
     "createAccount": "Create free account",

@@ -42,6 +42,29 @@ describe('v2 api', () => {
     expect(sent(fetchMock)).toEqual({ url: 'http://api/me/v2/books/b1/reading-state', method: 'PUT', body })
   })
 
+  it('asks for reading stats by period in the given time zone', async () => {
+    const body = { period: 'month', from: '2026-11-01', to: '2026-11-30', minutes: 0, daysRead: 0, currentStreak: 0, bestStreak: 0, bars: [] }
+    const fetchMock = stubFetch({ status: 200, body })
+
+    expect(await v2.readingStats('month', 'Europe/Kyiv')).toEqual(body)
+
+    expect(sent(fetchMock)).toEqual({ url: 'http://api/me/v2/stats?period=month&tz=Europe%2FKyiv', method: 'GET', body: undefined })
+  })
+
+  it('reading stats default to the device time zone', async () => {
+    const fetchMock = stubFetch({ status: 200, body: {} })
+    await v2.readingStats('week')
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    expect(sent(fetchMock).url).toBe(`http://api/me/v2/stats?period=week&tz=${encodeURIComponent(tz)}`)
+  })
+
+  it('reading stats send UTC when the runtime knows no time zone', async () => {
+    const fetchMock = stubFetch({ status: 200, body: {} })
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({ timeZone: '' } as Intl.ResolvedDateTimeFormatOptions)
+    await v2.readingStats('week')
+    expect(sent(fetchMock).url).toBe('http://api/me/v2/stats?period=week&tz=UTC')
+  })
+
   it('pulls a feed page by page until hasMore is false and returns the last cursor', async () => {
     const fetchMock = stubFetch(
       { status: 200, body: { items: [1, 2], cursor: 'c1', hasMore: true } },

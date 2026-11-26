@@ -6,6 +6,7 @@ import { getFlagUrl } from '../../data/flags'
 import { getUserInitials } from '../../lib/userInitials'
 import { useTranslation } from '../../hooks/useTranslation'
 import { DeleteAccountDialog } from './DeleteAccountDialog'
+import { ReadingStatsSection } from './ReadingStatsSection'
 
 export function ProfileModal({ onClose }: { onClose: () => void }) {
   const { user, updateProfile, updateAvatar, deleteAvatar } = useAuth()
@@ -165,6 +166,7 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
               {loading ? 'Saving...' : 'Save changes'}
             </button>
           </form>
+          <ReadingStatsSection />
           {!isGuest && (
             <section className="profile-modal__danger-zone">
               <h3 className="profile-modal__danger-title">{t('deleteAccount.dangerZone')}</h3>

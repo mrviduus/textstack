@@ -16,6 +16,9 @@
   border-radius: 12px;
   width: 100%;
   max-width: 400px;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
   position: relative;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   animation: profile-modal-in 0.2s ease-out;
@@ -268,4 +271,114 @@
 .profile-modal__danger-actions .profile-modal__btn {
   width: auto;
   flex: 1;
+}
+
+/* Reading stats (#1366) */
+.reading-stats {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.reading-stats__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.reading-stats__figures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.reading-stats__value {
+  display: block;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.reading-stats__caption {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.reading-stats__switch {
+  display: flex;
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 0.9rem;
+}
+
+.reading-stats__segment {
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 0.35rem 0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.reading-stats__segment[aria-pressed='true'] {
+  background: var(--color-bg);
+  box-shadow: 0 0 0 1px var(--color-border);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.reading-stats__chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.reading-stats__col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.reading-stats__track {
+  width: 100%;
+  height: 80px;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.reading-stats__bar {
+  width: 100%;
+  min-height: 2px; /* only rendered for minutes > 0 */
+  background: var(--color-brand);
+  border-radius: 2px 2px 0 0;
+}
+
+.reading-stats__label {
+  height: 1rem;
+  margin-top: 4px;
+  font-size: 0.65rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.reading-stats__skeleton {
+  height: 2.5rem;
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  animation: pulse 1.5s infinite;
+  margin-bottom: 0.75rem;
+}
+
+.reading-stats__skeleton--chart {
+  height: 100px;
 }
