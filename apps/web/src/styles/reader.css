@@ -647,8 +647,7 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   border-color: var(--reader-text);
 }
 
-/* Loading state */
-
+/* Shared: books.css and profile.css skeletons pulse with it. */
 @keyframes pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.7; }
@@ -847,12 +846,6 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
 .v2-reader__footer .v2-reader__time-left {
   grid-row: 2;
 }
-
-/* ===========================================
-   Mobile Continuous Scroll Mode
-   =========================================== */
-
-/* Scroll mode - keep selection disabled for clean reading UX */
 
 /* ===========================================
    Text Selection & Highlights
