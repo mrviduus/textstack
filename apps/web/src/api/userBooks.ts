@@ -37,8 +37,11 @@ export interface TocEntry {
   children: TocEntry[] | null
 }
 
-/** The book-detail shape (`@textstack/shared`), its TOC typed. */
-export type UserBookDetail = Omit<UserBookDetailResponse, 'toc'> & { toc: TocEntry[] | null }
+/** The book-detail shape (`@textstack/shared`), its TOC and status typed. */
+export type UserBookDetail = Omit<UserBookDetailResponse, 'toc' | 'status'> & {
+  toc: TocEntry[] | null
+  status: 'Processing' | 'Ready' | 'Failed'
+}
 
 export interface UploadResponse {
   userBookId: string
