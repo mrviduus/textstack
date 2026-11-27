@@ -5,7 +5,7 @@
 -- Each block raises (non-zero exit) with the offending names. Adding or dropping a table means
 -- editing the expected set below, on purpose: it is ADR-031's table list.
 
--- The table set is exactly ADR-031's 22 (the ETL's ledger, 0003, dropped by 0007; the two transitional
+-- The table set is ADR-031's set minus the drops named here: 22 (the ETL's ledger, 0003, dropped by 0007; the two transitional
 -- tables, book_chapters and ingestion_jobs, dropped by 0010; review_question dropped by 0012, agent_run by 0013).
 DO $$
 DECLARE missing text; extra text;
