@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-11-26.** Where the project is *now*: what is live, half-finished, known-broken or deliberately not done. What the product does: [`docs/README.md`](README.md). What changed and when: [the changelog page](https://textstack.app/en/changelog) (merged PRs by week); before #1220, [`CHANGELOG.md`](../CHANGELOG.md) and [`changelog-archive/`](https://github.com/mrviduus/textstack/tree/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/changelog-archive). Closed items are deleted from here, not struck through; git history keeps them.
+**Last updated: 2026-11-27.** Where the project is *now*: what is live, half-finished, known-broken or deliberately not done. What the product does: [`docs/README.md`](README.md). What changed and when: [the changelog page](https://textstack.app/en/changelog) (merged PRs by week); before #1220, [`CHANGELOG.md`](../CHANGELOG.md) and [`changelog-archive/`](https://github.com/mrviduus/textstack/tree/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/changelog-archive). Closed items are deleted from here, not struck through; git history keeps them.
 
 > **Keeping it honest:** a PR that finishes a line here deletes or moves that line in the same PR. New open items go to [GitHub issues](https://github.com/mrviduus/textstack/issues) with a label; the items below move to an issue when someone touches them.
 
@@ -37,6 +37,7 @@ The V2 program ([#1013](https://github.com/mrviduus/textstack/issues/1013)) fini
 - **Delivery, owner steps (ADR-020):** repo settings (require actions pinned to a full SHA, allowed actions = GitHub + verified + listed, turn off "Actions can approve PRs", delete the unused `CLAUDE_CODE_OAUTH_TOKEN` secret, enable non-provider secret patterns). Making the `mobile` CI job a required check.
 - **Two-audience onboarding** ("I work in tech" / "I'm learning English"), planned, not started. [Plan](https://github.com/mrviduus/textstack/blob/f465e6b0afa9fa5df1cc1cc8ca816f1cd22f9e74/docs/internal/marketing/onboarding-consilium-2026-10-08.md).
 - **Article:** Sentry write-up, draft on vasyl.blog; needs edits, image, publish, then a DEV cross-post.
+- **One UI codebase** ([ADR-035](architecture/adr/ADR-035-one-ui-web-app-in-android-shell.md), #1329): `apps/web` becomes the Android app in a Capacitor shell; `apps/mobile` is deleted at the end. Phases D0–D4: #1641–#1645.
 
 ## Known-broken / open follow-ups
 
@@ -63,7 +64,7 @@ Each is a real defect, known and not yet fixed.
 
 ## Under discussion (no decision)
 
-Nothing at the moment.
+Nothing open.
 
 ## Deliberately not doing
 
