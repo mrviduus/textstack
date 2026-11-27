@@ -375,6 +375,12 @@ jobs:
       - name: Build web
         run: pnpm --filter textstack-web build
 
+      # The Android target (ADR-035) must build too. Its `platform/android.ts` is a stub until #1642.
+      # A separate output folder: the web dist stays the one that ships.
+      - name: Build web (android target)
+        working-directory: apps/web
+        run: VITE_TARGET=android npx vite build --outDir "$RUNNER_TEMP/dist-android"
+
       # Vitest was never wired into CI — the job built the app and stopped, so a
       # failing web unit test merged to main unnoticed.
       - name: Web unit tests

@@ -39,10 +39,15 @@ const readerFrame = (): Plugin => ({
   },
 })
 
+/** The platform the build is for (ADR-035): `@platform-target` resolves to `src/platform/<target>.ts`. */
+const target = process.env.VITE_TARGET || 'web'
+if (target !== 'web' && target !== 'android') throw new Error(`VITE_TARGET must be web or android, not "${target}"`)
+
 export default defineConfig({
   plugins: [react(), readerFrame()],
   resolve: {
     alias: {
+      '@platform-target': path.resolve(__dirname, `src/platform/${target}.ts`),
       '@textstack/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
       // Before the bare name: an alias matches by prefix. The PDF layout, loaded lazily with pdf.js (Phase 5).
     },

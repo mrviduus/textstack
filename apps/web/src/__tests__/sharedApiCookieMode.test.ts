@@ -11,8 +11,8 @@ import { fileURLToPath } from 'node:url'
  * the web threw "API not initialized" — `BookInsightsSection` swallowed exactly that and the
  * конспект never rendered — so every `/me/*` endpoint was written twice.
  *
- * Now `api/client.ts` calls `initApi({ credentials: 'include', ... })` on import (and `main.tsx`
- * imports it first). The rule this file holds:
+ * Now the platform (`platform/web.ts`) calls `initApi({ credentials: 'include', ... })` on load,
+ * `api/client.ts` imports the platform, and `main.tsx` imports `api/client.ts` first. The rule this file holds:
  *  1. that init exists, in cookie mode, with the refresh hook;
  *  2. no second transport grows back — the only other `authFetch` allowed is the session flow in
  *     `api/auth.ts` (login/refresh/logout must not recurse into the refresh-on-401 wrapper).
@@ -30,9 +30,10 @@ function* sourceFiles(dir: string): Generator<string> {
 
 describe('web runs the shared API clients in cookie mode', () => {
   it('initialises them with credentials: include and a refresh hook', () => {
-    const client = readFileSync(join(root, 'api/client.ts'), 'utf8')
-    expect(client).toMatch(/initApi\(\{[\s\S]*credentials: 'include'[\s\S]*\}\)/)
-    expect(client).toMatch(/onUnauthorized: \(\) => refreshToken\(\)/)
+    const web = readFileSync(join(root, 'platform/web.ts'), 'utf8')
+    expect(web).toMatch(/initApi\(\{[\s\S]*credentials: 'include'[\s\S]*\}\)/)
+    expect(web).toMatch(/onUnauthorized: \(\) => refreshToken\(\)/)
+    expect(readFileSync(join(root, 'api/client.ts'), 'utf8')).toMatch(/^import '\.\.\/platform'/m)
     expect(readFileSync(join(root, 'main.tsx'), 'utf8')).toMatch(/^import '\.\/api\/client'/)
   })
 

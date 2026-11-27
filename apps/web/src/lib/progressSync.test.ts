@@ -11,7 +11,7 @@ describe('keepaliveWrite', () => {
     await keepaliveWrite('/b', null, 'DELETE')
     expect(fetchMock.mock.calls).toEqual([
       ['/a', { method: 'PUT', credentials: 'include', keepalive: true, body: '{"x":1}', headers: { 'Content-Type': 'application/json' } }],
-      ['/b', { method: 'DELETE', credentials: 'include', keepalive: true }],
+      ['/b', { method: 'DELETE', credentials: 'include', keepalive: true, headers: {} }],
     ])
   })
 })
