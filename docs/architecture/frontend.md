@@ -22,7 +22,7 @@ Web, mobile, browser extension and a retained admin shell; two shared packages.
 - Android first. The reader opens the book's file kept on the device (`src/lib/reader/hostStorage.ts`,
   `localLibrary.ts`), so reading needs no network. iOS has no reader (M6 D4).
 
-Two apps today; whether they stay two is [ADR-035](adr/ADR-035-two-apps-shared-logic.md) (Proposed).
+Two apps today; `apps/web` becomes the only UI, with Android as a Capacitor shell around it ([ADR-035](adr/ADR-035-one-ui-web-app-in-android-shell.md)).
 
 ## Shared packages (`packages/`)
 
