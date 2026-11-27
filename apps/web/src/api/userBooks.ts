@@ -1,4 +1,4 @@
-import type { UserBookProgressDto } from '@textstack/shared'
+import type { UserBookDetailResponse, UserBookProgressDto } from '@textstack/shared'
 import { trackBookUploaded } from '../lib/analytics'
 import { refreshToken } from './auth'
 import {
@@ -31,54 +31,14 @@ export interface UserBook {
   hasOriginalPdf?: boolean
 }
 
-export interface UserChapterSummary {
-  id: string
-  chapterNumber: number
-  slug: string | null
-  title: string
-  wordCount: number | null
-  /** 1-based PDF page where this chapter starts. Null for EPUBs / unknown. */
-  sourceStartPage?: number | null
-}
-
 export interface TocEntry {
   title: string
   chapterNumber: number | null
   children: TocEntry[] | null
 }
 
-export interface UserBookDetail {
-  id: string
-  title: string
-  slug: string
-  language: string
-  author: string | null
-  description: string | null
-  coverPath: string | null
-  genre: string | null
-  publishedYear: number | null
-  totalWordCount: number | null
-  status: 'Processing' | 'Ready' | 'Failed'
-  errorMessage: string | null
-  chapters: UserChapterSummary[]
-  toc: TocEntry[] | null
-  createdAt: string
-  updatedAt: string
-  completedAt: string | null
-  /** True when the original upload is a PDF that can be rendered pixel-perfect
-   *  in the opt-in "Original layout" view. Absent on older payloads → false. */
-  hasOriginalPdf?: boolean
-  /** V2 (M5 #1031): the book's current file has its bytes in, so the V2 reader can open it. Absent on legacy. */
-  hasFile?: boolean
-  /** LLM metadata enrichment lifecycle (genre/year/description generation).
-   *  "NotStarted" | "Pending" | "Running" | "Completed" | "Failed".
-   *  Absent on older payloads → treat as no enrichment in flight. */
-  metadataEnrichmentStatus?: string
-  /** Page a clipped article came from. Null for uploaded files; absent on older payloads. */
-  sourceUrl?: string | null
-  /** PDF-2: the PDF's real page count; null/absent → estimate from words. */
-  pageCount?: number | null
-}
+/** The book-detail shape (`@textstack/shared`), its TOC typed. */
+export type UserBookDetail = Omit<UserBookDetailResponse, 'toc'> & { toc: TocEntry[] | null }
 
 export interface UploadResponse {
   userBookId: string

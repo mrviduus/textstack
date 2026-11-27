@@ -5,19 +5,22 @@ vi.mock('../lib/sse', async importOriginal => {
   const actual = await importOriginal<typeof import('../lib/sse')>()
   return { ...actual, postSse: vi.fn() }
 })
-vi.mock('../api/explain', () => ({ explain: vi.fn(), API_BASE: '' }))
+vi.mock('@textstack/shared', async importOriginal => ({
+  ...(await importOriginal<typeof import('@textstack/shared')>()),
+  explainApi: { explain: vi.fn() },
+}))
 vi.mock('../lib/offlineDb', () => ({
   getCachedExplain: vi.fn().mockResolvedValue(null),
   cacheExplain: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { postSse, SseUnsupportedError, type SseEvent } from '../lib/sse'
-import { explain as explainJson } from '../api/explain'
+import { explainApi } from '@textstack/shared'
 import { getCachedExplain } from '../lib/offlineDb'
 import { useExplain } from './useExplain'
 
 const mockPostSse = postSse as unknown as ReturnType<typeof vi.fn>
-const mockExplainJson = explainJson as unknown as ReturnType<typeof vi.fn>
+const mockExplainJson = explainApi.explain as unknown as ReturnType<typeof vi.fn>
 const mockGetCached = getCachedExplain as unknown as ReturnType<typeof vi.fn>
 
 const REQ = { word: 'quorum', sentence: 'A quorum of replicas.', targetLang: 'en' }
