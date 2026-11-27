@@ -76,4 +76,5 @@ Recorded so they stop being re-proposed:
 - **Audiobooks.** A recurring per-book narration cost against a product whose thesis is reading; TTS already reads any selection aloud.
 - **A bot that merges its own dependency updates.** A merge deploys production; the rest of the constraints are why nothing merges itself.
 - **Majors, applied automatically.** `deps-refresh.yml` raises patch and minor in the catalog and reports majors without touching them.
+- **One Expo app for web and Android (for now).** Two apps stay; their shared logic moves to `packages/shared` ([ADR-035](architecture/adr/ADR-035-two-apps-shared-logic.md), #1329). Reopened only on its two measured conditions.
 - **A public catalog.** Retired at M6 ([ADR-027](architecture/adr/ADR-027-retire-public-catalog.md), #992).

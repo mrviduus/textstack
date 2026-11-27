@@ -22,6 +22,9 @@ Web, mobile, browser extension and a retained admin shell; two shared packages.
 - Android first. The reader opens the book's file kept on the device (`src/lib/reader/hostStorage.ts`,
   `localLibrary.ts`), so reading needs no network. iOS has no reader (M6 D4).
 
+Two apps on purpose ([ADR-035](adr/ADR-035-two-apps-shared-logic.md)): views per app, logic both need
+in `packages/shared`.
+
 ## Shared packages (`packages/`)
 
 Consumed as source through path aliases (not built or published).
