@@ -47,7 +47,6 @@ Commands are mechanical recipes; agents are personas. Use a command inside an ag
 ## Skills (`.claude/skills/`)
 
 - `add-entity` — a new table: SQL migration + Dapper repository + Persistence test.
-- `add-tool` — a new agent tool (`ITool`).
 
 Add a skill when a multi-step procedure recurs verbatim.
 

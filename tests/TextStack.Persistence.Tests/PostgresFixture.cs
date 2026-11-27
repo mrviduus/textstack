@@ -155,6 +155,11 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         await new SharedChapterRepository(DataSource).ShareAsync(share, Ct);
         await new CheckpointRepository(DataSource).AppendAsync(NewCheckpoint(book, share), Ct);
         await new BookInsightRepository(DataSource).SaveAsync(NewInsight(book, "ch-1"), Ct);
+        // agent_run has no code left; the table goes in a later migration, its row dies with the guest until then.
+        await ExecAsync("""
+            INSERT INTO agent_run (id, agent, user_id, goal, status, steps_json, iterations, tokens_in, tokens_out, cost_usd, latency_ms, created_at)
+            VALUES (@id, 'retired', @userId, 'g', 'completed', '[]', 0, 0, 0, 0, 0, now())
+            """, new { id = Guid.NewGuid(), userId });
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
         await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, null, Application.Identity.SessionKind.Reader, Ct);
