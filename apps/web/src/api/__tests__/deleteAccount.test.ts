@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import '../client' // initApi, as the app does on load
 import { deleteAccount } from '../auth'
 
 describe('deleteAccount', () => {

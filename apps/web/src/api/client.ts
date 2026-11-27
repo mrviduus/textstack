@@ -1,17 +1,11 @@
 import { initApi } from '@textstack/shared'
-import { refreshToken } from './auth'
+import { API_BASE } from './base'
+import { platform } from '../platform'
 
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+export { API_BASE }
 
-// One authFetch for both apps (the shared one). Web runs it in cookie mode: no
-// Bearer, `credentials: 'include'`, and a 401 refreshes the cookie (single-flight
-// in `refreshToken`) then retries once — `''` means "retry, cookie only".
-// Initialised on import so every caller, tests included, gets it before first use.
-initApi({
-  baseUrl: API_BASE,
-  getAccessToken: async () => null,
-  onUnauthorized: () => refreshToken().then(() => '', () => null),
-  credentials: 'include',
-})
+// One authFetch for both apps (the shared one). The platform gives its auth options (`platform/web.ts`: the
+// cookie). Initialised on import so every caller, tests included, gets it before first use.
+initApi({ baseUrl: API_BASE, ...platform.transport.api })
 
 export { authFetch, ApiError } from '@textstack/shared'

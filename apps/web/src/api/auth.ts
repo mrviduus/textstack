@@ -1,7 +1,9 @@
 import type { MergeMap } from '../lib/mergeMap'
 import type { GuestMergeSkipReason } from '@textstack/shared'
 
-import { authFetch as meFetch, API_BASE } from './client'
+import { authFetch as meFetch } from '@textstack/shared'
+import { API_BASE } from './base'
+import { platform } from '../platform'
 
 /** /me/* data calls: the shared cookie-mode client (401 → refresh → retry). The session
  *  flow below (login/refresh/logout/guest/device) stays on the local `authFetch`, which
@@ -33,11 +35,13 @@ export interface AuthResponse {
 }
 
 async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const init = platform.transport.fetchInit()
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    credentials: 'include',
+    ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...init.headers,
       ...options?.headers,
     },
   })

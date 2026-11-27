@@ -2,6 +2,8 @@
 // (POST /explain with `Accept: text/event-stream`) are consumed via fetch + ReadableStream,
 // parsed with a minimal SSE parser (event/data fields, multi-line data, CRLF-tolerant).
 
+import { platform } from '../platform'
+
 export interface SseEvent {
   event: string
   data: string
@@ -81,11 +83,13 @@ export async function postSse(
   onEvent: (e: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  // The platform's auth (web: the cookie, needed for authed SSE and harmless for public ones).
+  const init = platform.transport.fetchInit()
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    ...init,
+    headers: { ...init.headers, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify(body),
-    credentials: 'include', // send the auth cookie (needed for authed SSE; harmless for public ones)
     signal,
   })
 

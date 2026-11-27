@@ -16,6 +16,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
+      "@platform-target": ["./src/platform/web.ts"],
       "@textstack/shared": ["../../packages/shared/src/index.ts"],
       "@textstack/shared/*": ["../../packages/shared/src/*"]
     }
