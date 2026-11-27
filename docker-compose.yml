@@ -199,12 +199,6 @@ services:
       Storage__RootPath: /storage
       # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
       Storage__LibraryRoot: /library
-      # AddApplication registers the OpenAI providers here too; without a key
-      # OpenAiLlmClient throws on an empty key if one is ever resolved.
-      OpenAI__ApiKey: ${OPENAI_API_KEY:-}
-      # Same model overrides as the api; empty = the OpenAiOptions default.
-      OpenAI__Model: ${OPENAI_MODEL:-}
-      OpenAI__Explain__Model: ${OPENAI_EXPLAIN_MODEL:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:

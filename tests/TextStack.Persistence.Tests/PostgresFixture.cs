@@ -117,7 +117,7 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
     /// One row of the user in every V2 table that can carry a user (two reading sessions: one of the
     /// book, one of a deleted book): the library side, and the identity and ops rows that point only at
     /// <c>users</c> (a session, a reset code, an approved OAuth request, a grant, an approved device
-    /// login, a connect key, an agent run, an LLM trace). Returns the book and its share.
+    /// login, a connect key, an LLM trace). Returns the book and its share.
     /// </summary>
     public async Task<(Book Book, SharedChapter Share)> SeedEverythingAsync(Guid userId)
     {
@@ -154,13 +154,12 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         var share = NewShare(book);
         await new SharedChapterRepository(DataSource).ShareAsync(share, Ct);
         await new CheckpointRepository(DataSource).AppendAsync(NewCheckpoint(book, share), Ct);
-        var insight = (await new BookInsightRepository(DataSource).SaveAsync(NewInsight(book, "ch-1"), Ct))!;
-        // review_question has no code left; the table goes in a later migration, its row follows the insight until then.
+        await new BookInsightRepository(DataSource).SaveAsync(NewInsight(book, "ch-1"), Ct);
+        // agent_run has no code left; the table goes in a later migration, its row dies with the guest until then.
         await ExecAsync("""
-            INSERT INTO review_question (id, user_id, book_insight_id, block_index, prompt, answer, prompt_hash, stage, interval_days,
-                consecutive_correct, next_review_at, total_reviews, correct_reviews, created_at, updated_at)
-            VALUES (@id, @userId, @insightId, 1, 'Why?', 'Because.', 'h1', 0, 0, 0, now(), 0, 0, now(), now())
-            """, new { id = Guid.NewGuid(), userId, insightId = insight.Id });
+            INSERT INTO agent_run (id, agent, user_id, goal, status, steps_json, iterations, tokens_in, tokens_out, cost_usd, latency_ms, created_at)
+            VALUES (@id, 'retired', @userId, 'g', 'completed', '[]', 0, 0, 0, 0, 0, now())
+            """, new { id = Guid.NewGuid(), userId });
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
         await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, null, Application.Identity.SessionKind.Reader, Ct);
@@ -168,7 +167,6 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         await new OAuthRepository(DataSource).ConnectAsync(userId, await ApprovedOAuthRequestAsync(userId), NewGrant(), Ct);
         await ApprovedDeviceLoginAsync(userId);
         await new McpKeyRepository(DataSource).CreateAsync(userId, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow, Ct);
-        await new AgentRunWriter(DataSource).WriteAsync(NewRun(userId), Ct);
         await new LlmTraceWriter(DataSource).WriteAsync(NewTrace(userId), Ct);
         await using var conn = await DataSource.OpenConnectionAsync(Ct);
         await conn.ExecuteAsync(new CommandDefinition("""
@@ -318,12 +316,6 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
     public static LlmTrace NewTrace(Guid userId) => new(
         Guid.NewGuid(), "explain", "gpt-test", "hash", "system", """[{"role":"user","content":"hi"}]""", "hello",
         null, 10, 5, 0.000123m, 42, userId, null, null, DateTimeOffset.UtcNow);
-
-    /// <summary>A completed one-step agent run for <paramref name="userId"/>, on a catalog edition V2 does not keep.</summary>
-    public static AgentRunRecord NewRun(Guid userId) => new(
-        Guid.NewGuid(), "tutor", userId, Guid.NewGuid(), "explain chapter 1", "completed", "done",
-        [new AgentStep(0, "final", JsonSerializer.SerializeToElement(new { text = "done" }), DateTimeOffset.UtcNow)],
-        new AgentUsage(1, 10, 5, 0.0001m, 42), null, DateTimeOffset.UtcNow, 0.9, 2);
 
     /// <summary>A plain insight on the book (a review when <paramref name="reviewJson"/> is given).</summary>
     public static BookInsight NewInsight(Book book, string? chapterSlug, string text = "text", string? reviewJson = null) => new()

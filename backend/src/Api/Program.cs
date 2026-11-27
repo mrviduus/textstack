@@ -19,10 +19,9 @@ builder.AddTextStackSentry();
 builder.Services.AddTextStackCors(builder.Configuration);
 builder.Services.AddOpenApi();
 
-// Application layer + AI platform (eval runners, agents, tools).
+// Application layer.
 builder.Services
     .AddApplication()
-    .AddTextStackAgents()
     .AddAuthSettings(builder.Configuration);
 
 // storagePath is consumed again by the static-file middleware below.

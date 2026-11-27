@@ -135,7 +135,7 @@ API → Application → Domain ← Infrastructure
 - **Infrastructure**: Dapper repositories over one `AppDataSource` (`Infrastructure/Persistence/`, ADR-028), file stores. No EF Core.
 - **API/Worker**: Orchestration, DI. The Worker runs `RetentionCleanupWorker` (retention rules + the library's byte sweeps). It parses no books: the reader is the only parser (ADR-033).
 
-**Backend class libraries** (`backend/src/`, beyond the layers above): `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server).
+**Backend class libraries** (`backend/src/`, beyond the layers above): `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, evals, MCP server).
 
 ### Shared Frontend Package (`packages/`)
 
@@ -228,7 +228,7 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 
 ## Area guides and key files
 
-Area guides load on their own: `backend/CLAUDE.md` (key files, every API route) and `apps/mobile/CLAUDE.md` (Expo, offline, Play/OTA release) when working there; procedures and topic guides are skills in `.claude/skills/` (`features`, `operations`, `add-entity`, `add-tool`). Runbooks and postmortems: `docs/internal/ops/`, `docs/internal/incidents/`.
+Area guides load on their own: `backend/CLAUDE.md` (key files, every API route) and `apps/mobile/CLAUDE.md` (Expo, offline, Play/OTA release) when working there; procedures and topic guides are skills in `.claude/skills/` (`features`, `operations`, `add-entity`). Runbooks and postmortems: `docs/internal/ops/`, `docs/internal/incidents/`.
 
 | Area | Path |
 |------|------|

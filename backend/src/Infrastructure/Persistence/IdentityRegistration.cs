@@ -20,8 +20,7 @@ public static class IdentityRegistration
             .AddSingleton<IMcpKeyRepository, McpKeyRepository>()
             .AddSingleton<ILlmTraceWriter>(sp => sp.GetRequiredService<LlmTraceWriter>())
             // The daily AI budgets seed from the traces where they are written (RollingSpendTracker).
-            .AddSingleton<Application.Ai.ILlmSpendSource>(sp => sp.GetRequiredService<LlmTraceWriter>())
-            .AddSingleton<IAgentRunWriter>(sp => sp.GetRequiredService<AgentRunWriter>());
+            .AddSingleton<Application.Ai.ILlmSpendSource>(sp => sp.GetRequiredService<LlmTraceWriter>());
 
     /// <summary>The Api's auth services.</summary>
     public static IServiceCollection AddTextStackAuthentication(this IServiceCollection services)

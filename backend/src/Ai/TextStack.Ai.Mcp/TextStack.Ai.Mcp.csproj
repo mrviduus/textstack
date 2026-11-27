@@ -71,7 +71,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <!-- Deliberately thin: NO reference to Application / Infrastructure / Ai.Tools (Observability,
+  <!-- Deliberately thin: NO reference to Application / Infrastructure (Observability,
        above, is Sentry and nothing else).
        This is a stateless MCP <-> HTTP bridge; every tool call becomes an HTTP
        call to the existing public API. -->

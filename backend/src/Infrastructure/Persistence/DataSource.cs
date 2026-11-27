@@ -81,7 +81,6 @@ public static class DataSource
             .AddSingleton<IAccountLookup, AccountLookup>()
             .AddSingleton<IAccountMergeRepository, AccountMergeRepository>()
             .AddSingleton<LlmTraceWriter>()
-            .AddSingleton<AgentRunWriter>()
             .AddSingleton<IAdminSettingsRepository, AdminSettingsRepository>()
             .AddSingleton<IAdminSessionLifetimes, AdminSessionLifetimes>();
 }

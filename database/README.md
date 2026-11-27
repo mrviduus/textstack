@@ -24,6 +24,7 @@ database/
     0009_bare_cfi_position      a reading position may be a bare epub-cfi (mark-read's book start, ADR-033 P4)
     0010_drop_book_chapters_and_ingestion_jobs  both transitional tables dropped; book_files.toc commented (ADR-033 P5)
     0011_book_cover_updated_at  books.cover_updated_at: a cover's own cache version, apart from updated_at (#1584)
+    0012_drop_review_question               dropped: chapter reviews are retired (#1624)
   tests/invariants.sql          ADR-031's schema rules, checked against a migrated database
   tests/roundtrip.sh            CI check of the runner and every migration
 ```
