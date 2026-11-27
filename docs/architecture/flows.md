@@ -27,7 +27,6 @@ flowchart LR
         worker["worker<br/>retention · file sweeps"]
         db[("Postgres 16 · textstack_v2<br/>queues = tables")]
         fs[("data/library · data/storage<br/>book files · covers<br/>+ tts/translate/explain caches")]
-        ollama["Ollama<br/>gemma · local LLM"]
     end
 
     subgraph third["Third parties"]
@@ -44,8 +43,7 @@ flowchart LR
     api -->|Dapper| db
     worker -->|Dapper| db
     api & worker --> fs
-    api & worker -->|HTTP| ollama
-    api & worker -->|HTTPS| openai
+    api -->|HTTPS| openai
     api -->|WSS| tts
     api -->|HTTPS| mail
 ```

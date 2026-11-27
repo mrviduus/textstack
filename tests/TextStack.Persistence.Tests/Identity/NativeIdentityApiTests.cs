@@ -42,7 +42,6 @@ public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposabl
             b.UseSetting("App:BaseUrl", "https://textstack.app");
             b.UseSetting("Storage:RootPath", Path.Combine(root, "storage"));
             b.UseSetting("Storage:LibraryRoot", Path.Combine(root, "library"));
-            b.UseSetting("Ollama:BaseUrl", "http://127.0.0.1:1");
             b.UseSetting("Translate:CachePath", Path.Combine(root, "translate-cache"));
             b.UseSetting("Explain:CachePath", Path.Combine(root, "explain-cache"));
             b.ConfigureTestServices(s =>

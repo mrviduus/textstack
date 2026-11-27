@@ -1,13 +1,12 @@
 using System.Text.RegularExpressions;
 using Application.Ai;
 using Domain.LLM;
-using TextStack.Ai.Llm;
 
 namespace TextStack.UnitTests;
 
 /// <summary>
 /// Prompts name the reader's language ("Ukrainian"), never its code ("uk"): small local models
-/// answer in English when handed a code. Plus the two parser guards for what those models send back.
+/// answer in English when handed a code.
 /// </summary>
 public class LlmLanguageNameTests
 {
@@ -50,16 +49,6 @@ public class LlmLanguageNameTests
     [Fact]
     public void TranslatePromptBuildSystemPrompt_LanguageCodes_UsesLanguageNames() =>
         Assert.Contains("Translate from English to Russian.", TranslatePrompt.BuildSystemPrompt("en", "ru", null, null));
-
-    [Theory]
-    [InlineData("<think>let me see\n[1]</think>\nHINT: x", "HINT: x")]
-    [InlineData("</think>\n\nHINT: x", "HINT: x")]
-    [InlineData("  <think></think>HINT: x", "HINT: x")]
-    [InlineData("HINT: x", "HINT: x")]
-    [InlineData("HINT: </think> stays", "HINT: </think> stays")]
-    [InlineData("<think>never closed", "<think>never closed")]
-    public void StripThinking_LeadingThinkBlock_IsRemoved(string raw, string expected) =>
-        Assert.Equal(expected, OllamaLlmClient.StripThinking(raw));
 
     private static string FindRepoFile(string relative)
     {

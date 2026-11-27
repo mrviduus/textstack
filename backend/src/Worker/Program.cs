@@ -23,7 +23,7 @@ builder.Services.AddTextStackFileStores(builder.Configuration);
 builder.Services.AddApplication();
 builder.Services.AddIdentityPorts();
 
-// HTTP client factory (for OllamaLlmService + etc.)
+// HTTP client factory
 builder.Services.AddHttpClient();
 
 builder.Services.AddWorkerLoops(builder.Configuration);

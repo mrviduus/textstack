@@ -6,9 +6,9 @@ namespace TextStack.Ai.Llm;
 /// Provider-level failure reporting, tagged with the task and provider so a Sentry issue answers
 /// "which feature, on which model, is broken?" without opening a trace.
 ///
-/// Static (not DI) on purpose: the two call sites that need it — <see cref="TracingDecorator"/> and
-/// <see cref="OllamaLlmClient"/> — are constructed by hand in keyed DI factories, and threading an
-/// extra dependency through both would churn every existing unit-test construction for no gain.
+/// Static (not DI) on purpose: <see cref="TracingDecorator"/> is constructed by hand in keyed DI
+/// factories, and threading an extra dependency through it would churn every existing unit-test
+/// construction for no gain.
 /// Against a disabled hub (no DSN) every call here is already a no-op.
 /// </summary>
 public static class LlmFailureAlarm
@@ -19,10 +19,7 @@ public static class LlmFailureAlarm
     public const string ReasonTransport = "transport";
     public const string ReasonEmptyResponse = "empty_response";
 
-    private static AlarmThrottle _throttle = new(TimeSpan.FromMinutes(60));
-
-    /// <summary>Sets the shared cooldown from <c>Ai:RouteAlarm:CooldownMinutes</c> at startup.</summary>
-    public static void Configure(TimeSpan cooldown) => _throttle = new AlarmThrottle(cooldown);
+    private static readonly AlarmThrottle _throttle = new(TimeSpan.FromMinutes(60));
 
     // OpenAI SDK messages start "HTTP 404 (invalid_request_error: model_not_found)". Anchored to the
     // "HTTP NNN (type: code)" head so body text like "(expected: object)" never becomes a code — the
@@ -68,8 +65,8 @@ public static class LlmFailureAlarm
         ["{{ default }}", "llm-failure", provider, task, reason, code];
 
     /// <summary>
-    /// Reports one provider failure, throttled per (provider, task, reason, error code). A dead Ollama
-    /// during a 106-page PDF parse produces one event, not 106.
+    /// Reports one provider failure, throttled per (provider, task, reason, error code). A dead provider
+    /// under a burst of calls produces one event, not one per call.
     ///
     /// Fingerprinted by the same key, so each distinct failure is its own Sentry issue and fires the
     /// new-issue alert. Grouped by exception type instead, a retired model joined an old, ongoing

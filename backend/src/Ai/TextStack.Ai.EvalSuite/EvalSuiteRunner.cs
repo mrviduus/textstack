@@ -10,7 +10,7 @@ namespace TextStack.Ai.EvalSuite;
 /// <summary>
 /// Runs the eval suite in-process so the admin "Run evals" button works on prod.
 /// Generation goes through <paramref name="generatorFor"/> (the real ModelGateway,
-/// routed by FeatureTag → OpenAI/Ollama exactly like prod). Judging goes through the
+/// routed by FeatureTag → OpenAI exactly like prod). Judging goes through the
 /// Microsoft.Extensions.AI.Evaluation <see cref="RubricEvaluator"/> (the same evaluator
 /// the eval test suite uses), talking to <paramref name="judgeClient"/> via the
 /// <see cref="LlmServiceChatClient"/> adapter — one scoring path shared by app + tests.

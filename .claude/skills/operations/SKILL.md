@@ -25,7 +25,7 @@ Internet → Cloudflare (DNS+SSL) → Cloudflare Tunnel → nginx (port 80)
   └─ textstack.dev → admin shell (:81)
 ```
 
-Docker services: `db` (pgvector pg16, digest-pinned; the app's database is `textstack_v2`), `migrator`, `api`, `worker`, `admin`, `aspire-dashboard` (`--profile observability`), `ollama`, `mcp-server` (`--profile mcp`). All localhost-only, no public ports except 80 via tunnel.
+Docker services: `db` (pgvector pg16, digest-pinned; the app's database is `textstack_v2`), `migrator`, `api`, `worker`, `admin`, `aspire-dashboard` (`--profile observability`), `mcp-server` (`--profile mcp`). All localhost-only, no public ports except 80 via tunnel.
 
 Images: built + secret-scanned on GitHub, pulled by digest from GHCR; secrets only in the server's `.env` at runtime. Never deploy by SSH — break-glass is `gh workflow run deploy.yml`.
 

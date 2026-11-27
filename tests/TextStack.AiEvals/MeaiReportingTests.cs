@@ -5,7 +5,7 @@ namespace TextStack.AiEvals;
 
 /// <summary>
 /// Deterministic Step-5 coverage: drives <see cref="MeaiEvalRunner"/> with a fake
-/// generator + fake judge (no Ollama/OpenAI) so it always runs in CI, and asserts the
+/// generator + fake judge (no OpenAI) so it always runs in CI, and asserts the
 /// MEAI reporting pipeline (disk result store + response cache + HtmlReportWriter)
 /// actually produces an HTML report.
 /// </summary>
