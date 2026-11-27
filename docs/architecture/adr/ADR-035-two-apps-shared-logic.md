@@ -1,6 +1,6 @@
-# ADR-035 — Two apps, one logic: shared hooks now, one Expo app only if measured
+# ADR-035 — One UI codebase: shared logic (C) or the web app in an Android shell (D)
 
-**Status:** Accepted · **Date:** 2026-11-27 · **Builds on:** [ADR-029](ADR-029-foliate-for-v2-epub.md), [ADR-032](ADR-032-one-engine-foliate-fork.md), [ADR-033](ADR-033-client-is-the-only-parser.md) · **Issue:** #1329
+**Status:** Proposed (C or D, decided after the spike in P1 below) · **Date:** 2026-11-27 · **Builds on:** [ADR-029](ADR-029-foliate-for-v2-epub.md), [ADR-032](ADR-032-one-engine-foliate-fork.md), [ADR-033](ADR-033-client-is-the-only-parser.md) · **Issue:** #1329
 
 ## Context
 
@@ -83,9 +83,36 @@ store build. Every web change would travel that way.
 | **A.** One Expo app for Android and web; `apps/web` deleted | ~17–21k (mostly CSS and views) | 8–12 weeks | High: reader, layout, auth, routes, hosting all rebuilt; web ships through the mobile release path; bundle 6× larger |
 | **B.** Two apps; duplicated logic moves into `packages/shared` as headless hooks, apps keep views | ~1.3k code, ~0.5k tests | 1–2 weeks | Low |
 | **C.** B now; A re-decided later with numbers | B now | B now | Low now |
+| **D.** One web app; Android becomes a native WebView shell around the `apps/web` build; `apps/mobile` deleted | ~18–20k (−23k mobile, +3–5k offline layer, shell, native glue) | 6–10 weeks | Medium-high: see below |
 | **Reader chrome inside the reader page** (TOC, settings, search, word popup drawn once by `packages/reader`, for both hosts) | ~4k (unverified) | spike first | Medium: Android touch feel inside a WebView |
 
+### Option D in detail
+
+D keeps the app that already works on a desktop and makes it the only one. The web app is partly
+responsive already (61 `@media` rules, breakpoints at 480/600/640/1024 px). The reader on Android
+already runs inside a WebView, so the shell changes the host, not the reader. The web download stays
+what it is today.
+
+What D has to solve, each a spike question:
+1. **Offline reading** (a rule that bites: no token, no network). The Android local library
+   (`localLibrary.ts` SQLite, `hostStorage.ts` files, `reader/sync.ts` outbox, ~2k lines) is rewritten
+   in web code over a native SQLite and file plugin; the app's assets ship inside the APK, not loaded
+   from the server.
+2. **Existing installs.** Same package id and signing key; the new shell must open the current SQLite
+   database and the books already under the app's files directory, or readers lose offline books and
+   unsynced work.
+3. **Reader CSP.** The frame's nonce comes from nginx `sub_filter` today; inside the APK something
+   else must set it.
+4. **Native pieces:** Google sign-in, the vocabulary reminder notifications, file picker, share.
+5. **Updates.** Today JS ships as an Expo OTA on merge. With bundled assets, an update is a store build
+   unless the shell has its own live-update path.
+
+Under D, the shared hooks of P2 lose most of their value (one app is left), so P2 waits for the D spike.
+
 ## Decision
+
+**Not final: C or D.** The spike in P1 below decides. What follows describes C, the default if D
+fails its spike.
 
 **C.** Two apps stay. The logic both apps run moves to `packages/shared` now; views stay per app. A is
 not rejected forever, but it is not started: the spike shows a phone shell that would have to grow a
@@ -106,7 +133,7 @@ Dead code goes first, on both sides and in the backend.
 **Reopen A** only when both hold:
 1. The Expo web build downloads at most 1.5× what today's web app downloads to show the library
    (gzip JS + CSS on first open; 0.20 MB today, so ≤ 0.30 MB).
-2. The reader chrome lives in the reader page (phase P2 passed), so A's largest missing pieces exist once.
+2. The reader chrome lives in the reader page (phase P3 passed), so A's largest missing pieces exist once.
 
 ## Plan
 
@@ -135,23 +162,29 @@ Each phase is small PRs; nothing starts without the owner's "start".
   live features. The MCP server's 18 tools are separate and untouched. The `agent_run` table is dropped
   by a migration only if nothing reads it.
 
-**P1 — shared headless logic (~−1.3k code, ~−0.5k tests)** (#1626), one PR per pair, in this order:
+**P1 — spike D (2–3 days, code thrown away):** the `apps/web` build in an Android WebView shell on the
+emulator. Pass = all of: a book already on the device opens offline with no account; an install over
+today's app keeps its books and unsynced data; the reader frame runs under a CSP nonce; Google sign-in
+works; the update path is known. Pass → this ADR is rewritten to D with a migration plan. Fail → C,
+and P2 starts.
+
+**P2 (C only) — shared headless logic (~−1.3k code, ~−0.5k tests)** (#1626), one PR per pair, in this order:
 `useReaderSettings` (fixes web's settings bug) → `useBookReviews` → `useVocabularyReview` (fixes the
 review drifts) → `useLibrarySort` → `useAssistantLauncher` → `useReadingSession` / `pendingSessions` →
 `NativeLanguageContext` core → reader word and vocabulary logic → guest mint and session gate.
 Each PR leaves the Android runtime fingerprint unchanged (JS only), so it ships as an OTA.
 
-**P2 — reader chrome spike** (#1627): the TOC only, drawn inside the reader page for both hosts. The owner
+**P3 (C only) — reader chrome spike** (#1627): the TOC only, drawn inside the reader page for both hosts. The owner
 judges it on the Android device; web is checked for keyboard and focus. The owner then decides whether
 settings, search and the popups follow.
 
-**P3 — reopen A** if the two conditions above hold; otherwise this ADR stands.
+**P4 (C only) — reopen A** if the two conditions above hold; otherwise this ADR stands.
 
 ## Consequences
 
-- Views are still written twice. A new screen costs two views but one hook.
+- Under C, views are still written twice. A new screen costs two views but one hook.
 - Behaviour drift between web and Android stops for the logic that moves; a fix lands once.
-- Line count falls by ~5k in P0–P1 (more if P2 passes), far less than A promises, at a fraction of the
-  risk, and without routing web releases through the Android OTA path.
+- Under C, line count falls by ~5k in P0 and P2 (more if P3 passes): far less than A promises, at a
+  fraction of the risk, and without routing web releases through the Android OTA path. Under D, ~18–20k.
 - The spike numbers are reproducible: `pnpm -C apps/web build`, and
   `npx expo export --platform web` in `apps/mobile`; compare gzip of the files the library route loads.
