@@ -10,7 +10,7 @@ changes its row here.
 
 ## Tables
 
-23 tables, created and migrated by `migrator` ([database/](../../database/README.md)).
+22 tables, created and migrated by `migrator` ([database/](../../database/README.md)).
 The Origin column names the legacy table each one came from (the legacy database was dropped 2026-11-17).
 
 | Module | Table | A row is | Origin |
@@ -35,7 +35,6 @@ The Origin column names the legacy table each one came from (the legacy database
 | | `discussion_checkpoints` | one saved stage of a discussion | new |
 | | `book_insight` | an assistant conclusion or chapter review | `book_insight` (one `book_id`) |
 | Ops | `llm_traces` | one LLM call | same |
-| | `agent_run` | one agent run (none written since #1625) | same (− `edition_id`) |
 | | `eval_runs` | one eval score | same |
 | | `admin_settings` | one runtime knob | same |
 
@@ -69,7 +68,7 @@ erDiagram
 | `vocabulary_words`, `vocabulary_examples`, `vocabulary_reviews` | user_id | Learning patterns |
 | `annotations`, `shared_chapters`, `discussion_checkpoints`, `book_insight` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
-| `llm_traces`, `agent_run` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d. Agent runs (none written since #1625; table dropped next) are deleted with the account |
+| `llm_traces` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d |
 | `books`, `book_files` | user_id | Uploaded content + library |
 
 **Guest users**: `users.is_guest = true` ([ADR-014](adr/ADR-014-guest-sessions.md)). Nothing sweeps

@@ -26,10 +26,9 @@ public class AccountMergeRepositoryTests(PostgresFixture db)
 
     private readonly AccountMergeRepository _repo = new(db.DataSource);
 
-    /// <summary>The tables that die with the guest row: every credential (owner's security review, 2026-11-02), and
-    /// agent_run (nothing writes it since #1625; the table is dropped next).</summary>
+    /// <summary>The tables that die with the guest row: every credential (owner's security review, 2026-11-02).</summary>
     private static readonly string[] Dying =
-        ["user_refresh_tokens", "password_reset_tokens", "device_authorizations", "oauth_authorization_requests", "oauth_grants", "mcp_access_keys", "agent_run"];
+        ["user_refresh_tokens", "password_reset_tokens", "device_authorizations", "oauth_authorization_requests", "oauth_grants", "mcp_access_keys"];
 
     private async Task<AccountMerge> MergeAsync(Guid guest, Guid account)
     {
