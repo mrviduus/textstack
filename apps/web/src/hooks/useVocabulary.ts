@@ -1,12 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
-import {
-  getWords,
-  deleteWord as deleteWordApi,
-  deleteAllWords as deleteAllWordsApi,
-  updateWord as updateWordApi,
-  type VocabWordDto,
-} from '../api/vocabulary'
+import type { VocabWordDto } from '../api/vocabulary'
+import { platform } from '../platform'
 import { emitDataChange, useDataChange } from '../lib/dataEvents'
 
 interface VocabFilters {
@@ -31,7 +26,7 @@ export function useVocabulary() {
     setLoading(true)
     setError(null)
     try {
-      const result = await getWords(active)
+      const result = await platform.vocabulary.getWords(active)
       setWords(result.items)
       setTotal(result.total)
     } catch (err) {
@@ -55,7 +50,7 @@ export function useVocabulary() {
 
   const removeWord = useCallback(async (id: string) => {
     try {
-      await deleteWordApi(id)
+      await platform.vocabulary.deleteWord(id)
       setWords(prev => prev.filter(w => w.id !== id))
       setTotal(prev => prev - 1)
       emitDataChange('vocabulary')
@@ -66,7 +61,7 @@ export function useVocabulary() {
 
   const removeAll = useCallback(async () => {
     try {
-      await deleteAllWordsApi()
+      await platform.vocabulary.deleteAllWords()
       setWords([])
       setTotal(0)
       emitDataChange('vocabulary')
@@ -77,7 +72,7 @@ export function useVocabulary() {
 
   const editWord = useCallback(async (id: string, data: { translation?: string; definition?: string }) => {
     try {
-      const updated = await updateWordApi(id, data)
+      const updated = await platform.vocabulary.updateWord(id, data)
       setWords(prev => prev.map(w => w.id === id ? updated : w))
       emitDataChange('vocabulary')
     } catch (err) {

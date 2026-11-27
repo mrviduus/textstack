@@ -1,8 +1,9 @@
-import { initApi } from '@textstack/shared'
+import { highlightCoverUrl, highlightsApi, initApi } from '@textstack/shared'
 import type { Platform } from '.'
 import { API_BASE } from '../api/base'
 import { refreshToken } from '../api/auth'
 import * as userBooks from '../api/userBooks'
+import * as vocabulary from '../api/vocabulary'
 
 // The shared API client in cookie mode: no bearer token. A 401 refreshes the cookie (single-flight in
 // `refreshToken`), then the client retries once. `''` means "retry with the cookie only".
@@ -19,4 +20,9 @@ export const platform: Platform = {
     fetchInit: () => ({ credentials: 'include' }),
   },
   library: userBooks,
+  vocabulary,
+  highlights: {
+    getAllHighlights: (q) => highlightsApi.getAllHighlights(q),
+    coverUrl: highlightCoverUrl,
+  },
 }

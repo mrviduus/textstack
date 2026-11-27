@@ -8,7 +8,9 @@
  *
  * The reader route's members are in `reader.ts`, a second module: only the reader's lazy chunk loads them.
  */
+import type { highlightCoverUrl, highlightsApi } from '@textstack/shared'
 import type * as userBooks from '../api/userBooks'
+import type * as vocabulary from '../api/vocabulary'
 
 /**
  * An implementation also sets up the shared API client (`initApi`) on load. The rest of the app
@@ -31,6 +33,18 @@ export interface Platform {
     | 'getUserBooks' | 'getUserBook' | 'getUserBookProgress' | 'getUserTags'
     | 'uploadUserBook' | 'deleteUserBook' | 'markUserBookComplete' | 'unmarkUserBookComplete'
     | 'bulkFinishUserBooks' | 'bulkDeleteUserBooks' | 'getUserBookCoverUrl' | 'getUserBookFileUrl'>
+  /**
+   * The saved words: the reader's word popup, the vocabulary page and the review. Web: the server
+   * (`api/vocabulary.ts`). Android: the store on the device. The signatures are the ones in `api/vocabulary.ts`.
+   */
+  vocabulary: Pick<typeof vocabulary,
+    | 'saveWord' | 'getWords' | 'deleteWord' | 'deleteAllWords' | 'updateWord' | 'restoreWord'
+    | 'getReaderVocab' | 'getReviewQueue' | 'submitReview'>
+  /** The highlights page: every highlight of every book. Web: the server. Android: the store on the device. */
+  highlights: Pick<typeof highlightsApi, 'getAllHighlights'> & {
+    /** The cover of a highlight's book. */
+    coverUrl: typeof highlightCoverUrl
+  }
 }
 
 export { platform } from '@platform-target'

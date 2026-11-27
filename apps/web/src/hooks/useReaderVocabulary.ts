@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useGuestLimits } from '../context/GuestLimitsContext'
-import { getReaderVocab, saveWord, deleteWord as deleteWordApi, updateWord, type SaveWordRequest, type SaveWordResponse, type VocabWordDto } from '../api/vocabulary'
+import type { SaveWordRequest, SaveWordResponse, VocabWordDto } from '../api/vocabulary'
+import { platform } from '../platform'
 import { syncApi } from '@textstack/shared'
 import { emitDataChange } from '../lib/dataEvents'
 import { translate as translateWord } from '../api/translation'
@@ -139,7 +140,7 @@ export function useReaderVocabulary(marksLanguage: string | null, targetLang?: s
     setLoadFailed(false)
     const since: ((m: VocabMap) => void)[] = []
     sinceLoad.current = since
-    getReaderVocab()
+    platform.vocabulary.getReaderVocab()
       .then((words) => {
         if (cancelled) return
         const m: VocabMap = new Map()
@@ -178,7 +179,7 @@ export function useReaderVocabulary(marksLanguage: string | null, targetLang?: s
     void backfillTranslations(missing, from, targetLang, {
       translate: (word) => translateWord(word, from!, targetLang).then((r) => r.translatedText || null),
       // The card the server answers with (`onlyIfEmpty` keeps a translation it had): its translation is what the map shows.
-      persist: (id, translation) => updateWord(id, { translation, onlyIfEmpty: true }).then((card) => {
+      persist: (id, translation) => platform.vocabulary.updateWord(id, { translation, onlyIfEmpty: true }).then((card) => {
         const kept = card?.translation
         if (!kept || stopped()) return
         updateMap((m) => { for (const [k, e] of m) if (e.id === id && !e.translation) m.set(k, { ...e, translation: kept }) })
@@ -207,7 +208,7 @@ export function useReaderVocabulary(marksLanguage: string | null, targetLang?: s
       // The map holds the book's language's cards: its entry is this queued word's card only in that language.
       const existing = takes(p.language) ? mapRef.current.get(key) : undefined
       try {
-        const resp = await saveWord({
+        const resp = await platform.vocabulary.saveWord({
           // V2: the queued save is one operation — its replay names the same card and example.
           id: p.wordId ?? p.id,
           operationId: p.id,
@@ -279,7 +280,7 @@ export function useReaderVocabulary(marksLanguage: string | null, targetLang?: s
       await flushPendingIfAny()
       // Another session since the tap (signed out, another identity while the flush ran): nothing is sent for it.
       if (!ours(asked)) return null
-      const resp = await saveWord(req)
+      const resp = await platform.vocabulary.saveWord(req)
       trackVocabSaved({ language: req.language, nativeLanguage: req.nativeLanguage ?? undefined, source: 'reader' })
       // Another session since the save was asked: its answer applies nothing here.
       if (!ours(asked)) return resp
@@ -364,7 +365,7 @@ export function useReaderVocabulary(marksLanguage: string | null, targetLang?: s
     if (mapRef.current.get(normalizeVocabKey(word))?.isPending) {
       await deletePendingVocabWord(id).catch(() => {})
     } else if (isAuthenticated) {
-      await deleteWordApi(id)
+      await platform.vocabulary.deleteWord(id)
     }
     updateMap(m => m.delete(normalizeVocabKey(word)))
     emitDataChange('vocabulary')
@@ -406,7 +407,7 @@ export function useReaderVocabulary(marksLanguage: string | null, targetLang?: s
     try {
       // The map follows the server: a translation stored elsewhere wins over ours; a failed PATCH
       // leaves the word unfilled. Another session's answer applies nothing (#1271).
-      const stored = (await updateWord(entry.id, { translation, onlyIfEmpty: true }))?.translation
+      const stored = (await platform.vocabulary.updateWord(entry.id, { translation, onlyIfEmpty: true }))?.translation
       if (stored && ours(asked)) updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation: stored }) })
     } catch { /* stays unfilled */ } finally {
       fillingRef.current.delete(entry.id)
@@ -418,7 +419,7 @@ export function useReaderVocabulary(marksLanguage: string | null, targetLang?: s
     const key = normalizeVocabKey(word)
     const entry = mapRef.current.get(key)
     if (!entry?.id || entry.isPending) return
-    await updateWord(entry.id, { translation })
+    await platform.vocabulary.updateWord(entry.id, { translation })
     updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation }) })
   }, [updateMap])
 

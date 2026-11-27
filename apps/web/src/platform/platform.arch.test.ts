@@ -14,7 +14,7 @@ function sourceFiles(dir: string): string[] {
 }
 
 /** The web implementations behind the seam. Outside `src/platform/` a file imports only their types. */
-const BEHIND_THE_SEAM = ['api/userBooks', 'lib/readerSync', 'lib/openBook', 'hooks/useReadingSession']
+const BEHIND_THE_SEAM = ['api/userBooks', 'lib/readerSync', 'lib/openBook', 'hooks/useReadingSession', 'api/vocabulary']
 
 /**
  * The value imports of `module` (a path under `src/`, no extension) in a file: every `import … from`,
@@ -34,6 +34,9 @@ function valueImports(file: string, module: string): string[] {
   return [...statements, ...dynamic]
 }
 
+/** Parts of `@textstack/shared` that differ by platform: outside `src/platform/` nobody imports them. */
+const SHARED_BEHIND_THE_SEAM = ['highlightsApi', 'highlightCoverUrl']
+
 const outsidePlatform = sourceFiles(SRC).filter((f) => !f.startsWith(join(SRC, 'platform') + sep))
 
 describe('the platform seam', () => {
@@ -45,6 +48,15 @@ describe('the platform seam', () => {
   it('uses the web implementations only through platform', () => {
     const offenders = outsidePlatform.flatMap((f) =>
       BEHIND_THE_SEAM.flatMap((m) => valueImports(f, m).map((clause) => `${relative(SRC, f)}: ${clause} from ${m}`)))
+    expect(offenders).toEqual([])
+  })
+
+  it('uses the platform-specific parts of @textstack/shared only through platform', () => {
+    const offenders = outsidePlatform.flatMap((f) =>
+      [...readFileSync(f, 'utf8').matchAll(/import\s+\{([^}]*)\}\s+from\s+['"]@textstack\/shared['"]/g)]
+        .flatMap((m) => m[1].split(',').map((n) => n.trim().split(/\s+as\s+/)[0]))
+        .filter((n) => SHARED_BEHIND_THE_SEAM.includes(n))
+        .map((n) => `${relative(SRC, f)}: ${n}`))
     expect(offenders).toEqual([])
   })
 
