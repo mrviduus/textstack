@@ -1,6 +1,7 @@
 import { LocalizedLink } from './LocalizedLink'
 import { useTranslation } from '../hooks/useTranslation'
 import { PLAY_URL } from './AndroidAppBanner'
+import { platform } from '../platform'
 
 // The docs site, built from docs/ (#1275).
 const DOCS_URL = 'https://docs.textstack.app/'
@@ -8,6 +9,7 @@ const DOCS_URL = 'https://docs.textstack.app/'
 export function Footer() {
   const { t } = useTranslation()
 
+  if (!platform.siteChrome) return null
   return (
     <footer className="site-footer">
       <div className="site-footer__inner">

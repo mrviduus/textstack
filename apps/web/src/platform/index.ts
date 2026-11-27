@@ -48,6 +48,11 @@ export interface Platform {
     /** A real (not guest) session was restored at start: send what was made without a session. */
     restored(): Promise<void>
   }
+  /**
+   * True on the website: it shows its own parts, the cookie banner (and the analytics it allows), the site
+   * footer and the banner for the Android app. False in the Android app.
+   */
+  siteChrome: boolean
   /** Google sign-in. Web: Google Identity Services. Android: the native account chooser. */
   google: {
     /** Sets up the sign-in once. `onIdToken` gets the Google id token of each sign-in. False: not offered. */
