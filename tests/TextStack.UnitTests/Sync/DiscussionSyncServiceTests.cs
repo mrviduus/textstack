@@ -84,8 +84,6 @@ public class DiscussionSyncServiceTests
         // What the reader holds: Bob's 404s below come from the ownership check, not an unset fake.
         var shareId = Guid.NewGuid();
         _shares.GetAsync(User, shareId, Arg.Any<CancellationToken>()).Returns(new SharedChapter { Id = shareId, ChapterKey = "ch02.xhtml", NotesSnapshot = "[]" });
-        _library.SetCheckpointSavingAsync(User, BookId, Arg.Any<bool>(), Arg.Any<CancellationToken>())
-            .Returns(new Domain.Library.Book { Id = BookId, UserId = User });
 
         (string Endpoint, SyncResult Result)[] refused =
         [
@@ -93,7 +91,6 @@ public class DiscussionSyncServiceTests
             ("save checkpoint", await Service.SaveCheckpointAsync(Bob, BookId, SyncFakes.NewCheckpoint(), Ct)),
             ("list shares", await Service.ListSharesAsync(Bob, BookId, Ct)),
             ("list checkpoints", await Service.ListCheckpointsAsync(Bob, BookId, null, null, null, Ct)),
-            ("checkpoint saving", await Service.SetCheckpointSavingAsync(Bob, BookId, new CheckpointSavingRequest(false), Ct)),
         ];
         var readShare = await Service.GetShareAsync(Bob, shareId, Ct);
         // Even the reader cannot share a file that is not a version of the book.
@@ -107,7 +104,6 @@ public class DiscussionSyncServiceTests
         await _checkpoints.DidNotReceiveWithAnyArgs().AppendAsync(default!, Ct);
         // The same ids answer the reader.
         Assert.Equal(200, (await Service.GetShareAsync(User, shareId, Ct)).Status);
-        Assert.Equal(200, (await Service.SetCheckpointSavingAsync(User, BookId, new CheckpointSavingRequest(false), Ct)).Status);
     }
 
     [Fact]
@@ -170,20 +166,5 @@ public class DiscussionSyncServiceTests
         Assert.Equal((SyncCodes.InvalidPayload, field), (error.Code, error.Field));
         Assert.Contains(why, error.Message);
         await _checkpoints.DidNotReceiveWithAnyArgs().ListAsync(default, default, default, default, default, Ct);
-    }
-
-    [Fact]
-    public async Task SetCheckpointSavingAsync_ReaderTurnsItOn_WithoutEnabledWritesNothingAndWithItIs200WithTheBookAsStored()
-    {
-        var missing = await Service.SetCheckpointSavingAsync(User, BookId, new CheckpointSavingRequest(null), Ct);
-
-        Assert.Equal((SyncCodes.InvalidPayload, "enabled"), (SyncFakes.Error(missing).Code, SyncFakes.Error(missing).Field));
-        await _library.DidNotReceiveWithAnyArgs().SetCheckpointSavingAsync(default, default, default, Ct);
-
-        _library.SetCheckpointSavingAsync(User, BookId, true, Arg.Any<CancellationToken>())
-            .Returns(new Domain.Library.Book { Id = BookId, UserId = User, CheckpointSavingEnabled = true });
-        var result = await Service.SetCheckpointSavingAsync(User, BookId, new CheckpointSavingRequest(true), Ct);
-
-        Assert.Equal((200, BookId, true), (result.Status, Assert.IsType<BookDto>(result.Body).Id, Assert.IsType<BookDto>(result.Body).CheckpointSavingEnabled));
     }
 }

@@ -76,7 +76,6 @@ public static class DataSource
             .AddSingleton<ISharedChapterRepository, SharedChapterRepository>()
             .AddSingleton<ICheckpointRepository, CheckpointRepository>()
             .AddSingleton<IBookInsightRepository, BookInsightRepository>()
-            .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>()
             .AddSingleton<UserRepository>()
             .AddSingleton<IUserRepository>(sp => sp.GetRequiredService<UserRepository>())
             .AddSingleton<IAccountLookup, AccountLookup>()

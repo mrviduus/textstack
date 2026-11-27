@@ -126,12 +126,4 @@ public sealed class DiscussionSyncService(IBookAccess library, ISharedChapterRep
 
     public async Task<SyncResult> DeleteCheckpointAsync(Guid userId, Guid id, CancellationToken ct) =>
         await checkpoints.DeleteAsync(userId, id, ct) ? SyncResult.NoContent : SyncResult.NotFound;
-
-    /// <summary>The per-book opt-in (discussion PDD "Domain story"): a preference, so the last PUT wins; answered with the book.</summary>
-    public async Task<SyncResult> SetCheckpointSavingAsync(Guid userId, Guid bookId, CheckpointSavingRequest r, CancellationToken ct)
-    {
-        if (Required(r.Enabled, "enabled") is { } missing) return missing;
-        return await library.SetCheckpointSavingAsync(userId, bookId, r.Enabled!.Value, ct) is { } book
-            ? SyncResult.Ok(book.ToDto()) : SyncResult.BookNotFound;
-    }
 }

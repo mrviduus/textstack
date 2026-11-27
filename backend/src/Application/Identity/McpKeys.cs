@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Security.Cryptography;
 
 namespace Application.Identity;
@@ -58,7 +59,7 @@ public static class McpKeys
     {
         var bytes = new byte[32];
         RandomNumberGenerator.Fill(bytes);
-        return Prefix + Base64Url(bytes);
+        return Prefix + Base64Url.EncodeToString(bytes);
     }
 
     /// <summary>True when this bearer should be resolved as a connect key rather than a JWT.</summary>
@@ -78,7 +79,4 @@ public static class McpKeys
         if (trimmed.Length == 0) return "Assistant";
         return trimmed.Length <= MaxNameLength ? trimmed : trimmed[..MaxNameLength];
     }
-
-    private static string Base64Url(byte[] bytes) =>
-        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

@@ -18,11 +18,6 @@ public static class DependencyInjection
 
         services.AddSingleton<IFrequencyFilter, FrequencyFilter>();
 
-        // Legacy ILlmServiceFactory — now backed by LegacyLlmAdapter over the new
-        // stack (AI-005). The old keyed Domain.LLM providers are gone; callers
-        // keep this factory until they move to Core.ILlmService directly.
-        services.AddSingleton<Domain.LLM.ILlmServiceFactory, LlmServiceFactory>();
-
         // Sampling policy (Ai:Tracing:Sampling). Errors always sampled regardless.
         services.AddSingleton(sp =>
         {
@@ -165,10 +160,6 @@ public static class DependencyInjection
                 sp.GetRequiredService<global::TextStack.Ai.Core.ISpendTracker>(),
                 sp.GetRequiredService<global::TextStack.Ai.Llm.BudgetOptions>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.ModelGateway>>()));
-
-        // Embeddings (vocabulary concept clusters, AI-058). Single OpenAI provider; resolved lazily so a keyless
-        // host still starts (the client throws on construction without a key).
-        services.AddSingleton<global::TextStack.Ai.Core.IEmbeddingService, global::TextStack.Ai.Llm.OpenAiEmbeddingClient>();
 
         return services;
     }

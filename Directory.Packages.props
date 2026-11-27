@@ -61,7 +61,6 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="11.0.1" />
-    <PackageVersion Include="HtmlAgilityPack" Version="1.13.0" />
     <!-- OpenTelemetry. Bumped 1.11.x → 1.15.x to clear GHSA-4625-4j76-fww9
          (OTLP Exporter) and GHSA-g94r-2vxg-569j (Api). Stable channel. -->
     <PackageVersion Include="OpenTelemetry.Api" Version="1.15.3" />

@@ -1,26 +1,20 @@
 using Application.Ai;
 using Application.Vocabulary;
-using Domain.LLM;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using TextStack.Ai.Core;
 using TextStack.Ai.Llm;
 
 namespace Api.Endpoints;
 
 public static class TranslationEndpoints
 {
-    public static void MapTranslationEndpoints(this WebApplication app)
-    {
-        app.MapGet("/api/translate/languages", GetLanguages).WithTags("Translation").WithName("GetTranslationLanguages");
-    }
-
     /// <summary>The translation, with the book's genre from <paramref name="resolveGenre"/>: the caller's V2 book (CompatEndpoints).</summary>
     internal static async Task<IResult> TranslateAsync(
         TranslateRequest request,
         Func<CancellationToken, Task<string?>> resolveGenre,
         IConfiguration config,
         IOptions<OpenAiOptions> openAi,
-        ILlmServiceFactory llmFactory,
+        ILlmService llm,
         IFrequencyFilter freqFilter,
         ILogger logger,
         CancellationToken ct)
@@ -91,12 +85,12 @@ public static class TranslationEndpoints
 
         try
         {
-            var llm = llmFactory.Get("Translate");
-            var translated = await llm.CompleteAsync(
-                systemPrompt,
-                request.Text,
-                maxOutputTokens: Math.Min(maxLength * 2, 1000),
-                ct);
+            var response = await llm.CompleteAsync(new LlmRequest(
+                SystemPrompt: systemPrompt,
+                Messages: [new LlmMessage("user", request.Text)],
+                MaxOutputTokens: Math.Min(maxLength * 2, 1000),
+                FeatureTag: "translate"), ct);
+            var translated = response.Text;
 
             if (string.IsNullOrWhiteSpace(translated))
                 return Results.Problem("Translation returned empty result", statusCode: 502);
@@ -113,7 +107,7 @@ public static class TranslationEndpoints
         }
         // Budget hard-stop → ExceptionMiddleware's 429. Provider failures are already reported (throttled)
         // by TracingDecorator → LlmFailureAlarm; logging here too would send one event per word tap.
-        catch (Exception ex) when (ex is not global::TextStack.Ai.Core.BudgetExceededException)
+        catch (Exception ex) when (ex is not BudgetExceededException)
         {
             return Results.Problem(detail: "Translation service unavailable", statusCode: 503);
         }
@@ -129,32 +123,6 @@ public static class TranslationEndpoints
         string text, string srcLang, string tgtLang, string? genre, string? sentence, string model, int promptVersion) =>
         FileJsonCache<TranslateResponse>.Key(
             $"v{promptVersion}|{model}|{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
-
-    private static IResult GetLanguages()
-    {
-        // Static list — OpenAI handles any BCP47 pair, but clients want a UI list.
-        // Matches prior LibreTranslate set + a few extras.
-        var languages = new[]
-        {
-            new LanguageInfo("en", "English"),
-            new LanguageInfo("es", "Spanish"),
-            new LanguageInfo("fr", "French"),
-            new LanguageInfo("de", "German"),
-            new LanguageInfo("it", "Italian"),
-            new LanguageInfo("pt", "Portuguese"),
-            new LanguageInfo("ru", "Russian"),
-            new LanguageInfo("uk", "Ukrainian"),
-            new LanguageInfo("pl", "Polish"),
-            new LanguageInfo("nl", "Dutch"),
-            new LanguageInfo("ja", "Japanese"),
-            new LanguageInfo("ko", "Korean"),
-            new LanguageInfo("zh", "Chinese"),
-            new LanguageInfo("ar", "Arabic"),
-            new LanguageInfo("tr", "Turkish"),
-            new LanguageInfo("hi", "Hindi"),
-        };
-        return Results.Ok(languages);
-    }
 }
 
 public record TranslateRequest(
@@ -174,5 +142,3 @@ public record TranslateResponse(
     // "rare" | null (phrase / non-en / unknown). Informational only — never gates save.
     string? Category = null
 );
-
-public record LanguageInfo(string Code, string Name);

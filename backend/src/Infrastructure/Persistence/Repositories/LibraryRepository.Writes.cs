@@ -138,21 +138,6 @@ public sealed partial class LibraryRepository
         return new(FileReplaceOutcome.Replaced, inserted, superseded, ReleasedKey: releasedKey);
     }
 
-    // A PUT of the value already stored bumps nothing: no feed churn on every device for a no-op.
-    private const string SetCheckpointSaving = $"""
-        WITH b AS (
-            UPDATE books SET
-                updated_at = CASE WHEN checkpoint_saving_enabled IS DISTINCT FROM @enabled THEN now() ELSE updated_at END,
-                checkpoint_saving_enabled = @enabled
-            WHERE user_id = @userId AND id = @bookId
-            RETURNING {BookColumns}
-        )
-        {FromWrittenBook}
-        """;
-
-    public async Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct) =>
-        (await QueryBooksAsync(SetCheckpointSaving, new { userId, bookId, enabled }, null, ct)).SingleOrDefault();
-
     // The feed carries the current file's hasToc and chapterCount, so a TOC that changes on it bumps the
     // book's updated_at (never its revision: no metadata edit is refused for it). The same TOC again bumps nothing.
     // The "changed" test sits in the UPDATE's WHERE, so a writer that waited on the row lock re-checks it against

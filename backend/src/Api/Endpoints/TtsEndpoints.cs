@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -173,12 +171,8 @@ public static class TtsEndpoints
         http.Response.Headers.CacheControl = new StringValues($"public, max-age={maxAgeSeconds}, immutable");
     }
 
-    private static string ComputeEtag(string text, string lang, string? voice, double speed)
-    {
-        var input = $"{text}|{lang}|{voice ?? ""}|{speed:F2}";
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return $"\"{Convert.ToHexStringLower(hash)[..16]}\"";
-    }
+    private static string ComputeEtag(string text, string lang, string? voice, double speed) =>
+        $"\"{EdgeTtsService.ShortHash($"{text}|{lang}|{voice ?? ""}|{speed:F2}")}\"";
 
     // RFC 9110 §13.1.2: If-None-Match accepts "*", a single ETag, or a
     // comma-separated list. Compare with weak-validator semantics: strip a

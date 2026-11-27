@@ -148,7 +148,6 @@ public class DiscussionEndpointTests(SyncApiFixture v2) : IClassFixture<SyncApiF
             await v2.SendAsync(v2.Bob, HttpMethod.Delete, $"/me/v2/checkpoints/{checkpoint}"),
             await v2.SendAsync(v2.Bob, HttpMethod.Get, $"/me/v2/shares/{share}"),
             await v2.SendAsync(v2.Bob, HttpMethod.Delete, $"/me/v2/shares/{share}"),
-            await v2.SendAsync(v2.Bob, HttpMethod.Put, $"/me/v2/books/{bookId}/checkpoint-saving", new { enabled = true }),
         };
 
         Assert.All(responses, r => Assert.Equal(HttpStatusCode.NotFound, r.Status));
@@ -305,21 +304,5 @@ public class DiscussionEndpointTests(SyncApiFixture v2) : IClassFixture<SyncApiF
 
         Assert.Equal((HttpStatusCode.NoContent, HttpStatusCode.NotFound, "not_found"), (deleted.Status, again.Status, again.Code));
         Assert.Empty(Items(await ListAsync(v2.Alice, bookId)));
-    }
-
-    [Fact]
-    public async Task Put_CheckpointSaving_FlipsTheBookAndTheLibraryFeedDeliversIt()
-    {
-        v2.Require();
-        var guest = await v2.NewGuestAsync();
-        var (bookId, _, _) = await v2.ImportAsync(guest);
-
-        var on = await v2.SendAsync(guest, HttpMethod.Put, $"/me/v2/books/{bookId}/checkpoint-saving", new { enabled = true });
-        var feed = await v2.SendAsync(guest, HttpMethod.Get, "/me/v2/library/changes");
-
-        Assert.Equal((HttpStatusCode.OK, true), (on.Status, on.Body.GetProperty("checkpointSavingEnabled").GetBoolean()));
-        var delivered = Assert.Single(Items(feed));
-        Assert.Equal((bookId, true, on.Body.GetProperty("updatedAt").GetDateTimeOffset()),
-            (delivered.GetProperty("id").GetGuid(), delivered.GetProperty("checkpointSavingEnabled").GetBoolean(), delivered.GetProperty("updatedAt").GetDateTimeOffset()));
     }
 }

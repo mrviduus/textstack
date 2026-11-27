@@ -154,9 +154,13 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         var share = NewShare(book);
         await new SharedChapterRepository(DataSource).ShareAsync(share, Ct);
         await new CheckpointRepository(DataSource).AppendAsync(NewCheckpoint(book, share), Ct);
-        var insight = await new BookInsightRepository(DataSource).SaveReviewAsync(NewInsight(book, "ch-1", reviewJson: "{}"), Ct);
-        await new ReviewQuestionRepository(DataSource).ReplaceForInsightAsync(userId, insight.Id,
-            [new() { Id = Guid.NewGuid(), UserId = userId, BookInsightId = insight.Id, Prompt = "Why?", Answer = "Because.", PromptHash = "h1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
+        var insight = (await new BookInsightRepository(DataSource).SaveAsync(NewInsight(book, "ch-1"), Ct))!;
+        // review_question has no code left; the table goes in a later migration, its row follows the insight until then.
+        await ExecAsync("""
+            INSERT INTO review_question (id, user_id, book_insight_id, block_index, prompt, answer, prompt_hash, stage, interval_days,
+                consecutive_correct, next_review_at, total_reviews, correct_reviews, created_at, updated_at)
+            VALUES (@id, @userId, @insightId, 1, 'Why?', 'Because.', 'h1', 0, 0, 0, now(), 0, 0, now(), now())
+            """, new { id = Guid.NewGuid(), userId, insightId = insight.Id });
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
         await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, null, Application.Identity.SessionKind.Reader, Ct);
