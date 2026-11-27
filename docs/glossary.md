@@ -194,8 +194,8 @@ In code: the `outbox` table on the phone.
 
 ### Revision
 
-A number on a highlight, a word, a reading position or a book. The server adds 1 to it at each change.
-A write names the revision it read. If the row changed since then, the write loses.
+A number on a highlight, a word, a reading position or a book. The server adds 1 to it when a device
+edits, deletes or restores the row. A review of a word does not change it. A write names the revision it read. If the row changed since then, the write loses.
 
 Not: version.
 In code: `revision`, `expectedRevision`.

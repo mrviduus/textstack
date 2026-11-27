@@ -185,7 +185,7 @@ BrowserRouter → AuthProvider → GuestLimitsProvider → NativeLanguageProvide
 
 - **AuthProvider**: Google Sign-In, email/password, Apple auth, auto-refresh token, guest sessions
 - **GuestLimitsProvider**: the word-count threshold that creates a guest session
-- **NativeLanguageProvider**: the reader's native language, for the direction of translations and explanations
+- **NativeLanguageProvider**: the reader's native language, for the direction of translations and definitions
 - **LanguageProvider**: only inside language routes. Takes `lang` from the URL params and gives `switchLanguage()`, `getLocalizedPath()`
 
 Context files: `apps/web/src/context/{Auth,GuestLimits,NativeLanguage,Language}Context.tsx`

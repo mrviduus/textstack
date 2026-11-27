@@ -15,7 +15,7 @@ The area label picks the section (`.github/release.yml`). Never edit `CHANGELOG.
 ## Pre-conditions
 
 Before you start:
-1. `/check` must be green. If nobody ran it yet, ask the owner to run it first. If the owner wants to skip it, continue, but write a warning in the PR description.
+1. Run `/check` first. If nobody ran it yet, ask the owner to run it. If the owner skips it, write a warning in the PR description.
 2. The working tree must have all intended changes staged or committed.
 
 ## Step 1 — Detect context

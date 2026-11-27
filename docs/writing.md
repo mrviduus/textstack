@@ -57,7 +57,7 @@ sentences are also easier for an AI assistant to follow.
 
 | Before | After |
 |---|---|
-| The file is deleted by the cleanup worker once retention has elapsed. | The cleanup worker deletes the file after 30 days. |
+| The file is deleted by the cleanup worker once retention has elapsed. | The cleanup worker deletes the file when the retention time ends. |
 | In order to leverage the cache, ensure the key is set. | Set the key. Then the app uses the cache. |
 | Annotations are synced via the outbox, e.g. on reconnect. | The outbox sends highlights to the server, for example when the phone is online again. |
 | You should run the migrator before starting the API. | Run the migrator before you start the API. |
