@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { resetPassword } from '../api/auth'
+import { platform } from '../platform'
 import { useAuth } from '../context/AuthContext'
 
 export function ResetPasswordPage() {
@@ -18,7 +18,7 @@ export function ResetPasswordPage() {
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
     setLoading(true)
     try {
-      await resetPassword(token, password)
+      await platform.account.resetPassword(token, password)
       setSuccess(true)
     } catch (err: any) {
       setError(err.message || 'Reset failed.')
