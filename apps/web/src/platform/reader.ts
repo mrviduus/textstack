@@ -27,7 +27,7 @@ export interface ReaderPlatform {
   accountEpoch(): number
 }
 
-/** Part of the reader sync contract: `complete` rejects with this message when the server has no place of this file yet. */
-export const NO_PLACE_YET = 'no reading state on this file yet'
+/** Part of the sync contract that both platforms keep: `complete` rejects with this message when there is no place of the file yet. */
+export { NO_PLACE_YET } from '../lib/readerSync'
 
 export { reader } from '@platform-target/reader'

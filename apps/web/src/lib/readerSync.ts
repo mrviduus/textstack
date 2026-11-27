@@ -42,7 +42,6 @@ import {
   type ReadingStateWrite,
 } from '@textstack/shared'
 import { resetSince } from '../api/sync'
-import { NO_PLACE_YET } from '../platform/reader'
 import { keepaliveWrite } from './progressSync'
 
 /** The open book on the server: its current file, as the page's entry names it. */
@@ -93,6 +92,9 @@ export const readerSyncApi: ReaderSyncApi = {
 
 /** The browser's keepalive budget is 64 KiB for every request in flight; headroom kept. */
 export const KEEPALIVE_BUDGET = 60_000
+
+/** `complete` before the server holds any place of this file version: the host says what to do. */
+export const NO_PLACE_YET = 'no reading state on this file yet'
 
 /** The last session of each book still writing: the next one of that book reads after it, whatever was open between. */
 const closingByBook = new Map<string, Promise<void>>()
