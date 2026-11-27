@@ -155,7 +155,6 @@ services:
     volumes:
       - ./data/storage:/storage
       - ./data/library:/library
-      - ./data/textstack:/data/textstack
       - ./data/tts-cache:/data/tts-cache
       - ./data/explain-cache:/data/explain-cache
       - ./data/translate-cache:/data/translate-cache
