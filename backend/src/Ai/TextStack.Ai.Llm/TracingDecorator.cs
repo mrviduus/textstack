@@ -110,8 +110,8 @@ public sealed class TracingDecorator(
     /// <summary>
     /// A call that "succeeded" with no text and no tool calls — e.g. a reasoning model spending its whole
     /// budget on thinking. No exception, so the catch above never sees it, and callers turn it into a 502
-    /// (translate) that nobody hears about (#922). <c>InputTokens == 0</c> means no call completed (a failure
-    /// already reported by the catch above), so it is not reported twice.
+    /// (translate) that nobody hears about (#922). <c>InputTokens == 0</c> means the provider reported no usage
+    /// (a stream that ended without a usage chunk); such an answer is not alarmed.
     /// </summary>
     public static bool IsEmptyAnswer(LlmResponse response) =>
         string.IsNullOrWhiteSpace(response.Text) && response.ToolCalls.Count == 0 && response.Usage.InputTokens > 0;

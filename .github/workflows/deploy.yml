@@ -472,10 +472,11 @@ jobs:
           echo "API health check passed"
           # `up -d` returns before healthchecks run; a container still `starting` or already
           # `unhealthy` (worker, mcp-server…) would otherwise ship green, so wait up to 90s for
-          # every healthcheck to settle. A failing `compose ps` fails the step (set -e on the
+          # every healthcheck to settle; a container of a service no longer in compose (the old
+          # ollama) is not counted. A failing `compose ps` fails the step (set -e on the
           # assignment) instead of reading as "nothing unhealthy".
           for _ in $(seq 18); do
-            STATES=$(cd "$PROJECT_DIR" && docker compose --profile mcp ps --format '{{.Service}} {{.Health}}')
+            STATES=$(cd "$PROJECT_DIR" && docker compose --profile mcp ps --orphans=false --format '{{.Service}} {{.Health}}')
             NOT_HEALTHY=$(printf '%s\n' "$STATES" | awk '$2 == "starting" || $2 == "unhealthy" {print $1 "=" $2}')
             [ -z "$NOT_HEALTHY" ] && break
             sleep 5
