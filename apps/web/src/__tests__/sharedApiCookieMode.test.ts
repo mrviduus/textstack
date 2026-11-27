@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { platform } from '../platform/web'
 
 /**
  * The web app uses `@textstack/shared`'s API clients, in cookie mode.
@@ -12,8 +11,8 @@ import { platform } from '../platform/web'
  * the web threw "API not initialized" — `BookInsightsSection` swallowed exactly that and the
  * конспект never rendered — so every `/me/*` endpoint was written twice.
  *
- * Now `api/client.ts` calls `initApi` on import with the platform's options (`platform/web.ts`:
- * `credentials: 'include'`), and `main.tsx` imports it first. The rule this file holds:
+ * Now the platform (`platform/web.ts`) calls `initApi({ credentials: 'include', ... })` on load,
+ * `api/client.ts` imports the platform, and `main.tsx` imports `api/client.ts` first. The rule this file holds:
  *  1. that init exists, in cookie mode, with the refresh hook;
  *  2. no second transport grows back — the only other `authFetch` allowed is the session flow in
  *     `api/auth.ts` (login/refresh/logout must not recurse into the refresh-on-401 wrapper).
@@ -31,9 +30,10 @@ function* sourceFiles(dir: string): Generator<string> {
 
 describe('web runs the shared API clients in cookie mode', () => {
   it('initialises them with credentials: include and a refresh hook', () => {
-    expect(readFileSync(join(root, 'api/client.ts'), 'utf8')).toMatch(/initApi\(\{ baseUrl: API_BASE, \.\.\.platform\.transport\.api \}\)/)
-    expect(platform.transport.api.credentials).toBe('include')
-    expect(readFileSync(join(root, 'platform/web.ts'), 'utf8')).toMatch(/onUnauthorized: \(\) => refreshToken\(\)/)
+    const web = readFileSync(join(root, 'platform/web.ts'), 'utf8')
+    expect(web).toMatch(/initApi\(\{[\s\S]*credentials: 'include'[\s\S]*\}\)/)
+    expect(web).toMatch(/onUnauthorized: \(\) => refreshToken\(\)/)
+    expect(readFileSync(join(root, 'api/client.ts'), 'utf8')).toMatch(/^import '\.\.\/platform'/m)
     expect(readFileSync(join(root, 'main.tsx'), 'utf8')).toMatch(/^import '\.\/api\/client'/)
   })
 

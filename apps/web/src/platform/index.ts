@@ -6,13 +6,17 @@
  * uses `android.ts`. `vite.config.ts` resolves `@platform-target` to one of the two files, so the other file
  * is not in the bundle.
  */
-import type { ApiConfig } from '@textstack/shared'
 
+/**
+ * An implementation also sets up the shared API client (`initApi`) on load. The rest of the app
+ * imports `api/client.ts`, which imports this file, so the client is set up before first use.
+ *
+ * An implementation imports app modules, and some of them import this file back. So never read
+ * `platform` at module load outside this folder: read it inside a function.
+ */
 export interface Platform {
   /** How calls to the API identify the reader. Web: the session cookie. Android: a bearer token. */
   transport: {
-    /** The options of the shared API client (`initApi`), without `baseUrl`. */
-    api: Omit<ApiConfig, 'baseUrl'>
     /** What a direct `fetch` to the API adds to its `RequestInit`. Synchronous: a write in `pagehide` uses it. */
     fetchInit(): { credentials?: RequestCredentials; headers?: Record<string, string> }
   }
