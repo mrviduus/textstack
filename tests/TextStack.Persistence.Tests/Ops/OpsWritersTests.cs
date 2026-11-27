@@ -41,7 +41,7 @@ public class OpsWritersTests(PostgresFixture db)
     public async Task ScrubTextBatchAsync_OldTrace_TextGoesCostStays()
     {
         var user = await db.NewReaderAsync();
-        var old = NewTrace(user) with { CreatedAt = DateTimeOffset.UtcNow.AddDays(-31) };
+        var old = NewTrace(user) with { CreatedAt = DateTimeOffset.UtcNow.AddDays(-31), Error = "provider echoed the prompt" };
         var recent = NewTrace(user);
         var writer = new LlmTraceWriter(db.DataSource);
         await writer.WriteAsync(old, Ct);
@@ -53,7 +53,7 @@ public class OpsWritersTests(PostgresFixture db)
 
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
         var rows = (await conn.QueryAsync<(Guid Id, string? SystemPrompt, string Messages, string? Response, int TokensIn)>(new CommandDefinition(
-            "SELECT id, system_prompt, messages_json::text, response_text, tokens_in FROM llm_traces WHERE id IN (@a, @b)",
+            "SELECT id, system_prompt, messages_json::text, coalesce(response_text, error), tokens_in FROM llm_traces WHERE id IN (@a, @b)",
             new { a = old.Id, b = recent.Id }, cancellationToken: Ct))).ToDictionary(r => r.Id);
         Assert.Equal((null, "[]", null, 10), (rows[old.Id].SystemPrompt, rows[old.Id].Messages, rows[old.Id].Response, rows[old.Id].TokensIn));
         Assert.Equal("system", rows[recent.Id].SystemPrompt);
