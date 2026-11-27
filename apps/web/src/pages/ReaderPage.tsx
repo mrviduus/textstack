@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, isOfflineError, OPENED_AT_KEY, serverNow, syncApi, withOpened } from '@textstack/shared'
 import { readItem, writeItem } from '../lib/safeLocalStorage'
-import { fetchFileBytes, pullBooks, syncAnswer, liveBook, syncSwitch } from '../api/sync'
+import { reader } from '../platform/reader'
 import { SeoHead } from '../components/SeoHead'
 import { ReaderHost, type HostBook } from '../components/reader/ReaderHost'
 import { DOWNLOAD_STALL_MS, READY_DEADLINE_NETWORK_MS } from '../../../../packages/reader/src/deadlines.mjs'
@@ -11,20 +11,17 @@ import { useTranslation } from '../hooks/useTranslation'
 
 /**
  * `/:lang/library/my/:id/read[/:chapterSlug]` and `/read-v2` (#1225, M5 #1031): a V2 book in the V2 reader page,
- * the reader once the session is settled (the probe, waited for). Online only: the current file's
- * bytes are fetched per open (with progress) and transferred into the frame. Position and highlights: on the
+ * the reader once the platform is ready (web: the session settled, the probe waited for). The platform opens
+ * the book (web: the current file's bytes, fetched per open with progress); they are transferred into the frame. Position and highlights: on the
  * server, through ReaderHost's sync (#1226). The load's failures by cause, Retry where it can help (#1227).
  */
 export const PROD_READY_DEADLINE_MS = READY_DEADLINE_NETWORK_MS
 export const STALL_GRACE_MS = 1000
 
-class NoFile extends Error {}
-
 type Load = { percent: number | null } | { error: string; retry: boolean } | null
 
 /** A failed load as the reader reads it: the cause, and whether trying again can help. */
 function loadError(e: unknown, t: (key: string, vars?: Record<string, string | number>) => string): { error: string; retry: boolean } {
-  if (e instanceof NoFile) return { error: t('v2Reader.noFile'), retry: false }
   if (isOfflineError(e)) return { error: t('v2Reader.offline'), retry: true }
   if (e instanceof ApiError && e.status === 401) return { error: t('v2Reader.sessionEnded'), retry: false }
   if (e instanceof ApiError && e.status === 404) return { error: t('v2Reader.gone'), retry: false }
@@ -51,7 +48,7 @@ export function ReaderPage() {
   const { language } = useLanguage()
   const { t } = useTranslation()
   // The session is settled at once when this start has a probe answer (an in-app open); else waited for (a cold load).
-  const [ready, setReady] = useState(() => syncAnswer() !== null)
+  const [ready, setReady] = useState(() => reader.readyNow())
   const [book, setBook] = useState<HostBook | null>(null)
   const [load, setLoad] = useState<Load>(null)
   /** Retry (a failed load, or the host's reload after its bytes went into a frame that never answered). */
@@ -59,7 +56,7 @@ export function ReaderPage() {
 
   useEffect(() => {
     let live = true
-    void syncSwitch().then(() => { if (live) setReady(true) })
+    void reader.ready().then(() => { if (live) setReady(true) })
     return () => { live = false }
   }, [])
 
@@ -75,39 +72,14 @@ export function ReaderPage() {
       clearTimeout(stall)
       stall = setTimeout(() => { stall = setTimeout(() => { stalled = true; abort.abort() }, STALL_GRACE_MS) }, DOWNLOAD_STALL_MS)
     }
-    /** The library calls take no signal: their wait ends with the abort (the stall, unmount, Retry). */
-    const orAbort = <T,>(p: Promise<T>) => Promise.race([p, new Promise<never>((_, reject) => {
-      abort.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
-    })])
     setLoad({ percent: null })
-    const fetchCurrent = async (fresh: boolean): Promise<HostBook> => {
-      armStall()
-      if (fresh) await orAbort(pullBooks())
-      const file = (await orAbort(liveBook(id))).currentFile
-      if (!file?.hasContent) throw new NoFile()
-      armStall()
-      const bytes = await fetchFileBytes(id, file.id, (loaded, total) => {
-        armStall()
-        if (!total) return
-        // Content-Length may be off (a proxy's encoding): never past 99 % before the bytes are all in.
-        const percent = Math.min(99, Math.floor((loaded / total) * 100))
-        setLoad((l) => (l && 'percent' in l && l.percent === percent ? l : { percent }))
-      }, abort.signal)
-      // The reader data of this file goes to and comes from the server (#1226).
-      const sync = { bookId: id, fileId: file.id, format: file.format, sha256: file.sha256, size: file.byteSize, name: file.originalName, hasToc: file.hasToc }
-      return { bytes, name: file.originalName, sync }
-    }
-    ;(async () => {
-      try {
-        return await fetchCurrent(false)
-      } catch (e) {
-        // `liveBook` answers from this session's copy of the library: a 404 or "no file" is checked against a
-        // fresh pull once (the file may have been replaced) before it is said as final.
-        if (abort.signal.aborted || !(e instanceof NoFile || (e instanceof ApiError && e.status === 404))) throw e
-        return fetchCurrent(true)
-      }
-    })().then((b) => {
+    reader.openBook(id, {
+      signal: abort.signal,
+      onActivity: armStall,
+      onPercent: (percent) => setLoad((l) => (l && 'percent' in l && l.percent === percent ? l : { percent })),
+    }).then((b) => {
       if (abort.signal.aborted) return
+      if (!b) return setLoad({ error: t('v2Reader.noFile'), retry: false })
       setLoad(null)
       setBook(b)
       // This device opened it: "Recently opened" sorts it first, with no server write (a reopen moves no place).

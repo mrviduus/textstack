@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from '../../hooks/useTranslation'
-import { NO_PLACE_YET } from '../../lib/readerSync'
+import { NO_PLACE_YET } from '../../platform/reader'
 
 /**
  * The end-of-book block of the web V2 reader (#1266): host UI over the frame, never injected into the book.

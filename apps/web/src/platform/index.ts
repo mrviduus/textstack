@@ -5,6 +5,8 @@
  * The build picks the implementation: `VITE_TARGET=web` (the default) uses `web.ts`, `VITE_TARGET=android`
  * uses `android.ts`. `vite.config.ts` resolves `@platform-target` to one of the two files, so the other file
  * is not in the bundle.
+ *
+ * The reader route's members are in `reader.ts`, a second module: only the reader's lazy chunk loads them.
  */
 import type * as userBooks from '../api/userBooks'
 

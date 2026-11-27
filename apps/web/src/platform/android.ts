@@ -1,7 +1,7 @@
 import type { Platform } from '.'
 
 /** Every member throws until wave 5 (#1642) ports the offline library here. The stub only proves the build. */
-const notYet = (member: string) => (): never => {
+export const notYet = (member: string) => (): never => {
   throw new Error(`platform/android: ${member} is not implemented yet (#1642)`)
 }
 
