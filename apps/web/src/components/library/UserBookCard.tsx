@@ -1,5 +1,6 @@
 import { Link, useSearchParams } from 'react-router-dom'
-import { getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
+import type { UserBook } from '../../api/userBooks'
+import { platform } from '../../platform'
 import { useLanguage } from '../../context/LanguageContext'
 import { BookStatusBadge } from './BookStatusBadge'
 import { GeneratedCover } from './GeneratedCover'
@@ -53,7 +54,7 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
   // Ready = the file's bytes are in: the reader parses the file itself (ADR-033).
   const readable = book.status === 'Ready'
   const hasOriginalPdf = !!book.hasOriginalPdf
-  const coverUrl = getUserBookCoverUrl(book.coverPath)
+  const coverUrl = platform.library.getUserBookCoverUrl(book.coverPath)
   const [coverHidden, onCoverError] = useCoverRetry(coverUrl)
 
   const targetSlug = progress?.chapterSlug

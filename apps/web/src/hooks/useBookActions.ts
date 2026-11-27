@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
-import { deleteUserBook, markUserBookComplete, unmarkUserBookComplete, type UserBook } from '../api/userBooks'
+import type { UserBook } from '../api/userBooks'
+import { platform } from '../platform'
 import { emitDataChanges } from '../lib/dataEvents'
 
 interface Options {
@@ -37,15 +38,15 @@ export function useBookActions(book: UserBook, opts: Options = {}) {
   }, [pending])
 
   const markFinished = useCallback(() => {
-    return run('mark', () => markUserBookComplete(book.id), opts.onChange)
+    return run('mark', () => platform.library.markUserBookComplete(book.id), opts.onChange)
   }, [book.id, opts.onChange, run])
 
   const markUnfinished = useCallback(() => {
-    return run('mark', () => unmarkUserBookComplete(book.id), opts.onChange)
+    return run('mark', () => platform.library.unmarkUserBookComplete(book.id), opts.onChange)
   }, [book.id, opts.onChange, run])
 
   const remove = useCallback(() => {
-    return run('delete', () => deleteUserBook(book.id), opts.onDelete ?? opts.onChange)
+    return run('delete', () => platform.library.deleteUserBook(book.id), opts.onDelete ?? opts.onChange)
   }, [book.id, opts.onChange, opts.onDelete, run])
 
   return {

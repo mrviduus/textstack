@@ -1,7 +1,8 @@
 // Uploaded (user) book row in the library list view. Extracted verbatim from
 // LibraryPage.tsx (R6 slice-1) — presentational; `key` stays at the call site.
 import { Link } from 'react-router-dom'
-import { getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
+import type { UserBook } from '../../api/userBooks'
+import { platform } from '../../platform'
 import { BookActionMenu } from './BookActionMenu'
 import { useCoverRetry } from '../../hooks/useCoverRetry'
 import { stringToColor } from '../../utils/colors'
@@ -32,7 +33,7 @@ export function UploadBookListItem({
       ? `/${language}/library/my/${book.id}/read`
       : null
   const showContinue = readable && !!continueHref && !book.completedAt
-  const coverUrl = getUserBookCoverUrl(book.coverPath)
+  const coverUrl = platform.library.getUserBookCoverUrl(book.coverPath)
   const [coverHidden, onCoverError] = useCoverRetry(coverUrl)
   return (
     <article data-book-id={book.id} className={`library-list-item${highlighted ? ' library-list-item--highlighted' : ''}`}>

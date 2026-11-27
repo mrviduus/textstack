@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
-import { getUserBook, getUserBookProgress, deleteUserBook, markUserBookComplete, unmarkUserBookComplete, getUserBookCoverUrl, getUserBookFileUrl, type UserBookDetail } from '../api/userBooks'
+import type { UserBookDetail } from '../api/userBooks'
+import { platform } from '../platform'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { stringToColor } from '../utils/colors'
@@ -43,7 +44,7 @@ export function UserBookDetailPage() {
   useEffect(() => {
     if (!id || !isAuthenticated) return
     let live = true
-    getUserBookProgress(id).then(p => { if (live) setServerProgress(p) })
+    platform.library.getUserBookProgress(id).then(p => { if (live) setServerProgress(p) })
     return () => { live = false }
   }, [id, isAuthenticated])
 
@@ -87,7 +88,7 @@ export function UserBookDetailPage() {
     setLoading(true)
     setError(null)
 
-    getUserBook(id)
+    platform.library.getUserBook(id)
       .then((data) => {
         if (!cancelled) setBook(data)
       })
@@ -115,7 +116,7 @@ export function UserBookDetailPage() {
     if (pendingTimeoutRef.current) window.clearTimeout(pendingTimeoutRef.current)
     setDeleting(true)
     try {
-      await deleteUserBook(id)
+      await platform.library.deleteUserBook(id)
       // LibraryPage + shelves listen to these and refresh on arrival.
       emitDataChanges(['user-books', 'shelves'])
       navigate(`/${language}/library`)
@@ -203,7 +204,7 @@ export function UserBookDetailPage() {
       <div className="user-book-detail__content">
         <div className="user-book-detail__cover">
           {book.coverPath ? (
-            <img src={getUserBookCoverUrl(book.coverPath)} alt={book.title} />
+            <img src={platform.library.getUserBookCoverUrl(book.coverPath)} alt={book.title} />
           ) : (
             <div
               className="user-book-detail__cover-placeholder"
@@ -277,7 +278,7 @@ export function UserBookDetailPage() {
             {canRead && !book.completedAt && book.chapters.length > 0 && (
               <button
                 onClick={async () => {
-                  if ((await markUserBookComplete(book.id)) === 'dropped') return
+                  if ((await platform.library.markUserBookComplete(book.id)) === 'dropped') return
                   setBook({ ...book, completedAt: new Date().toISOString() })
                 }}
                 className="user-book-detail__mark-btn"
@@ -289,7 +290,7 @@ export function UserBookDetailPage() {
             {canRead && book.completedAt && (
               <button
                 onClick={async () => {
-                  if ((await unmarkUserBookComplete(book.id)) === 'dropped') return
+                  if ((await platform.library.unmarkUserBookComplete(book.id)) === 'dropped') return
                   setBook({ ...book, completedAt: null })
                 }}
                 className="user-book-detail__mark-btn"
@@ -303,7 +304,7 @@ export function UserBookDetailPage() {
             {canRead && (
               <a
                 className="user-book-detail__reextract-icon"
-                href={getUserBookFileUrl(book.id)}
+                href={platform.library.getUserBookFileUrl(book.id)}
                 download
                 aria-label="Download the file you uploaded"
                 title="Download the file you uploaded"

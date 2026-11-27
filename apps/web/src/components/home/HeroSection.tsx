@@ -4,7 +4,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { useLanguage } from '../../context/LanguageContext'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useAuth } from '../../context/AuthContext'
-import { uploadUserBook } from '../../api/userBooks'
+import { platform } from '../../platform'
 import { uploadErrorMessage } from '../../api/sync'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { ACCEPT_ATTR, isUploadableFile } from '../../lib/uploadFileValidation'
@@ -54,7 +54,7 @@ export function HeroSection() {
     setUploading(true)
     try {
       await ensureSession()
-      const result = await uploadUserBook(file)
+      const result = await platform.library.uploadUserBook(file)
       navigate(`/${language}/library/my/${result.userBookId}`)
     } catch (err: any) {
       setUploadError(uploadErrorMessage(err, t) ?? (err.message || 'Upload failed'))
