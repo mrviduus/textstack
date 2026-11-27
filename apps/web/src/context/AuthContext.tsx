@@ -152,14 +152,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (inFlightGuestRef.current) return inFlightGuestRef.current
     const promise = platform.account.createGuestSession()
       .then((res) => {
-        // I3: no-downgrade — не перетираем не-guest юзера.
-        // Race: login мог завершиться пока guest-промис был in-flight.
+        // I3: no downgrade. A real (not guest) user is never replaced by the guest.
+        // Race: a sign-in can finish while the guest call is in flight.
         setUser(prev => (prev && !prev.isGuest ? prev : res.user))
         probeSync()
         return res.user
       })
       .catch(() => {
-        // Падение guest-create не должно трогать существующего юзера.
+        // A failed guest call never changes the user that is there.
         setUser(prev => (prev && !prev.isGuest ? prev : null))
         return null
       })
@@ -171,9 +171,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // StrictMode fires effects twice in dev; this ref dedupes the bootstrap so we never hit /auth/guest twice.
   const bootstrapStartedRef = useRef(false)
 
-  // I1: Bootstrap = read-only session probe. Проверяем существующую сессию, но
-  // НЕ создаём guest. Guest создаётся demand-driven (ensureSession → первый tap
-  // слова в reader или upload книги). Homepage/login/каталог не триггерят /auth/guest.
+  // I1: the start-up check only reads the session. It looks for a session and does NOT make a guest.
+  // A guest is made on demand (ensureSession: the first word tap in the reader, or a book upload).
+  // The home page and the sign-in page never call /auth/guest.
   useEffect(() => {
     if (bootstrapStartedRef.current) return
     bootstrapStartedRef.current = true
@@ -201,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           probeSync()
           flushIfReal(response.user)
         } catch {
-          // I1: bootstrap read-only. user остаётся null; фичи сами зовут ensureSession().
+          // I1: the start-up check only reads. The user stays null; a feature calls ensureSession() itself.
         }
       }
     }

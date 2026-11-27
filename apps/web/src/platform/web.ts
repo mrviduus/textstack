@@ -2,7 +2,6 @@ import { highlightCoverUrl, highlightsApi, initApi } from '@textstack/shared'
 import type { Platform } from '.'
 import { API_BASE } from '../api/base'
 import * as auth from '../api/auth'
-import { refreshToken } from '../api/auth'
 import { settleSyncSession, startSyncProbe, syncStore } from '../api/sync'
 import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { applyMergeMap } from '../lib/mergeMap'
@@ -15,7 +14,7 @@ import * as vocabulary from '../api/vocabulary'
 initApi({
   baseUrl: API_BASE,
   getAccessToken: async () => null,
-  onUnauthorized: () => refreshToken().then(() => '', () => null),
+  onUnauthorized: () => auth.refreshToken().then(() => '', () => null),
   credentials: 'include',
 })
 
