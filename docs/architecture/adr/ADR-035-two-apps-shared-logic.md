@@ -107,6 +107,57 @@ What D has to solve, each a spike question:
 5. **Updates.** Today JS ships as an Expo OTA on merge. With bundled assets, an update is a store build
    unless the shell has its own live-update path.
 
+### Option D: architecture
+
+```
+apps/web                one UI (React + Vite, as today)
+ ├─ src/…               screens, hooks, ReaderHost: shared by both targets
+ └─ src/platform/       the only seam between web and Android
+     ├─ index.ts        the Platform interface
+     ├─ web.ts          server library, cookies, Google Identity Services, /reader/frame.html
+     └─ android.ts      SQLite library, device files, bearer tokens, native Google, notifications
+        picked at build time: VITE_TARGET=web|android (the other side is tree-shaken out)
+
+apps/android            thin Capacitor shell, almost no code of its own
+ ├─ capacitor.config.ts webDir = apps/web/dist-android
+ └─ android/            same applicationId and signing key: installs over today's app
+
+backend                 unchanged (its mobile mode with bearer tokens exists)
+```
+
+1. **Shell: Capacitor.** The stack stays TypeScript; no Rust. Maintained plugins cover SQLite, files,
+   Google sign-in, local notifications, share and the app lifecycle.
+2. **One `Platform` seam.** Everything that differs goes through it, and screens never ask which
+   platform they run on:
+   - library and progress: the server (web) or the local SQLite library (Android);
+   - book bytes: a server URL or a local file served to the WebView (`convertFileSrc`);
+   - auth: HttpOnly cookies (web) or bearer tokens in secure storage (Android), because cookies from
+     the app's local origin to the API domain are cross-site;
+   - sign-in: Google Identity Services or the native plugin;
+   - notifications, share, file picking.
+3. **Offline.** `localLibrary.ts` and `reader/sync.ts` (the outbox) move from `apps/mobile` nearly as
+   they are, over the SQLite plugin, with the same schema and database name. Reading still needs no
+   token and no network.
+4. **Existing installs.** On first launch the shell finds today's expo-sqlite database and the books
+   folder in the app's files directory and opens or moves them. Nothing is deleted until the new store
+   has them.
+5. **Reader.** One `ReaderHost.tsx` for both targets; only the frame source differs. Web: as today,
+   nginx sets the nonce. Android: the frame ships in the APK and the host mints the nonce on load, as
+   today's Android host does.
+6. **Updates.** Web ships on merge, as today. Android starts with an AAB built in GitHub Actions and
+   uploaded to Play on each release. A live-update path (a signed zip of the web build) comes later,
+   only if the store delay hurts.
+7. **Android back button** → `history.back()` through the app plugin. **Layout:** CSS work where the
+   web app is not yet phone-shaped.
+
+Phases if D is chosen: **D0** the `Platform` seam in `apps/web`, no behaviour change; **D1** the
+offline library ported into `android.ts`, with its tests; **D2** the shell and the move of existing
+installs, on Play's internal track; **D3** parity by checklist (sign-in, notifications, upload,
+offline, sync), then production; **D4** `apps/mobile` deleted (~−23k lines).
+
+Given up at the start: instant OTA (until live update exists), and perhaps some native feel in lists
+and gestures. Everything else carries over.
+
 Under D, the shared hooks of P2 lose most of their value (one app is left), so P2 waits for the D spike.
 
 ## Decision
@@ -162,11 +213,16 @@ Each phase is small PRs; nothing starts without the owner's "start".
   live features. The MCP server's 18 tools are separate and untouched. The `agent_run` table is dropped
   by a migration only if nothing reads it.
 
-**P1 — spike D (#1629, 2–3 days, code thrown away):** the `apps/web` build in an Android WebView shell on the
-emulator. Pass = all of: a book already on the device opens offline with no account; an install over
-today's app keeps its books and unsynced data; the reader frame runs under a CSP nonce; Google sign-in
-works; the update path is known. Pass → this ADR is rewritten to D with a migration plan. Fail → C,
-and P2 starts.
+**P1 — spike D (#1629, 2–3 days, code thrown away):** the architecture above in miniature: a Capacitor
+shell around an `apps/web` build with a stub `android.ts`, on the emulator. Pass = all of:
+1. a book already on the device opens offline with no account and no network;
+2. the shell, installed over today's app (same applicationId, debug keys), opens its expo-sqlite
+   database and its books folder;
+3. the reader frame runs from the APK under a nonce minted by the host;
+4. native Google sign-in returns a token the backend accepts;
+5. an AAB builds in CI and the release path to Play is written down.
+
+Pass → this ADR is rewritten to D, D0–D4 become issues. Fail → C, and P2 starts.
 
 **P2 (C only) — shared headless logic (~−1.3k code, ~−0.5k tests)** (#1626), one PR per pair, in this order:
 `useReaderSettings` (fixes web's settings bug) → `useBookReviews` → `useVocabularyReview` (fixes the
