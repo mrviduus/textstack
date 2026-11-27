@@ -34,6 +34,7 @@ The Origin column names the legacy table each one came from (the legacy database
 | Discussion | `shared_chapters` | an explicit chapter snapshot for MCP | new |
 | | `discussion_checkpoints` | one saved stage of a discussion | new |
 | | `book_insight` | an assistant conclusion or chapter review | `book_insight` (one `book_id`) |
+| | `review_question` | a self-check question | `review_question` |
 | Ops | `llm_traces` | one LLM call | same |
 | | `agent_run` | one agent run | same (− `edition_id`) |
 | | `eval_runs` | one eval score | same |
@@ -57,6 +58,7 @@ erDiagram
     books ||--o{ shared_chapters : shares
     books ||--o{ discussion_checkpoints : discusses
     books ||--o{ book_insight : concludes
+    book_insight ||--o{ review_question : asks
 ```
 
 ## PII / GDPR map
@@ -67,7 +69,7 @@ erDiagram
 | `user_refresh_tokens`, `password_reset_tokens` | user id + token hash | Sessions, reset codes |
 | `reading_state`, `reading_sessions` | user_id | Behavioural |
 | `vocabulary_words`, `vocabulary_examples`, `vocabulary_reviews` | user_id | Learning patterns |
-| `annotations`, `shared_chapters`, `discussion_checkpoints`, `book_insight` | user_id | Annotations, assistant output |
+| `annotations`, `shared_chapters`, `discussion_checkpoints`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
 | `llm_traces`, `agent_run` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d. Agent runs are deleted with the account |
 | `books`, `book_files` | user_id | Uploaded content + library |
