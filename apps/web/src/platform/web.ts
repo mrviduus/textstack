@@ -1,5 +1,7 @@
 import type { Platform } from '.'
-import { refreshToken } from '../api/auth'
+
+/** Loaded on the first 401, not at start: a static import makes a cycle through `api/client.ts`, which reads `platform` on load. */
+const refreshToken = () => import('../api/auth').then((m) => m.refreshToken())
 
 /** The web app: the session is an HttpOnly cookie. */
 export const platform: Platform = {

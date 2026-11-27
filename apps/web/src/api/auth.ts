@@ -1,8 +1,7 @@
 import type { MergeMap } from '../lib/mergeMap'
 import type { GuestMergeSkipReason } from '@textstack/shared'
 
-import { authFetch as meFetch } from '@textstack/shared'
-import { API_BASE } from './base'
+import { authFetch as meFetch, API_BASE } from './client'
 import { platform } from '../platform'
 
 /** /me/* data calls: the shared cookie-mode client (401 → refresh → retry). The session
