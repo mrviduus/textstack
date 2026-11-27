@@ -26,20 +26,20 @@ public class EvalSuiteRunnerTests
     public async Task RunAsync_scores_goldens_via_rubric_evaluator()
     {
         var ct = TestContext.Current.CancellationToken;
-        var generator = new FixedLlm("GENRE: Fiction\nYEAR: 1900\nDESCRIPTION: A canned description.");
+        var generator = new FixedLlm("A canned translation.");
         var judge = new FixedLlm("{\"d1\": 4, \"d2\": 3, \"d3\": 5, \"rationale\": \"ok\"}");
 
         var runner = new EvalSuiteRunner(NullLogger<EvalSuiteRunner>.Instance);
         var results = await runner.RunAsync(
             generatorFor: _ => generator,
             judgeClient: judge,
-            keys: ["bookmeta"],
+            keys: ["translate"],
             ct: ct);
 
         var r = Assert.Single(results);
-        Assert.Equal("bookmeta", r.Feature);
+        Assert.Equal("translate", r.Feature);
         Assert.Equal("fake-model", r.ModelId);
-        Assert.Equal(30, r.Summary.N);                          // bookmeta golden set
+        Assert.Equal(30, r.Summary.N);                          // translate golden set
         Assert.Equal((4 + 3 + 5) / 3.0, r.Summary.MeanOverall, 3); // 4.00 for every case
         Assert.Equal(4.0, r.Summary.Mean1, 3);
         Assert.Equal(3.0, r.Summary.Mean2, 3);

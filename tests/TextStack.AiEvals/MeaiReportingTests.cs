@@ -24,14 +24,14 @@ public class MeaiReportingTests
     public async Task Run_writes_an_html_report_for_the_execution()
     {
         var ct = TestContext.Current.CancellationToken;
-        var generator = new FixedLlm("GENRE: Fiction\nYEAR: 1900\nDESCRIPTION: A canned description for the report test.");
+        var generator = new FixedLlm("A canned translation for the report test.");
         var judge = new LlmServiceChatClient(new FixedLlm("{\"d1\":4,\"d2\":4,\"d3\":4}"), defaultFeatureTag: "eval.judge");
         var reportPath = Path.Combine(EvalStorage.Root("test-report"), "unit-report.html");
 
         var scores = await new MeaiEvalRunner().RunAsync(
             generatorFor: _ => generator,
             judge: judge,
-            keys: ["bookmeta"],
+            keys: ["translate"],
             storageRoot: EvalStorage.Root("test-cache"),
             ct: ct,
             executionName: "unittest",

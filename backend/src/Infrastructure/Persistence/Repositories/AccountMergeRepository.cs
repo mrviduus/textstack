@@ -159,12 +159,11 @@ public sealed partial class AccountMergeRepository(AppDataSource dataSource) : I
     private static readonly string DropCopiesAndMatch = string.Join(";\n",
         [ClearAccountGuestFlag, SelectCheckpointsOfDroppedShares, .. DropCopies, MatchBooks]);
 
-    // No cascade reaches the tables that point only at users. Agent runs move. Every credential dies
+    // No cascade reaches the tables that point only at users. Every credential dies
     // with the guest row (DeleteGuest), as legacy cascades them: sessions, reset codes, device logins,
     // OAuth requests, and OAuth grants and connect keys too, because one minted under a guest session
     // on a shared device would otherwise become a lasting credential to the account that signs in
     // there. llm_traces have no FK and keep the guest's id (ADR-031).
-    private const string MoveAgentRuns = "UPDATE agent_run SET user_id = @accountId WHERE user_id = @guestId";
 
     // The guest's native language only when the account has none (legacy MergeGuestAsync's rule);
     // tier, role and limits are the account's grants. ponytail: storage_used_bytes is not added: no V2
@@ -194,7 +193,7 @@ public sealed partial class AccountMergeRepository(AppDataSource dataSource) : I
          MoveBooklessSessions, BumpFeeds, RelinkToAccountShares, SelectExamplesToRehash, SelectSharesToRehash, SelectCheckpointsToRehash]);
 
     private static readonly string RehashAndRetire = string.Join(";\n",
-        [SetExampleHashes, SetReviewHashes, SetShareHashes, SetCheckpointHashes, MoveAgentRuns, FoldGuestIntoAccount, DeleteGuest]);
+        [SetExampleHashes, SetReviewHashes, SetShareHashes, SetCheckpointHashes, FoldGuestIntoAccount, DeleteGuest]);
 
     /// <summary>Step 7: every moved append whose hashed ids changed, hashed as the API would hash it now.</summary>
     private static object RehashArgs(

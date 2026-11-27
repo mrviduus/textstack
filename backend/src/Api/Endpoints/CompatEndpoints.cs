@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using TextStack.Ai.Core;
 using TextStack.Ai.Llm;
-using TextStack.Ai.Tools;
 
 namespace Api.Endpoints;
 
@@ -76,16 +75,15 @@ public static class CompatEndpoints
                 statusCode: refused.Status == StatusCodes.Status413PayloadTooLarge ? 413 : 400);
     }
 
-    /// <summary>The legacy explain on V2: the genre from the caller's V2 book, no tools (they read the retired catalog).</summary>
+    /// <summary>The legacy explain on V2: the genre from the caller's V2 book.</summary>
     private static Task<IResult> Explain(
         [FromBody] ExplainRequest request, HttpContext http, IConfiguration config, IOptions<OpenAiOptions> openAi,
-        TextStack.Ai.Core.ILlmService llm, IAuthService auth, ILibraryRepository library, ToolCallingSession toolSession,
+        TextStack.Ai.Core.ILlmService llm, IAuthService auth, ILibraryRepository library,
         ILogger<Program> logger, CancellationToken ct)
     {
         var userId = http.GetUserId(auth);
         return ExplainEndpoints.ExplainAsync(request, http, config, openAi, llm,
-            token => GenreAsync(request.Genre, request.BookId, userId, library, logger, token), userId,
-            toolSession, logger, ct);
+            token => GenreAsync(request.Genre, request.BookId, userId, library, logger, token), logger, ct);
     }
 
     /// <summary>The legacy translate on V2: the genre from the caller's V2 book.</summary>

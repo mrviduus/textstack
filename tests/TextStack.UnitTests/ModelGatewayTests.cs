@@ -17,8 +17,7 @@ public class ModelGatewayTests
             {
                 ["Ai:DefaultProvider"] = "openai",
                 ["Ai:Routes:explain"] = "openai",
-                ["Ai:Routes:translate"] = "openai",
-                ["Ai:Routes:distractor"] = "ollama",
+                ["Ai:Routes:translate"] = "openai-translate",
             })
             .Build();
 
@@ -26,7 +25,7 @@ public class ModelGatewayTests
         // Stub providers keyed like the real decorated registrations; each echoes
         // its key back as ModelId so we can assert which provider answered.
         services.AddKeyedSingleton<ILlmService>("openai", new KeyEchoLlm("openai"));
-        services.AddKeyedSingleton<ILlmService>("ollama", new KeyEchoLlm("ollama"));
+        services.AddKeyedSingleton<ILlmService>("openai-translate", new KeyEchoLlm("openai-translate"));
         var sp = services.BuildServiceProvider();
 
         // Budgets OFF → routing unaffected (budget routing covered in ModelGatewayBudgetTests).
@@ -44,8 +43,7 @@ public class ModelGatewayTests
 
     [Theory]
     [InlineData("explain", "openai")]
-    [InlineData("translate", "openai")]
-    [InlineData("distractor", "ollama")]
+    [InlineData("translate", "openai-translate")]
     [InlineData("no-such-feature", "openai")] // unmapped → default
     [InlineData(null, "openai")]               // no tag → default
     public async Task CompleteAsync_RoutesByFeatureTag(string? feature, string expectedProvider)
