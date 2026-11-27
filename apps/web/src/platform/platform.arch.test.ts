@@ -14,7 +14,7 @@ function sourceFiles(dir: string): string[] {
 }
 
 /** The web implementations behind the seam. Outside `src/platform/` a file imports only their types. */
-const BEHIND_THE_SEAM = ['api/userBooks', 'lib/readerSync', 'lib/openBook', 'hooks/useReadingSession']
+const BEHIND_THE_SEAM = ['api/userBooks', 'lib/readerSync', 'lib/openBook', 'hooks/useReadingSession', 'api/vocabulary']
 
 /**
  * The value imports of `module` (a path under `src/`, no extension) in a file: every `import … from`,

@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
-import { highlightCoverUrl, highlightsApi, NETWORK_RETRY_MS, type HighlightListItem } from '@textstack/shared'
+import { NETWORK_RETRY_MS, type HighlightListItem } from '@textstack/shared'
+import { platform } from '../platform'
 import { SeoHead } from '../components/SeoHead'
 import { useOnline } from '../hooks/useOnline'
 import { useCoverRetry } from '../hooks/useCoverRetry'
@@ -54,7 +55,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
     try {
       setLoading(true)
       const newOffset = reset ? 0 : offset
-      const result = await highlightsApi.getAllHighlights({
+      const result = await platform.highlights.getAllHighlights({
         limit: PAGE_SIZE,
         offset: newOffset,
         sort: 'newest',
@@ -232,7 +233,7 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
                   className="highlights-page__book-header"
                   onClick={() => toggleBook(group.bookId)}
                 >
-                  <BookCover url={highlightCoverUrl(group.cover)} />
+                  <BookCover url={platform.highlights.coverUrl(group.cover)} />
                   <div className="highlights-page__book-info">
                     <span className="highlights-page__book-title">{group.bookTitle}</span>
                     <span className="highlights-page__book-count">

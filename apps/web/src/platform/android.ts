@@ -26,4 +26,19 @@ export const platform: Platform = {
     getUserBookCoverUrl: notYet('library.getUserBookCoverUrl'),
     getUserBookFileUrl: notYet('library.getUserBookFileUrl'),
   },
+  vocabulary: {
+    saveWord: notYet('vocabulary.saveWord'),
+    getWords: notYet('vocabulary.getWords'),
+    deleteWord: notYet('vocabulary.deleteWord'),
+    deleteAllWords: notYet('vocabulary.deleteAllWords'),
+    updateWord: notYet('vocabulary.updateWord'),
+    restoreWord: notYet('vocabulary.restoreWord'),
+    getReaderVocab: notYet('vocabulary.getReaderVocab'),
+    getReviewQueue: notYet('vocabulary.getReviewQueue'),
+    submitReview: notYet('vocabulary.submitReview'),
+  },
+  highlights: {
+    getAllHighlights: notYet('highlights.getAllHighlights'),
+    coverUrl: notYet('highlights.coverUrl'),
+  },
 }

@@ -1,11 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
-import {
-  getReviewQueue,
-  submitReview,
-  type ReviewCardDto,
-  type SelfAssessment,
-  type SubmitReviewResponse,
-} from '../api/vocabulary'
+import type { ReviewCardDto, SelfAssessment, SubmitReviewResponse } from '../api/vocabulary'
+import { platform } from '../platform'
 import type { ReviewMode } from '@textstack/shared'
 
 /** Sessions run as flashcards: multiple choice needs server-made distractors, which V2 has none of. */
@@ -56,7 +51,7 @@ export function useVocabularyReview() {
     setWrongCards([])
     resetAnswerState()
     try {
-      const queue = await getReviewQueue(limit, true)
+      const queue = await platform.vocabulary.getReviewQueue(limit, true)
       setCards(queue.cards)
       setTotalDue(queue.totalDue)
       setSessionStats({ ...EMPTY_STATS, total: queue.cards.length })
@@ -87,7 +82,7 @@ export function useVocabularyReview() {
     const key = `${currentIndex}:${card.wordId}:${cards.length}`
     if (answerOpRef.current?.key !== key) answerOpRef.current = { key, id: crypto.randomUUID() }
     try {
-      const result = await submitReview({
+      const result = await platform.vocabulary.submitReview({
         operationId: answerOpRef.current.id,
         wordId: card.wordId,
         isCorrect,

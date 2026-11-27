@@ -5,7 +5,7 @@ import { saveOutcome } from '../../../../../packages/reader/src/vocabSave.mjs'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useAuth } from '../../context/AuthContext'
 import { useReaderVocabulary } from '../../hooks/useReaderVocabulary'
-import { restoreWord } from '../../api/vocabulary'
+import { platform } from '../../platform'
 import { emitDataChange } from '../../lib/dataEvents'
 import { normalizeVocabKey } from '../../lib/vocabKey'
 import { Toast } from '../Toast'
@@ -158,7 +158,7 @@ export function ReaderPopups({ popup, frame, bookLanguage, marksLanguage = bookL
     setDeleted(null)
     try {
       const asked = vocab.identity()
-      recordSavedWord(await restoreWord(deleted.id), asked)
+      recordSavedWord(await platform.vocabulary.restoreWord(deleted.id), asked)
       emitDataChange('vocabulary')
     } catch {
       setToast(t('reader.vocab.restoreFailed'))
