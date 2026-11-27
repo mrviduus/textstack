@@ -66,12 +66,6 @@ public interface ILibraryRepository
         Guid userId, Guid bookId, BookFile file, Guid? replacesFileId, NpgsqlTransaction? tx, CancellationToken ct);
 
     /// <summary>
-    /// The per-book checkpoint opt-in; a removed book keeps it too. <c>updated_at</c> moves only when the
-    /// value changes. The updated book; null when not the user's.
-    /// </summary>
-    Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct);
-
-    /// <summary>
     /// Overwrites one file version's TOC (ADR-033 P3: derived, unversioned, last writer wins; current or
     /// superseded, removed book or not). A change to the current file's TOC bumps <c>updated_at</c> (the feed carries
     /// <c>hasToc</c> and the chapter count), never <c>revision</c>. False when not the user's.

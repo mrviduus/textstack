@@ -41,21 +41,13 @@ public sealed partial class AccountMergeRepository
         {InsightClashes}
         """;
 
-    private const string SelectQuestionsOfLosers = $"""
-        SELECT q.book_insight_id, q.prompt, q.answer FROM review_question q
-        JOIN (SELECT {LoserId} AS id {InsightClashes}) l ON l.id = q.book_insight_id
-        WHERE q.user_id IN (@guestId, @accountId)
-        ORDER BY q.block_index, q.created_at, q.id
-        """;
-
     /// <summary>
     /// The loser in full, as text (owner decisions 2026-11-02): its text the conclusion, its question a
-    /// reader thought, its review questions (with answers) the open questions, its structured review
-    /// an assistant suggestion. Only the questions' SRS schedule is not carried. An insight has no
+    /// reader thought, its structured review an assistant suggestion. An insight has no
     /// language, so the checkpoint's is unknown: <c>und</c>. Its id is the checkpoint's id and operation
     /// id: deterministic, so nothing can add it twice.
     /// </summary>
-    private static DiscussionCheckpoint LoserCheckpoint(InsightLoser loser, IEnumerable<(Guid InsightId, string Prompt, string Answer)> questions)
+    private static DiscussionCheckpoint LoserCheckpoint(InsightLoser loser)
     {
         var question = string.IsNullOrWhiteSpace(loser.Question) ? null : loser.Question;
         var checkpoint = DiscussionPayloads.Checkpoint(loser.Id, Guid.Empty, loser.BookId, new CheckpointRequest(
@@ -64,7 +56,7 @@ public sealed partial class AccountMergeRepository
             question is null ? [] : [question],
             loser.ReviewJson is null ? [] : [CanonicalPayload.Canonicalize(JsonNode.Parse(loser.ReviewJson))],
             [loser.Text],
-            questions.Select(q => string.IsNullOrWhiteSpace(q.Answer) ? q.Prompt : $"{q.Prompt} — {q.Answer}").ToArray(),
+            [],
             "und",
             string.IsNullOrWhiteSpace(loser.ChapterSlug) ? null : loser.ChapterSlug,
             FileId: null,
@@ -73,10 +65,9 @@ public sealed partial class AccountMergeRepository
         return checkpoint;
     }
 
-    private static object LoserArgs(List<InsightLoser> losers, List<(Guid InsightId, string Prompt, string Answer)> questions)
+    private static object LoserArgs(List<InsightLoser> losers)
     {
-        var byInsight = questions.ToLookup(q => q.InsightId);
-        var kept = losers.Select(l => LoserCheckpoint(l, byInsight[l.Id])).ToList();
+        var kept = losers.Select(LoserCheckpoint).ToList();
         return new
         {
             loserIds = kept.Select(c => c.Id).ToArray(),
@@ -101,10 +92,10 @@ public sealed partial class AccountMergeRepository
             AS m(id, book_id, chapter_key, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, payload_sha256, created_at)
         """;
 
-    // After its checkpoint holds its text: its review questions go with it (cascade).
+    // After its checkpoint holds its text.
     private const string DeleteLosers = "DELETE FROM book_insight WHERE user_id IN (@guestId, @accountId) AND id = ANY(@loserIds)";
 
-    // Winners and insights with no clash; their review questions follow by (user_id, book_insight_id).
+    // Winners and insights with no clash.
     private const string MoveInsightsToAccountBooks = $"UPDATE book_insight t {LeftoverTail}";
 
     // The same share under both identities: the checkpoint now names the account's, when that share is

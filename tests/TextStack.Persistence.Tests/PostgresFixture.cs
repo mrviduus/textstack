@@ -154,9 +154,7 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         var share = NewShare(book);
         await new SharedChapterRepository(DataSource).ShareAsync(share, Ct);
         await new CheckpointRepository(DataSource).AppendAsync(NewCheckpoint(book, share), Ct);
-        var insight = await new BookInsightRepository(DataSource).SaveReviewAsync(NewInsight(book, "ch-1", reviewJson: "{}"), Ct);
-        await new ReviewQuestionRepository(DataSource).ReplaceForInsightAsync(userId, insight.Id,
-            [new() { Id = Guid.NewGuid(), UserId = userId, BookInsightId = insight.Id, Prompt = "Why?", Answer = "Because.", PromptHash = "h1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
+        await new BookInsightRepository(DataSource).SaveAsync(NewInsight(book, "ch-1"), Ct);
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
         await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, null, Application.Identity.SessionKind.Reader, Ct);

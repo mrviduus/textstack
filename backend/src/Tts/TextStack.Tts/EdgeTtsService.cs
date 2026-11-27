@@ -317,12 +317,11 @@ public class EdgeTtsService : ITtsService, IHostedService, IDisposable
         _ => "+0%"
     };
 
-    private static string ComputeCacheKey(string text, string voice, string rate)
-    {
-        var input = $"{voice}|{rate}|{text}";
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexStringLower(hash)[..16];
-    }
+    private static string ComputeCacheKey(string text, string voice, string rate) => ShortHash($"{voice}|{rate}|{text}");
+
+    /// <summary>The first 16 lowercase hex digits of the UTF-8 SHA-256: the TTS cache key and the /tts ETag.</summary>
+    public static string ShortHash(string input) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(input)))[..16];
 
     // Bump LastWriteTimeUtc on cache hit so SweepCache's TTL + size eviction
     // behave as true LRU (recently-used files survive) instead of purging by

@@ -6,7 +6,6 @@ using Application.Identity;
 using Application.Library;
 using Application.Vocabulary;
 using Contracts.UserBooks;
-using Domain.LLM;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -34,8 +33,6 @@ public static class CompatEndpoints
         // Anonymous on purpose, as legacy (the reading loop): no SyncGate. Spend: V2 traces (ILlmSpendSource).
         app.MapGroup("/explain").WithTags("Explain")
             .MapPost("", Explain).RequireRateLimiting("explain");
-        app.MapGroup("/api/translate").WithTags("Translation")
-            .MapPost("", Translate).RequireRateLimiting("translate");
         app.MapPost("/translate", Translate).WithTags("Translation")
             .RequireRateLimiting("translate");
     }
@@ -94,13 +91,13 @@ public static class CompatEndpoints
     /// <summary>The legacy translate on V2: the genre from the caller's V2 book.</summary>
     private static Task<IResult> Translate(
         [FromBody] TranslateRequest request, HttpContext http, IConfiguration config, IOptions<OpenAiOptions> openAi,
-        ILlmServiceFactory llmFactory, IAuthService auth, ILibraryRepository library, IFrequencyFilter freqFilter,
+        TextStack.Ai.Core.ILlmService llm, IAuthService auth, ILibraryRepository library, IFrequencyFilter freqFilter,
         ILogger<Program> logger, CancellationToken ct)
     {
         var userId = http.GetUserId(auth);
         return TranslationEndpoints.TranslateAsync(request,
             token => GenreAsync(request.Genre, request.BookId, userId, library, logger, token),
-            config, openAi, llmFactory, freqFilter, logger, ct);
+            config, openAi, llm, freqFilter, logger, ct);
     }
 
     /// <summary>

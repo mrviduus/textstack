@@ -11,15 +11,4 @@ public class AdminSettingsRepositoryTests(PostgresFixture db)
     [Fact]
     public async Task GetAsync_UnsetKey_ReturnsNull() =>
         Assert.Null(await _settings.GetAsync("k-" + Guid.NewGuid(), Ct));
-
-    [Fact]
-    public async Task SetAsync_ExistingKey_ReplacesTheValue()
-    {
-        var key = "k-" + Guid.NewGuid();
-        await _settings.SetAsync(key, "15", Ct);
-
-        await _settings.SetAsync(key, "30", Ct);
-
-        Assert.Equal("30", await _settings.GetAsync(key, Ct));
-    }
 }

@@ -364,7 +364,6 @@ app.MapProfileEndpoints();
 app.MapAccountEndpoints();
 app.MapMcpKeysEndpoints();
 app.MapOAuthEndpoints();
-app.MapTranslationEndpoints();
 app.MapTtsEndpoints();
 app.MapSyncEndpoints();
 app.MapCompatEndpoints();

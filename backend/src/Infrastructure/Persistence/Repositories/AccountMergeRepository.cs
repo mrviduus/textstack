@@ -78,11 +78,10 @@ public sealed partial class AccountMergeRepository(AppDataSource dataSource) : I
         // 3a–d. Matched books: state, what points into the guest's file and book; then the insight clashes.
         List<string> released;
         List<InsightLoser> losers;
-        List<(Guid InsightId, string Prompt, string Answer)> questions;
         await using (var third = await run.QueryMultipleAsync(MoveOntoAccountBooks, StateArgs(MergedStates(books, states))))
         {
             released = (await third.ReadAsync<string>()).AsList();
-            (losers, questions) = ((await third.ReadAsync<InsightLoser>()).AsList(), (await third.ReadAsync<(Guid, string, string)>()).AsList());
+            losers = (await third.ReadAsync<InsightLoser>()).AsList();
         }
 
         // 3e–6. Insights, the emptied guest books, every other book, book-less sessions, feeds, share
@@ -99,7 +98,7 @@ public sealed partial class AccountMergeRepository(AppDataSource dataSource) : I
             exampleIds = Of(appends, "example"),
             shareIds = Of(appends, "share"),
             checkpointIds = Of(appends, "checkpoint").Concat(unlinked.Select(u => u.Checkpoint)).Distinct().ToArray(),
-        }, LoserArgs(losers, questions)))
+        }, LoserArgs(losers)))
         {
             examples = fourth.Read<VocabularyExample, VocabularyWord, (VocabularyExample, VocabularyWord)>((e, card) => (e, card), splitOn: "language").AsList();
             shares = (await fourth.ReadAsync<SharedChapter>()).AsList();
@@ -111,7 +110,7 @@ public sealed partial class AccountMergeRepository(AppDataSource dataSource) : I
         await unit.CommitAsync(ct);
         return new(AccountMergeOutcome.Merged,
             books.ToDictionary(b => b.GuestBook, b => b.AccountBook), books.ToDictionary(b => b.GuestFile, b => b.AccountFile),
-            words.ToDictionary(w => w.Guest, w => w.Account), dropped, anomalies, questions.Count, released);
+            words.ToDictionary(w => w.Guest, w => w.Account), dropped, anomalies, released);
     }
 
     // Users: FOR UPDATE, not FOR NO KEY UPDATE, so it conflicts with the FOR KEY SHARE every FK insert
@@ -188,7 +187,7 @@ public sealed partial class AccountMergeRepository(AppDataSource dataSource) : I
 
     private static readonly string MoveOntoAccountBooks = string.Join(";\n",
         [UpsertAccountStates, DeleteGuestStates, RepointToAccountFiles, SelectReleasedKeys, DeleteSameBytesFiles, MoveOtherVersions, MoveLeftoversToAccountBooks,
-         SelectInsightLosers, SelectQuestionsOfLosers]);
+         SelectInsightLosers]);
 
     private static readonly string MoveBooksAndReadAppends = string.Join(";\n",
         [InsertLoserCheckpoints, DeleteLosers, MoveInsightsToAccountBooks, DeleteMatchedGuestBooks, TouchAccountBooks, MoveUnmatchedBooks,

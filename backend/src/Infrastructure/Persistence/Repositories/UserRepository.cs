@@ -143,14 +143,6 @@ public sealed class UserRepository(AppDataSource dataSource) : IUserRepository
         return await conn.ExecuteAsync(new CommandDefinition(TouchActive, new { userId, now }, cancellationToken: ct)) > 0;
     }
 
-    private const string UpdateRole = "UPDATE users SET role = @role WHERE id = @userId";
-
-    public async Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(UpdateRole, new { userId, role }, cancellationToken: ct)) > 0;
-    }
-
     // Every user-owned table cascades from users; the deferred provenance FKs are checked when this
     // statement's own transaction commits.
     private const string DeleteAccount = "DELETE FROM users WHERE id = @userId";

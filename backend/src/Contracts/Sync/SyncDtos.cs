@@ -169,8 +169,6 @@ public sealed record CheckpointDto(
     [property: JsonConverter(typeof(RawJsonConverter))] string OpenQuestions,
     string Language, DateTimeOffset CreatedAt);
 
-public sealed record CheckpointSavingRequest(bool? Enabled);
-
 /// <summary>An insight on a book (the assistant's conclusion, MCP <c>save_insight</c>); <c>ChapterKey</c> null = about the whole book.</summary>
 public sealed record InsightRequest(string? ChapterKey, string? Text, string? Question);
 

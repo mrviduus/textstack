@@ -175,7 +175,7 @@ public class AuthServiceTests(PostgresFixture db)
 
         // A guest id that names an admin is never promoted: a new account, the admin untouched.
         var admin = (await Auth.CreateGuestSessionAsync(Ct)).User!;
-        await _users.SetRoleAsync(admin.Id, UserAccount.AdminRole, Ct);
+        await db.ExecAsync("UPDATE users SET role = @role WHERE id = @id", new { role = UserAccount.AdminRole, id = admin.Id });
         var other = await Auth.RegisterWithEmailAsync(NewEmail(), Password, null, admin.Id, Ct);
         Assert.NotEqual(admin.Id, other.User?.Id);
         Assert.Null((await _users.GetAsync(admin.Id, Ct))!.PasswordHash);
@@ -487,7 +487,7 @@ public class AuthServiceTests(PostgresFixture db)
         Assert.Null(await Admin.LoginAsync(email, Password, Ct));
         Assert.Null(await Admin.RefreshTokenAsync(refresh, Ct));
         Assert.Null(await Admin.GetAdminByIdAsync(reader.Id, Ct));
-        await _users.SetRoleAsync(reader.Id, UserAccount.AdminRole, Ct);
+        await db.ExecAsync("UPDATE users SET role = @role WHERE id = @id", new { role = UserAccount.AdminRole, id = reader.Id });
         Assert.Null(await Admin.LoginAsync(email, "wrong password", Ct));
     }
 
@@ -555,7 +555,6 @@ public class AuthServiceTests(PostgresFixture db)
         public Task<UserAccount?> CreateAsync(UserAccount account, CancellationToken ct) => inner.CreateAsync(account, ct);
         public Task<AccountUpdate> UpdateProfileAsync(Guid userId, string email, string? name, string? picture, CancellationToken ct) => inner.UpdateProfileAsync(userId, email, name, picture, ct);
         public Task<AccountUpdate> PromoteGuestAsync(Guid userId, string email, string? name, string passwordHash, CancellationToken ct) => inner.PromoteGuestAsync(userId, email, name, passwordHash, ct);
-        public Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct) => inner.SetRoleAsync(userId, role, ct);
         public Task<bool> DeleteAsync(Guid userId, CancellationToken ct) => inner.DeleteAsync(userId, ct);
         public Task<UserAccount?> UpdateNameAndLanguageAsync(Guid userId, string? name, string? nativeLanguage, CancellationToken ct) => inner.UpdateNameAndLanguageAsync(userId, name, nativeLanguage, ct);
         public Task<UserAccount?> SetPictureAsync(Guid userId, string? picture, CancellationToken ct) => inner.SetPictureAsync(userId, picture, ct);

@@ -2,7 +2,6 @@
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" />
     <PackageReference Include="Google.Apis.Auth" />
-    <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
     <!-- IHttpClientFactory for tools that call external APIs (OpenLibrary tools) -->
     <PackageReference Include="Microsoft.Extensions.Http" />

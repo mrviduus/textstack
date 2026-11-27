@@ -50,9 +50,7 @@ public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposabl
                 s.RemoveAll<IHostedService>();
                 s.RemoveAll<IEmailService>();
                 s.AddSingleton<IEmailService>(_mail);
-                // No paid calls: both LLM seams answer from the fake, which keeps the prompts it was given.
-                s.RemoveAll<Domain.LLM.ILlmServiceFactory>();
-                s.AddSingleton<Domain.LLM.ILlmServiceFactory>(_llm);
+                // No paid calls: the LLM gateway answers from the fake, which keeps the prompts it was given.
                 s.RemoveAll<TextStack.Ai.Core.ILlmService>();
                 s.AddSingleton<TextStack.Ai.Core.ILlmService>(_llm);
             });
@@ -282,7 +280,7 @@ public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposabl
                 """, new { });
 
             // Anonymous: the reading loop's translate needs no account.
-            var anonymous = await BodyAsync(await client.PostAsJsonAsync("/api/translate",
+            var anonymous = await BodyAsync(await client.PostAsJsonAsync("/translate",
                 new { text = "good morning", sourceLang = "en", targetLang = "uk" }, Ct));
             Assert.Equal("fake answer", anonymous.GetProperty("translatedText").GetString());
 
@@ -375,18 +373,10 @@ public sealed class NativeIdentityApiTests(PostgresFixture db) : IAsyncDisposabl
         }
     }
 
-    /// <summary>Both LLM seams (Translate's factory, Explain's gateway): a fixed answer, the system prompts kept.</summary>
-    private sealed class FakeLlm : Domain.LLM.ILlmServiceFactory, Domain.LLM.ILlmService, TextStack.Ai.Core.ILlmService
+    /// <summary>The LLM gateway (translate and explain): a fixed answer, the system prompts kept.</summary>
+    private sealed class FakeLlm : TextStack.Ai.Core.ILlmService
     {
         public System.Collections.Concurrent.ConcurrentQueue<string> SystemPrompts { get; } = new();
-
-        public Domain.LLM.ILlmService Get(string jobName) => this;
-
-        public Task<string> CompleteAsync(string systemPrompt, string userPrompt, int maxOutputTokens, CancellationToken ct)
-        {
-            SystemPrompts.Enqueue(systemPrompt);
-            return Task.FromResult("fake answer");
-        }
 
         public Task<TextStack.Ai.Core.LlmResponse> CompleteAsync(TextStack.Ai.Core.LlmRequest request, CancellationToken ct)
         {

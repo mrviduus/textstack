@@ -126,8 +126,6 @@ public static class SyncEndpoints
             Send(s.ListAsync(User(h, a), bookId, ct)));
         v2.MapPost("/books/{bookId:guid}/insights", (HttpContext h, IAuthService a, InsightSyncService s, Guid bookId, InsightRequest body, CancellationToken ct) =>
             Send(s.SaveAsync(User(h, a), bookId, body, ct))).RequireRateLimiting("insights");
-        v2.MapPut("/books/{bookId:guid}/checkpoint-saving", (HttpContext h, IAuthService a, DiscussionSyncService s, Guid bookId, CheckpointSavingRequest body, CancellationToken ct) =>
-            Send(s.SetCheckpointSavingAsync(User(h, a), bookId, body, ct)));
     }
 
     // PathGates and SyncGate resolved it already; GetUserId answers from the request's memo.
