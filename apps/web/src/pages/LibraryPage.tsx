@@ -22,7 +22,8 @@ import { UserBookCard } from '../components/library/UserBookCard'
 import { BulkActionBar } from '../components/library/BulkActionBar'
 import { useLibrarySelection } from '../hooks/useLibrarySelection'
 import { EmptyState } from '../components/EmptyState'
-import { getUserBooks, type UserBook, bulkDeleteUserBooks, bulkFinishUserBooks } from '../api/userBooks'
+import type { UserBook } from '../api/userBooks'
+import { platform } from '../platform'
 import { LibraryToolbar } from '../components/library/LibraryToolbar'
 import { UploadBookListItem } from '../components/library/UploadBookListItem'
 import { emitDataChanges, useDataChange } from '../lib/dataEvents'
@@ -67,7 +68,7 @@ export function LibraryPage() {
     if (!isAuthenticated) return
     setUserBooksLoading(true)
     try {
-      const books = await getUserBooks()
+      const books = await platform.library.getUserBooks()
       setUserBooks(books)
     } catch {
       // Ignore errors
@@ -100,7 +101,7 @@ export function LibraryPage() {
   }
   const ids = () => Array.from(selection.selected)
   const onBulkFinish = () => runBulk(async () => {
-    await bulkFinishUserBooks(ids(), true)
+    await platform.library.bulkFinishUserBooks(ids(), true)
     selection.exit()
     emitDataChanges(['user-books', 'shelves'])
   })
@@ -111,7 +112,7 @@ export function LibraryPage() {
       titles.join('\n') + (more > 0 ? `\n…and ${more} more` : '')
     if (!window.confirm(msg)) return
     runBulk(async () => {
-      await bulkDeleteUserBooks(ids())
+      await platform.library.bulkDeleteUserBooks(ids())
       selection.exit()
       emitDataChanges(['user-books', 'shelves'])
     })

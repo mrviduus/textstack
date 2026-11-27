@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getUserTags, type TagCount } from '../api/userBooks'
+import type { TagCount } from '../api/userBooks'
+import { platform } from '../platform'
 
 const CACHE_TTL_MS = 60_000
 
@@ -12,7 +13,7 @@ async function loadTags(force: boolean): Promise<TagCount[]> {
   if (inflight) return inflight
   inflight = (async () => {
     try {
-      const data = await getUserTags()
+      const data = await platform.library.getUserTags()
       cache = { ts: Date.now(), data }
       subscribers.forEach((s) => s(data))
       return data

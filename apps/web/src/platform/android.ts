@@ -12,4 +12,18 @@ export const platform: Platform = {
   transport: {
     fetchInit: notYet('transport.fetchInit'),
   },
+  library: {
+    getUserBooks: notYet('library.getUserBooks'),
+    getUserBook: notYet('library.getUserBook'),
+    getUserBookProgress: notYet('library.getUserBookProgress'),
+    getUserTags: notYet('library.getUserTags'),
+    uploadUserBook: notYet('library.uploadUserBook'),
+    deleteUserBook: notYet('library.deleteUserBook'),
+    markUserBookComplete: notYet('library.markUserBookComplete'),
+    unmarkUserBookComplete: notYet('library.unmarkUserBookComplete'),
+    bulkFinishUserBooks: notYet('library.bulkFinishUserBooks'),
+    bulkDeleteUserBooks: notYet('library.bulkDeleteUserBooks'),
+    getUserBookCoverUrl: notYet('library.getUserBookCoverUrl'),
+    getUserBookFileUrl: notYet('library.getUserBookFileUrl'),
+  },
 }

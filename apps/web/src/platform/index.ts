@@ -6,6 +6,7 @@
  * uses `android.ts`. `vite.config.ts` resolves `@platform-target` to one of the two files, so the other file
  * is not in the bundle.
  */
+import type * as userBooks from '../api/userBooks'
 
 /**
  * An implementation also sets up the shared API client (`initApi`) on load. The rest of the app
@@ -20,6 +21,14 @@ export interface Platform {
     /** What a direct `fetch` to the API adds to its `RequestInit`. Synchronous: a write in `pagehide` uses it. */
     fetchInit(): { credentials?: RequestCredentials; headers?: Record<string, string> }
   }
+  /**
+   * The reader's books: the library, the book page, upload, finish and delete. Web: the server
+   * (`api/userBooks.ts`). Android: the library on the device. The signatures are the ones in `api/userBooks.ts`.
+   */
+  library: Pick<typeof userBooks,
+    | 'getUserBooks' | 'getUserBook' | 'getUserBookProgress' | 'getUserTags'
+    | 'uploadUserBook' | 'deleteUserBook' | 'markUserBookComplete' | 'unmarkUserBookComplete'
+    | 'bulkFinishUserBooks' | 'bulkDeleteUserBooks' | 'getUserBookCoverUrl' | 'getUserBookFileUrl'>
 }
 
 export { platform } from '@platform-target'

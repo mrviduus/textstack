@@ -12,7 +12,8 @@ import {
   readRecentRoutes,
   type RecentRoute,
 } from '../lib/commands'
-import { getUserBooks, type UserBook } from '../api/userBooks'
+import type { UserBook } from '../api/userBooks'
+import { platform } from '../platform'
 
 interface Props {
   open: boolean
@@ -34,7 +35,7 @@ export function CommandPalette({ open, onClose }: Props) {
     setQuery('')
     setRecent(readRecentRoutes())
     if (isAuthenticated && books.length === 0) {
-      getUserBooks().then((b) => setBooks(b.slice(0, 50))).catch(() => {})
+      platform.library.getUserBooks().then((b) => setBooks(b.slice(0, 50))).catch(() => {})
     }
   }, [open, isAuthenticated, books.length])
 

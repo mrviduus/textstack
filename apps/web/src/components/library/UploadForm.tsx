@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { uploadUserBook } from '../../api/userBooks'
+import { platform } from '../../platform'
 import { emit } from '../../lib/telemetry/myBooks'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { ACCEPT_ATTR, isUploadableFile } from '../../lib/uploadFileValidation'
@@ -42,7 +42,7 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
     const startedAt = Date.now()
 
     try {
-      const result = await uploadUserBook(file, (percent) => {
+      const result = await platform.library.uploadUserBook(file, (percent) => {
         setUploadProgress(percent)
       })
       const newBookId = result?.userBookId
