@@ -47,7 +47,7 @@ Each is a real defect, known and not yet fixed.
 - **Six user routes live outside `/me`** and rely on their handler's check: `GET /auth/me`, `POST /auth/device/approve|deny`, `POST /oauth/authorize/approve|deny`, `GET /oauth/token-status`. No plan to move them.
 - **GitHub scheduled backups run hours late** (`backup.yml` cron 03:00 UTC started 10:12 on 2026-10-05). Consider triggering from the server's cron, GitHub schedule as a fallback.
 - **Server hygiene:** three `.env.bak*` files with live secrets; the server's `node_modules` does not match the lockfile.
-- **Review 2026-10 P2 still open:** #16 background services inside the API, #18 auth opt-in per endpoint, #19 admin API on the public host / no audit log, #26 (GDPR delete leaves LLM trace text, caches, backups).
+- **Review 2026-10 P2 still open:** #16 background services inside the API, #18 auth opt-in per endpoint, #19 admin API on the public host / no audit log, #26 (GDPR delete leaves caches and backups; LLM traces carry no user id and lose their text, error included, after 30 days).
 - **Dependency advisories with no fix to apply** are listed in `KNOWN` in `tools/checks/check-advisories.mjs`.
 - **`@sentry/react-native` is ahead of the Expo SDK pin**; recorded in `expo.install.exclude` as deliberate, but nobody remembers whether it was.
 - **Play Console** (#916): the feature graphic and one screenshot still show "Ask this book".

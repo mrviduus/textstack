@@ -30,12 +30,13 @@ public sealed class LlmTraceWriter(AppDataSource dataSource) : ILlmTraceWriter, 
         """;
 
     // Same rule as the legacy sweep (RetentionCleanupWorker.LlmTraceTextToScrub): text goes, cost stays.
+    // error too: a provider's message can echo the prompt (review 2026-10 #26).
     private const string ScrubBatch = """
-        UPDATE llm_traces SET system_prompt = NULL, messages_json = '[]'::jsonb, response_text = NULL, tool_calls_json = NULL
+        UPDATE llm_traces SET system_prompt = NULL, messages_json = '[]'::jsonb, response_text = NULL, tool_calls_json = NULL, error = NULL
         WHERE id IN (
             SELECT id FROM llm_traces
             WHERE created_at < @cutoff
-              AND (messages_json <> '[]'::jsonb OR system_prompt IS NOT NULL OR response_text IS NOT NULL OR tool_calls_json IS NOT NULL)
+              AND (messages_json <> '[]'::jsonb OR system_prompt IS NOT NULL OR response_text IS NOT NULL OR tool_calls_json IS NOT NULL OR error IS NOT NULL)
             ORDER BY id LIMIT @limit)
         """;
 
