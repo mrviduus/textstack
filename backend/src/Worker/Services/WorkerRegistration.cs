@@ -13,7 +13,6 @@ public static class WorkerRegistration
         var connection = config.AppConnectionString()
             ?? throw new InvalidOperationException("ConnectionStrings:Default is required");
         services.AddHostedService(sp => new SingleInstanceLock(connection, sp.GetRequiredService<ILogger<SingleInstanceLock>>()));
-        services.AddHostedService<AiProviderReadinessCheck>();
         services.AddHostedService<RetentionCleanupWorker>();
         services.AddHostedService<HeartbeatWorker>();
         return services;

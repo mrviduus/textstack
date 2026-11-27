@@ -102,7 +102,7 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
      | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d "${TEXTSTACK_DB:-textstack_v2}" -v ON_ERROR_STOP=1
    ```
    `/db.sql` is the last legacy dump (frozen since the cutover): nothing reads that database any more.
-4. **Start the rest:** `docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d`
+4. **Start the rest:** `docker compose --profile mcp up -d`
    (the migrator brings the schema forward if the code is newer than the dump).
 5. **Verify:** `curl https://textstack.app/api/health` → `"healthy"`, `/api/health/ready` all ok, open a book.
 

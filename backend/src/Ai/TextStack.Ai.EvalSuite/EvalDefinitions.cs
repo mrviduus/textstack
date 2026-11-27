@@ -8,7 +8,7 @@ namespace TextStack.Ai.EvalSuite;
 /// The feature-specific eval registry: ties each golden dataset to the REAL
 /// production prompt (ExplainPrompt/TranslatePrompt/BookMetadataPrompt)
 /// and its judge rubric(s). Generation runs through the gateway by FeatureTag, so
-/// explain/translate hit OpenAI and bookmeta hits Ollama exactly like prod.
+/// every feature hits its routed provider exactly like prod.
 /// </summary>
 public static class EvalDefinitions
 {

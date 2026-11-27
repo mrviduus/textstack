@@ -53,8 +53,7 @@ cp .env.example .env
 | `SENTRY_DSN` | No | empty (Sentry fully off) | Keep `ASPNETCORE_ENVIRONMENT=Development` locally, or dev events land in prod Sentry |
 | `GIT_SHA` | No | empty | Build arg → `SENTRY_RELEASE` in the image (set by CI) |
 
-Ollama (`Ollama__BaseUrl`, `Ollama__Model=gemma4:e2b`) and the cache paths (`Tts__CachePath`,
-`Explain__CachePath`, `Translate__CachePath`) are hard-coded in `docker-compose.yml`, not read from `.env`.
+The cache paths (`Tts__CachePath`, `Explain__CachePath`, `Translate__CachePath`) are hard-coded in `docker-compose.yml`, not read from `.env`.
 
 ### Test / CI knobs (never set in prod)
 

@@ -201,8 +201,8 @@ app.MapGet("/health", async (AppDataSource db, ILogger<Program> logger, Cancella
 });
 
 // Granular readiness probe — per-component status for ops dashboards.
-// db + storage are critical (503 on failure); ollama is soft (degraded, still 200).
-app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguration cfg, Api.Sync.SyncReadiness v2, AppDataSource db, ILogger<Program> logger, CancellationToken ct) =>
+// db, schema, storage and library are critical (503 on failure); collation is soft.
+app.MapGet("/health/ready", async (IConfiguration cfg, Api.Sync.SyncReadiness v2, AppDataSource db, CancellationToken ct) =>
 {
     var started = DateTimeOffset.UtcNow;
     var components = new Dictionary<string, object>();
@@ -287,22 +287,6 @@ app.MapGet("/health/ready", async (IHttpClientFactory httpFactory, IConfiguratio
     // The V2 library's own volume (#1110): unwritable is a 503 (owner decision 2026-11-07), every upload would fail.
     components["library"] = Probe(libraryRoot, probes[1]);
     criticalOk &= probes[1] is null;
-
-    try
-    {
-        var baseUrl = cfg["Ollama:BaseUrl"] ?? "http://localhost:11434";
-        using var client = httpFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(2);
-        var resp = await client.GetAsync($"{baseUrl}/api/tags", ct);
-        components["ollama"] = resp.IsSuccessStatusCode
-            ? new { status = "ok" }
-            : new { status = "degraded", code = (int)resp.StatusCode };
-    }
-    catch (Exception ex)
-    {
-        logger.LogInformation(ex, "Readiness: Ollama probe failed");
-        components["ollama"] = new { status = "degraded" };
-    }
 
     var elapsed = DateTimeOffset.UtcNow - started;
     var payload = new

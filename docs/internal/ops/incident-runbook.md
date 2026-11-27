@@ -16,9 +16,8 @@ df -h / /mnt/data                       # disk space — prod docker data-root i
 Health endpoints:
 - `curl -sS https://textstack.app/api/health` → `healthy` (liveness)
 - `curl -sS https://textstack.app/api/health/ready | jq` → per-component
-  status: `db`, `storage`, `ollama`. `503` if db/storage down (critical);
-  ollama-down still returns `200` with `status: degraded` since distractors
-  are soft-fail.
+  status: `db`, `schema`, `storage`, `library` (critical, `503` if not ok),
+  `collation` and `v2`.
 - `docker compose ps` → all services show `(healthy)`
 - GitHub Actions → **Health Check** workflow for external view
 
@@ -195,7 +194,6 @@ docker system df            # prod docker data-root is /mnt/data, not /var/lib/d
 Common culprits:
 - `./data/storage/books/` — uploaded EPUB/PDF originals + covers. Large.
 - `./data/tts-cache/` — 1GB cap but check `du -sh`. Also `explain-cache/`, `translate-cache/`.
-- `./data/ollama/` — model weights, multi-GB.
 - Docker data-root (`/mnt/data` on prod) — `docker system prune -a --volumes` (careful: nukes
   stopped containers + unused volumes). Orphaned pgdata volumes from `backup-verify` once
   leaked 156G here.

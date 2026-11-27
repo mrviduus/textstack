@@ -133,8 +133,6 @@ services:
       Tts__CachePath: /data/tts-cache
       Explain__CachePath: /data/explain-cache
       Translate__CachePath: /data/translate-cache
-      Ollama__BaseUrl: http://ollama:11434
-      Ollama__Model: gemma4:e2b
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
       OpenAI__Model: ${OPENAI_MODEL:-}
       OpenAI__Explain__Model: ${OPENAI_EXPLAIN_MODEL:-}
@@ -201,18 +199,12 @@ services:
       Storage__RootPath: /storage
       # V2 library bytes, outside the public /storage root: nothing serves them but /me/v2 (#1110).
       Storage__LibraryRoot: /library
-      # The worker routes bookmeta.agent to OpenAI (Ai:Routes), so it needs the
-      # key too — without it OpenAiLlmClient throws on an empty key.
+      # AddApplication registers the OpenAI providers here too; without a key
+      # OpenAiLlmClient throws on an empty key if one is ever resolved.
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
       # Same model overrides as the api; empty = the OpenAiOptions default.
       OpenAI__Model: ${OPENAI_MODEL:-}
       OpenAI__Explain__Model: ${OPENAI_EXPLAIN_MODEL:-}
-      # Worker reaches Ollama via the Docker service name, not localhost
-      # (without this override it falls back to appsettings.json's
-      # "http://localhost:11434" and silently fails every vocab-enrichment
-      # call — symptom: words save with NULL distractors/hint/explanation).
-      Ollama__BaseUrl: http://ollama:11434
-      Ollama__Model: gemma4:e2b
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
@@ -344,35 +336,4 @@ services:
         reservations:
           memory: 256M
 
-  # ===========================================
-  # Ollama - Local LLM for vocabulary distractors
-  # ===========================================
-
-  ollama:
-    logging: *default-logging
-    # gemma4 needs Ollama >= 0.30.9 (`ollama show`); 0.23.1 ran it from May to 2026-10. Pinned, not
-    # :latest — an image bump is a deliberate change. 0.35.1 is what the local evals ran on.
-    image: ollama/ollama:0.40.17@sha256:ccc42bcd3d5fcf7ab0d532b300382154e1a4da56fc666bdb313b78ebdd912754
-    container_name: textstack_ollama
-    # GPU access (NVIDIA runtime + device reservation) lives in
-    # docker-compose.gpu.yml and is layered on top of this file only by the
-    # production deploy (CI runners don't have nvidia-container-toolkit, so
-    # `runtime: nvidia` here would break integration tests).
-    volumes:
-      - ./data/ollama:/root/.ollama
-    environment:
-      OLLAMA_KEEP_ALIVE: "-1"
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 15s
-    deploy:
-      resources:
-        limits:
-          memory: 12G
-        reservations:
-          memory: 8G
 

@@ -24,7 +24,6 @@ Docker containers (localhost only)
     ├── Admin         (127.0.0.1:81)
     ├── Migrator      (runs once, then exits)
     ├── PostgreSQL    (pgvector/pgvector:pg16 image, internal only)
-    ├── Ollama        (vocab distractors/hints, internal only)
     ├── MCP server    (127.0.0.1:8090, `--profile mcp`)
     └── Aspire Dashboard (127.0.0.1:18888, `--profile observability` opt-in)
 ```
