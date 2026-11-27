@@ -49,8 +49,9 @@ export interface Platform {
     restored(): Promise<void>
   }
   /**
-   * True on the website: it shows its own parts, the cookie banner (and the analytics it allows), the site
-   * footer and the banner for the Android app. False in the Android app.
+   * True on the website: it shows its own parts, the cookie banner, the banner for the Android app and the
+   * footer's links to the Play store. False in the Android app. The footer itself stays: it has the legal
+   * and account links. The analytics script in `index.html` is not covered: the shell build drops it (#1643).
    */
   siteChrome: boolean
   /** Google sign-in. Web: Google Identity Services. Android: the native account chooser. */
