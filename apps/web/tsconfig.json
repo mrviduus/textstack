@@ -17,6 +17,7 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@platform-target": ["./src/platform/web.ts"],
+      "@platform-target/reader": ["./src/platform/web.reader.ts"],
       "@textstack/shared": ["../../packages/shared/src/index.ts"],
       "@textstack/shared/*": ["../../packages/shared/src/*"]
     }

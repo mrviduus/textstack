@@ -14,7 +14,7 @@ function sourceFiles(dir: string): string[] {
 }
 
 /** The web implementations behind the seam. Outside `src/platform/` a file imports only their types. */
-const BEHIND_THE_SEAM = ['api/userBooks']
+const BEHIND_THE_SEAM = ['api/userBooks', 'lib/readerSync', 'lib/openBook', 'hooks/useReadingSession']
 
 /**
  * The value imports of `module` (a path under `src/`, no extension) in a file: every `import … from`,
@@ -48,8 +48,8 @@ describe('the platform seam', () => {
     expect(offenders).toEqual([])
   })
 
-  it('imports the implementation only through platform/index.ts', () => {
-    const offenders = outsidePlatform.filter((f) => /['"][./]*\/?platform\/(web|android)(\.ts)?['"]/.test(readFileSync(f, 'utf8')))
+  it('imports the implementation only through platform/index.ts and platform/reader.ts', () => {
+    const offenders = outsidePlatform.filter((f) => /['"][./]*\/?platform\/(web|android)(\.reader)?(\.ts)?['"]/.test(readFileSync(f, 'utf8')))
     expect(offenders.map((f) => relative(SRC, f))).toEqual([])
   })
 })

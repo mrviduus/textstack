@@ -47,6 +47,8 @@ export default defineConfig({
   plugins: [react(), readerFrame()],
   resolve: {
     alias: {
+      // Before the bare name: an alias matches by prefix.
+      '@platform-target/reader': path.resolve(__dirname, `src/platform/${target}.reader.ts`),
       '@platform-target': path.resolve(__dirname, `src/platform/${target}.ts`),
       '@textstack/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
       // Before the bare name: an alias matches by prefix. The PDF layout, loaded lazily with pdf.js (Phase 5).

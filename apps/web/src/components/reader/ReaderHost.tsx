@@ -20,11 +20,10 @@ import { FinishBook } from './FinishBook'
 import { readBookmarkList, type BookmarkList } from '../../../../../packages/reader/src/bookmarks.mjs'
 import { chapterKey, offersDiscuss, readChapterEnd, readChapterText, type ChapterEnd } from '../../../../../packages/reader/src/chapters.mjs'
 import { ChapterDiscuss, type DiscussState } from './ChapterDiscuss'
-import { syncStore } from '../../api/sync'
+import { reader } from '../../platform/reader'
 import { listOAuthGrants } from '../../api/oauth'
 import { readToc, readTocMessage, tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
 import { createSessionTracker, SESSION_HEARTBEAT_MS, type EndedSession } from '../../../../../packages/reader/src/sessionTracker.mjs'
-import { flushPendingSessions, queueReadingSession } from '../../hooks/useReadingSession'
 import { useAuth } from '../../context/AuthContext'
 import { trackReadingSessionEnd } from '../../lib/analytics'
 import { SectionNav, TocDrawer } from './ReaderToc'
@@ -36,7 +35,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { useGlosses, usePageSettings, ReaderSettingsDrawer } from './ReaderSettings'
 import type { MarkWord } from '../../../../../packages/reader/src/wordMarks.mjs'
-import { createReaderSync, type ReaderSync, type SaveStatus, type SyncTarget } from '../../lib/readerSync'
+import type { ReaderSync, SaveStatus, SyncTarget } from '../../lib/readerSync'
 
 /**
  * The V2 reader page (ADR-029) on the web: one host for the dev route (/dev/reader, a picked file) and the
@@ -154,7 +153,7 @@ export function pageLastStore(frame: HTMLIFrameElement | null): { key: string; j
 function sendSession(e: EndedSession | null, authenticated: boolean) {
   if (!e) return
   const { book, ...session } = e
-  queueReadingSession({ ...session, userBookId: book, clientSessionId: crypto.randomUUID() })
+  reader.queueSession({ ...session, userBookId: book, clientSessionId: crypto.randomUUID() })
   const { durationSeconds, wordsRead, startPercent, endPercent } = session
   // No ids: V2 book ids are not legacy's UserBook ids, which `user_book_id` holds.
   if (authenticated) trackReadingSessionEnd({ durationSeconds, wordsRead, startPercent, endPercent, editionId: null, userBookId: null })
@@ -622,7 +621,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
         setSaveStatus('unsaved')
         call('restore', [null])
       } else {
-        const s = createReaderSync(target, {
+        const s = reader.createSync(target, {
           onStatus: setSaveStatus,
           // Drawn without moving the reader; highlighting is offered from now on.
           onHighlights: (list) => {
@@ -942,7 +941,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
 
   // The reading session's heartbeat (5 min idle ends it), and what earlier visits left queued (#1313).
   useEffect(() => {
-    if (!dev) void flushPendingSessions()
+    if (!dev) void reader.flushSessions()
     const id = setInterval(() => endSession(sessions.tick(Date.now())), SESSION_HEARTBEAT_MS)
     return () => clearInterval(id)
   }, [])
@@ -988,14 +987,14 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
   const discussChapter = (chapter: ChapterEnd, title: string | null) => {
     const book = discussBook
     const open = opening.current
-    const epoch = syncStore.epoch
+    const epoch = reader.accountEpoch()
     const asker = account.current
     const key = chapterKey(chapter)
     if (!book || !open) return
     // One run per chapter, taken at once: two clicks in one tick make one share.
     const release = discussLocks.take(key)
     if (!release) return
-    const current = () => opening.current === open && syncStore.epoch === epoch && account.current === asker
+    const current = () => opening.current === open && reader.accountEpoch() === epoch && account.current === asker
     const set = (state: DiscussState | undefined) => {
       if (!current()) return
       setDiscussStates((all) => {
