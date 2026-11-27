@@ -162,7 +162,7 @@ Each phase is small PRs; nothing starts without the owner's "start".
   live features. The MCP server's 18 tools are separate and untouched. The `agent_run` table is dropped
   by a migration only if nothing reads it.
 
-**P1 — spike D (2–3 days, code thrown away):** the `apps/web` build in an Android WebView shell on the
+**P1 — spike D (#1629, 2–3 days, code thrown away):** the `apps/web` build in an Android WebView shell on the
 emulator. Pass = all of: a book already on the device opens offline with no account; an install over
 today's app keeps its books and unsynced data; the reader frame runs under a CSP nonce; Google sign-in
 works; the update path is known. Pass → this ADR is rewritten to D with a migration plan. Fail → C,
