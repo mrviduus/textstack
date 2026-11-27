@@ -21,6 +21,13 @@
     "check:reader-prod-csp": "node --experimental-strip-types ../../packages/reader/src/prodCsp.check.mjs"
   },
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "8.0.1",
+    "@capacitor-community/sqlite": "8.1.1",
+    "@capacitor/android": "8.6.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.3",
+    "@capacitor/filesystem": "8.1.5",
+    "@capgo/capacitor-social-login": "8.7.13",
     "@sentry/react": "catalog:",
     "cmdk": "^1.1.1",
     "react": "catalog:",
@@ -31,6 +38,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
+    "@capacitor/cli": "8.6.3",
     "@playwright/test": "catalog:",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

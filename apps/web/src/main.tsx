@@ -10,7 +10,11 @@ initSentry()   // no VITE_SENTRY_DSN: a no-op; else @sentry/react loads in its o
 
 // The V2 reader on the dev server only (R5, #1037), outside the app and its providers. A production
 // build inlines DEV as false and drops this branch with its import: the bundle is the same as without it.
-if (import.meta.env.DEV && /^\/dev\/reader\/?$/.test(location.pathname)) {
+// SPIKE #1629: the Capacitor build opens the spike screen.
+if (import.meta.env.VITE_TARGET === 'android' && (location.pathname === '/' || location.pathname === '/spike')) {
+  history.replaceState(null, '', '/spike')
+  import('./pages/SpikePage').then(({ default: SpikePage }) => ReactDOM.createRoot(document.getElementById('root')!).render(<ErrorBoundary><SpikePage /></ErrorBoundary>))
+} else if (import.meta.env.DEV && /^\/dev\/reader\/?$/.test(location.pathname)) {
   const root = document.getElementById('root')!
   import('./pages/dev/ReaderDevPage')
     .then(({ default: ReaderDevPage }) => ReactDOM.createRoot(root).render(<ErrorBoundary><ReaderDevPage /></ErrorBoundary>))

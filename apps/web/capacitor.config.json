@@ -1,0 +1,6 @@
+{
+  "appId": "app.textstack.mobile",
+  "appName": "TextStack",
+  "webDir": "dist",
+  "android": { "path": "android" }
+}
