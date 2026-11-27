@@ -1,21 +1,21 @@
 # Slash commands
 
-Project-level slash commands for the TextStack repo. Each command is a markdown file with a frontmatter block declaring its scope and tools. Claude Code picks them up automatically — type `/<name>` in the prompt.
+These are the project slash commands for the TextStack repo. Each command is a markdown file with a frontmatter block that declares its scope and tools. Claude Code finds them by itself: type `/<name>` in the prompt.
 
 ## Commands
 
 | Command | Purpose | When to use |
 |---------|---------|-------------|
-| `/check` | Run all relevant tests/builds based on `git diff`. Concise pass/fail summary. | Before `/pr`. After any non-trivial change. |
-| `/pr` | Build PR title + body + area label, push, open PR via `gh`. The PR is the changelog. | End of slice, after `/check` is green. |
-| `/changelog` | Where a change is written down; Play "What's new" text. | A wrong title/label, an incident, an ADR, a Play build. |
+| `/check` | Run the tests and builds that `git diff` makes relevant. Give a short pass/fail summary. | Before `/pr`. After any non-trivial change. |
+| `/pr` | Make the PR title, body and area label, push, and open the PR with `gh`. The PR is the changelog. | At the end of a slice, after `/check` is green. |
+| `/changelog` | Where a change is written down; the Play "What's new" text. | A wrong title or label, an incident, an ADR, a Play build. |
 | `/changelog-week` | Pick last week's reader-visible PRs with the owner; write their `## Public` blocks. | Mondays. |
 
-## Workflow — happy path
+## Workflow: the usual path
 
-`/slice` was removed on 2026-08-20 — it read a `PLAYBOOK-ai-portfolio.md` that never
-existed in git, and the AI-portfolio phases it was written for are complete. Point
-Claude at the brief (issue or doc) directly instead.
+`/slice` was removed on 2026-08-20. It read a `PLAYBOOK-ai-portfolio.md` that never
+existed in git, and the AI-portfolio phases it was written for are complete. Give
+Claude the brief (an issue or a doc) directly instead.
 
 ```
 1. read the slice brief (issue or doc)
@@ -34,30 +34,30 @@ Claude at the brief (issue or doc) directly instead.
 
 ```
 
-## Workflow — outside slices
+## Workflow: outside slices
 
 ```
 - Hotfix: a PR like any other (a push straight to main never reaches the changelog).
 - Dependency bump: Dependabot's PRs carry `dependencies` and stay off the changelog.
 ```
 
-## Why these commands and not full subagents
+## Why commands and not full subagents
 
-Solo dev workflow. Sequential slice work. Subagents would add configuration overhead without proportional benefit. Slash commands give 80% of the value (workflow standardization, reduced friction) at 10% of the complexity.
+One developer works on one slice at a time. Subagents would add configuration work for little benefit. Slash commands give 80% of the value (a standard workflow, fewer manual steps) at 10% of the complexity.
 
-If/when the team grows or parallel epics start: revisit and add `architect` / `developer` / `tester` subagents in `.claude/agents/`.
+If the team grows or parallel epics start, look at this again. Then add `architect` / `developer` / `tester` subagents in `.claude/agents/`.
 
 ## Editing these commands
 
-- File name (without `.md`) becomes the command name.
-- Frontmatter `description` shows in `/help`.
-- Frontmatter `argument-hint` shows after the command name in autocomplete.
-- Frontmatter `allowed-tools` limits what Claude can use during this command — keep narrow.
-- `$ARGUMENTS` in the body substitutes the user's input after `/<command>`.
+- The file name (without `.md`) is the command name.
+- The frontmatter `description` shows in `/help`.
+- The frontmatter `argument-hint` shows after the command name in autocomplete.
+- The frontmatter `allowed-tools` limits what Claude can use during the command. Keep the list narrow.
+- `$ARGUMENTS` in the body is replaced by the text the owner types after `/<command>`.
 
-After editing, the next `/<command>` invocation picks up changes — no reload needed.
+After an edit, the next `/<command>` run uses the change. No reload is necessary.
 
 ## Conventions assumed
 
 - The changelog is the merged PRs (titles + area labels), shown by week on `/changelog`; `CHANGELOG.md` is frozen.
-- `gh` CLI authenticated.
+- The `gh` CLI is authenticated.

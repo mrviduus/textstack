@@ -6,7 +6,7 @@ allowed-tools: Bash, Read, Grep
 
 # /check — pre-PR verification
 
-Detect what changed and run only the relevant gates. Mirrors what CI would do, but locally and faster.
+Find what changed and run only the relevant gates. The gates are the same as in CI, but they run locally and take less time.
 
 ## Step 1 — Detect scope
 
@@ -14,21 +14,21 @@ Detect what changed and run only the relevant gates. Mirrors what CI would do, b
 git diff --name-only origin/main...HEAD 2>/dev/null || git diff --name-only HEAD~1
 ```
 
-Categorize changed files:
+Sort the changed files:
 
 - `apps/web/**` → web tests + build
 - `apps/admin/**` → admin build
 - `apps/mobile/**` → mobile tsc + e2e
 - `backend/src/**` → dotnet test + build
-- `tests/**` → run that test project specifically
-- `infra/**` or `docker-compose*.yml` → flag for manual smoke (no auto-test)
+- `tests/**` → run that test project only
+- `infra/**` or `docker-compose*.yml` → flag for a manual smoke test (no automatic test)
 - `docs/**` only → skip everything, report "docs-only, no checks needed"
 
-If `$ARGUMENTS` is `full`, run everything regardless of detection.
+If `$ARGUMENTS` is `full`, run everything. Ignore the detection.
 
 ## Step 2 — Run gates in parallel where safe
 
-Run all of these in parallel via separate Bash tool calls (single message, multiple tool uses) — they're independent:
+The gates are independent. Run them in parallel: one message, a separate Bash tool call for each.
 
 ```bash
 # Backend (only if backend touched)
@@ -47,17 +47,19 @@ pnpm -C apps/admin build
 cd apps/mobile && npx tsc --noEmit
 ```
 
-Set `timeout: 300000` (5 min) on each Bash call. If any single command would exceed that, run it without timeout and let it stream.
+Set `timeout: 300000` (5 min) on each Bash call. If a command needs more than 5 min, run it without a timeout and let it stream.
 
 ## Step 3 — Optional E2E
 
-E2E is slow. Run only if the user passed `full` OR if changes touch `apps/web/src/pages/**` or `apps/web/e2e/**`:
+E2E is slow. Run it only in one of these cases:
+- The owner passed `full`.
+- The changes touch `apps/web/src/pages/**` or `apps/web/e2e/**`.
 
 ```bash
 pnpm -C apps/web test:e2e --reporter=line
 ```
 
-For mobile E2E, similar trigger on `apps/mobile/app/**`.
+For mobile E2E, the trigger is a change in `apps/mobile/app/**`.
 
 ## Step 4 — Concise summary
 
@@ -76,13 +78,13 @@ Report in this exact format:
 Result: 1 of 5 gates failed. Fix before /pr.
 ```
 
-If all green: `Result: all gates green. Ready for /pr.`
+If all gates are green: `Result: all gates green. Ready for /pr.`
 
 ## Step 5 — On failure
 
 For each failing gate:
-1. Show the relevant failing line from output.
-2. Suggest most likely cause (missing import, snapshot mismatch, test data, etc.).
-3. Do NOT auto-fix. Wait for user direction.
+1. Show the relevant failing line from the output.
+2. Give the most likely cause (for example a missing import, a snapshot mismatch, or test data).
+3. Do NOT fix it yourself. Wait for the owner to decide.
 
-The user runs `/check` to know if they're ready to ship — not to have you start a debugging spiral.
+The owner runs `/check` to know if the change is ready to ship. The owner does not want you to start a long debugging session.

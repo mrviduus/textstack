@@ -10,10 +10,10 @@ Since #1220 nobody writes changelog lines. `CHANGELOG.md` is frozen: never add t
 
 - **The record** is the merged PRs: title = one scannable line, one area label (its section),
   description = the full write-up.
-- **Readers** see the `/changelog` page in the web app: merged PRs grouped by week, with a reader
-  view built from PRs labelled `public` (`## Public` block). Those labels and blocks are added once a
-  week by `/changelog-week`, not per PR.
-- **No GitHub releases** for the app. Android users read Play's "What's new" (below).
+- **Readers** see the `/changelog` page in the web app: merged PRs grouped by week. Its reader view
+  shows the PRs labelled `public` (`## Public` block). `/changelog-week` adds those labels and blocks
+  once a week, not per PR.
+- **No GitHub releases** for the app. Android readers read Play's "What's new" (see the section "Play Store What's new").
 
 ## Where things go
 
@@ -27,13 +27,13 @@ Since #1220 nobody writes changelog lines. `CHANGELOG.md` is frozen: never add t
 
 ## Play Store "What's new"
 
-When the owner promotes an Android build to Play production (`mobile-release.yml`), draft its
-"What's new" text: the Android-tagged `public` entries merged since the previous production build,
-plain words, at most 500 characters. The owner pastes it into Play Console. Nothing goes to GitHub
-Releases (`2026.11.11` there only marks the switch; the page counts from it).
+The owner promotes an Android build to Play production (`mobile-release.yml`). Then draft its
+"What's new" text from the Android-tagged `public` entries merged since the previous production build.
+Use plain words and 500 characters at most. The owner pastes the text into Play Console. Nothing goes
+to GitHub Releases (`2026.11.11` there only marks the switch; the page counts from it).
 
 ## Fixing a line
 
-The title or label of a merged PR is still editable: `gh pr edit <n> --title "..."`,
-`gh pr edit <n> --add-label <area> --remove-label <wrong>`. The page shows it from the next deploy.
-A push straight to `main` has no PR and appears nowhere; do not do it.
+You can still edit the title or label of a merged PR: `gh pr edit <n> --title "..."`,
+`gh pr edit <n> --add-label <area> --remove-label <wrong>`. The page shows the change from the next deploy.
+A push straight to `main` has no PR and shows nowhere. Do not push straight to `main`.

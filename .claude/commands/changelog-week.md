@@ -6,14 +6,14 @@ allowed-tools: Bash, Read, AskUserQuestion
 
 # /changelog-week — what readers see on /changelog
 
-Once a week (Monday). The `/changelog` page shows every merged PR by week; its reader view shows
-only PRs labelled `public` with a `## Public` block (#1216). This pass decides which those are.
-Nothing here edits the repo: it writes PR labels and descriptions on GitHub, and the page picks them
-up at the next deploy.
+Run this once a week (Monday). The `/changelog` page shows every merged PR by week. Its reader view
+shows only the PRs labelled `public` with a `## Public` block (#1216). This pass decides which PRs those are.
+This pass does not edit the repo. It writes PR labels and descriptions on GitHub, and the page shows
+them at the next deploy.
 
 ## 1. Collect the week
 
-Week = Monday 00:00 UTC to the next Monday. Default: the last full week; `$ARGUMENTS` overrides.
+A week is Monday 00:00 UTC to the next Monday. The default is the last full week; `$ARGUMENTS` overrides it.
 
 ```bash
 gh pr list --state merged --limit 200 \
@@ -24,15 +24,15 @@ gh pr list --state merged --limit 200 \
 ## 2. Area labels
 
 Every PR needs one of `reading library highlights vocabulary assistant account data ops documentation`
-(`.github/release.yml`). For each PR without one, propose the label from its title/paths; apply after
-the owner's yes in step 4.
+(`.github/release.yml`). For each PR without one, propose the label from its title and paths.
+Apply the label after the owner says yes in step 4.
 
 ## 3. Draft public entries
 
-Reader-visible = something a person reading books on textstack.app or the Android app can see or
-feel *today*. Not: CI, tests, docs, refactors, dev-only routes (`/dev/*`), admin-only tools. When unsure, check `docs/STATUS.md`.
+Reader-visible = something that a reader on textstack.app or the Android app can see or
+feel *today*. Not: CI, tests, docs, refactors, dev-only routes (`/dev/*`), admin-only tools. If you are not sure, check `docs/STATUS.md`.
 
-For each candidate, draft (format = `parsePublic` in `tools/checks/changelog-data.mjs`):
+For each candidate, write a draft (format = `parsePublic` in `tools/checks/changelog-data.mjs`):
 
 ```markdown
 ## Public
@@ -41,13 +41,13 @@ Title: <short plain title, no jargon>
 <one or two plain sentences: what the reader can now do or no longer suffers>
 ```
 
-Several PRs for one user-visible change: one entry, on the PR that finished it.
+If several PRs make one reader-visible change, write one entry, on the PR that finished the change.
 
 ## 4. Owner picks
 
-AskUserQuestion, multi-select, up to 4 candidates per question (each option: PR number + the drafted
-title; description = the sentence). Missing area labels go in the same dialog. The owner may answer
-"Other" with an edited text — use it verbatim.
+Use AskUserQuestion, multi-select, with up to 4 candidates per question. Each option is the PR number
+and the drafted title; its description is the sentence. Put missing area labels in the same dialog.
+The owner can answer "Other" with an edited text. Use that text exactly as written.
 
 ## 5. Apply (one GitHub write per Bash call)
 
@@ -63,6 +63,6 @@ gh pr edit <n> --add-label public
 
 ## 6. Report
 
-One line per PR: made public / label added / skipped. Plus: "Shows on /changelog after the next
+Write one line per PR: made public / label added / skipped. Then add: "Shows on /changelog after the next
 deploy". If a Play production build is going out, draft its "What's new" (`/changelog`,
 section "Play Store What's new").
