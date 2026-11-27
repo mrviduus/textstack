@@ -85,13 +85,12 @@ Compressed size (what CI pushes and the server pulls), after #748:
 | GitHub repo + Actions (hosted runners) | CI, images build, OTA, restore drill, health check | No CI, no deploy, no images | Break-glass by hand on the server (`git pull` + `compose up --build`). Not yet a runbook in `docs/03-ops`. |
 | GitHub self-hosted runner service | deploy, pre-deploy + nightly backup | No deploy, no nightly backup (site stays up) | Run the same steps by SSH; backups also in R2 |
 | GHCR | published images; `ghcr-retention.yml` prunes them weekly | Pull fails; retention run fails (deletes nothing) | Deploy falls back to a server build |
-| Docker Hub | `node`, `debian` (scanner), `alpine`, `pgvector`, `ollama`, `restic` | Image builds and scans fail; nightly R2 backup fails (restic) if not cached; prod keeps running on cached images | Images cached on the server. If it hurts: mirror bases to GHCR or use `mirror.gcr.io` / `public.ecr.aws/docker/library` |
+| Docker Hub | `node`, `debian` (scanner), `alpine`, `pgvector`, `restic` | Image builds and scans fail; nightly R2 backup fails (restic) if not cached; prod keeps running on cached images | Images cached on the server. If it hurts: mirror bases to GHCR or use `mirror.gcr.io` / `public.ecr.aws/docker/library` |
 | MCR (mcr.microsoft.com) | .NET SDK/runtime, Aspire dashboard | .NET image builds fail | gha layer cache; server cache |
 | npm registry (+ corepack pnpm download) | all JS installs: CI, images (incl. the web bundle), the server's fallback web build | CI and images fail; the deploy's server fallback fails too | none (cache in CI only) |
 | NuGet.org | .NET restore | CI and image builds fail | gha layer cache covers unchanged restores |
 | Alpine / Debian apt mirrors | `apk add`, `apt-get install` in Dockerfiles | Image build fails on cache miss | Retry loop (Worker); gha cache. The secret scan needs no mirror. |
 | storage.googleapis.com (Chrome for Testing) | Puppeteer browser download (the server's fallback `pnpm install` and CI `frontend` only; images and the web job skip it, the Worker has no browser since #748) | A fallback build fails on cache miss (blocked a deploy 2026-08-20) | Backoff loop |
-| registry.ollama.ai | `ollama pull` on each deploy | Warning only | Model already on disk |
 | Cloudflare DNS + SSL + Tunnel | all public traffic to the home server | **Site down** | None quick. Keep a way to repoint DNS; the tunnel is the only ingress |
 | Cloudflare R2 | off-site restic backups | Nightly off-site step fails (email); local backups still made | Local copies on the server (2 newest) |
 | Home server, ISP, power | everything at runtime | **Site down** | R2 backup + restore drill (RTO measured monthly); no warm standby |
@@ -99,7 +98,6 @@ Compressed size (what CI pushes and the server pulls), after #748:
 | Google Play | Android distribution | No new releases | none |
 | Apple App Store | iOS (later) | — | — |
 | OpenAI | translate, explain | Those features fail; reading works | explain/translate file caches |
-| Ollama (local) | local LLM tasks | Soft in `/health/ready` | none needed |
 | Edge TTS (speech.platform.bing.com) | text-to-speech | TTS fails for uncached text | Disk + IndexedDB cache |
 | Google OAuth / Apple Sign-In | sign-in | Those sign-ins fail | Email/password; guest reading |
 | Resend | password reset, admin alerts | No emails | none |

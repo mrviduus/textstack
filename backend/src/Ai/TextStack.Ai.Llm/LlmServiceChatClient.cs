@@ -7,7 +7,7 @@ namespace TextStack.Ai.Llm;
 /// <summary>
 /// Adapts our <see cref="ILlmService"/> seam to Microsoft.Extensions.AI's
 /// <see cref="IChatClient"/> so MEAI evaluators (built-in + custom) call the SAME
-/// Ollama/OpenAI gateway we use in prod — no new external service. Maps
+/// OpenAI gateway we use in prod — no new external service. Maps
 /// <see cref="ChatMessage"/>s → <see cref="LlmRequest"/> (system messages collapse
 /// into <see cref="LlmRequest.SystemPrompt"/>, the rest become <see cref="LlmMessage"/>s)
 /// and <see cref="LlmResponse"/> → <see cref="ChatResponse"/>.

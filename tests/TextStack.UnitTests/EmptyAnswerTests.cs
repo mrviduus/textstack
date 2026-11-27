@@ -6,8 +6,8 @@ namespace TextStack.UnitTests;
 
 /// <summary>
 /// A provider call that returns no text and no tool calls is a failure without an exception: translate
-/// turns it into a 502 that reached nobody (#922). It must alarm — but not for Ollama's swallowed-failure
-/// shape (zero tokens), which OllamaLlmClient has already reported itself.
+/// turns it into a 502 that reached nobody (#922). It must alarm — but not for the zero-token shape of a
+/// call that never completed, which is already reported as an exception.
 /// </summary>
 public class EmptyAnswerTests
 {
@@ -19,7 +19,7 @@ public class EmptyAnswerTests
         Assert.True(TracingDecorator.IsEmptyAnswer(Response("  ", inputTokens: 120, outputTokens: 512)));
 
     [Fact]
-    public void IsEmptyAnswer_OllamaSwallowedFailure_IsNotReportedAgain() =>
+    public void IsEmptyAnswer_NoCallCompleted_IsNotReportedAgain() =>
         Assert.False(TracingDecorator.IsEmptyAnswer(Response("", inputTokens: 0, outputTokens: 0)));
 
     [Fact]

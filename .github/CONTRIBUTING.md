@@ -53,8 +53,8 @@ Follow [Ship a first pull request](../docs/start/first-pr.md): issue, branch, ch
 ## What I'll probably push back on
 
 - Scope creep that doesn't serve deep reading.
-- Adding new LLM providers just to have them — we have Ollama (local) and
-  OpenAI; keep that surface small.
+- Adding new LLM providers just to have them — we have OpenAI; keep that
+  surface small.
 - Reintroducing features I deliberately removed.
 
 ## Architecture at a glance

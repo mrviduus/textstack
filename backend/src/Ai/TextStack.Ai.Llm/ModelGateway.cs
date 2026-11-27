@@ -19,8 +19,7 @@ public sealed class ModelGateway(
     IConfiguration config,
     ISpendTracker spendTracker,
     BudgetOptions budgetOptions,
-    ILogger<ModelGateway> logger,
-    IRouteAlarm? routeAlarm = null) : ILlmService
+    ILogger<ModelGateway> logger) : ILlmService
 {
     public async Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken ct)
     {
@@ -86,8 +85,7 @@ public sealed class ModelGateway(
     /// Publishes the resolved route to observability. The span attributes are the fix for the
     /// 2026-07-14 silent-fallback incident: with <c>ai.task</c> + <c>ai.provider.resolved</c> +
     /// <c>ai.provider.reason</c> on the span, "which model actually answered, and did anyone
-    /// choose it on purpose?" is answerable from a trace instead of from CPU graphs. The alarm
-    /// escalates the one case that is always a defect — an expensive task on a default fallback.
+    /// choose it on purpose?" is answerable from a trace instead of from CPU graphs.
     /// Never throws: observability may not break a real LLM call.
     /// </summary>
     private void ReportRoute(string? featureTag, string key, RouteReason reason)
@@ -105,8 +103,6 @@ public sealed class ModelGateway(
             Activity.Current?.SetTag("ai.task", featureTag ?? "unknown");
             Activity.Current?.SetTag("ai.provider.resolved", key);
             Activity.Current?.SetTag("ai.provider.reason", RouteReasonNames.For(reason));
-
-            routeAlarm?.OnRouteResolved(featureTag, key, reason);
         }
         catch (Exception ex)
         {
@@ -208,4 +204,23 @@ public sealed class ModelGateway(
             logger.LogDebug(ex, "Spend record failed for feature '{Feature}'", featureTag);
         }
     }
+}
+
+/// <summary>Why <see cref="ModelGateway"/> ended up on the provider it did.</summary>
+public enum RouteReason
+{
+    /// <summary>An <c>Ai:Routes:{feature}</c> entry named this provider.</summary>
+    RouteMatched,
+
+    /// <summary>Nothing matched the feature — we fell through to <c>Ai:DefaultProvider</c>.</summary>
+    DefaultFallback,
+}
+
+public static class RouteReasonNames
+{
+    public const string RouteMatched = "route_matched";
+    public const string DefaultFallback = "default_fallback";
+
+    public static string For(RouteReason reason) =>
+        reason == RouteReason.RouteMatched ? RouteMatched : DefaultFallback;
 }

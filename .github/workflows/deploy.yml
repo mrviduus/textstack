@@ -353,11 +353,6 @@ jobs:
 
       - name: Deploy containers
         id: deploy
-        # docker-compose.gpu.yml is a prod-only overlay that adds
-        # `runtime: nvidia` + GPU device reservation to the ollama service.
-        # CI runners don't have nvidia-container-toolkit, so it's NOT in
-        # the default compose file (that would break the ci/docker job).
-        #
         # Images come from GHCR, built once by the `images` job for this exact
         # commit. If any pull fails (job failed, registry down, a commit from before
         # images were published) the server builds them itself, as it used to.
@@ -386,7 +381,7 @@ jobs:
           # --profile mcp brings up the remote MCP server (mcp-server) in prod.
           # It's profile-gated so CI's bare `compose up` (docker/e2e jobs) never
           # builds/runs it; prod opts in here. nginx /mcp is synced below.
-          COMPOSE="docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml"
+          COMPOSE="docker compose --profile mcp"
 
           PULLED=false
           if grep -q 'IMAGE_TAG' docker-compose.yml; then
@@ -430,18 +425,6 @@ jobs:
         run: |
           cd $PROJECT_DIR
           docker compose --profile mcp logs --no-color --tail=100 migrator api worker mcp-server || true
-
-      # Keep the local model current. A no-op when the manifest hasn't changed (seconds); the model
-      # was otherwise pulled once by hand and never again. Non-fatal: a failed pull keeps the model
-      # already on disk, which is what was running anyway.
-      - name: Refresh Ollama model
-        run: |
-          MODEL=$(grep -m1 'Ollama__Model:' $PROJECT_DIR/docker-compose.yml | awk '{print $2}')
-          MODEL=${MODEL:-gemma4:e2b}
-          timeout 1200 docker exec textstack_ollama ollama pull "$MODEL" \
-            && echo "Ollama model $MODEL is current" \
-            || echo "::warning::ollama pull $MODEL failed — keeping the model on disk"
-          docker exec textstack_ollama ollama --version || true
 
       - name: Sync nginx config
         run: |
@@ -489,10 +472,11 @@ jobs:
           echo "API health check passed"
           # `up -d` returns before healthchecks run; a container still `starting` or already
           # `unhealthy` (worker, mcp-server…) would otherwise ship green, so wait up to 90s for
-          # every healthcheck to settle. A failing `compose ps` fails the step (set -e on the
+          # every healthcheck to settle; a container of a service no longer in compose (the old
+          # ollama) is not counted. A failing `compose ps` fails the step (set -e on the
           # assignment) instead of reading as "nothing unhealthy".
           for _ in $(seq 18); do
-            STATES=$(cd "$PROJECT_DIR" && docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml ps --format '{{.Service}} {{.Health}}')
+            STATES=$(cd "$PROJECT_DIR" && docker compose --profile mcp ps --orphans=false --format '{{.Service}} {{.Health}}')
             NOT_HEALTHY=$(printf '%s\n' "$STATES" | awk '$2 == "starting" || $2 == "unhealthy" {print $1 "=" $2}')
             [ -z "$NOT_HEALTHY" ] && break
             sleep 5

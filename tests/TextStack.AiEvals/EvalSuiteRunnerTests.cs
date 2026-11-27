@@ -7,7 +7,7 @@ namespace TextStack.AiEvals;
 /// <summary>
 /// Deterministic coverage for the in-app <see cref="EvalSuiteRunner"/> — the runner the
 /// admin "Run evals" button uses. Drives it with a fake generator + fake judge (no
-/// Ollama/OpenAI) so it runs in CI, proving the repointed path works end to end:
+/// OpenAI) so it runs in CI, proving the repointed path works end to end:
 /// generate → score via the MEAI <c>RubricEvaluator</c> (through the IChatClient adapter)
 /// → read the axis metrics back → aggregate. Persistence is off (no db needed).
 /// </summary>
