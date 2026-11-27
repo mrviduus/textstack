@@ -13,8 +13,12 @@ function sourceFiles(dir: string): string[] {
   })
 }
 
-/** The web implementations behind the seam. Outside `src/platform/` a file imports only their types. */
-const BEHIND_THE_SEAM = ['api/userBooks', 'lib/readerSync', 'lib/openBook', 'hooks/useReadingSession', 'api/vocabulary']
+/**
+ * The web implementations behind the seam. Outside `src/platform/` a file imports only their types.
+ * The rule reads paths that name the module's folder (`../api/auth`), not `./auth`: the files next to a
+ * module are the web data layer too.
+ */
+const BEHIND_THE_SEAM = ['api/userBooks', 'lib/readerSync', 'lib/openBook', 'hooks/useReadingSession', 'api/vocabulary', 'api/auth', 'lib/highlightSync', 'lib/mergeMap', 'lib/googleSignIn']
 
 /**
  * The value imports of `module` (a path under `src/`, no extension) in a file: every `import … from`,

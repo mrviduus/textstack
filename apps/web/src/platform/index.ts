@@ -9,7 +9,9 @@
  * The reader route's members are in `reader.ts`, a second module: only the reader's lazy chunk loads them.
  */
 import type { highlightCoverUrl, highlightsApi } from '@textstack/shared'
+import type * as auth from '../api/auth'
 import type * as userBooks from '../api/userBooks'
+import type { MergeMap } from '../lib/mergeMap'
 import type * as vocabulary from '../api/vocabulary'
 
 /**
@@ -24,6 +26,36 @@ export interface Platform {
   transport: {
     /** What a direct `fetch` to the API adds to its `RequestInit`. Synchronous: a write in `pagehide` uses it. */
     fetchInit(): { credentials?: RequestCredentials; headers?: Record<string, string> }
+  }
+  /**
+   * The account calls: sign-in, sign-out, the guest session, the profile. Web: `api/auth.ts`, the session cookie.
+   * Android: the same routes in bearer mode, the tokens in secure storage. The signatures are the ones in `api/auth.ts`.
+   */
+  account: Pick<typeof auth,
+    | 'getCurrentUser' | 'refreshToken' | 'loginWithEmail' | 'registerWithEmail' | 'loginWithGoogle' | 'logout'
+    | 'createGuestSession' | 'forgotPassword' | 'resetPassword' | 'updateProfile' | 'uploadAvatar' | 'deleteAvatar'
+    | 'deleteAccount' | 'approveDevice' | 'denyDevice'>
+  /** What the account's data does as the session changes (`AuthContext` tells it). */
+  session: {
+    /** A user is set (a sign-in, a restored session, a new guest). Web: starts the server probe. */
+    userSet(): void
+    /** The start-up session check ended, with or without a user. */
+    settled(): void
+    /** The account changed (sign-out, another account): drop the previous account's data in memory. */
+    accountChanged(): void
+    /** After a sign-in: re-key the local stores by the merge map, then send what was made without a session. */
+    signedIn(merge: MergeMap | undefined): Promise<void>
+    /** A real (not guest) session was restored at start: send what was made without a session. */
+    restored(): Promise<void>
+  }
+  /** Google sign-in. Web: Google Identity Services. Android: the native account chooser. */
+  google: {
+    /** Sets up the sign-in once. `onIdToken` gets the Google id token of each sign-in. False: not offered. */
+    init(onIdToken: (idToken: string) => void): Promise<boolean>
+    /** Draws the Google button into `el`. */
+    renderButton(el: HTMLElement): void
+    /** After sign-out: the next sign-in does not pick the account by itself. */
+    signOut(): void
   }
   /**
    * The reader's books: the library, the book page, upload, finish and delete. Web: the server

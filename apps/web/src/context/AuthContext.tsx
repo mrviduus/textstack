@@ -1,17 +1,10 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode, SyntheticEvent } from 'react'
-import {
-  User, UpdateProfilePayload, getCurrentUser, loginWithGoogle, logout as logoutApi, refreshToken,
-  loginWithEmail as loginWithEmailApi, registerWithEmail as registerWithEmailApi,
-  updateProfile as updateProfileApi, uploadAvatar as uploadAvatarApi, deleteAvatar as deleteAvatarApi,
-  deleteAccount as deleteAccountApi,
-  createGuestSession as createGuestSessionApi,
-} from '../api/auth'
+import type { User, UpdateProfilePayload } from '../api/auth'
 import type { GuestMergeSkipReason } from '@textstack/shared'
 import { authToastFor, type AuthToast } from '../lib/authToast'
-import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
-import { startSyncProbe, settleSyncSession, syncStore } from '../api/sync'
-import { applyMergeMap, type MergeMap } from '../lib/mergeMap'
+import type { MergeMap } from '../lib/mergeMap'
+import { platform } from '../platform'
 
 export type AuthModalView = 'login' | 'register'
 
@@ -81,17 +74,6 @@ const AuthContext = createContext<AuthContextValue>({
   dismissGuestMergeSkipped: () => {},
 })
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
-
-/**
- * After a sign-in: re-key the local stores by the V2 merge map (PDD "Guest → account merge"), then
- * replay what was made without a session. The in-memory V2 cache is emptied by the account change.
- */
-async function afterMerge(merge: MergeMap | undefined) {
-  if (merge) await applyMergeMap(merge)
-  void replayAllPendingHighlights()
-}
-
 /** Hard ceiling on how long waitForSession waits for bootstrap to settle. */
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 15_000
 
@@ -107,21 +89,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const dismissGuestMergeSkipped = useCallback(() => setGuestMergeSkipped(null), [])
   // The V2 probe needs a session (PathGates answers 401 without one): started wherever a user is
   // set, before anything that calls the API next. API calls await the same probe, so none races it.
-  const probeSync = useCallback(() => { void startSyncProbe() }, [])
+  const probeSync = useCallback(() => platform.session.userSet(), [])
 
   // The V2 cache is one account's: an account change (sign-out, another sign-in) empties it.
   const userId = user?.id ?? null
   const cachedForRef = useRef<string | null>(null)
   useEffect(() => {
-    if (cachedForRef.current !== null && cachedForRef.current !== userId) syncStore.reset()
+    if (cachedForRef.current !== null && cachedForRef.current !== userId) platform.session.accountChanged()
     cachedForRef.current = userId
   }, [userId])
 
   // Google callback - stable ref to avoid stale closures
-  const handleGoogleCallback = useCallback(async (response: google.accounts.id.CredentialResponse) => {
+  const handleGoogleCallback = useCallback(async (idToken: string) => {
     try {
       setIsLoading(true)
-      const authResponse = await loginWithGoogle(response.credential)
+      const authResponse = await platform.account.loginWithGoogle(idToken)
       // Capture prev before setUser — if a real user logs in again (re-auth), no toast.
       setUser(prev => {
         const toast = authToastFor(prev, authResponse.guestMergeSkipped)
@@ -139,7 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else trackLogin('google')
       // Fire-and-forget: flush any anonymous localStorage progress + pending highlights to server,
       // after a V2 merge re-keyed them.
-      void afterMerge(authResponse.merge)
+      void platform.session.signedIn(authResponse.merge)
     } catch (error) {
       console.error('Login failed:', error)
     } finally {
@@ -168,16 +150,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const inFlightGuestRef = useRef<Promise<User | null> | null>(null)
   const createGuestOnce = useCallback(async (): Promise<User | null> => {
     if (inFlightGuestRef.current) return inFlightGuestRef.current
-    const promise = createGuestSessionApi()
+    const promise = platform.account.createGuestSession()
       .then((res) => {
-        // I3: no-downgrade — не перетираем не-guest юзера.
-        // Race: login мог завершиться пока guest-промис был in-flight.
+        // I3: no downgrade. A real (not guest) user is never replaced by the guest.
+        // Race: a sign-in can finish while the guest call is in flight.
         setUser(prev => (prev && !prev.isGuest ? prev : res.user))
         probeSync()
         return res.user
       })
       .catch(() => {
-        // Падение guest-create не должно трогать существующего юзера.
+        // A failed guest call never changes the user that is there.
         setUser(prev => (prev && !prev.isGuest ? prev : null))
         return null
       })
@@ -189,9 +171,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // StrictMode fires effects twice in dev; this ref dedupes the bootstrap so we never hit /auth/guest twice.
   const bootstrapStartedRef = useRef(false)
 
-  // I1: Bootstrap = read-only session probe. Проверяем существующую сессию, но
-  // НЕ создаём guest. Guest создаётся demand-driven (ensureSession → первый tap
-  // слова в reader или upload книги). Homepage/login/каталог не триггерят /auth/guest.
+  // I1: the start-up check only reads the session. It looks for a session and does NOT make a guest.
+  // A guest is made on demand (ensureSession: the first word tap in the reader, or a book upload).
+  // The home page and the sign-in page never call /auth/guest.
   useEffect(() => {
     if (bootstrapStartedRef.current) return
     bootstrapStartedRef.current = true
@@ -205,21 +187,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const bootstrap = async () => {
       // A restored session: replay the highlights made without one.
       const flushIfReal = (u: User) => {
-        if (!u.isGuest) void replayAllPendingHighlights()
+        if (!u.isGuest) void platform.session.restored()
       }
       try {
-        const response = await getCurrentUser()
+        const response = await platform.account.getCurrentUser()
         setUser(response.user)
         probeSync()
         flushIfReal(response.user)
       } catch {
         try {
-          const response = await refreshToken()
+          const response = await platform.account.refreshToken()
           setUser(response.user)
           probeSync()
           flushIfReal(response.user)
         } catch {
-          // I1: bootstrap read-only. user остаётся null; фичи сами зовут ensureSession().
+          // I1: the start-up check only reads. The user stays null; a feature calls ensureSession() itself.
         }
       }
     }
@@ -231,43 +213,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (timeoutId) clearTimeout(timeoutId)
         setIsLoading(false)
         sessionReady.resolve()
-        settleSyncSession()
+        platform.session.settled()
       }
     })()
   }, [])
 
-  // Load and initialize Google Sign-In in single effect
+  // Load and set up the platform's Google sign-in once (web: Google Identity Services).
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || googleReady) return
-
-    const initGoogle = async () => {
-      // Load script if not present
-      if (!document.getElementById('google-signin-script')) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement('script')
-          script.id = 'google-signin-script'
-          script.src = 'https://accounts.google.com/gsi/client'
-          script.async = true
-          script.defer = true
-          script.onload = () => resolve()
-          script.onerror = () => reject(new Error('Failed to load Google Sign-In'))
-          document.head.appendChild(script)
-        })
-      }
-
-      // Initialize Google Sign-In
-      if (typeof google !== 'undefined' && google.accounts?.id) {
-        google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: handleGoogleCallback,
-          auto_select: false,
-          cancel_on_tap_outside: true,
-        })
-        setGoogleReady(true)
-      }
-    }
-
-    initGoogle().catch(err => console.error('[Auth] Failed to init Google:', err))
+    if (googleReady) return
+    platform.google.init((idToken) => { void handleGoogleCallback(idToken) })
+      .then((ready) => { if (ready) setGoogleReady(true) })
+      .catch(err => console.error('[Auth] Failed to init Google:', err))
   }, [handleGoogleCallback, googleReady])
 
   const openAuthModal = useCallback((view?: AuthModalView | SyntheticEvent) => {
@@ -295,31 +251,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else trackLogin('email')
     // Fire-and-forget: flush any anonymous localStorage progress to server (server LWW is safe),
     // and replay highlights made without a session, across every book — after a V2 merge re-keyed them.
-    void afterMerge(response.merge)
+    void platform.session.signedIn(response.merge)
   }, [probeSync])
 
   const loginWithEmail = useCallback(
-    (email: string, password: string) => authenticateAndClose(() => loginWithEmailApi(email, password), 'login'),
+    (email: string, password: string) => authenticateAndClose(() => platform.account.loginWithEmail(email, password), 'login'),
     [authenticateAndClose],
   )
 
   const registerWithEmail = useCallback(
-    (email: string, password: string, name?: string) => authenticateAndClose(() => registerWithEmailApi(email, password, name), 'sign_up'),
+    (email: string, password: string, name?: string) => authenticateAndClose(() => platform.account.registerWithEmail(email, password, name), 'sign_up'),
     [authenticateAndClose],
   )
 
   const updateProfile = useCallback(async (payload: UpdateProfilePayload) => {
-    const response = await updateProfileApi(payload)
+    const response = await platform.account.updateProfile(payload)
     setUser(response.user)
   }, [])
 
   const updateAvatar = useCallback(async (file: File) => {
-    const response = await uploadAvatarApi(file)
+    const response = await platform.account.uploadAvatar(file)
     setUser(response.user)
   }, [])
 
   const deleteAvatar = useCallback(async () => {
-    await deleteAvatarApi()
+    await platform.account.deleteAvatar()
     setUser(prev => prev ? { ...prev, picture: null } : null)
   }, [])
 
@@ -327,10 +283,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Mirrors logout's anonymous-after sign-out: no guest re-create here. Rethrows
   // on failure so the caller keeps the user signed in and surfaces an error.
   const deleteAccount = useCallback(async () => {
-    await deleteAccountApi()
-    if (typeof google !== 'undefined') {
-      google.accounts.id.disableAutoSelect()
-    }
+    await platform.account.deleteAccount()
+    platform.google.signOut()
     setUser(null)
   }, [])
 
@@ -343,10 +297,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await logoutApi()
-      if (typeof google !== 'undefined') {
-        google.accounts.id.disableAutoSelect()
-      }
+      await platform.account.logout()
+      platform.google.signOut()
       // Sign out = user becomes anonymous. Phase 1 bootstrap is read-only and
       // guest creation is demand-driven (ensureSession on commitment signal),
       // so we don't re-create a guest here — that would make "Sign out" a no-op

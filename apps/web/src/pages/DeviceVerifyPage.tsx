@@ -1,6 +1,7 @@
 import { useState, FormEvent, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { approveDevice, denyDevice, DeviceApproveError } from '../api/auth'
+import type { DeviceApproveError } from '../api/auth'
+import { platform } from '../platform'
 import { useAuth } from '../context/AuthContext'
 import { useTranslation } from '../hooks/useTranslation'
 
@@ -73,7 +74,7 @@ export function DeviceVerifyPage({ audience = 'cli' }: { audience?: DeviceVerify
     }
     setSubmitting(true)
     try {
-      await approveDevice(submitCode)
+      await platform.account.approveDevice(submitCode)
       setSuccess(true)
     } catch (err) {
       setErrorMsg(t(k(errorKeySuffix(err))))
@@ -94,7 +95,7 @@ export function DeviceVerifyPage({ audience = 'cli' }: { audience?: DeviceVerify
     }
     setSubmitting(true)
     try {
-      await denyDevice(submitCode)
+      await platform.account.denyDevice(submitCode)
       setDenied(true)
     } catch (err) {
       setErrorMsg(t(k(errorKeySuffix(err))))

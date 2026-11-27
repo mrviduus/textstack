@@ -32,7 +32,7 @@ describe('web runs the shared API clients in cookie mode', () => {
   it('initialises them with credentials: include and a refresh hook', () => {
     const web = readFileSync(join(root, 'platform/web.ts'), 'utf8')
     expect(web).toMatch(/initApi\(\{[\s\S]*credentials: 'include'[\s\S]*\}\)/)
-    expect(web).toMatch(/onUnauthorized: \(\) => refreshToken\(\)/)
+    expect(web).toMatch(/onUnauthorized: \(\) => auth\.refreshToken\(\)/)
     expect(readFileSync(join(root, 'api/client.ts'), 'utf8')).toMatch(/^import '\.\.\/platform'/m)
     expect(readFileSync(join(root, 'main.tsx'), 'utf8')).toMatch(/^import '\.\/api\/client'/)
   })

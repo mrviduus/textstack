@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
-import { forgotPassword } from '../../api/auth'
+import { platform } from '../../platform'
 import '../../styles/auth.css'
 
 type View = 'login' | 'register' | 'forgot' | 'forgot-sent'
@@ -35,7 +35,7 @@ export function AuthModal() {
     setLoading(true)
     try {
       if (view === 'forgot') {
-        await forgotPassword(email)
+        await platform.account.forgotPassword(email)
         setView('forgot-sent')
       } else if (view === 'register') {
         await registerWithEmail(email, password, name || undefined)
@@ -148,17 +148,6 @@ export function AuthModal() {
 }
 
 function GoogleButtonInModal() {
-  const ref = (el: HTMLDivElement | null) => {
-    if (!el || el.hasChildNodes()) return
-    if (typeof google !== 'undefined' && google.accounts?.id) {
-      google.accounts.id.renderButton(el, {
-        type: 'standard',
-        theme: 'outline',
-        size: 'large',
-        width: 300,
-        text: 'continue_with',
-      })
-    }
-  }
+  const ref = (el: HTMLDivElement | null) => { if (el) platform.google.renderButton(el) }
   return <div ref={ref} className="auth-modal__google" />
 }
