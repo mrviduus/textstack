@@ -39,7 +39,6 @@
          on a WebApplication. Pulls in the ASP.NET Core framework reference for the
          TextStack.Ai.Mcp http transport branch. -->
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />
-    <!-- Tool-args validation (AI-030): real JSON Schema draft 2020-12 evaluation before dispatch -->
     <!-- AI eval framework (MEAI.Evaluation). Stable 10.6.0 — IChatClient seam +
          IEvaluator/EvaluationMetric + Reporting (response cache, HTML report).
          Used by tests/TextStack.AiEvals; see docs/eval-migration.md. -->

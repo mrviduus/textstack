@@ -19,7 +19,7 @@ public class UserRepositoryTests(PostgresFixture db) : UserRepositoryContract(db
         "vocabulary_words", "vocabulary_examples", "vocabulary_reviews",
         "shared_chapters", "discussion_checkpoints", "book_insight",
         "user_refresh_tokens", "password_reset_tokens", "oauth_authorization_requests", "oauth_grants",
-        "device_authorizations", "mcp_access_keys",
+        "device_authorizations", "mcp_access_keys", "agent_run",
     ];
 
     private static UserAccount Account(string? email = null, bool isGuest = false) => new()
