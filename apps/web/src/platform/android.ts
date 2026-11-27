@@ -36,6 +36,7 @@ export const platform: Platform = {
     signedIn: notYet('session.signedIn'),
     restored: notYet('session.restored'),
   },
+  siteChrome: false,
   google: {
     init: notYet('google.init'),
     renderButton: notYet('google.renderButton'),

@@ -177,6 +177,8 @@ User routes are under `/me`; the sync API is under `/me/v2`. A middleware keeps 
 
 ### Frontend Architecture
 
+**The platform seam** (`apps/web/src/platform/`, ADR-035): the only code that knows if the app runs on the web or in the Android shell. Screens and hooks call `platform` (`index.ts`) and the reader calls `reader` (`reader.ts`); they never ask which platform it is. `VITE_TARGET=web|android` picks `web*.ts` or `android*.ts` at build time (`android*.ts` is a stub until #1642). `platform.arch.test.ts` keeps the web data modules (`api/userBooks`, `api/auth`, `lib/readerSync`, …) behind the seam. Never read `platform` at module load outside that folder: the imports there make cycles.
+
 **No Redux/Zustand** — React Context only. Provider hierarchy in `apps/web/src/App.tsx`:
 ```
 BrowserRouter → AuthProvider → GuestLimitsProvider → NativeLanguageProvider → AppRoutes

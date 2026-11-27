@@ -27,6 +27,7 @@ const VocabularyReviewPage = lazy(() => import('./pages/VocabularyReviewPage').t
 const HighlightsPage = lazy(() => import('./pages/HighlightsPage').then(m => ({ default: m.HighlightsPage })))
 import { Header } from './components/Header'
 import { AuthModal } from './components/auth/AuthModal'
+import { platform } from './platform'
 import { CookieBanner } from './components/CookieBanner'
 import { AndroidAppBanner } from './components/AndroidAppBanner'
 import { Toast } from './components/Toast'
@@ -165,8 +166,9 @@ function App() {
           </NativeLanguageProvider>
         </GuestLimitsProvider>
         <AuthModal />
-        <CookieBanner />
-        <AndroidAppBanner />
+        {/* The website's own parts: not in the Android app. */}
+        {platform.siteChrome && <CookieBanner />}
+        {platform.siteChrome && <AndroidAppBanner />}
       </AuthProvider>
     </BrowserRouter>
   )

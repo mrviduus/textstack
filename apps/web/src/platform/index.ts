@@ -48,6 +48,12 @@ export interface Platform {
     /** A real (not guest) session was restored at start: send what was made without a session. */
     restored(): Promise<void>
   }
+  /**
+   * True on the website: it shows its own parts, the cookie banner, the banner for the Android app and the
+   * footer's links to the Play store. False in the Android app. The footer itself stays: it has the legal
+   * and account links. The analytics script in `index.html` is not covered: the shell build drops it (#1643).
+   */
+  siteChrome: boolean
   /** Google sign-in. Web: Google Identity Services. Android: the native account chooser. */
   google: {
     /** Sets up the sign-in once. `onIdToken` gets the Google id token of each sign-in. False: not offered. */
