@@ -22,7 +22,7 @@ describe('the platform seam', () => {
   })
 
   it('imports the implementation only through platform/index.ts', () => {
-    const offenders = outsidePlatform.filter((f) => /from '[./]*\/platform\/(web|android)'/.test(readFileSync(f, 'utf8')))
+    const offenders = outsidePlatform.filter((f) => /['"][./]*\/?platform\/(web|android)(\.ts)?['"]/.test(readFileSync(f, 'utf8')))
     expect(offenders.map((f) => relative(SRC, f))).toEqual([])
   })
 })

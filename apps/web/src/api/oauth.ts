@@ -1,4 +1,5 @@
 import { authFetch, API_BASE, ApiError } from './client'
+import { platform } from '../platform'
 import { oauthGrantsApi, type OAuthGrant } from '@textstack/shared'
 
 export type { OAuthGrant }
@@ -23,7 +24,7 @@ export interface OAuthConsentRequest {
 
 /** No auth: a signed-out visitor must still see who is asking. Unknown id → ApiError(404). */
 export async function getOAuthRequest(id: string): Promise<OAuthConsentRequest> {
-  const res = await fetch(`${API_BASE}/oauth/requests/${encodeURIComponent(id)}`, { credentials: 'include' })
+  const res = await fetch(`${API_BASE}/oauth/requests/${encodeURIComponent(id)}`, platform.transport.fetchInit())
   if (!res.ok) throw new ApiError(res.status, `API error: ${res.status}`)
   return res.json()
 }

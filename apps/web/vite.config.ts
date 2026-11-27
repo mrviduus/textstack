@@ -40,7 +40,7 @@ const readerFrame = (): Plugin => ({
 })
 
 /** The platform the build is for (ADR-035): `@platform-target` resolves to `src/platform/<target>.ts`. */
-const target = process.env.VITE_TARGET ?? 'web'
+const target = process.env.VITE_TARGET || 'web'
 if (target !== 'web' && target !== 'android') throw new Error(`VITE_TARGET must be web or android, not "${target}"`)
 
 export default defineConfig({
