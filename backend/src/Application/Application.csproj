@@ -2,11 +2,8 @@
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" />
     <PackageReference Include="Google.Apis.Auth" />
-    <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
-    <!-- IHttpClientFactory for tools that call external APIs (OpenLibrary tools) -->
-    <PackageReference Include="Microsoft.Extensions.Http" />
-    <!-- Retries for idempotent GETs (OpenLibrary tools, Apple JWKS) -->
+    <!-- Retries for idempotent GETs (Apple JWKS) -->
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" />
@@ -20,7 +17,6 @@
     <ProjectReference Include="..\Vocabulary\TextStack.Vocabulary\TextStack.Vocabulary.csproj" />
     <ProjectReference Include="..\Ai\TextStack.Ai.Core\TextStack.Ai.Core.csproj" />
     <ProjectReference Include="..\Ai\TextStack.Ai.Llm\TextStack.Ai.Llm.csproj" />
-    <ProjectReference Include="..\Ai\TextStack.Ai.Agents\TextStack.Ai.Agents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

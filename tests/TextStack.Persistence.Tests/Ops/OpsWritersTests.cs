@@ -24,20 +24,6 @@ public class OpsWritersTests(PostgresFixture db)
     }
 
     [Fact]
-    public async Task WriteAsync_AgentRun_IsStoredWithItsSteps()
-    {
-        var user = await db.NewReaderAsync();
-        var run = NewRun(user);
-
-        await new AgentRunWriter(db.DataSource).WriteAsync(run, Ct);
-
-        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        var stored = await conn.QuerySingleAsync<(string Status, int Iterations, int ToolCallsCount, int Steps)>(new CommandDefinition(
-            "SELECT status, iterations, tool_calls_count, jsonb_array_length(steps_json) FROM agent_run WHERE id = @Id", run, cancellationToken: Ct));
-        Assert.Equal(("completed", 1, 2, 1), stored);
-    }
-
-    [Fact]
     public async Task ScrubTextBatchAsync_OldTrace_TextGoesCostStays()
     {
         var user = await db.NewReaderAsync();
@@ -57,23 +43,5 @@ public class OpsWritersTests(PostgresFixture db)
             new { a = old.Id, b = recent.Id }, cancellationToken: Ct))).ToDictionary(r => r.Id);
         Assert.Equal((null, "[]", null, 10), (rows[old.Id].SystemPrompt, rows[old.Id].Messages, rows[old.Id].Response, rows[old.Id].TokensIn));
         Assert.Equal("system", rows[recent.Id].SystemPrompt);
-    }
-
-    [Fact]
-    public async Task DeleteOlderThanAsync_OldRun_GoesRecentStays()
-    {
-        var user = await db.NewReaderAsync();
-        var old = NewRun(user) with { CreatedAt = DateTimeOffset.UtcNow.AddDays(-31) };
-        var recent = NewRun(user);
-        var writer = new AgentRunWriter(db.DataSource);
-        await writer.WriteAsync(old, Ct);
-        await writer.WriteAsync(recent, Ct);
-
-        Assert.True(await writer.DeleteOlderThanAsync(DateTimeOffset.UtcNow.AddDays(-30), Ct) >= 1);
-
-        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        var left = await conn.QueryAsync<Guid>(new CommandDefinition(
-            "SELECT id FROM agent_run WHERE id IN (@a, @b)", new { a = old.Id, b = recent.Id }, cancellationToken: Ct));
-        Assert.Equal([recent.Id], left);
     }
 }

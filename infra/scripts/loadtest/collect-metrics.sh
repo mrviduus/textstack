@@ -6,8 +6,8 @@
 #   start <out-dir>   — kick off background samplers writing into <out-dir>
 #   stop  <out-dir>   — terminate samplers, write a small summary, tar the dir
 #
-# Sampling interval is 2 seconds for system stats and 5 seconds for the
-# Ollama process snapshot. Everything is appended; the orchestrator decides
+# Sampling interval is 2 seconds for system stats and 5 seconds for docker
+# stats. Everything is appended; the orchestrator decides
 # when to start and stop so the timeline covers exactly one scenario.
 #
 # Designed to be invoked over ssh — keeps the runtime dependency surface
@@ -39,9 +39,6 @@ snapshot_once() {
         echo "--- docker stats (single) ---"
         docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}' \
             | head -10
-        echo "--- ollama ps ---"
-        (cd "$HOME/projects/onlinelib/textstack" && docker compose exec -T ollama ollama ps 2>/dev/null) \
-            || echo "ollama unreachable"
     } >> "$OUT/snapshots.log"
 }
 
@@ -52,7 +49,6 @@ start)
     : > "$OUT/vmstat.log"
     : > "$OUT/thermal.log"
     : > "$OUT/docker-stats.log"
-    : > "$OUT/ollama-ps.log"
     : > "$OUT/snapshots.log"
     : > "$PIDFILE"
 
@@ -80,17 +76,6 @@ start)
             sleep 5
         done
     ' >> "$OUT/docker-stats.log" 2>/dev/null &
-    echo "$!" >> "$PIDFILE"
-
-    # ollama ps: 10s tick, captures resident model + context window.
-    nohup bash -c '
-        cd "$HOME/projects/onlinelib/textstack" || exit
-        while :; do
-            printf "===== %s =====\n" "$(date -u --iso-8601=seconds)"
-            docker compose exec -T ollama ollama ps 2>&1 | head -5
-            sleep 10
-        done
-    ' >> "$OUT/ollama-ps.log" 2>/dev/null &
     echo "$!" >> "$PIDFILE"
 
     echo "collector started, pids=$(tr '\n' ' ' < "$PIDFILE")"

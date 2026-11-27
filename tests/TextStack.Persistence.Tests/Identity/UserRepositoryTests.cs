@@ -17,9 +17,9 @@ public class UserRepositoryTests(PostgresFixture db) : UserRepositoryContract(db
     [
         "books", "book_files", "reading_state", "reading_sessions", "annotations",
         "vocabulary_words", "vocabulary_examples", "vocabulary_reviews",
-        "shared_chapters", "discussion_checkpoints", "book_insight", "review_question",
+        "shared_chapters", "discussion_checkpoints", "book_insight",
         "user_refresh_tokens", "password_reset_tokens", "oauth_authorization_requests", "oauth_grants",
-        "device_authorizations", "mcp_access_keys", "agent_run",
+        "device_authorizations", "mcp_access_keys",
     ];
 
     private static UserAccount Account(string? email = null, bool isGuest = false) => new()
@@ -222,25 +222,5 @@ public class UserRepositoryTests(PostgresFixture db) : UserRepositoryContract(db
 
         var read = (await _repo.GetAsync(bob.Id, Ct))!;
         Assert.Equal((true, bob.Email, (string?)null), (read.IsGuest, read.Email, read.PasswordHash));
-    }
-
-    [Fact]
-    public async Task SetRoleAsync_Admin_IsReadBackOnTheAccount()
-    {
-        var account = await CreatedAsync();
-
-        Assert.True(await _repo.SetRoleAsync(account.Id, UserAccount.AdminRole, Ct));
-
-        Assert.Equal(UserAccount.AdminRole, (await _repo.GetByEmailAsync(account.Email, Ct))!.Role);
-    }
-
-    [Fact]
-    public async Task SetRoleAsync_Alice_LeavesBobAReader()
-    {
-        var (alice, bob) = (await CreatedAsync(), await CreatedAsync());
-
-        await _repo.SetRoleAsync(alice.Id, UserAccount.AdminRole, Ct);
-
-        Assert.Equal(UserAccount.ReaderRole, (await _repo.GetAsync(bob.Id, Ct))!.Role);
     }
 }

@@ -6,8 +6,7 @@ namespace TextStack.Ai.Llm;
 ///
 /// Per ADR-AI-012 the tracing layer owns cost; for AI-002 we surface cost in
 /// <c>LlmUsage</c> on the response, so pricing lives here and AI-003's
-/// TracingDecorator will consume it via DI. Self-hosted models (Ollama) are
-/// free — callers pass cost 0 directly and never hit this table.
+/// TracingDecorator will consume it via DI.
 /// </summary>
 public static class ModelPricing
 {
@@ -31,7 +30,7 @@ public static class ModelPricing
     /// <summary>
     /// Cost in USD for the given token counts. Unknown models cost 0 — the
     /// caller (which has the ILogger) should warn when that's unexpected
-    /// (e.g. a paid OpenAI model with no table entry). Ollama models are free.
+    /// (e.g. a paid OpenAI model with no table entry).
     /// </summary>
     public static decimal CostUsd(string modelId, int inputTokens, int outputTokens)
     {

@@ -4,8 +4,6 @@ POST /admin/auth/login
 POST /admin/auth/logout
 GET /admin/auth/me
 POST /admin/auth/refresh
-POST /api/translate/
-GET /api/translate/languages
 GET /app/config
 POST /auth/apple
 POST /auth/device/approve

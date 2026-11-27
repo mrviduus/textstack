@@ -22,9 +22,8 @@ public interface IAccountMergeRepository
     /// file holds the bytes of a live account book's merges into it, and a card into the account's card
     /// of the same language and key. Guest copies of the account's operations are dropped.</item>
     /// <item>The guest's credentials die with it: sessions, reset codes, device logins, OAuth requests
-    /// and grants, MCP keys. Its agent runs move.</item>
-    /// <item>An insight that loses a (book, chapter) clash is kept in full as a checkpoint; only its
-    /// review questions' schedules are lost (<see cref="AccountMerge.UnscheduledReviewQuestions"/>).</item>
+    /// and grants, MCP keys.</item>
+    /// <item>An insight that loses a (book, chapter) clash is kept in full as a checkpoint.</item>
     /// </list>
     /// A unique key an account device writes while the merge runs can still abort it (23505): a re-run
     /// with a fresh snapshot settles it.

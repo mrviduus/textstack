@@ -18,11 +18,6 @@ public static class DependencyInjection
 
         services.AddSingleton<IFrequencyFilter, FrequencyFilter>();
 
-        // Legacy ILlmServiceFactory — now backed by LegacyLlmAdapter over the new
-        // stack (AI-005). The old keyed Domain.LLM providers are gone; callers
-        // keep this factory until they move to Core.ILlmService directly.
-        services.AddSingleton<Domain.LLM.ILlmServiceFactory, LlmServiceFactory>();
-
         // Sampling policy (Ai:Tracing:Sampling). Errors always sampled regardless.
         services.AddSingleton(sp =>
         {
@@ -75,28 +70,6 @@ public static class DependencyInjection
             return new Entitlements.EntitlementOptions(def, tiers, staff, maxSingle, maxStorage);
         });
 
-        // Per-provider circuit breaker. Registered BEFORE the keyed providers so OllamaLlmClient's
-        // optional IProviderHealth resolves. It never routes — it only decides whether a call to an
-        // already-chosen provider is worth attempting. Ai:ProviderHealth:Enabled=false is the kill
-        // switch and restores byte-for-byte the previous behaviour.
-        services.AddSingleton<global::TextStack.Ai.Llm.IProviderHealthAlarm>(sp =>
-            new global::TextStack.Ai.Llm.SentryProviderHealthAlarm(sp.GetRequiredService<IConfiguration>()));
-        services.AddSingleton<global::TextStack.Ai.Llm.IProviderHealth>(sp =>
-        {
-            var c = sp.GetRequiredService<IConfiguration>();
-            if (!c.GetValue("Ai:ProviderHealth:Enabled", true))
-                return global::TextStack.Ai.Llm.NullProviderHealth.Instance;
-
-            var ladder = (c.GetSection("Ai:ProviderHealth:BackoffMinutes").Get<int[]>() ?? [1, 5, 30])
-                .Select(m => TimeSpan.FromMinutes(Math.Max(1, m)))
-                .ToArray();
-
-            return new global::TextStack.Ai.Llm.ProviderHealthRegistry(
-                sp.GetRequiredService<global::TextStack.Ai.Llm.IProviderHealthAlarm>(),
-                sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.ProviderHealthRegistry>>(),
-                ladder);
-        });
-
         // OpenAI model ids (Options pattern). The class defaults are the only defaults; FillBlanks turns
         // an empty env value (compose's `${OPENAI_MODEL:-}`) back into the default.
         services.AddOptions<global::TextStack.Ai.Llm.OpenAiOptions>()
@@ -112,7 +85,6 @@ public static class DependencyInjection
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
                 sp.GetRequiredService<IOptions<global::TextStack.Ai.Llm.OpenAiOptions>>().Value.Model));
-        services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService, global::TextStack.Ai.Llm.OllamaLlmClient>("ollama-raw");
 
         // A dedicated OpenAI judge provider on a STRONGER model (Eval:JudgeModel,
         // default gpt-4.1) — separate from the generation model so the eval
@@ -180,19 +152,6 @@ public static class DependencyInjection
         // ISpendTracker contract. Registered BEFORE the gateway (the gateway depends on it).
         services.AddSingleton<global::TextStack.Ai.Core.ISpendTracker, Ai.RollingSpendTracker>();
 
-        // Silent-fallback alarm (Sentry): an EXPENSIVE task resolving via Ai:DefaultProvider instead
-        // of an explicit route is the 2026-07-14 pdf.parse → Ollama incident (since deleted). Throttled per
-        // (task, provider) so a 106-page PDF raises one event, not 106. Also sets the shared
-        // cooldown used by LlmFailureAlarm.
-        services.AddSingleton<global::TextStack.Ai.Llm.IRouteAlarm>(sp =>
-        {
-            var c = sp.GetRequiredService<IConfiguration>();
-            var cooldown = TimeSpan.FromMinutes(
-                Math.Max(1, c.GetValue<int?>("Ai:RouteAlarm:CooldownMinutes") ?? 60));
-            global::TextStack.Ai.Llm.LlmFailureAlarm.Configure(cooldown);
-            return new global::TextStack.Ai.Llm.SentryRouteAlarm(c);
-        });
-
         // Default Core.ILlmService = the gateway (routes FeatureTag → decorated provider by Ai:Routes).
         services.AddSingleton<global::TextStack.Ai.Core.ILlmService>(sp =>
             new global::TextStack.Ai.Llm.ModelGateway(
@@ -200,12 +159,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<global::TextStack.Ai.Core.ISpendTracker>(),
                 sp.GetRequiredService<global::TextStack.Ai.Llm.BudgetOptions>(),
-                sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.ModelGateway>>(),
-                sp.GetService<global::TextStack.Ai.Llm.IRouteAlarm>()));
-
-        // Embeddings (vocabulary concept clusters, AI-058). Single OpenAI provider; resolved lazily so a keyless
-        // host still starts (the client throws on construction without a key).
-        services.AddSingleton<global::TextStack.Ai.Core.IEmbeddingService, global::TextStack.Ai.Llm.OpenAiEmbeddingClient>();
+                sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.ModelGateway>>()));
 
         return services;
     }

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { explain as explainApi, API_BASE, type ExplainRequest } from '../api/explain'
+import { explainApi, type ExplainRequest } from '@textstack/shared'
+import { API_BASE } from '../api/client'
 import { postSse, SseUnsupportedError } from '../lib/sse'
 import { getCachedExplain, cacheExplain } from '../lib/offlineDb'
 
@@ -104,12 +105,12 @@ export function useExplain() {
       // No streaming support (old browser / degraded env) → one-shot JSON request.
       if (err instanceof SseUnsupportedError) {
         try {
-          const result = await explainApi(req, ctrl.signal)
+          const result = await explainApi.explain(req, ctrl.signal)
           setState({ explanation: result.explanation, isLoading: false, error: null, cached: result.cached })
           cacheExplain(req.word, req.sentence, req.genre, targetLang, result.explanation).catch(() => {})
           return result.explanation
         } catch (fallbackErr) {
-          if ((fallbackErr as { name?: string })?.name === 'AbortError') return null
+          if (ctrl.signal.aborted) return null
           const error = fallbackErr instanceof Error ? fallbackErr.message : 'Explain failed'
           setState({ explanation: null, isLoading: false, error, cached: false })
           return null

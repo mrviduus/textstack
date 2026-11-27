@@ -12,11 +12,6 @@
  * The declaration is not the locator's shape — that is derivable, and a field
  * restating it would say nothing. It means "this write came from a client that
  * knows spaces exist", which is not derivable and is the only thing missing.
- *
- * Mirrored in C# by `LocatorSpace.Derive` in
- * `backend/src/Application/Reading/LocatorSpace.cs`. Change one, change
- * both — the two are a contract, and the tests on each side quote the same
- * locator strings on purpose.
  */
 
 export type LocatorSpaceKind = 'page' | 'scroll'

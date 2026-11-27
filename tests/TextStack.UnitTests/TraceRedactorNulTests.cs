@@ -70,13 +70,13 @@ public class TraceRedactorNulTests
     [Fact]
     public void BuildTrace_ProducesJsonPostgresWillAccept_WhenAMessageContainsNul()
     {
-        // The end-to-end shape of the production failure, on the `distractor` feature.
-        var poisoned = "distractor for" + '\0' + " the word";
+        // The end-to-end shape of the production failure, on a feature's prompt.
+        var poisoned = "explain" + '\0' + " the word";
         var request = new LlmRequest(
             SystemPrompt: "sys" + '\0' + "prompt",
             Messages: new[] { new LlmMessage("user", poisoned) },
             MaxOutputTokens: 256,
-            FeatureTag: "distractor");
+            FeatureTag: "explain");
 
         var trace = TracingDecorator.BuildTrace(request, response: null, latencyMs: 5, error: "boom");
 

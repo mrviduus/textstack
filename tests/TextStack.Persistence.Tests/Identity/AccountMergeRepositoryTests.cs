@@ -494,29 +494,25 @@ public class AccountMergeRepositoryTests(PostgresFixture db)
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task MergeAsync_InsightClashWithThreeQuestions_LoserKeptInFullAsACheckpoint(bool guestLoses)
+    public async Task MergeAsync_InsightClash_LoserKeptInFullAsACheckpoint(bool guestLoses)
     {
         var (guest, account, theirs, ours) = await SameBytesAsync();
         var insights = new BookInsightRepository(db.DataSource);
-        var questions = new ReviewQuestionRepository(db.DataSource);
-        var g = await insights.SaveReviewAsync(NewInsight(theirs, "ch-2", "guest text", reviewJson: """{"b":1,"a":[2]}"""), Ct);
-        var a = await insights.SaveReviewAsync(NewInsight(ours, "ch-2", "account text", reviewJson: """{"z":true}"""), Ct);
+        var g = (await insights.SaveAsync(NewInsight(theirs, "ch-2", "guest text"), Ct))!;
+        var a = (await insights.SaveAsync(NewInsight(ours, "ch-2", "account text"), Ct))!;
+        await db.ExecAsync("""UPDATE book_insight SET review_json = '{"b":1,"a":[2]}' WHERE id = @id""", new { id = g.Id });
+        await db.ExecAsync("""UPDATE book_insight SET review_json = '{"z":true}' WHERE id = @id""", new { id = a.Id });
         await db.ExecAsync("UPDATE book_insight SET updated_at = now() - interval '1 hour' WHERE id = @id", new { id = guestLoses ? g.Id : a.Id });
         var (loser, winner) = guestLoses ? (g, a) : (a, g);
-        await questions.ReplaceForInsightAsync(loser.UserId, loser.Id,
-            [.. Enumerable.Range(1, 3).Select(i => new ReviewQuestion { Id = Guid.NewGuid(), UserId = loser.UserId, BookInsightId = loser.Id, BlockIndex = i, Prompt = $"P{i}?", Answer = $"A{i}.", PromptHash = $"h{i}", NextReviewAt = DateTimeOffset.UtcNow })], Ct);
-        await questions.ReplaceForInsightAsync(winner.UserId, winner.Id,
-            [new ReviewQuestion { Id = Guid.NewGuid(), UserId = winner.UserId, BookInsightId = winner.Id, BlockIndex = 1, Prompt = "W?", Answer = "W.", PromptHash = "w1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
 
-        var merged = await MergeAsync(guest, account);
+        await MergeAsync(guest, account);
 
-        Assert.Equal((3, 1L), (merged.UnscheduledReviewQuestions, await db.CountAsync("review_question", account)));
         Assert.Equal(winner.Id, await ScalarAsync<Guid>("SELECT id FROM book_insight WHERE user_id = @account", new { account }));
         var kept = (await CheckpointsAsync(account)).Single(c => c.Id == loser.Id);
         string Items(string json) => string.Join(" | ", JsonSerializer.Deserialize<string?[]>(json)!);
         // The structured review as canonical JSON: members sorted, no whitespace.
         var canonicalReview = guestLoses ? """{"a":[2],"b":1}""" : """{"z":true}""";
-        Assert.Equal(("q", canonicalReview, loser.Text, "P1? — A1. | P2? — A2. | P3? — A3."),
+        Assert.Equal(("q", canonicalReview, loser.Text, ""),
             (Items(kept.ReaderThoughts), Items(kept.AssistantSuggestions), Items(kept.Conclusions), Items(kept.OpenQuestions)));
         Assert.Equal(("q", "und", "ch-2", ours.Id, loser.Id, DiscussionPayloads.CheckpointSha256(kept)),
             (kept.Topic, kept.Language, kept.ChapterKey, kept.BookId, kept.OperationId, kept.PayloadSha256));

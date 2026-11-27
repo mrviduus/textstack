@@ -39,7 +39,7 @@ public class SentryScrubberTests
             ("ai.task", "pdf.parse"),
             ("ai.provider.resolved", "ollama"),
             ("ai.provider.reason", "default_fallback"),
-            ("agent.name", "tutor.agent"),
+            ("agent.name", "explain"),
             ("rag.outcome", "failed"));
 
         var scrubbed = SentryScrubber.Scrub(e);
@@ -48,7 +48,7 @@ public class SentryScrubberTests
         Assert.Equal("pdf.parse", scrubbed.Tags["ai.task"]);
         Assert.Equal("ollama", scrubbed.Tags["ai.provider.resolved"]);
         Assert.Equal("default_fallback", scrubbed.Tags["ai.provider.reason"]);
-        Assert.Equal("tutor.agent", scrubbed.Tags["agent.name"]);
+        Assert.Equal("explain", scrubbed.Tags["agent.name"]);
         Assert.Equal("failed", scrubbed.Tags["rag.outcome"]);
     }
 

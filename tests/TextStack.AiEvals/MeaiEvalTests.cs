@@ -19,8 +19,7 @@ public class MeaiEvalTests(ITestOutputHelper output)
     [MemberData(nameof(Keys))]
     public async Task Feature_eval_meets_floor_via_MEAI(string key)
     {
-        var ollamaGen = key is "bookmeta";
-        var generator = ollamaGen ? EvalClients.Ollama() : EvalClients.OpenAi();   // skips if unavailable
+        var generator = EvalClients.OpenAi();   // skips if unavailable
         var judge = new LlmServiceChatClient(EvalClients.Judge(), defaultFeatureTag: "eval.judge");
         var ct = TestContext.Current.CancellationToken;
 

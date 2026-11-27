@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { locatorSpace } from './locatorSpace'
 
-/**
- * The strings here are the ones from the incident, on purpose: this file and
- * `LocatorSpaceTests.cs` must agree about them, and quoting the same literals is
- * how a reader of either notices the other exists.
- */
+/** The strings here are the ones from the incident, on purpose. */
 describe('locatorSpace', () => {
   it('recognises a PDF page', () => {
     expect(locatorSpace('page:16')).toBe('page')

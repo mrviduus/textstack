@@ -26,17 +26,6 @@ public sealed class BookInsightRepository(AppDataSource dataSource) : IBookInsig
     public Task<IReadOnlyList<BookInsight>> ListForBookAsync(Guid userId, Guid bookId, CancellationToken ct) =>
         ListAsync(SelectForBook, new { userId, bookId }, ct);
 
-    private const string SelectReviewsForBook =
-        $"SELECT {Columns} FROM book_insight WHERE user_id = @userId AND book_id = @bookId AND review_json IS NOT NULL";
-
-    public Task<IReadOnlyList<BookInsight>> ListReviewsForBookAsync(Guid userId, Guid bookId, CancellationToken ct) =>
-        ListAsync(SelectReviewsForBook, new { userId, bookId }, ct);
-
-    private const string SelectByIds = $"SELECT {Columns} FROM book_insight WHERE user_id = @userId AND id = ANY(@ids)";
-
-    public async Task<IReadOnlyList<BookInsight>> ListByIdsAsync(Guid userId, IReadOnlyCollection<Guid> ids, CancellationToken ct) =>
-        ids.Count == 0 ? [] : await ListAsync(SelectByIds, new { userId, ids = ids.ToArray() }, ct);
-
     private const string UpsertInsight = $"""
         {InsertIntoSlot}
         DO UPDATE SET text = EXCLUDED.text, question = EXCLUDED.question, updated_at = now()
@@ -46,30 +35,11 @@ public sealed class BookInsightRepository(AppDataSource dataSource) : IBookInsig
 
     public async Task<BookInsight?> SaveAsync(BookInsight insight, CancellationToken ct)
     {
-        // Through here a review would land in a slot that only SaveReviewAsync may then write.
+        // Through here a review would land in a slot nothing may then write.
         if (insight.ReviewJson is not null)
-            throw new ArgumentException("A chapter review is saved with SaveReviewAsync.", nameof(insight));
+            throw new ArgumentException("A chapter review is not saved through SaveAsync.", nameof(insight));
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<BookInsight>(new CommandDefinition(UpsertInsight, insight, cancellationToken: ct));
-    }
-
-    private const string UpsertReview = $"""
-        {InsertIntoSlot}
-        DO UPDATE SET review_json = EXCLUDED.review_json, text = EXCLUDED.text,
-                      question = EXCLUDED.question, updated_at = now()
-        RETURNING {Columns}
-        """;
-
-    public async Task<BookInsight> SaveReviewAsync(BookInsight insight, CancellationToken ct)
-    {
-        // A review without its JSON would silently demote the slot to a plain insight, and a review
-        // is always of one chapter (ADR-016; ck_book_insight_review_chapter is the real guard, this
-        // names the argument).
-        ArgumentNullException.ThrowIfNull(insight.ReviewJson);
-        if (insight.ChapterSlug is null)
-            throw new ArgumentException("A chapter review needs a chapter slug.", nameof(insight));
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.QuerySingleAsync<BookInsight>(new CommandDefinition(UpsertReview, insight, cancellationToken: ct));
     }
 
     private const string DeleteInsight = "DELETE FROM book_insight WHERE user_id = @userId AND id = @id";

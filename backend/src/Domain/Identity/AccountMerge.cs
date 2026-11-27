@@ -17,9 +17,7 @@ public enum AccountMergeOutcome
 /// ids that did not survive to the account's that replaced them (matched books, same-bytes files,
 /// same-key words); every other row kept its id (owner decision 12). <see cref="DroppedDuplicates"/>:
 /// guest copies of an operation the account already holds (<see cref="HashAnomalies"/> of them with
-/// another payload). <see cref="UnscheduledReviewQuestions"/>: review questions of an insight that
-/// lost a clash; their text lives on in its checkpoint, their review schedule does not.
-/// <see cref="ReleasedKeys"/>: bytes no row names any more (the matched guest books' same-bytes and
+/// another payload). <see cref="ReleasedKeys"/>: bytes no row names any more (the matched guest books' same-bytes and
 /// superseded files), for the caller to delete once the merge has committed.
 /// </summary>
 public sealed record AccountMerge(
@@ -29,7 +27,6 @@ public sealed record AccountMerge(
     IReadOnlyDictionary<Guid, Guid> Words,
     int DroppedDuplicates,
     int HashAnomalies,
-    int UnscheduledReviewQuestions,
     IReadOnlyList<string> ReleasedKeys)
 {
     private static readonly IReadOnlyDictionary<Guid, Guid> None = new Dictionary<Guid, Guid>();
@@ -38,5 +35,5 @@ public sealed record AccountMerge(
     public static readonly AccountMerge Refused = Empty(AccountMergeOutcome.Refused);
 
     /// <summary>The outcome with no id remapped and nothing dropped.</summary>
-    public static AccountMerge Empty(AccountMergeOutcome outcome) => new(outcome, None, None, None, 0, 0, 0, []);
+    public static AccountMerge Empty(AccountMergeOutcome outcome) => new(outcome, None, None, None, 0, 0, []);
 }

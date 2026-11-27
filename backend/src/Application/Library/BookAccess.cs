@@ -25,9 +25,6 @@ public interface IBookAccess
     /// <inheritdoc cref="LibraryProvenance.MissingBookOrFileAsync"/>
     Task<SyncResult?> MissingBookOrFileAsync(Guid userId, Guid bookId, Guid? fileId, CancellationToken ct);
 
-    /// <inheritdoc cref="ILibraryRepository.SetCheckpointSavingAsync"/>
-    Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct);
-
     /// <inheritdoc cref="ILibraryRepository.ListStorageKeysAsync"/>
     Task<IReadOnlyList<string>> ListStorageKeysAsync(Guid userId, CancellationToken ct);
 }
@@ -47,9 +44,6 @@ public sealed class BookAccess(ILibraryRepository library) : IBookAccess
 
     public Task<SyncResult?> MissingBookOrFileAsync(Guid userId, Guid bookId, Guid? fileId, CancellationToken ct) =>
         library.MissingBookOrFileAsync(userId, bookId, fileId, ct);
-
-    public Task<Book?> SetCheckpointSavingAsync(Guid userId, Guid bookId, bool enabled, CancellationToken ct) =>
-        library.SetCheckpointSavingAsync(userId, bookId, enabled, ct);
 
     public Task<IReadOnlyList<string>> ListStorageKeysAsync(Guid userId, CancellationToken ct) => library.ListStorageKeysAsync(userId, ct);
 }

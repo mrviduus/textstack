@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import '../client' // initApi
 import { translate } from '../translation'
 
 // #1271 review: a failed translation carries its HTTP status, so the backfill can stop on a 429.

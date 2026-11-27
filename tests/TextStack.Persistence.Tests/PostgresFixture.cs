@@ -117,7 +117,7 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
     /// One row of the user in every V2 table that can carry a user (two reading sessions: one of the
     /// book, one of a deleted book): the library side, and the identity and ops rows that point only at
     /// <c>users</c> (a session, a reset code, an approved OAuth request, a grant, an approved device
-    /// login, a connect key, an agent run, an LLM trace). Returns the book and its share.
+    /// login, a connect key, an LLM trace). Returns the book and its share.
     /// </summary>
     public async Task<(Book Book, SharedChapter Share)> SeedEverythingAsync(Guid userId)
     {
@@ -154,9 +154,7 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         var share = NewShare(book);
         await new SharedChapterRepository(DataSource).ShareAsync(share, Ct);
         await new CheckpointRepository(DataSource).AppendAsync(NewCheckpoint(book, share), Ct);
-        var insight = await new BookInsightRepository(DataSource).SaveReviewAsync(NewInsight(book, "ch-1", reviewJson: "{}"), Ct);
-        await new ReviewQuestionRepository(DataSource).ReplaceForInsightAsync(userId, insight.Id,
-            [new() { Id = Guid.NewGuid(), UserId = userId, BookInsightId = insight.Id, Prompt = "Why?", Answer = "Because.", PromptHash = "h1", NextReviewAt = DateTimeOffset.UtcNow }], Ct);
+        await new BookInsightRepository(DataSource).SaveAsync(NewInsight(book, "ch-1"), Ct);
         var now = DateTimeOffset.UtcNow;
         var sessions = new SessionTokenRepository(DataSource);
         await sessions.IssueAsync(userId, NewHash(), now.AddDays(1), null, null, Application.Identity.SessionKind.Reader, Ct);
@@ -164,7 +162,6 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
         await new OAuthRepository(DataSource).ConnectAsync(userId, await ApprovedOAuthRequestAsync(userId), NewGrant(), Ct);
         await ApprovedDeviceLoginAsync(userId);
         await new McpKeyRepository(DataSource).CreateAsync(userId, "laptop", NewHash(), "tsk_ab", DateTimeOffset.UtcNow, Ct);
-        await new AgentRunWriter(DataSource).WriteAsync(NewRun(userId), Ct);
         await new LlmTraceWriter(DataSource).WriteAsync(NewTrace(userId), Ct);
         await using var conn = await DataSource.OpenConnectionAsync(Ct);
         await conn.ExecuteAsync(new CommandDefinition("""
@@ -314,12 +311,6 @@ public sealed class PostgresFixture : IAsyncLifetime, Identity.IIdentityFixture
     public static LlmTrace NewTrace(Guid userId) => new(
         Guid.NewGuid(), "explain", "gpt-test", "hash", "system", """[{"role":"user","content":"hi"}]""", "hello",
         null, 10, 5, 0.000123m, 42, userId, null, null, DateTimeOffset.UtcNow);
-
-    /// <summary>A completed one-step agent run for <paramref name="userId"/>, on a catalog edition V2 does not keep.</summary>
-    public static AgentRunRecord NewRun(Guid userId) => new(
-        Guid.NewGuid(), "tutor", userId, Guid.NewGuid(), "explain chapter 1", "completed", "done",
-        [new AgentStep(0, "final", JsonSerializer.SerializeToElement(new { text = "done" }), DateTimeOffset.UtcNow)],
-        new AgentUsage(1, 10, 5, 0.0001m, 42), null, DateTimeOffset.UtcNow, 0.9, 2);
 
     /// <summary>A plain insight on the book (a review when <paramref name="reviewJson"/> is given).</summary>
     public static BookInsight NewInsight(Book book, string? chapterSlug, string text = "text", string? reviewJson = null) => new()

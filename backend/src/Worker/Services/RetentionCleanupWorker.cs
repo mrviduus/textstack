@@ -34,7 +34,7 @@ public class RetentionCleanupWorker(
     /// <summary>A day past expiry before a token row goes, so an in-flight request never races it.</summary>
     public static readonly TimeSpan TokenGrace = TimeSpan.FromDays(1);
 
-    /// <summary>LLM traces and agent runs hold prompt and output text; the admin
+    /// <summary>LLM traces hold prompt and output text; the admin
     /// AI-quality page defaults to the last 30 days and spend tracking reads only today (#941).</summary>
     public static readonly TimeSpan AiTextRetention = TimeSpan.FromDays(30);
 
@@ -142,8 +142,6 @@ public class RetentionCleanupWorker(
             } while (batch == ScrubBatch && !ct.IsCancellationRequested);
             return total;
         }, ct);
-        await DeleteAsync("agent runs",
-            () => services.GetRequiredService<AgentRunWriter>().DeleteOlderThanAsync(aiCutoff, ct), ct);
     }
 
     /// <summary>

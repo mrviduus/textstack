@@ -110,9 +110,10 @@ async function errorFromResponse(res: Response, fallbackStatus = res.status): Pr
   let body: unknown
   try {
     body = JSON.parse(text)
-    const json = body as { error?: string; message?: string } | null
+    const json = body as { error?: string; message?: string; detail?: string } | null
     if (json?.error) message = json.error
     else if (json?.message) message = json.message
+    else if (json?.detail) message = json.detail // ProblemDetails (`Results.Problem`: explain, translate)
   } catch {
     // non-JSON body — keep the generic status message
   }

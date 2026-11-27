@@ -4,10 +4,8 @@ import { LANGUAGES } from '@textstack/shared'
 import { getCachedTranslation, cacheTranslation, clearOldTranslations } from '../lib/offlineDb'
 
 // Full native-language catalogue → the {code,name} shape TranslationPopup's
-// <select> renders. OpenAI translates any language, so the reader is no longer
-// capped at the backend's legacy 16-item /translate/languages list (that
-// endpoint stays live but unused). englishName matches the popup's label render
-// (a native <select> can't show flags).
+// <select> renders: the LLM translates any language. englishName matches the
+// popup's label render (a native <select> can't show flags).
 const TRANSLATION_LANGUAGES: LanguageInfo[] = LANGUAGES.map((l) => ({
   code: l.code,
   name: l.englishName,

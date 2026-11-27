@@ -18,7 +18,7 @@ public class SchemaReadinessTests : IClassFixture<LiveApiFixture>
     public async Task HealthReady_AfterMigrator_ReportsSchemaOk()
     {
         var ct = TestContext.Current.CancellationToken;
-        // Not asserting the overall status code: storage/ollama are separate components.
+        // Not asserting the overall status code: storage is a separate component.
         var resp = await _fixture.Client.GetAsync("/health/ready", ct);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
 

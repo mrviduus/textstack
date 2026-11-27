@@ -55,69 +55,13 @@ public class BookInsightRepositoryTests(PostgresFixture db)
     public async Task SaveAsync_SlotHoldsReview_ReturnsNullAndKeepsTheReview()
     {
         var book = await db.NewReaderWithBookAsync();
-        await _repo.SaveReviewAsync(NewInsight(book, "ch-1", "review md", """{"v":1}"""), Ct);
+        var review = (await _repo.SaveAsync(NewInsight(book, "ch-1", "review md"), Ct))!;
+        await db.ExecAsync("""UPDATE book_insight SET review_json = '{"v":1}' WHERE id = @id""", new { id = review.Id });
 
         Assert.Null(await _repo.SaveAsync(NewInsight(book, "ch-1", "plain"), Ct));
 
         var row = Assert.Single(await _repo.ListForBookAsync(book.UserId, book.Id, Ct));
         Assert.Equal(("review md", """{"v": 1}"""), (row.Text, row.ReviewJson));
-    }
-
-    [Fact]
-    public async Task SaveReviewAsync_OverPlainInsight_ReplacesItInPlace()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var plain = (await _repo.SaveAsync(NewInsight(book, "ch-1", "plain"), Ct))!;
-
-        var review = await _repo.SaveReviewAsync(NewInsight(book, "ch-1", "review", "{}"), Ct);
-
-        Assert.Equal(plain.Id, review.Id);
-        var row = Assert.Single(await _repo.ListForBookAsync(book.UserId, book.Id, Ct));
-        Assert.Equal((plain.Id, "review", "{}"), (row.Id, row.Text, row.ReviewJson));
-    }
-
-    [Fact]
-    public async Task SaveReviewAsync_NoReviewJson_ThrowsAndKeepsTheReview()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.SaveReviewAsync(NewInsight(book, "ch-1", "review", "{}"), Ct);
-
-        await Assert.ThrowsAsync<ArgumentNullException>(() => _repo.SaveReviewAsync(NewInsight(book, "ch-1", "plain"), Ct));
-
-        Assert.Single(await _repo.ListReviewsForBookAsync(book.UserId, book.Id, Ct));
-    }
-
-    [Fact]
-    public async Task SaveReviewAsync_BookLevelSlot_ThrowsAndStoresNothing()
-    {
-        var book = await db.NewReaderWithBookAsync();
-
-        await Assert.ThrowsAsync<ArgumentException>(() => _repo.SaveReviewAsync(NewInsight(book, null, "review", "{}"), Ct));
-
-        Assert.Empty(await _repo.ListForBookAsync(book.UserId, book.Id, Ct));
-    }
-
-    [Fact]
-    public async Task ListReviewsForBookAsync_MixedRows_ReturnsChapterReviewsOnly()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.SaveAsync(NewInsight(book, "ch-1", "plain"), Ct);
-        await _repo.SaveAsync(NewInsight(book, null, "book-level"), Ct);
-        await _repo.SaveReviewAsync(NewInsight(book, "ch-2", "review", "{}"), Ct);
-
-        var reviews = await _repo.ListReviewsForBookAsync(book.UserId, book.Id, Ct);
-
-        Assert.Equal("ch-2", Assert.Single(reviews).ChapterSlug);
-    }
-
-    [Fact]
-    public async Task ListByIdsAsync_OwnIdsAndUnknownOnes_ReturnsTheOwnOnes()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var saved = (await _repo.SaveAsync(NewInsight(book, "ch-1"), Ct))!;
-
-        Assert.Equal(saved.Id, Assert.Single(await _repo.ListByIdsAsync(book.UserId, [saved.Id, Guid.NewGuid()], Ct)).Id);
-        Assert.Empty(await _repo.ListByIdsAsync(book.UserId, [], Ct));
     }
 
     [Fact]
@@ -144,26 +88,6 @@ public class BookInsightRepositoryTests(PostgresFixture db)
     }
 
     [Fact]
-    public async Task ListReviewsForBookAsync_AlicesBookAsBob_ReturnsNothing()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.SaveReviewAsync(NewInsight(alices, "ch-1", "review", "{}"), Ct);
-
-        Assert.Empty(await _repo.ListReviewsForBookAsync(bob, alices.Id, Ct));
-    }
-
-    [Fact]
-    public async Task ListByIdsAsync_AlicesIdsAsBob_ReturnsNothing()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        var hers = (await _repo.SaveAsync(NewInsight(alices, "ch-1"), Ct))!;
-
-        Assert.Empty(await _repo.ListByIdsAsync(bob, [hers.Id], Ct));
-    }
-
-    [Fact]
     public async Task SaveAsync_IntoAlicesBookAsBob_IsRefusedAndChangesNothing()
     {
         var alices = await db.NewReaderWithBookAsync();
@@ -174,21 +98,6 @@ public class BookInsightRepositoryTests(PostgresFixture db)
 
         // The slot key includes user_id, so bob's row could only be his own, and the book is not his.
         var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(his, Ct));
-
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
-        Assert.Equal("alice's", Assert.Single(await _repo.ListForBookAsync(alices.UserId, alices.Id, Ct)).Text);
-    }
-
-    [Fact]
-    public async Task SaveReviewAsync_IntoAlicesBookAsBob_IsRefusedAndChangesNothing()
-    {
-        var alices = await db.NewReaderWithBookAsync();
-        var bob = await db.NewReaderAsync();
-        await _repo.SaveReviewAsync(NewInsight(alices, "ch-1", "alice's", "{}"), Ct);
-        var his = NewInsight(alices, "ch-1", "bob's", "{}");
-        his.UserId = bob;
-
-        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveReviewAsync(his, Ct));
 
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
         Assert.Equal("alice's", Assert.Single(await _repo.ListForBookAsync(alices.UserId, alices.Id, Ct)).Text);

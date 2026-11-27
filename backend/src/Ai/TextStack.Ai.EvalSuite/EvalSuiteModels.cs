@@ -11,7 +11,7 @@ public sealed record FacetEval(string Feature, Rubric Rubric, Func<string, strin
 /// Vocab has 3 facets (distractor/hint/explanation) from a single generation.</summary>
 public sealed record EvalUnit(LlmRequest Request, IReadOnlyList<FacetEval> Facets);
 
-/// <summary>A feature's eval: a selectable <see cref="Key"/> (explain/translate/vocab/bookmeta)
+/// <summary>A feature's eval: a selectable <see cref="Key"/> (explain/translate)
 /// and its golden units.</summary>
 public sealed record EvalDefinition(string Key, IReadOnlyList<EvalUnit> Units);
 

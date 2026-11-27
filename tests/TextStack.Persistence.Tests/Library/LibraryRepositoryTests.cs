@@ -126,10 +126,6 @@ public class LibraryRepositoryTests(PostgresFixture db)
         var stale = await _repo.UpdateMetadataAsync(book.UserId, book.Id, Metadata("Second edit"), 1, Ct);
         Assert.False(stale.Accepted);
         Assert.Equal(("Renamed", 2L), (stale.Current!.Title, stale.Current.Revision));
-
-        // Saving checkpoints is a setting, not an edit: writing the stored value touches nothing.
-        var setting = (await _repo.SetCheckpointSavingAsync(book.UserId, book.Id, false, Ct))!;
-        Assert.Equal((false, read.UpdatedAt), (setting.CheckpointSavingEnabled, setting.UpdatedAt));
     }
 
     [Fact]
@@ -154,13 +150,6 @@ public class LibraryRepositoryTests(PostgresFixture db)
         var replace = await _repo.ReplaceFileAsync(user, book.Id, NewFile(user, book.Id), book.CurrentFile!.Id, null, Ct);
         Assert.Equal((FileReplaceOutcome.BookRemoved, book.Id), (replace.Outcome, replace.Book!.Id));
         Assert.Equal(book.CurrentFile.Id, (await _repo.GetAsync(user, book.Id, Ct))!.CurrentFile!.Id);
-
-        // The setting still flips on a removed book: UpdatedAt moves, the revision does not.
-        var written = (await _repo.SetCheckpointSavingAsync(user, book.Id, true, Ct))!;
-        var read = (await _repo.GetAsync(user, book.Id, Ct))!;
-        Assert.Equal((true, 1L, book.CurrentFile.Id), (read.CheckpointSavingEnabled, read.Revision, written.CurrentFile!.Id));
-        Assert.Equal((true, read.UpdatedAt), (written.CheckpointSavingEnabled, written.UpdatedAt));
-        Assert.True(read.UpdatedAt > removed.UpdatedAt);
 
         Assert.True(await _repo.RestoreAsync(user, book.Id, Ct));
         Assert.Equal(book.Id, Assert.Single(await _repo.ListAsync(user, Ct)).Id);
@@ -359,7 +348,6 @@ public class LibraryRepositoryTests(PostgresFixture db)
         Assert.Equal((false, (Book?)null), (edit.Accepted, edit.Current));
 
         Assert.Equal(FileReplaceOutcome.NotFound, (await _repo.ReplaceFileAsync(bob, alices.Id, NewFile(bob, alices.Id), file.Id, null, Ct)).Outcome);
-        Assert.Null(await _repo.SetCheckpointSavingAsync(bob, alices.Id, true, Ct));
         Assert.False(await _repo.RemoveAsync(bob, alices.Id, Ct));
 
         var read = (await _repo.GetAsync(alice, alices.Id, Ct))!;

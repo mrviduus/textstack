@@ -27,7 +27,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:11.0-alpine@sha256:d39b72ad1534fa0faf52b488
 RUN apk add --no-cache krb5-libs \
     && deluser app 2>/dev/null; delgroup app 2>/dev/null; \
        addgroup -g 1000 app && adduser -D -u 1000 -G app app
-RUN mkdir -p /storage/users /data/textstack /data/tts-cache && chown -R app:app /storage /data/textstack /data/tts-cache
+RUN mkdir -p /storage/users /data/tts-cache && chown -R app:app /storage /data/tts-cache
 WORKDIR /app
 COPY --from=build /app/publish .
 # Sentry release. Declared AFTER the publish copy so a new SHA invalidates only this

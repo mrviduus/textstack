@@ -57,9 +57,6 @@ public interface IUserRepository
     /// <summary>Records that the user was active at <paramref name="now"/> (what the guest sweep reads); the caller debounces. False when there is no such account.</summary>
     Task<bool> TouchActiveAsync(Guid userId, DateTimeOffset now, CancellationToken ct);
 
-    /// <summary>Sets <see cref="UserAccount.Role"/> (a value outside the CHECK is a caller bug). False when there is no such account.</summary>
-    Task<bool> SetRoleAsync(Guid userId, string role, CancellationToken ct);
-
     /// <summary>
     /// Deletes the account and, by the schema's cascades, every row it owns (ADR-031 rule 9); its LLM
     /// traces stay, they have no FK by design. False when there was no such account.

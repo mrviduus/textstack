@@ -216,12 +216,10 @@ export function useReaderVocabulary(marksLanguage: string | null, targetLang?: s
           // Prefer translation captured locally after pending was created (via updateTranslation).
           translation: existing?.translation ?? p.translation ?? null,
           definition: p.definition ?? null,
-          editionId: p.editionId ?? null,
           chapterId: p.chapterId ?? null,
           userBookId: p.userBookId ?? null,
           sentence: p.sentence ?? null,
           bookTitle: p.bookTitle ?? null,
-          nativeLanguage: p.nativeLanguage ?? null,
         })
         await deletePendingVocabWord(p.id).catch(() => {})
         // Another session since the flush began: its answers apply nothing here.

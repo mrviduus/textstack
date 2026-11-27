@@ -7,7 +7,6 @@ using Application.Ai;
 using Microsoft.Extensions.Options;
 using TextStack.Ai.Core;
 using TextStack.Ai.Llm;
-using TextStack.Ai.Tools;
 
 namespace Api.Endpoints;
 
@@ -25,7 +24,7 @@ public static class ExplainEndpoints
     private const int RetryOutputTokens = 1000;
 
     /// <summary>
-    /// The explanation, with the book's genre from <paramref name="resolveGenre"/> (CompatEndpoints). No tools.
+    /// The explanation, with the book's genre from <paramref name="resolveGenre"/> (CompatEndpoints).
     /// </summary>
     internal static async Task<IResult> ExplainAsync(
         ExplainRequest request,
@@ -34,8 +33,6 @@ public static class ExplainEndpoints
         IOptions<OpenAiOptions> openAi,
         ILlmService llm,
         Func<CancellationToken, Task<string?>> resolveGenre,
-        Guid? userId,
-        ToolCallingSession toolSession,
         ILogger logger,
         CancellationToken ct)
     {
@@ -60,9 +57,6 @@ public static class ExplainEndpoints
         var cacheKey = ComputeCacheKey(
             request.Word, request.Sentence, genre, targetLang, openAi.Value.Explain.Model, ExplainPrompt.Version);
 
-        IReadOnlyList<ToolSchema> tools = [];
-        var toolCtx = new ToolContext(userId, null, AgentRunId: Guid.NewGuid(), httpContext.RequestServices);
-
         var systemPrompt = ExplainPrompt.BuildSystemPrompt(genre, targetLang);
         var userPrompt = ExplainPrompt.BuildUserPrompt(request.Word, request.Sentence);
 
@@ -70,8 +64,8 @@ public static class ExplainEndpoints
             v is not null && v.Contains("text/event-stream", StringComparison.OrdinalIgnoreCase));
 
         return wantsSse
-            ? ExplainSse(request.Word, systemPrompt, userPrompt, cache, cacheKey, llm, toolSession, tools, toolCtx, httpContext, logger)
-            : await ExplainJson(request.Word, systemPrompt, userPrompt, cache, cacheKey, llm, toolSession, tools, toolCtx, logger, ct);
+            ? ExplainSse(request.Word, systemPrompt, userPrompt, cache, cacheKey, llm, httpContext, logger)
+            : await ExplainJson(request.Word, systemPrompt, userPrompt, cache, cacheKey, llm, logger, ct);
     }
 
     // ---- JSON path (original contract; mobile + non-streaming clients) ----
@@ -79,7 +73,6 @@ public static class ExplainEndpoints
     private static async Task<IResult> ExplainJson(
         string word, string systemPrompt, string userPrompt,
         FileJsonCache<ExplainResponse> cache, string cacheKey, ILlmService llm,
-        ToolCallingSession toolSession, IReadOnlyList<ToolSchema> tools, ToolContext toolCtx,
         ILogger logger, CancellationToken ct)
     {
         if (await ReadCachedAsync(cache, cacheKey, ct) is { } cachedText)
@@ -87,12 +80,10 @@ public static class ExplainEndpoints
 
         try
         {
-            var (response, usedTools) = await toolSession.CompleteAsync(
-                llm, BuildRequest(systemPrompt, userPrompt, MaxOutputTokens, tools), toolCtx, ct);
-            var text = response.Text;
+            var text = (await llm.CompleteAsync(BuildRequest(systemPrompt, userPrompt, MaxOutputTokens), ct)).Text;
 
             // Reasoning models can exhaust the visible budget on internal reasoning
-            // and return empty. Retry once with doubled budget (no tools) before giving up.
+            // and return empty. Retry once with doubled budget before giving up.
             if (string.IsNullOrWhiteSpace(text))
             {
                 logger.LogWarning("Explain got empty result at {Max} tokens, retrying with {Retry}",
@@ -103,10 +94,7 @@ public static class ExplainEndpoints
             if (string.IsNullOrWhiteSpace(text))
                 return Results.Problem("LLM returned empty explanation", statusCode: 502);
 
-            // Tool-grounded answers can be user-specific (highlights, progress-gated search) —
-            // never write them to the shared cache.
-            if (!usedTools)
-                await WriteCachedAsync(cache, cacheKey, text, ct);
+            await WriteCachedAsync(cache, cacheKey, text, ct);
             return Results.Ok(new ExplainResponse(text, word, Cached: false));
         }
         catch (TaskCanceledException)
@@ -125,26 +113,19 @@ public static class ExplainEndpoints
     private static IResult ExplainSse(
         string word, string systemPrompt, string userPrompt,
         FileJsonCache<ExplainResponse> cache, string cacheKey, ILlmService llm,
-        ToolCallingSession toolSession, IReadOnlyList<ToolSchema> tools, ToolContext toolCtx,
         HttpContext httpContext, ILogger logger)
     {
         // Cloudflare/nginx must not buffer the stream (playbook Phase 5 risk).
         httpContext.Response.Headers["X-Accel-Buffering"] = "no";
         httpContext.Response.Headers.CacheControl = "no-cache";
 
-        // Tool-grounded answers can be user-specific — skip the shared-cache write for them.
-        // The flag is set before round 2 streams, so it's final by the time persist runs.
-        var usedTools = false;
-
         return TypedResults.ServerSentEvents(StreamEventsAsync(
             word,
-            primary: ct => toolSession.StreamAsync(
-                llm, BuildRequest(systemPrompt, userPrompt, MaxOutputTokens, tools), toolCtx,
-                onToolRound: () => usedTools = true, ct),
+            primary: ct => llm.StreamAsync(BuildRequest(systemPrompt, userPrompt, MaxOutputTokens), ct),
             fallback: async ct =>
                 (await llm.CompleteAsync(BuildRequest(systemPrompt, userPrompt, RetryOutputTokens), ct)).Text,
             readCache: ct => ReadCachedAsync(cache, cacheKey, ct),
-            persist: (text, ct) => usedTools ? Task.CompletedTask : WriteCachedAsync(cache, cacheKey, text, ct),
+            persist: (text, ct) => WriteCachedAsync(cache, cacheKey, text, ct),
             onException: ex => logger.LogError(ex, "Explain stream failed"),
             ct: httpContext.RequestAborted));
     }
@@ -270,10 +251,8 @@ public static class ExplainEndpoints
     private static Task WriteCachedAsync(FileJsonCache<ExplainResponse> cache, string key, string explanation, CancellationToken ct) =>
         cache.WriteAsync(key, new ExplainResponse(explanation, "", false), ct);
 
-    private static LlmRequest BuildRequest(
-        string systemPrompt, string userPrompt, int maxTokens, IReadOnlyList<ToolSchema>? tools = null) =>
-        new(systemPrompt, [new LlmMessage("user", userPrompt)], maxTokens,
-            Tools: tools is { Count: > 0 } ? tools : null, FeatureTag: FeatureTag);
+    private static LlmRequest BuildRequest(string systemPrompt, string userPrompt, int maxTokens) =>
+        new(systemPrompt, [new LlmMessage("user", userPrompt)], maxTokens, FeatureTag: FeatureTag);
 
     // Prompt version + model are in the key so a prompt fix or model swap is not hidden behind 30 days of cache.
     internal static string ComputeCacheKey(

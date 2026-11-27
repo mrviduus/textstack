@@ -16,7 +16,7 @@ vi.mock('../../api/tts', () => ({
 }))
 const cachedTts = vi.fn()
 vi.mock('../../lib/offlineDb', async (orig) => ({ ...(await orig<object>()), getCachedTtsAudio: (...a: unknown[]) => cachedTts(...a), cacheTtsAudio: async () => {} }))
-vi.mock('../../api/translation', () => ({ translate: async () => ({ translatedText: 'x' }), getLanguages: async () => [] }))
+vi.mock('../../api/translation', () => ({ translate: async () => ({ translatedText: 'x' }) }))
 
 const WIDTH = 1000
 const frame = () => screen.getByTitle('Book text') as HTMLIFrameElement

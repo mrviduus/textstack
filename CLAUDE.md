@@ -135,11 +135,11 @@ API → Application → Domain ← Infrastructure
 - **Infrastructure**: Dapper repositories over one `AppDataSource` (`Infrastructure/Persistence/`, ADR-028), file stores. No EF Core.
 - **API/Worker**: Orchestration, DI. The Worker runs `RetentionCleanupWorker` (retention rules + the library's byte sweeps). It parses no books: the reader is the only parser (ADR-033).
 
-**Backend class libraries** (`backend/src/`, beyond the layers above): `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server).
+**Backend class libraries** (`backend/src/`, beyond the layers above): `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, evals, MCP server).
 
 ### Shared Frontend Package (`packages/`)
 
-**`@textstack/shared`** (`packages/shared/src/`) — cross-platform TS shared by web and mobile, consumed via source path-aliases (not published / built; `apps/web` resolves it in `vite.config.ts` + `tsconfig.json`, mobile via its bundler config). The home for platform-agnostic logic: `api/` (client, sync calls: `sync`, `books`, `upload`, `vocabulary`), `types/api`, `i18n/`, `reader/` (locators, `pageEntry`, progress), `lib/` (`capabilities`, `pathPrefix`, …), `vocabLevel`, `vocabularyConstants`. Edit here, not in app copies, when both clients need it.
+**`@textstack/shared`** (`packages/shared/src/`) — cross-platform TS shared by web and mobile, consumed via source path-aliases (not published / built; `apps/web` resolves it in `vite.config.ts` + `tsconfig.json`, mobile via its bundler config). The home for platform-agnostic logic: `api/` (client, sync calls: `sync`, `books`, `upload`, `vocabulary`), `types/api`, `i18n/`, `reader/` (locators, `pageEntry`, progress), `lib/` (`capabilities`, …), `vocabularyConstants`. Edit here, not in app copies, when both clients need it.
 
 **Middleware pipeline** (`backend/src/Api/Program.cs`; order matters): `ForwardedHeaders` → `Cors` → `AppVersion` (mobile `X-App-Version` → log scope + Sentry tag) → `ExceptionMiddleware` → `UserStoragePolicy` (404 under users/, library/, uploads/; must precede StaticFiles) → `StaticFiles(/storage)` → `/health`, `/health/ready` → `Routing` → `WriteFreeze` (off unless configured) → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `AccountGuard` (refuses tokens of a reset or deleted account) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (`/admin/*` except `/admin/auth`) → `PathGates` (`/me/*` → 401 without a user, `/internal/*` → 403 off the docker network; ADR-024)
 
@@ -169,7 +169,7 @@ Context files: `apps/web/src/context/{Auth,GuestLimits,NativeLanguage,Language}C
 
 **i18n**: `apps/web/src/locales/en.json`. Hook: `useTranslation()`. Languages: `['en']`.
 
-**API client layer**: `apps/web/src/api/` — `client.ts` (runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `sync.ts` (sync), `auth.ts`, `explain.ts`, `oauth.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `vocabulary.ts`.
+**API client layer**: `apps/web/src/api/` — `client.ts` (runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `sync.ts` (sync), `auth.ts`, `oauth.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `vocabulary.ts`.
 
 **Hooks** (`apps/web/src/hooks/`), e.g. reader: `useReadingSession`, `useReaderSettings`, `useReaderVocabulary`, `useImmersiveMode`, `useTextTranslation`, `useTts`, `useDarkMode`; library: `useLibrarySource`, `useLibraryStatus`, `useLibrarySort`, `useLibrarySearch`, `useBookActions`; vocabulary: `useVocabulary`, `useVocabularyReview`; UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useOnline`.
 
@@ -228,7 +228,7 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 
 ## Area guides and key files
 
-Area guides load on their own: `backend/CLAUDE.md` (key files, every API route) and `apps/mobile/CLAUDE.md` (Expo, offline, Play/OTA release) when working there; procedures and topic guides are skills in `.claude/skills/` (`features`, `operations`, `add-entity`, `add-tool`). Runbooks and postmortems: `docs/internal/ops/`, `docs/internal/incidents/`.
+Area guides load on their own: `backend/CLAUDE.md` (key files, every API route) and `apps/mobile/CLAUDE.md` (Expo, offline, Play/OTA release) when working there; procedures and topic guides are skills in `.claude/skills/` (`features`, `operations`, `add-entity`). Runbooks and postmortems: `docs/internal/ops/`, `docs/internal/incidents/`.
 
 | Area | Path |
 |------|------|

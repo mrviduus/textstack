@@ -39,7 +39,6 @@ Docker services (docker-compose.yml, all bound to 127.0.0.1):
   api         HTTP API + the TTS cache sweep
   worker      retention cleanup + the library's file sweeps
   admin       nginx serving the admin SPA
-  ollama      local LLM (gemma4:e2b) for local tasks
   mcp-server  MCP↔HTTP bridge (profile `mcp`; prod deploy enables it)
   aspire-dashboard  OpenTelemetry UI (profile `observability`)
 ```
@@ -52,21 +51,20 @@ Docker services (docker-compose.yml, all bound to 127.0.0.1):
 |---------|------|
 | `Domain` | Entities, enums, value objects |
 | `Contracts` | Request/response DTOs, MCP manifest. No references |
-| `Application` | Services + repository interfaces, `IFileStorageService`. References Domain, Contracts, Vocabulary, Ai.Core, Ai.Llm, Ai.Agents |
+| `Application` | Services + repository interfaces, `IFileStorageService`. References Domain, Contracts, Vocabulary, Ai.Core, Ai.Llm |
 | `Infrastructure` | Dapper repositories over one `AppDataSource` (`Persistence/`, [ADR-028](adr/ADR-028-dapper-and-repositories.md)), `LibraryFileStore`, `LocalFileStorageService`, `ResendEmailService`, `ImageOptimizer` |
 | `Api` | Minimal API endpoints (`Api/Endpoints/`), middleware |
 | `Worker` | Background host: retention cleanup, file sweeps. Parses no books (ADR-033) |
 | `Tts/TextStack.Tts` | Edge TTS WebSocket client + disk cache |
 | `Vocabulary/TextStack.Vocabulary` | SRS engine, review cards, distractor generator |
 | `Ai/TextStack.Ai.Core` | AI abstractions (`ILlmService` etc.) |
-| `Ai/TextStack.Ai.Llm` | `ModelGateway`: OpenAI + Ollama clients, routing, tracing, budgets |
-| `Ai/TextStack.Ai.Tools`, `Ai/TextStack.Ai.Agents` | Tool calling + agent loop (`EnrichmentAgent` in `Application/Ai/`) |
+| `Ai/TextStack.Ai.Llm` | `ModelGateway`: OpenAI clients, routing, tracing, budgets |
 | `Ai/TextStack.Ai.Evals`, `Ai/TextStack.Ai.EvalSuite` | Eval framework + runners |
 | `Ai/TextStack.Ai.Mcp` | MCP server; references only `Contracts`, talks to the API over HTTP |
 
 Deleted and gone from the solution: `TextStack.Epub` (2026-09-28), `TextStack.Search.Meilisearch`
 and `search_documents` (2026-10-01), `TextStack.Ai.Rag` and all chat/RAG features (2026-09-10),
-`TextStack.Search` and EF Core (M6, 2026-11-17).
+`TextStack.Search` and EF Core (M6, 2026-11-17), `TextStack.Ai.Tools` and `TextStack.Ai.Agents` (#1625).
 Empty `bin/obj` folders of those may still exist in local checkouts.
 
 ## Dependency rules
@@ -111,7 +109,6 @@ All queues are Postgres tables polled by the consumer; there is no message broke
 | `./data/storage` (bind mount, [ADR-001](adr/001-storage-bind-mounts.md)) | Avatars + upload covers, served at `/storage` |
 | `./data/library` | Book files, outside the public root (`LibraryFileStore`) |
 | `./data/tts-cache`, `./data/explain-cache`, `./data/translate-cache` | SHA256-keyed disk caches |
-| `./data/ollama` | Ollama models |
 | Web IndexedDB (`offlineDb.ts`) | Highlights, translations, explains, TTS audio, pending vocabulary |
 | Mobile files + local library (`v2reader/hostStorage.ts`, `localLibrary.ts`) | Book files and their rows, read offline |
 
@@ -132,7 +129,6 @@ Details: [frontend.md](frontend.md).
 | Service | Used for | Failure mode |
 |---------|----------|--------------|
 | OpenAI | Translate (`gpt-4.1-mini`), Explain (`gpt-4.1-mini`) | Feature returns error; reading unaffected |
-| Ollama (self-hosted) | Local LLM tasks (routes in `AiRouteMap`) | Soft in `/health/ready` |
 | Edge TTS (`speech.platform.bing.com`, no key) | Text-to-speech | No audio |
 | Resend | Password reset, admin alert emails | No email |
 | Google / Apple sign-in | OAuth login | Email/password and guest still work |
