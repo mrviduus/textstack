@@ -7,7 +7,7 @@ import { ReaderHost, type HostBook } from './ReaderHost'
 // host (the page has no network), driven through a fake frame as ReaderHost.chrome.test.tsx.
 
 const translate = vi.fn()
-vi.mock('../../api/translation', () => ({ translate: (...a: unknown[]) => translate(...a), getLanguages: async () => [] }))
+vi.mock('../../api/translation', () => ({ translate: (...a: unknown[]) => translate(...a) }))
 const postSse = vi.fn()
 vi.mock('../../lib/sse', () => ({ postSse: (...a: unknown[]) => postSse(...a), SseUnsupportedError: class extends Error {} }))
 

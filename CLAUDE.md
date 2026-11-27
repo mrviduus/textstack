@@ -169,7 +169,7 @@ Context files: `apps/web/src/context/{Auth,GuestLimits,NativeLanguage,Language}C
 
 **i18n**: `apps/web/src/locales/en.json`. Hook: `useTranslation()`. Languages: `['en']`.
 
-**API client layer**: `apps/web/src/api/` — `client.ts` (runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `sync.ts` (sync), `auth.ts`, `explain.ts`, `oauth.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `vocabulary.ts`.
+**API client layer**: `apps/web/src/api/` — `client.ts` (runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `sync.ts` (sync), `auth.ts`, `oauth.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `vocabulary.ts`.
 
 **Hooks** (`apps/web/src/hooks/`), e.g. reader: `useReadingSession`, `useReaderSettings`, `useReaderVocabulary`, `useImmersiveMode`, `useTextTranslation`, `useTts`, `useDarkMode`; library: `useLibrarySource`, `useLibraryStatus`, `useLibrarySort`, `useLibrarySearch`, `useBookActions`; vocabulary: `useVocabulary`, `useVocabularyReview`; UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useOnline`.
 

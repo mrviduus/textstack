@@ -35,7 +35,6 @@ vi.mock('../../api/translation', () => ({
   // The popup's own request (it passes a signal) resolves through `translation`; the hook's backfill (three
   // arguments) never answers, so a test sees only the popup's translation path.
   translate: (...a: unknown[]) => new Promise((r) => { if (a.length > 3) translation = r; else if (backfill) r(backfill(a)) }),
-  getLanguages: async () => [],
 }))
 const pending: Record<string, { id: string }> = {}
 vi.mock('../../lib/offlineDb', async (orig) => ({

@@ -8,13 +8,8 @@ vi.mock('../../lib/offlineDb', () => ({
   clearOldTranslations: vi.fn(() => Promise.resolve()),
 }))
 
-// Ensure the hook does NOT call the backend languages endpoint anymore.
-// Rest-param signature so the passthrough spread type-checks; the closure keeps
-// access lazy (vi.mock factories are hoisted above this declaration).
-const getLanguages = vi.fn((..._a: unknown[]) => Promise.reject(new Error('should not be called')))
 vi.mock('../../api/translation', () => ({
   translate: vi.fn(),
-  getLanguages: (...args: unknown[]) => getLanguages(...args),
 }))
 
 import { useTextTranslation } from '../useTextTranslation'
@@ -40,11 +35,6 @@ describe('useTextTranslation — language catalogue', () => {
     expect(codes).toContain('sw')
     expect(codes).toContain('cy')
     expect(codes).toContain('vi')
-  })
-
-  it('does not fetch languages from the backend', () => {
-    renderHook(() => useTextTranslation({ defaultSourceLang: 'en' }))
-    expect(getLanguages).not.toHaveBeenCalled()
   })
 
   it('honors default source/target langs', () => {

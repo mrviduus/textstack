@@ -16,7 +16,6 @@ vi.mock('./WordPopup', () => ({
 const answers: Record<string, (v: unknown) => void> = {}
 vi.mock('../../api/translation', () => ({
   translate: (text: string) => new Promise((r) => { answers[text] = r }),
-  getLanguages: async () => [],
 }))
 
 afterEach(cleanup)

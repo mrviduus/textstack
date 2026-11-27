@@ -64,18 +64,6 @@ export interface ReadingProgressDto {
   clientUpdatedAt?: string | null
 }
 
-// Bookmarks
-export interface BookmarkDto {
-  id: string
-  editionId: string
-  chapterId: string
-  locator: string
-  title: string | null
-  createdAt: string
-  /** Derived from locator for convenience — not from backend */
-  chapterSlug?: string
-}
-
 // Vocabulary
 export interface VocabularyWordDto {
   id: string
@@ -107,40 +95,6 @@ export interface WeeklyProgressDto {
   resetAt: string
 }
 
-export interface DailyCapDto {
-  used: number
-  cap: number
-  remaining: number
-}
-
-export interface VocabularyStatsDto {
-  totalWords: number
-  byStage: {
-    new: number
-    recognition: number
-    recall: number
-    context: number
-    mastered: number
-  }
-  dueNow: number
-  retiredCount: number
-  pendingCount: number
-  lookupCount: number
-  clusterCount: number
-  dailyCap: DailyCapDto
-  weeklyProgress: WeeklyProgressDto
-  reviewedToday: number
-  correctRateToday: number
-  srsReviewedToday: number
-  srsCorrectRateToday: number
-  practicedToday: number
-  practiceCorrectRateToday: number
-  totalReviews: number
-  overallCorrectRate: number
-  streak: number
-  wordsByBook: { editionId: string | null; userBookId: string | null; bookTitle: string; count: number }[]
-}
-
 /** 'deleted' (V2): the reader deleted this word earlier; `word` is the tombstone, restore is offered. */
 export type SaveWordOutcome = 'srs' | 'pending' | 'lookup' | 'lookup_pending' | 'already_saved' | 'deleted'
 
@@ -151,69 +105,6 @@ export interface SaveWordResponseDto {
   lookupId: string | null
   tapsRemaining: number | null
   reason: string | null
-}
-
-export interface WordLookupDto {
-  id: string
-  word: string
-  language: string
-  zipfRank: number | null
-  tapCount: number
-  sentence: string | null
-  bookTitle: string | null
-  editionId: string | null
-  chapterId: string | null
-  userBookId: string | null
-  lastTranslation: string | null
-  firstTappedAt: string
-  lastTappedAt: string
-}
-
-export interface WordLookupListResponseDto {
-  items: WordLookupDto[]
-  total: number
-}
-
-export interface PendingVocabWordDto {
-  id: string
-  word: string
-  language: string
-  translation: string | null
-  definition: string | null
-  editionId: string | null
-  chapterId: string | null
-  userBookId: string | null
-  sentence: string | null
-  bookTitle: string | null
-  priority: number
-  source: string
-  createdAt: string
-}
-
-export interface PendingListResponseDto {
-  items: PendingVocabWordDto[]
-  dailyUsed: number
-  dailyCap: number
-  dailyRemaining: number
-}
-
-export interface VocabSettingsDto {
-  dailyNewCap: number
-  weeklyReviewBudget: number
-  frequencyFilterEnabled: boolean
-  clusteringEnabled: boolean
-  autoRetireEnabled: boolean
-  /** Speak the word when a review card appears. */
-  autoSpeakCards: boolean
-}
-
-export interface VocabDailyStatDto {
-  date: string
-  wordsAdded: number
-  reviewCount: number
-  correctCount: number
-  practiceCount: number
-  srsCount: number
 }
 
 export interface ReviewCardDto {
@@ -238,9 +129,9 @@ export interface ReviewCardDto {
    * `'context'` locally when the tutor synthesizes a flashcard from a plan item
    * (`buildPlanCard`), purely because the field is required.
    *
-   * Left in place deliberately: removing it is a code change across two DTO
-   * copies (this one and `apps/web/src/api/vocabulary.ts`), the server contract
-   * and the projections, and it belongs in its own slice. Do not build on it.
+   * Left in place deliberately: removing it is a code change across this DTO,
+   * the server contract and the projections, and it belongs in its own slice.
+   * Do not build on it.
    */
   reviewMode: 'multiple_choice' | 'context' | 'flashcard'
   blankSentence: string | null
@@ -266,29 +157,6 @@ export interface SubmitReviewResponse {
   correctReviews: number
 }
 
-export interface WordClusterDto {
-  id: string
-  title: string
-  theme: string | null
-  editionId: string | null
-  userBookId: string | null
-  bookTitle: string | null
-  memberCount: number
-  cohesionScore: number
-  isConfirmed: boolean
-  createdAt: string
-}
-
-export interface ClusterListResponseDto {
-  items: WordClusterDto[]
-}
-
-export interface ClusterBonusResponse {
-  clusterId: string
-  title: string
-  cards: ReviewCardDto[]
-}
-
 // Reading Stats — `GET /me/v2/stats` (#1366)
 export type ReadingStatsPeriod = 'week' | 'month' | 'halfyear' | 'year'
 
@@ -309,27 +177,6 @@ export interface ReadingStatsDto {
   currentStreak: number
   bestStreak: number
   bars: ReadingStatsBar[]
-}
-
-export interface DailyStatDto {
-  date: string
-  totalSeconds: number
-  totalWords: number
-  sessionCount: number
-}
-
-export interface AchievementDto {
-  code: string
-  unlockedAt: string
-}
-
-export interface GoalDto {
-  id: string
-  goalType: string
-  targetValue: number
-  year: number
-  streakMinMinutes: number
-  updatedAt: string
 }
 
 // Library (matches backend LibraryItemDto)

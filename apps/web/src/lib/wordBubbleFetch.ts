@@ -6,7 +6,7 @@
 // Caller owns bubble state + abort controller; we kick off the async fetches and
 // merge results via `patch`, which the caller guards against a stale bubble word.
 
-import { explain as explainApi } from '../api/explain'
+import { explainApi } from '@textstack/shared'
 import { translate as translateApi } from '../api/translation'
 
 /** Subset of bubble fields the fetcher touches — caller extends their full state. */
@@ -45,7 +45,7 @@ export function fetchWordBubble(opts: FetchWordBubbleOpts) {
 
   // Explain (definition mode only). Any failure (rate limit, 503, offline) shows nothing.
   if (explainInContext) {
-    explainApi({ word, sentence: sentence || word, bookId, targetLang: bookLanguage }, signal)
+    explainApi.explain({ word, sentence: sentence || word, bookId, targetLang: bookLanguage }, signal)
       .then((res) => {
         if (signal.aborted) return
         patch({ definition: res?.explanation || null, definitionLoading: false })
