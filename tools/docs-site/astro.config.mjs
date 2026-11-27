@@ -23,7 +23,7 @@ export default defineConfig({
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/mrviduus/textstack' }],
       editLink: { baseUrl: 'https://github.com/mrviduus/textstack/edit/main/tools/docs-site/' },
       sidebar: [
-        { label: 'Stories', items: ['stories', 'glossary'] },
+        { label: 'Stories', items: ['stories', 'glossary', 'writing'] },
         {
           label: 'Start',
           items: [

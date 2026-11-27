@@ -1,6 +1,6 @@
 # Backend guide
 
-Loaded when working under `backend/`. Rewritten for one database at M6 (2026-11-17). Layers, middleware order and patterns: the root `CLAUDE.md`.
+Claude loads this guide when it works under `backend/`. The guide was rewritten for one database at M6 (2026-11-17). For layers, middleware order and patterns, read the root `CLAUDE.md`.
 
 ## Key files
 
@@ -25,7 +25,7 @@ Loaded when working under `backend/`. Rewritten for one database at M6 (2026-11-
 
 ## API endpoints
 
-Source of truth: `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`) and, for every ungated route, `tests/TextStack.UnitTests/Routes/routes.public.txt`.
+The source of truth is `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`). For every ungated route, `tests/TextStack.UnitTests/Routes/routes.public.txt` is also a source of truth.
 
 **Public**: `POST /explain`, `POST /translate` (nginx maps `/api/translate` onto it), `GET /tts?text=&lang=&voice=&speed=` (`/tts/timestamps`, `/tts/voices`), `GET /app/config`, `GET /mcp/manifest`, `GET /health`, `GET /health/ready`
 
@@ -35,18 +35,18 @@ Source of truth: `backend/src/Api/Endpoints/` (`Map*Endpoints()` in `Program.cs`
 
 **Account**: `GET/PUT /me/profile`, `POST/DELETE /me/profile/avatar`, `DELETE /me/account`, `GET/POST/DELETE /me/mcp/keys`
 
-**Sync API** `/me/v2` (every route, payload and code: `docs/internal/v2/v2-sync-protocol.md` "Endpoints"; `SyncGate` filter):
+**Sync API** `/me/v2` (`SyncGate` filter). Every route, payload and code is in `docs/internal/v2/v2-sync-protocol.md` "Endpoints".
 - status: `GET /status`
 - library: `GET /library/changes`, `GET /books/by-sha256/{sha256}`, `PUT/PATCH/DELETE /books/{id}`, `POST /books/{id}/restore`, `PUT /books/{id}/files/{fileId}` (replace)
 - bytes: `PUT /books/{id}/files/{fileId}/parts/{index}`, `POST|GET|DELETE /books/{id}/files/{fileId}/content`, `PUT|GET /books/{id}/cover`
-- TOC (ADR-033 P3): `PUT /books/{id}/files/{fileId}/toc`; chapters: `GET /books/{id}/files/{fileId}/chapters` (the synced `toc`, empty until a reader writes it; no chapter text, ADR-033)
+- TOC (ADR-033 P3): `PUT /books/{id}/files/{fileId}/toc`; chapters: `GET /books/{id}/files/{fileId}/chapters` (the synced `toc`; empty until a reading screen writes it; no chapter text, ADR-033)
 - reading: `GET /reading/changes`, `GET/PUT /books/{id}/reading-state`, `POST /books/{id}/reading-state/reset`, `PUT /reading/sessions/{clientSessionId}`, `GET /stats?period=&tz=` (#1366)
 - annotations (highlights, notes, bookmarks): `GET /annotations/changes`, `PUT/DELETE /annotations/{id}`
 - vocabulary: `GET /vocabulary/changes`, `GET /vocabulary/due`, `PUT /vocabulary/words`, `GET/PATCH/DELETE /vocabulary/words/{id}`, `POST /vocabulary/words/{id}/{restore,examples}`, `POST /vocabulary/reviews`
 - discussion: `POST/GET /books/{id}/shares`, `GET/DELETE /shares/{id}`, `POST/GET /books/{id}/checkpoints`, `DELETE /checkpoints/{id}`, `GET/POST /books/{id}/insights`
 
-**Old paths answered from V2** (`CompatEndpoints.cs`; clients still call them): `POST /me/books/clip` (browser extension), `GET /me/highlights/all`
+**Old paths answered from V2** (`CompatEndpoints.cs`). Clients still call them: `POST /me/books/clip` (browser extension), `GET /me/highlights/all`
 
-**Admin**: `POST /admin/auth/{login,logout,refresh}`, `GET /admin/auth/me`. Nothing else (the admin app is a shell, M6 D2).
+**Admin**: `POST /admin/auth/{login,logout,refresh}`, `GET /admin/auth/me`. Nothing else: the admin app is a shell (M6 D2).
 
-**Internal**: none mapped; `/internal/*` stays 403 off the docker network (`PathGates`).
+**Internal**: no routes are mapped. `PathGates` returns 403 for `/internal/*` off the docker network.

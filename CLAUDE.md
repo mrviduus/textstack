@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file gives guidance to Claude Code (claude.ai/code) for work with the code in this repository.
 
 ## Project
 
-Personal book library w/ a Kindle-like reader. Upload EPUB, MOBI, AZW3, FB2, CBZ or PDF → read it on web and Android, synced, offline on the phone.
+A personal book library with an e-book reading screen. The reader adds an EPUB, MOBI, AZW3, FB2, CBZ or PDF file. Then the reader reads it on the web and on Android, with sync, and offline on the phone.
 
 **Live**: [textstack.app](https://textstack.app/) (app) · [textstack.dev](https://textstack.dev/) (admin shell)
 
@@ -14,23 +14,28 @@ Personal book library w/ a Kindle-like reader. Upload EPUB, MOBI, AZW3, FB2, CBZ
 
 **CI/CD**: Push to `main` → auto-deploy.
 
-**History**: the V2 program (#1013) finished 2026-11-17: one database, one reader, the public catalog/SEO/SSG retired. Plan and decisions, kept as history: [`docs/internal/v2/`](docs/internal/v2/), ADR-029–032. Where the project is now: [`docs/STATUS.md`](docs/STATUS.md).
+**History**: the V2 program (#1013) finished on 2026-11-17. The result: one database, one reading screen, and no public catalog, SEO or SSG. The plan and the decisions stay as history: [`docs/internal/v2/`](docs/internal/v2/), ADR-029–032. Where the project is now: [`docs/STATUS.md`](docs/STATUS.md).
 
-**The reader** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine): our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA) built by `packages/reader/src/build.mjs` into a committed generated page under a nonce CSP. Hosts: Android `apps/mobile/src/components/reader/ReaderScreen.tsx` (route `app/my-books/read/…`; dev route `app/dev/epub.tsx`, `__DEV__` only) and web `apps/web/src/components/reader/ReaderHost.tsx` (route `/:lang/library/my/:id/read`; dev route `/dev/reader`, dev server only, `main.tsx`). The web build ships `dist/reader/` = a no-store frame shell (nonce filled by nginx `sub_filter`) + the content-hashed page script; nginx locations in `infra/nginx/textstack.conf`, checked by `prodCsp.check.mjs`. Own README in `packages/reader/`. iOS has no reader (M6 D4).
+**The reading screen** ([ADR-029](docs/architecture/adr/ADR-029-foliate-for-v2-epub.md) sandbox, [ADR-032](docs/architecture/adr/ADR-032-one-engine-foliate-fork.md) one engine):
+- The engine is our foliate-js fork (`mrviduus/foliate-js`, pinned by SHA). `packages/reader/src/build.mjs` builds it into a generated page. The page is committed and runs under a nonce CSP.
+- Android host: `apps/mobile/src/components/reader/ReaderScreen.tsx`, route `app/my-books/read/…`. Dev route: `app/dev/epub.tsx`, only in `__DEV__`.
+- Web host: `apps/web/src/components/reader/ReaderHost.tsx`, route `/:lang/library/my/:id/read`. Dev route: `/dev/reader`, only on the dev server (`main.tsx`).
+- The web build ships `dist/reader/`: a no-store frame shell and the content-hashed page script. nginx `sub_filter` fills the nonce in the shell. The nginx locations are in `infra/nginx/textstack.conf`, and `prodCsp.check.mjs` checks them.
+- `packages/reader/` has its own README. iOS has no reading screen (M6 D4).
 
 ## Where to write things down
 
-The PR is the changelog (#1220). Readers see the `/changelog` page (merged PRs by week; `public` ones in plain words, chosen weekly by `/changelog-week`). No GitHub releases for the app: Android notes go to Play's "What's new". Nobody writes changelog lines.
+The PR is the changelog (#1220). Readers see the `/changelog` page: merged PRs by week. It shows the `public` PRs in plain words; `/changelog-week` chooses them each week. The app has no GitHub releases: Android notes go to Play's "What's new". Nobody writes changelog lines.
 
 | Where | Job |
 |------|-----|
-| The PR | **Title** = one scannable line. **One area label** (`reading`, `library`, `highlights`, `vocabulary`, `assistant`, `account`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, article source material. |
+| The PR | **Title** = one scannable line. **One area label** (`reading`, `library`, `highlights`, `vocabulary`, `assistant`, `account`, `data`, `ops`, `documentation`; CI fails without one). **Description** = the full write-up, the source material for articles. |
 | `CHANGELOG.md` | **Frozen.** History up to the switch; never add to it. Older halves live in git history only. |
 | `docs/internal/incidents/` | Postmortems for anything that broke production. Start from `_TEMPLATE.md`. |
-| `docs/STATUS.md` | Where the project is *now*: in flight, deliberately-not-doing. Links to issues; never copies them. |
-| GitHub issues | **Every open item** (bug, review finding, deferred work), one issue each, labelled. A PR closes it with `Fixes #N`. Public: nothing private. Old STATUS items move to an issue when someone touches them. |
+| `docs/STATUS.md` | Where the project is *now*: work in flight, and what we deliberately do not do. It links to issues and never copies them. |
+| GitHub issues | **Every open item** (bug, review finding, deferred work), one issue each, with a label. A PR closes the issue with `Fixes #N`. Issues are public: put nothing private in them. When someone touches an old STATUS item, the item moves to an issue. |
 
-Load-bearing decisions still go to `docs/architecture/adr/`. Details: `.claude/commands/changelog.md`.
+Decisions that the design depends on still go to `docs/architecture/adr/`. Details: `.claude/commands/changelog.md`.
 
 ## Commands
 
@@ -119,7 +124,9 @@ npm run submit:android            # Submit to Google Play
 | Admin | http://localhost:81 | https://textstack.dev |
 | Aspire | http://127.0.0.1:18888 (`--profile observability`) | — |
 
-**Storage**: `./data/storage/` (`/storage`, public root) holds avatars and upload covers (`LocalFileStorageService.cs`). Book bytes: `./data/library/` (`/library`, `Storage:LibraryRoot`), outside the public root — `library/…`, `uploads/…` (`LibraryFileStore.cs`).
+**Storage**:
+- `./data/storage/` (`/storage`, the public root) holds avatars and the covers of uploaded books (`LocalFileStorageService.cs`).
+- The book files are in `./data/library/` (`/library`, `Storage:LibraryRoot`), outside the public root: `library/…`, `uploads/…` (`LibraryFileStore.cs`).
 
 ## Architecture
 
@@ -129,21 +136,39 @@ API → Application → Domain ← Infrastructure
                    Worker
 ```
 
-- **Domain**: Pure C#, no framework deps
+- **Domain**: Pure C#, no framework dependencies
 - **Application**: Business logic, repository interfaces
-- **Contracts**: Shared DTOs (request/response models) used by API and Application
+- **Contracts**: Shared DTOs (request/response models) for API and Application
 - **Infrastructure**: Dapper repositories over one `AppDataSource` (`Infrastructure/Persistence/`, ADR-028), file stores. No EF Core.
-- **API/Worker**: Orchestration, DI. The Worker runs `RetentionCleanupWorker` (retention rules + the library's byte sweeps). It parses no books: the reader is the only parser (ADR-033).
+- **API/Worker**: Orchestration, DI. The Worker runs `RetentionCleanupWorker` (retention rules and the byte sweeps of the library). The Worker parses no books: the reading screen (`packages/reader`) is the only parser (ADR-033).
 
-**Backend class libraries** (`backend/src/`, beyond the layers above): `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, evals, MCP server).
+**Backend class libraries** (`backend/src/`, in addition to the layers in the diagram): `Tts` (Edge TTS), `Vocabulary` (SRS, distractors), `Observability` (Sentry scrubber), `Ai/` (`TextStack.Ai.*`: LLM client, evals, MCP server).
 
 ### Shared Frontend Package (`packages/`)
 
-**`@textstack/shared`** (`packages/shared/src/`) — cross-platform TS shared by web and mobile, consumed via source path-aliases (not published / built; `apps/web` resolves it in `vite.config.ts` + `tsconfig.json`, mobile via its bundler config). The home for platform-agnostic logic: `api/` (client, sync calls: `sync`, `books`, `upload`, `vocabulary`), `types/api`, `i18n/`, `reader/` (locators, `pageEntry`, progress), `lib/` (`capabilities`, …), `vocabularyConstants`. Edit here, not in app copies, when both clients need it.
+**`@textstack/shared`** (`packages/shared/src/`): cross-platform TS for web and mobile.
+- Nobody publishes or builds the package. The apps use it through source path aliases: `apps/web` resolves it in `vite.config.ts` and `tsconfig.json`, mobile in its bundler config.
+- It holds the platform-agnostic logic: `api/` (client, sync calls: `sync`, `books`, `upload`, `vocabulary`), `types/api`, `i18n/`, `reader/` (locators, `pageEntry`, progress), `lib/` (`capabilities`, …), `vocabularyConstants`.
+- If both clients need a change, edit it here, not in app copies.
 
-**Middleware pipeline** (`backend/src/Api/Program.cs`; order matters): `ForwardedHeaders` → `Cors` → `AppVersion` (mobile `X-App-Version` → log scope + Sentry tag) → `ExceptionMiddleware` → `UserStoragePolicy` (404 under users/, library/, uploads/; must precede StaticFiles) → `StaticFiles(/storage)` → `/health`, `/health/ready` → `Routing` → `WriteFreeze` (off unless configured) → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `AccountGuard` (refuses tokens of a reset or deleted account) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (`/admin/*` except `/admin/auth`) → `PathGates` (`/me/*` → 401 without a user, `/internal/*` → 403 off the docker network; ADR-024)
+**Middleware pipeline** (`backend/src/Api/Program.cs`). The order matters:
+1. `ForwardedHeaders`
+2. `Cors`
+3. `AppVersion`: mobile `X-App-Version` → log scope + Sentry tag
+4. `ExceptionMiddleware`
+5. `UserStoragePolicy`: 404 under users/, library/, uploads/. It must come before StaticFiles.
+6. `StaticFiles(/storage)`
+7. `/health`, `/health/ready`
+8. `Routing`
+9. `WriteFreeze`: off if not configured
+10. `McpKeyAuth`
+11. `RateLimiter`: it must come after Routing. If not, the per-endpoint policies do nothing.
+12. `AccountGuard`: refuses the tokens of a reset or deleted account
+13. `GuestActivity`: LastActiveAt, 10 min debounce
+14. `AdminAuth`: `/admin/*` except `/admin/auth`
+15. `PathGates`: `/me/*` → 401 without a user, `/internal/*` → 403 off the docker network (ADR-024)
 
-User routes live under `/me` (sync API under `/me/v2`); `/internal` is local-only by middleware. Every other route is listed in `tests/TextStack.UnitTests/Routes/routes.public.txt` — a new public route fails `PublicRoutesSnapshotTests` until it is added there.
+User routes are under `/me`; the sync API is under `/me/v2`. A middleware keeps `/internal` local-only. `tests/TextStack.UnitTests/Routes/routes.public.txt` lists every other route. A new public route fails `PublicRoutesSnapshotTests` until you add it to that file.
 
 **Patterns**:
 - Endpoints: `Map{Domain}Endpoints()` in `Api/Endpoints/`
@@ -159,21 +184,21 @@ BrowserRouter → AuthProvider → GuestLimitsProvider → NativeLanguageProvide
 ```
 
 - **AuthProvider**: Google Sign-In, email/password, Apple auth, auto-refresh token, guest sessions
-- **GuestLimitsProvider**: word-count threshold that mints a guest session
-- **NativeLanguageProvider**: User's native language for translations/definitions direction
-- **LanguageProvider**: Inside language routes only. Extracts `lang` from URL params, provides `switchLanguage()`, `getLocalizedPath()`
+- **GuestLimitsProvider**: the word-count threshold that creates a guest session
+- **NativeLanguageProvider**: the reader's native language, for the direction of translations and definitions
+- **LanguageProvider**: only inside language routes. Takes `lang` from the URL params and gives `switchLanguage()`, `getLocalizedPath()`
 
 Context files: `apps/web/src/context/{Auth,GuestLimits,NativeLanguage,Language}Context.tsx`
 
-**Pages**: landing, library, book detail, reader, vocabulary + review, highlights, and static pages (about, privacy, terms, dmca, delete-account, contact, mcp, changelog, oauth consent, device, connect-extension, reset-password). Root `/` → `/en`.
+**Pages**: landing, library, book detail, reading screen, vocabulary + review, highlights, and static pages (about, privacy, terms, dmca, delete-account, contact, mcp, changelog, oauth consent, device, connect-extension, reset-password). Root `/` → `/en`.
 
 **i18n**: `apps/web/src/locales/en.json`. Hook: `useTranslation()`. Languages: `['en']`.
 
 **API client layer**: `apps/web/src/api/` — `client.ts` (runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `sync.ts` (sync), `auth.ts`, `oauth.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `vocabulary.ts`.
 
-**Hooks** (`apps/web/src/hooks/`), e.g. reader: `useReadingSession`, `useReaderSettings`, `useReaderVocabulary`, `useImmersiveMode`, `useTextTranslation`, `useTts`, `useDarkMode`; library: `useLibrarySource`, `useLibraryStatus`, `useLibrarySort`, `useLibrarySearch`, `useBookActions`; vocabulary: `useVocabulary`, `useVocabularyReview`; UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useOnline`.
+**Hooks** (`apps/web/src/hooks/`), for example, reading screen: `useReadingSession`, `useReaderSettings`, `useReaderVocabulary`, `useImmersiveMode`, `useTextTranslation`, `useTts`, `useDarkMode`; library: `useLibrarySource`, `useLibraryStatus`, `useLibrarySort`, `useLibrarySearch`, `useBookActions`; vocabulary: `useVocabulary`, `useVocabularyReview`; UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useOnline`.
 
-**Admin panel**: `apps/admin/`, a shell (M6 D2): login and an empty home. Backend: `/admin/auth/*` + `AdminAuthMiddleware`; admins come from `create-admin`.
+**Admin panel**: `apps/admin/`, a shell (M6 D2): login and an empty home. Backend: `/admin/auth/*` + `AdminAuthMiddleware`. `create-admin` makes the admins.
 
 ## Test Projects
 
@@ -190,7 +215,7 @@ apps/mobile/e2e/                   # Mobile Playwright E2E (not run by CI; needs
 
 **E2E setup**: global setup logs in the test user (`helpers/api.ts` `testLogin`) and stores its state in `apps/web/e2e/.auth/`.
 
-**Running the integration suite locally**: it trips its own rate limits at production values. CI raises the knobs; do the same locally or you will read 429s as failures:
+**Running the integration suite locally**: at production values, the suite goes over its own rate limits. CI sets higher limits. Do the same locally, or you will read 429s as failures:
 
 ```bash
 make migrate                  # once: the database the suite reads
@@ -204,35 +229,35 @@ SYNC_API_TESTS=1 dotnet test tests/TextStack.IntegrationTests   # without SYNC_A
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```
 
-Also: the windows are 1–5 minutes, so **two overlapping runs throttle each other**. Run the suite once and read the result, rather than re-running to confirm a failure.
+The rate-limit windows are 1–5 minutes, so **two overlapping runs throttle each other**. Run the suite once and read the result. Do not run it again to confirm a failure.
 
 **Test env vars**:
-- `ENABLE_TEST_AUTH=true` — enables test auth endpoints (needed for integration + E2E)
-- `ADMIN_EMAIL` / `ADMIN_PASSWORD` — the admin login tests
-- `SYNC_API_TESTS=1`, `TEST_DB_CONNECTION` — see above
+- `ENABLE_TEST_AUTH=true`: turns on the test auth endpoints (the integration and E2E tests need them)
+- `ADMIN_EMAIL` / `ADMIN_PASSWORD`: the admin login tests
+- `SYNC_API_TESTS=1`, `TEST_DB_CONNECTION`: see "Running the integration suite locally"
 
 ## Package Management
 
-Central versioning via `Directory.Packages.props` — don't add `<Version>` in individual csproj files. Target: `net11.0` (set in `Directory.Build.props`).
+`Directory.Packages.props` holds all package versions. Do not add `<Version>` in a csproj file. Target: `net11.0` (set in `Directory.Build.props`).
 
 ## Rules that bite (always on)
 
-- **`chapter_number` is an ordering key, not a display ordinal** (some books start at 0, some at 1 or 2). Show a chapter's **title**; use the number only to sort.
-- **Mobile reading needs neither a token nor a network** — the reader opens the book's file retained on the device (`apps/mobile/src/lib/reader/hostStorage.ts`) and its local library (`localLibrary.ts`); sync runs beside it. Nothing on the reading path may need an account.
-- **A `.web.ts` twin mirrors every export** of its native module (`apps/mobile/src/lib/offlineDb.web.ts`, `reader/deviceLibrary.web.ts`), or the web bundle (which mobile e2e runs against) fails to resolve.
-- **Guest = a real session.** `isAuthenticated` is `user !== null`; account-only questions go through `capabilitiesFor(user)` (`packages/shared/src/lib/capabilities.ts`, re-exported by mobile `capabilities.ts`), never inline `user?.isGuest` (ADR-014).
-- **MCP has 18 tools; the count is asserted in four tests** (`McpManifestDriftTests`, `McpStdioSmokeTests`, `McpOverTheWireTests`, `McpManifestEndpointTests`) and descriptions live once in `backend/src/Contracts/Mcp/McpManifest.cs` — change all together.
+- **`chapter_number` is an ordering key, not a display ordinal.** Some books start at 0, some at 1 or 2. Show a chapter's **title**; use the number only to sort.
+- **Mobile reading needs no token and no network.** The reading screen opens the book file that stays on the device (`apps/mobile/src/lib/reader/hostStorage.ts`) and the local library (`localLibrary.ts`). Sync runs beside it. The reading path must not need an account.
+- **A `.web.ts` twin mirrors every export** of its native module (`apps/mobile/src/lib/offlineDb.web.ts`, `reader/deviceLibrary.web.ts`). If not, the web bundle fails to resolve. Mobile e2e runs against the web bundle.
+- **Guest = a real session.** `isAuthenticated` is `user !== null`. Send account-only questions through `capabilitiesFor(user)` (`packages/shared/src/lib/capabilities.ts`; mobile `capabilities.ts` re-exports it). Never inline `user?.isGuest` (ADR-014).
+- **MCP has 18 tools; four tests assert the count** (`McpManifestDriftTests`, `McpStdioSmokeTests`, `McpOverTheWireTests`, `McpManifestEndpointTests`). The descriptions are in one place: `backend/src/Contracts/Mcp/McpManifest.cs`. Change all of them together.
 - **ARM64: compiled `Regex`, never `[GeneratedRegex]`** (SIGILL bug).
-- **Docs, comments, ADRs, commits, PRs: English only.** Cyrillic is allowed only as real input data (tests, fixtures, seed migrations, translation examples).
+- **Docs, comments, ADRs, commits, PRs: English only.** The English follows [`docs/writing.md`](docs/writing.md) (simple technical English) and uses the words of [`docs/glossary.md`](docs/glossary.md). Cyrillic is allowed only as real input data (tests, fixtures, seed migrations, translation examples).
 - **Never deploy by SSH.** Deploy = merge to `main`; break-glass `gh workflow run deploy.yml`.
 
 ## Area guides and key files
 
-Area guides load on their own: `backend/CLAUDE.md` (key files, every API route) and `apps/mobile/CLAUDE.md` (Expo, offline, Play/OTA release) when working there; procedures and topic guides are skills in `.claude/skills/` (`features`, `operations`, `add-entity`). Runbooks and postmortems: `docs/internal/ops/`, `docs/internal/incidents/`.
+When you work in an area, its guide loads by itself: `backend/CLAUDE.md` (key files, every API route) and `apps/mobile/CLAUDE.md` (Expo, offline, Play/OTA release). Procedures and topic guides are skills in `.claude/skills/` (`features`, `operations`, `add-entity`). Runbooks and postmortems: `docs/internal/ops/`, `docs/internal/incidents/`.
 
 | Area | Path |
 |------|------|
-| Reader host, web | `apps/web/src/pages/ReaderPage.tsx`, `apps/web/src/components/reader/ReaderHost.tsx`, `apps/web/src/lib/readerSync.ts` |
+| Reading screen host, web | `apps/web/src/pages/ReaderPage.tsx`, `apps/web/src/components/reader/ReaderHost.tsx`, `apps/web/src/lib/readerSync.ts` |
 | Shared client + locators | `packages/shared/src/api/sync.ts`, `packages/shared/src/reader/pageEntry.ts` |
 | Guest policy | `packages/shared/src/lib/capabilities.ts` |
 | Web contexts, pages | `apps/web/src/context/`, `apps/web/src/pages/` |

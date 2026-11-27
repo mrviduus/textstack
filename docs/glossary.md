@@ -172,6 +172,49 @@ readable offline.
 
 Not: "offline book". Say "downloaded book".
 
+## Words for the people who build it
+
+These words are for docs, code comments and pull requests. Readers do not see them.
+
+### Sync
+
+The work that makes a reader's devices and the server hold the same library. Each device sends its
+changes and gets the changes of the others.
+
+Not: replication, mirroring.
+In code: the `/me/v2` routes.
+
+### Outbox
+
+The list of changes that a device keeps until the server accepts them. Because of the outbox, a reader
+can read and highlight with no network.
+
+Not: queue, pending writes.
+In code: the `outbox` table on the phone.
+
+### Revision
+
+A number on a highlight, a word, a reading position or a book. The server adds 1 to it when a device
+edits, deletes or restores the row. A review of a word does not change it. A write names the revision it read. If the row changed since then, the write loses.
+
+Not: version.
+In code: `revision`, `expectedRevision`.
+
+### Operation
+
+One change that the server must apply only once, for example a review or a shared chapter. The device
+gives each operation an id, so a repeated send does nothing new.
+
+Not: request, command.
+In code: `operation_id`.
+
+### Device flow
+
+A way to sign in on a device or an app that cannot show the sign-in page, for example the browser
+extension. The extension shows a code, and the reader approves the code on textstack.app.
+
+In code: `/auth/device/*`.
+
 ## Areas
 
 Every change to TextStack belongs to one area. The same list is used for the changelog, the task
