@@ -213,7 +213,8 @@ export function LibraryPage() {
               <LibraryToolbar
                 sort={sort}
                 onSortChange={setSort}
-                showSelectButton={userBooks.length > 0}
+                // Bulk finish and delete are the server's: not offered with no session.
+                showSelectButton={isAuthenticated && userBooks.length > 0}
                 selectionActive={selection.active}
                 onToggleSelection={() => selection.active ? selection.exit() : selection.enter()}
                 viewMode={viewMode}

@@ -18,6 +18,8 @@ vi.mock('./librarySync', () => ({
   adoptLocalAccount: async (from: string, to: string) => { steps.push(`adopt ${from}→${to}`) },
   pushBeforeSignOut: async (id: string) => { steps.push(`push ${id}`) },
 }))
+let deviceOwner: { id: string; guest: boolean } | null = null
+let deviceBooks: unknown[] = []
 vi.mock('./deviceLibrary', () => ({
   LIBRARY_WIPE_MS: 5000,
   clearWipePending: async () => {},
@@ -25,6 +27,7 @@ vi.mock('./deviceLibrary', () => ({
   deviceOwnedLoss: async () => ownedLoss,
   deviceSignOutLoss: async () => { if (signOutLoss instanceof Error) throw signOutLoss; return signOutLoss },
   wipeDeviceLibrary: async () => { steps.push(`wipe (tokens ${secure.has('access_token') ? 'kept' : 'gone'})`) },
+  deviceLocalLibrary: () => ({ owner: async () => deviceOwner, books: async () => deviceBooks }),
 }))
 
 const { account } = await import('./account')
@@ -89,6 +92,24 @@ describe('the Android account (bearer session, device library claim)', () => {
     await account.loginWithEmail('u1@example.com', 'pw')
     await expect(account.createGuestSession()).rejects.toThrow(/session changed/)
     expect(secure.get('access_token')).toBe('at-u1')
+  })
+
+  it('createGuestSession_TheSignedOutLibraryListsAnAccountsBooks_NoMint_TheBooksStay', async () => {
+    deviceOwner = { id: 'account-a', guest: false }
+    deviceBooks = [{ id: 'b1' }]
+    steps.length = 0
+    await expect(account.createGuestSession()).rejects.toThrow(/another account's books/)
+    expect(steps.filter((s) => s.startsWith('wipe'))).toEqual([])
+    deviceOwner = null
+    deviceBooks = []
+  })
+
+  it('createGuestSession_AnEarlierGuestsBooksOnTheDevice_Mints', async () => {
+    deviceOwner = { id: 'guest-0', guest: true }
+    deviceBooks = [{ id: 'b1' }]
+    await expect(account.createGuestSession()).resolves.toBeTruthy()
+    deviceOwner = null
+    deviceBooks = []
   })
 
   it('createGuestSession_DeviceHoldsAnotherAccountsUnsyncedBooks_NoMintNoServerCall', async () => {

@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react'
-import { useAuth } from '../../context/AuthContext'
+import { useUploadSession } from '../../hooks/useUploadSession'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useDragFileTracker } from '../../hooks/useDragFileTracker'
@@ -8,7 +8,7 @@ import { emit } from '../../lib/telemetry/myBooks'
 import { UploadModal } from './UploadModal'
 
 export function UploadDropZone() {
-  const { ensureSession } = useAuth()
+  const withSession = useUploadSession()
   const { t } = useTranslation()
   const isMobile = useIsMobile()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -29,12 +29,12 @@ export function UploadDropZone() {
     if (valid.length === 0) return
     emit('dropzone.dropped', { count: valid.length, source: 'empty_state_browse' })
     // A reader with no session gets a guest one first, as the upload button does.
-    void ensureSession().catch(() => {}).then(() => {
+    withSession(() => {
       setInitialFile(valid[0])
       setQueue(valid.slice(1))
       setModalOpen(true)
     })
-  }, [ensureSession])
+  }, [withSession])
 
   const closeModal = useCallback(() => {
     setModalOpen(false)

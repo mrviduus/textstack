@@ -2,25 +2,26 @@ import { useState, useCallback, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useGlobalUploadShortcut } from '../../hooks/useGlobalUploadShortcut'
+import { useUploadSession } from '../../hooks/useUploadSession'
 import { emit } from '../../lib/telemetry/myBooks'
 import { UploadModal } from './UploadModal'
 
 /**
  * The header's upload button, and the owner of the upload dialog: the tab bar's "+", the library's floating
- * button and Cmd/Ctrl+U open it through here. A reader with no session gets one first (a guest session, as the
- * landing page's upload does), so a first book needs no account.
+ * button and Cmd/Ctrl+U open it through here. A reader with no session gets one first (hooks/useUploadSession),
+ * so a first book needs no account.
  */
 export function UploadButton() {
-  const { isLoading, ensureSession } = useAuth()
+  const { isLoading } = useAuth()
+  const withSession = useUploadSession()
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
 
   const openModal = useCallback(() => {
     emit('upload_button.clicked')
     emit('upload_modal.opened')
-    // A failed guest call still opens the dialog: the upload then says what is wrong.
-    void ensureSession().catch(() => {}).then(() => setOpen(true))
-  }, [ensureSession])
+    withSession(() => setOpen(true))
+  }, [withSession])
 
   const closeModal = useCallback(() => setOpen(false), [])
 

@@ -274,8 +274,9 @@ export function UserBookDetailPage() {
               />
             )}
 
-            {/* Completion is written on the reading place, so a book with no chapter yet has none to mark. */}
-            {canRead && !book.completedAt && book.chapters.length > 0 && (
+            {/* Completion is written on the reading place, so a book with no chapter yet has none to mark.
+                It and the file download are the server's: not offered with no session (Android, a book on the device). */}
+            {canRead && isAuthenticated && !book.completedAt && book.chapters.length > 0 && (
               <button
                 onClick={async () => {
                   if ((await platform.library.markUserBookComplete(book.id)) === 'dropped') return
@@ -287,7 +288,7 @@ export function UserBookDetailPage() {
               </button>
             )}
 
-            {canRead && book.completedAt && (
+            {canRead && isAuthenticated && book.completedAt && (
               <button
                 onClick={async () => {
                   if ((await platform.library.unmarkUserBookComplete(book.id)) === 'dropped') return
@@ -301,7 +302,7 @@ export function UserBookDetailPage() {
 
             {/* The file you uploaded, not a link: this page is private, so a shared URL opened a
                 login wall for whoever received it (mobile made the same change). */}
-            {canRead && (
+            {canRead && isAuthenticated && (
               <a
                 className="user-book-detail__reextract-icon"
                 href={platform.library.getUserBookFileUrl(book.id)}

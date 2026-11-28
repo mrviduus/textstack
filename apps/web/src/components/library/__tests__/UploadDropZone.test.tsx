@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 const useAuthMock = vi.fn()
-const ensureSession = vi.fn(async () => {})
+const ensureSession = vi.fn(async () => true)
 let isMobileMock = false
 
 vi.mock('../../../context/AuthContext', () => ({
@@ -30,14 +30,14 @@ describe('UploadDropZone', () => {
   afterEach(() => cleanup())
 
   it('renders headline + cta', () => {
-    useAuthMock.mockReturnValue({ ensureSession })
+    useAuthMock.mockReturnValue({ waitForSession: async () => {}, ensureSession, openAuthModal: vi.fn() })
     render(<UploadDropZone />)
     expect(screen.getByText('library.empty.uploads.title')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'library.empty.uploads.cta' })).toBeInTheDocument()
   })
 
   it('shows shortcut hint on desktop, hides on mobile', () => {
-    useAuthMock.mockReturnValue({ ensureSession })
+    useAuthMock.mockReturnValue({ waitForSession: async () => {}, ensureSession, openAuthModal: vi.fn() })
     isMobileMock = false
     const { unmount } = render(<UploadDropZone />)
     expect(screen.getByText('library.empty.uploads.shortcut')).toBeInTheDocument()
@@ -48,13 +48,13 @@ describe('UploadDropZone', () => {
   })
 
   it('offers the CTA to a reader with no session', () => {
-    useAuthMock.mockReturnValue({ ensureSession })
+    useAuthMock.mockReturnValue({ waitForSession: async () => {}, ensureSession, openAuthModal: vi.fn() })
     render(<UploadDropZone />)
     expect(screen.getByRole('button', { name: 'library.empty.uploads.cta' })).toBeEnabled()
   })
 
   it('opens modal with selected valid file, after a session is there', async () => {
-    useAuthMock.mockReturnValue({ ensureSession })
+    useAuthMock.mockReturnValue({ waitForSession: async () => {}, ensureSession, openAuthModal: vi.fn() })
     const { container } = render(<UploadDropZone />)
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File(['x'], 'novel.epub', { type: 'application/epub+zip' })
@@ -66,7 +66,7 @@ describe('UploadDropZone', () => {
   })
 
   it('rejects invalid file (no modal opens)', () => {
-    useAuthMock.mockReturnValue({ ensureSession })
+    useAuthMock.mockReturnValue({ waitForSession: async () => {}, ensureSession, openAuthModal: vi.fn() })
     const { container } = render(<UploadDropZone />)
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File(['x'], 'image.png', { type: 'image/png' })

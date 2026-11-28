@@ -137,18 +137,6 @@
   font-size: 18px;
 }
 
-.site-header__upload-btn--signin {
-  border-color: var(--color-border, rgba(255, 255, 255, 0.15));
-  color: var(--color-text-secondary);
-}
-
-.site-header__upload-btn--signin:hover,
-.site-header__upload-btn--signin:focus-visible {
-  background: var(--color-bg-hover, rgba(255, 255, 255, 0.06));
-  border-color: var(--color-border-hover, rgba(255, 255, 255, 0.25));
-  color: var(--color-text);
-}
-
 @media (max-width: 768px) {
   .site-header__upload-btn {
     padding: 0;

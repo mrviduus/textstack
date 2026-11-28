@@ -9,6 +9,7 @@ import type { Platform } from '../index'
 import { storedUser } from './account'
 import { APP_HEADERS, freshAccessToken, getAccessToken, onUnauthorized } from './api'
 import { cachedUserBookDetail, deviceUserBooks } from './cachedUserBookDetail'
+import { withDeadline } from './deadline'
 import { deleteBook, retainBook } from './deviceDownload'
 import { deviceLocalLibrary, deviceRemovals, signedOutMayList } from './deviceLibrary'
 import { syncLibrary, type SyncResult } from './librarySync'
@@ -47,6 +48,9 @@ async function sendPart(url: string, part: Blob, onLoaded: (loaded: number) => v
   if (!res.ok) throw new ApiError(res.status, `Upload failed: ${res.status}`)
   onLoaded(part.size)
 }
+
+/** How long the upload dialog waits for the new book's file to be on this device. */
+const KEEP_UPLOAD_MS = 15_000
 
 const hasSession = async () => !!(await getAccessToken().catch(() => null))
 
@@ -107,8 +111,9 @@ export const library: Platform['library'] = {
     const server = await startSyncProbe()
     if (!server.enabled) throw new ApiError(503, 'Upload failed: the server is unavailable, try again later')
     const result = await uploadBook(file, server.maxPartBytes, sendPart, onProgress)
-    // A failure here is not the upload's: the reader's open tries again.
-    await retainBook(result.userBookId, () => syncNow()).catch((e: unknown) => console.warn('[v2] upload not kept on the device:', e))
+    // A failure here is not the upload's, and a slow one does not hold the dialog: the reader's open tries again.
+    await withDeadline(retainBook(result.userBookId, () => syncNow()), KEEP_UPLOAD_MS)
+      .catch((e: unknown) => console.warn('[v2] upload not kept on the device yet:', e))
     return result
   },
   // Off this device too (rows, queued writes, the retained file), offline and with no account; the pass pushes the removal.

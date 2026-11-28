@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 const useAuthMock = vi.fn()
-const ensureSession = vi.fn(async () => {})
+const ensureSession = vi.fn(async () => true)
+const openAuthModal = vi.fn()
+const auth = (over: object = {}) => ({ isLoading: false, waitForSession: async () => {}, ensureSession, openAuthModal, ...over })
 
 vi.mock('../../../context/AuthContext', () => ({
   useAuth: () => useAuthMock(),
@@ -20,17 +22,18 @@ describe('UploadButton', () => {
   beforeEach(() => {
     useAuthMock.mockReset()
     ensureSession.mockClear()
+    openAuthModal.mockClear()
   })
   afterEach(() => cleanup())
 
   it('renders nothing while auth is loading', () => {
-    useAuthMock.mockReturnValue({ isAuthenticated: false, isLoading: true })
+    useAuthMock.mockReturnValue(auth({ isLoading: true }))
     const { container } = render(<UploadButton />)
     expect(container.firstChild).toBeNull()
   })
 
   it('opens the upload dialog on click, with no menu between', async () => {
-    useAuthMock.mockReturnValue({ isLoading: false, ensureSession })
+    useAuthMock.mockReturnValue(auth())
     render(<UploadButton />)
     expect(screen.queryByTestId('modal')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'upload.button' }))
@@ -38,7 +41,7 @@ describe('UploadButton', () => {
   })
 
   it('gives a reader with no session a session before the dialog', async () => {
-    useAuthMock.mockReturnValue({ isLoading: false, ensureSession })
+    useAuthMock.mockReturnValue(auth())
     render(<UploadButton />)
     fireEvent.click(screen.getByRole('button', { name: 'upload.button' }))
     await screen.findByTestId('modal')
@@ -46,16 +49,30 @@ describe('UploadButton', () => {
   })
 
   it('opens the dialog for the tab bar and the library button (the open-upload event)', async () => {
-    useAuthMock.mockReturnValue({ isLoading: false, ensureSession })
+    useAuthMock.mockReturnValue(auth())
     render(<UploadButton />)
     window.dispatchEvent(new Event('textstack:open-upload'))
     expect(await screen.findByTestId('modal')).toBeInTheDocument()
   })
 
-  it('still opens the dialog when the guest session cannot be made', async () => {
-    useAuthMock.mockReturnValue({ isLoading: false, ensureSession: vi.fn(async () => { throw new Error('offline') }) })
+  it('asks to sign in, with no dialog, when no session can be made', async () => {
+    useAuthMock.mockReturnValue(auth({ ensureSession: vi.fn(async () => false) }))
     render(<UploadButton />)
     fireEvent.click(screen.getByRole('button', { name: 'upload.button' }))
+    await vi.waitFor(() => expect(openAuthModal).toHaveBeenCalledTimes(1))
+    expect(screen.queryByTestId('modal')).toBeNull()
+  })
+
+  it('waits for the start-up session check before it makes a guest', async () => {
+    let settle!: () => void
+    const waitForSession = () => new Promise<void>((r) => { settle = r })
+    useAuthMock.mockReturnValue(auth({ waitForSession }))
+    render(<UploadButton />)
+    fireEvent.click(screen.getByRole('button', { name: 'upload.button' }))
+    await Promise.resolve()
+    expect(ensureSession).not.toHaveBeenCalled()
+    settle()
     expect(await screen.findByTestId('modal')).toBeInTheDocument()
+    expect(ensureSession).toHaveBeenCalledTimes(1)
   })
 })

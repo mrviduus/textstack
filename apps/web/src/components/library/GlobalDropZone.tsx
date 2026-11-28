@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useUploadSession } from '../../hooks/useUploadSession'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useDragFileTracker } from '../../hooks/useDragFileTracker'
 import { partitionFiles } from '../../lib/uploadFileValidation'
@@ -11,7 +12,8 @@ import { UploadModal } from './UploadModal'
 type ToastState = { kind: 'invalid'; key: number } | null
 
 export function GlobalDropZone() {
-  const { isLoading, ensureSession } = useAuth()
+  const { isLoading } = useAuth()
+  const withSession = useUploadSession()
   const { t } = useTranslation()
   const [modalOpen, setModalOpen] = useState(false)
   const [initialFile, setInitialFile] = useState<File | undefined>(undefined)
@@ -28,12 +30,12 @@ export function GlobalDropZone() {
     }
     if (valid.length === 0) return
     // A reader with no session gets a guest one first, as the upload button does.
-    void ensureSession().catch(() => {}).then(() => {
+    withSession(() => {
       setInitialFile(valid[0])
       setQueue(valid.slice(1))
       setModalOpen(true)
     })
-  }, [ensureSession])
+  }, [withSession])
 
   const { isDragging } = useDragFileTracker({
     enabled: !modalOpen && !isLoading,
