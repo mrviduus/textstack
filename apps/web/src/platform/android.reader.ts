@@ -1,7 +1,9 @@
-import { syncApi } from '@textstack/shared'
+import { appendPendingSession, drainPendingSessions, syncApi, type PendingSession } from '@textstack/shared'
 import type { ReaderPlatform } from './reader'
 import type { SyncTarget } from '../lib/readerSync'
+import { readItem, writeItem } from '../lib/safeLocalStorage'
 import { sessionEpoch } from './android/account'
+import { getAccessToken } from './android/api'
 import { retainBook, retainedFile } from './android/deviceDownload'
 import { deviceLocalLibrary } from './android/deviceLibrary'
 import { syncNow } from './android/library'
@@ -45,18 +47,17 @@ export const reader: ReaderPlatform = {
     return { bytes, name: row.original_name, sync }
   },
   createSync: createDeviceReaderSync,
-  // The Expo reader's path: into the device library under the book's bytes, then a pass sends it. No network here.
+  // Kept at once (pagehide waits for nothing), then moved into the device library (Expo `addSession`); a pass sends it.
   queueSession(session) {
-    const lib = deviceLocalLibrary()
-    void (async () => {
-      const id = session.userBookId
-      const sha256 = id ? opened.get(id) ?? (await lib.book(id))?.sha256 : null
-      if (!sha256 || !(await lib.addSession(sha256, session, uuid.v4))) console.warn(`[v2] reading session not kept: no book ${session.userBookId}`)
-      else syncAfterSave()
-    })().catch((e: unknown) => console.warn('[v2] reading session not kept:', e))
+    const id = session.userBookId
+    writeItem(SESSIONS_KEY, JSON.stringify(appendPendingSession(queuedSessions(), { ...session, sha256: id ? opened.get(id) : undefined } as QueuedSession)))
+    void moveSessions().then(syncAfterSave)
   },
   // The reader's mount: the Expo reader's first pass, which retries every entry that stopped being retried.
-  flushSessions: async () => { await syncNow(true).catch((e: unknown) => console.warn('[v2] sync failed:', e)) },
+  flushSessions: async () => {
+    await moveSessions()
+    await syncNow(true).catch((e: unknown) => console.warn('[v2] sync failed:', e))
+  },
   accountEpoch: sessionEpoch,
 }
 
@@ -67,7 +68,65 @@ export const reader: ReaderPlatform = {
  */
 function askHasToc(target: SyncTarget, serverFile: boolean) {
   if (!serverFile || !navigator.onLine) return
-  syncApi.findBySha256(target.sha256).then((b) => {
+  getAccessToken().then(async (token) => {
+    if (!token) return
+    const b = await syncApi.findBySha256(target.sha256)
     if (b?.currentFile?.id === target.fileId) target.hasToc = b.currentFile.hasToc
-  }, () => {})
+  }).catch(() => {})
+}
+
+/**
+ * Ended reading sessions not in the device library yet: the web queue's shape (`@textstack/shared` pendingSessions),
+ * with the book's bytes when the open knew them. Synchronous, so the pagehide's last session is kept.
+ */
+const SESSIONS_KEY = 'v2reader:pendingSessions'
+type QueuedSession = PendingSession & { sha256?: string }
+function queuedSessions(): QueuedSession[] {
+  try {
+    const v = JSON.parse(readItem(SESSIONS_KEY) ?? '[]') as unknown
+    return Array.isArray(v) ? (v as QueuedSession[]) : []
+  } catch {
+    return []
+  }
+}
+const sessionKey = (s: QueuedSession) => s.clientSessionId ?? `${s.userBookId}/${s.startedAt}`
+/** Never thrown again (drainPendingSessions drops it): no book with those bytes here (a wipe, a deleted book). */
+const noBook = () => Object.assign(new Error('no book with these bytes on the device'), { status: 404 })
+
+let moving: Promise<void> | null = null
+let moveAgain = false
+/**
+ * The queued sessions into the device library, by their client session id (a move cut before its removal from the
+ * queue is not kept twice). Removed from the queue only once kept; a failed write stays queued for the next move.
+ */
+function moveSessions(): Promise<void> {
+  if (moving) {
+    moveAgain = true
+    return moving
+  }
+  return (moving = (async () => {
+    const lib = deviceLocalLibrary()
+    try {
+      do {
+        moveAgain = false
+        const snapshot = queuedSessions()
+        if (!snapshot.length) return
+        const kept = await drainPendingSessions(snapshot, async (s) => {
+          const q = s as QueuedSession
+          const id = q.clientSessionId ?? uuid.v4()
+          if (await lib.session(id)) return
+          const sha256 = q.sha256 ?? (q.userBookId ? (await lib.book(q.userBookId))?.sha256 : null)
+          if (!sha256 || !(await lib.addSession(sha256, q, () => id))) throw noBook()
+        })
+        // From a fresh read: a session queued during the move stays.
+        const left = new Set(kept.map(sessionKey))
+        const settled = new Set(snapshot.map(sessionKey).filter((k) => !left.has(k)))
+        writeItem(SESSIONS_KEY, JSON.stringify(queuedSessions().filter((s) => !settled.has(sessionKey(s)))))
+      } while (moveAgain)
+    } catch (e) {
+      console.warn('[v2] reading sessions not kept on the device:', e)
+    } finally {
+      moving = null
+    }
+  })())
 }

@@ -7,15 +7,18 @@ let row = { ...book }
 let retained: { uri: string; format: string | null } | null = null
 const retainBook = vi.fn(async () => { retained = { uri: 'file:///v2/books/x.epub', format: 'epub' }; return true })
 
-const addSession = vi.fn(async (_sha: string, _s: unknown, _id: () => string) => true)
+const kept = new Map<string, string>()
+const addSession = vi.fn(async (sha: string, _s: unknown, id: () => string) => { kept.set(id(), sha); return true })
+let token: string | null = 't'
 const syncNow = vi.fn(async (_retry?: boolean) => 'done')
 const syncAfterSave = vi.fn()
 let serverFile: { id: string; hasToc: boolean } | null = { id: 'f1', hasToc: false }
 vi.mock('./android/deviceDownload', () => ({ retainedFile: async () => retained, retainBook }))
-vi.mock('./android/deviceLibrary', () => ({ deviceLocalLibrary: () => ({ book: async () => row, addSession }) }))
+vi.mock('./android/deviceLibrary', () => ({ deviceLocalLibrary: () => ({ book: async () => row, addSession, session: async (id: string) => (kept.has(id) ? { id } : null) }) }))
 vi.mock('./android/library', () => ({ syncNow }))
 vi.mock('./android/native', () => ({ deviceFileBlob: async () => new Blob([bytes]), uuid: { v4: () => 'u' } }))
 vi.mock('./android/account', () => ({ sessionEpoch: () => 7 }))
+vi.mock('./android/api', () => ({ getAccessToken: async () => token }))
 vi.mock('./android/readerSync', () => ({ createDeviceReaderSync: vi.fn(), syncAfterSave }))
 vi.mock('@textstack/shared', async (original) => ({
   ...(await original<object>()),
@@ -54,12 +57,40 @@ describe('the Android reader (the retained file)', () => {
     expect((await open())!.sync).toBeUndefined()
   })
 
-  it('queueSession_IntoTheDeviceLibraryByTheBooksBytes_ThenAPass', async () => {
+  const ended = (id: string) => ({ userBookId: 'b1', clientSessionId: id, startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), durationSeconds: 60, wordsRead: 10, startPercent: 0.1, endPercent: 0.2 })
+  const queued = () => JSON.parse(localStorage.getItem('v2reader:pendingSessions') ?? '[]') as { clientSessionId: string }[]
+
+  it('queueSession_KeptAtOnce_ThenInTheDeviceLibraryByTheBooksBytes_ThenAPass', async () => {
     row = { ...book }
-    const s = { userBookId: 'b1', clientSessionId: 'c1', startedAt: 'a', endedAt: 'b', durationSeconds: 60, wordsRead: 10, startPercent: 0.1, endPercent: 0.2 }
-    reader.queueSession(s)
+    await open()
+    reader.queueSession(ended('c1'))
+    // Synchronously (pagehide waits for nothing).
+    expect(queued().map((s) => s.clientSessionId)).toEqual(['c1'])
     await vi.waitFor(() => expect(syncAfterSave).toHaveBeenCalled())
-    expect(addSession).toHaveBeenCalledWith(SHA, s, expect.any(Function))
+    expect(addSession).toHaveBeenCalledWith(SHA, expect.objectContaining({ clientSessionId: 'c1' }), expect.any(Function))
+    expect(kept.get('c1')).toBe(SHA)
+    expect(queued()).toEqual([])
+  })
+
+  it('queueSession_TheDeviceWriteFails_StaysQueued_MovedByTheNextFlush', async () => {
+    addSession.mockRejectedValueOnce(new Error('SQLITE_BUSY'))
+    reader.queueSession(ended('c2'))
+    await vi.waitFor(() => expect(addSession).toHaveBeenCalledWith(SHA, expect.objectContaining({ clientSessionId: 'c2' }), expect.any(Function)))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(queued().map((s) => s.clientSessionId)).toEqual(['c2'])
+    await reader.flushSessions()
+    expect(kept.get('c2')).toBe(SHA)
+    expect(queued()).toEqual([])
+  })
+
+  it('openBook_NoSession_NoTocAsked', async () => {
+    row = { ...book }
+    token = null
+    retained = { uri: 'file:///v2/books/x.epub', format: 'epub' }
+    const b = await open()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(b!.sync!.hasToc).toBeUndefined()
+    token = 't'
   })
 
   it('flushSessions_ThePassThatRetriesFailedEntries', async () => {

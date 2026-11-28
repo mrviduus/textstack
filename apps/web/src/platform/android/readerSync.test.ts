@@ -9,7 +9,7 @@ import { createLocalLibrary, type LocalLibrary } from './localLibrary'
 import { memoryDb } from './sqliteShim'
 import { createHostStorage, type HostFiles } from './hostStorage'
 import { syncLibrary } from './librarySync'
-import { resetSyncForTests } from './syncClient'
+import { resetSyncForTests, syncStore } from './syncClient'
 import { NO_PLACE_YET, type SaveStatus } from '../../lib/readerSync'
 import { fakeApi as fakeV2, feed, type Answer } from '../../../../../packages/shared/src/api/__tests__/fakeSyncApi'
 
@@ -27,6 +27,10 @@ const hl = { id: '11111111-1111-4111-8111-111111111111', cfi: 'epubcfi(/6/14!/4/
 const entry = (position: unknown, highlights: unknown[] = []) =>
   JSON.stringify({ v: 1, book: { sha256: SHA, size: 10, name: 'b.epub' }, position, highlights })
 
+/** Every session a test opens, closed after it: an open one stays the mounted reader of later passes. */
+const sessions: { close(): Promise<void> }[] = []
+const track = <T extends { close(): Promise<void> }>(s: T) => { sessions.push(s); return s }
+
 let n = 0
 const newId = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
 
@@ -34,7 +38,8 @@ const newId = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
 const noFiles: HostFiles = { read: async () => null, move: async () => {}, exists: () => false, remove: () => {}, copyIn: async () => {} }
 
 async function opened() {
-  const lib = createLocalLibrary(memoryDb())
+  const db = memoryDb()
+  const lib = createLocalLibrary(db)
   await lib.addOpened({ sha256: SHA, size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }, newId)
   const bookId = (await lib.localBookId(SHA))!
   const fileId = (await lib.book(bookId))!.file_id!
@@ -42,14 +47,14 @@ async function opened() {
   const target = { bookId, fileId, format: 'epub', sha256: SHA, size: 10, name: 'b.epub' }
   const sync = vi.fn()
   const seen = { statuses: [] as SaveStatus[], highlights: [] as unknown[][], offers: [] as PagePosition[], completed: [] as (string | null)[] }
-  const open = (extra: object = {}) => createDeviceReaderSync(target, {
+  const open = (extra: object = {}) => track(createDeviceReaderSync(target, {
     onStatus: (s) => seen.statuses.push(s),
     onHighlights: (l) => seen.highlights.push(l),
     onNewerPlace: (p) => seen.offers.push(p),
     onCompleted: (c) => seen.completed.push(c),
     ...extra,
-  }, { storage, sync })
-  return { lib, storage, bookId, fileId, open, seen, sync }
+  }, { storage, sync }))
+  return { db, lib, storage, bookId, fileId, open, seen, sync }
 }
 
 const positionOf = (json: string | null) => (JSON.parse(json!) as { position: PagePosition | null }).position
@@ -59,7 +64,10 @@ describe('the Android reader saves on the device', () => {
     resetSyncForTests()
     n = 0
   })
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(async () => {
+    vi.unstubAllGlobals()
+    await Promise.all(sessions.splice(0).map((x) => x.close()))
+  })
 
   it('restore_AfterAStoreAndAReopen_ThePlaceSurvives', async () => {
     const { open, sync } = await opened()
@@ -194,6 +202,95 @@ describe('the Android reader saves on the device', () => {
     await s.close()
   })
 
+  it('store_AGuestMintOrSignInWhileReading_StillSaved', async () => {
+    const { open, lib, seen } = await opened()
+    const s = open()
+    await s.restore()
+    // A new session resets the V2 caches and their epoch (account.ts `begin`): the reading path needs no account.
+    syncStore.reset()
+    s.store(entry(pos))
+    await s.flush()
+    expect(positionOf(await lib.readEntry(SHA))).toMatchObject({ cfi: CFI })
+    expect(seen.statuses).not.toContain('unsaved')
+    await s.close()
+  })
+
+  it('store_TheLibraryWipedWhileReading_UnsavedNotSilent', async () => {
+    const { open, lib, seen } = await opened()
+    const s = open()
+    await s.restore()
+    // Sign-out (#1070): the rows go; nothing may be written for another account, and the reader is told.
+    await lib.wipe()
+    s.store(entry(pos))
+    await s.flush()
+    expect(seen.statuses[seen.statuses.length - 1]).toBe('unsaved')
+    expect(await lib.readEntry(SHA)).toBeNull()
+    await s.close()
+  })
+
+  it('setNote_ANoteNeverReadOnTheDevice_RefusedAndUnsaved_TheRealNoteKept', async () => {
+    const { db, open, lib, seen } = await opened()
+    await lib.writeEntry(SHA, entry(pos, [hl]), newId)
+    // A row from before notes were kept: its server note not read yet (Expo shows the editor loading).
+    db.raw.prepare('UPDATE annotations SET note = ?, note_known = 0 WHERE id = ?').run('the real note', hl.id)
+    const s = open()
+    await s.restore()
+    await s.loadHighlights()
+    s.setNote(hl.id, 'typed over')
+    await s.flush()
+    expect(seen.statuses[seen.statuses.length - 1]).toBe('unsaved')
+    await s.close()
+    expect(db.raw.prepare('SELECT note FROM annotations WHERE id = ?').get(hl.id)).toEqual({ note: 'the real note' })
+  })
+
+  it('close_TheEditorsNoteBeforeTheLastStoreThatMakesItsHighlight_BothSaved', async () => {
+    const { open, seen } = await opened()
+    const s = open()
+    await s.restore()
+    await s.loadHighlights()
+    // Pagehide's order in ReaderHost: `flushDraft` (the note) first, then the page's last store with `close(last)`.
+    s.setNote(hl.id, 'from the editor')
+    expect(s.note(hl.id)).toBe('from the editor')
+    await s.close(entry(pos, [hl]))
+    const again = open()
+    await again.restore()
+    await again.loadHighlights()
+    expect(seen.highlights[1]).toEqual([expect.objectContaining({ id: hl.id })])
+    expect(again.note(hl.id)).toBe('from the editor')
+    await again.close()
+  })
+
+  it('setNote_ItsHighlightNotStoredYet_KeptAndUnsaved_WrittenByTheNextStore', async () => {
+    const { open, seen } = await opened()
+    const s = open()
+    await s.restore()
+    await s.loadHighlights()
+    s.setNote(hl.id, 'early')
+    await s.flush()
+    // No row yet: kept in memory, said as unsaved.
+    expect(s.note(hl.id)).toBe('early')
+    expect(seen.statuses[seen.statuses.length - 1]).toBe('unsaved')
+    s.store(entry(pos, [hl]))
+    await s.flush()
+    expect(seen.statuses[seen.statuses.length - 1]).toBe('saved')
+    await s.close()
+    const again = open()
+    await again.restore()
+    await again.loadHighlights()
+    expect(again.note(hl.id)).toBe('early')
+    await again.close()
+  })
+
+  it('close_HighlightsNotReadYet_NoReadStarted', async () => {
+    const { open, storage } = await opened()
+    const read = vi.spyOn(storage, 'readStore')
+    const s = open()
+    await s.restore()
+    await s.close(entry(pos))
+    // The restore's read only: a highlights read on close would draw nothing.
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
   describe('a sync pass while the book is open', () => {
     const ok = (body: unknown, status = 200): Answer => ({ status, body })
     const serverBook = (id: string, fileId: string) => ({
@@ -231,6 +328,17 @@ describe('the Android reader saves on the device', () => {
       expect(seen.offers).toEqual([expect.objectContaining({ cfi: OTHER })])
       // The reader is never moved: the place here stays ours.
       expect(positionOf(await lib.readEntry(SHA))).toMatchObject({ cfi: CFI })
+      await s.close()
+    })
+
+    it('pull_BeforeTheRestoreSettled_AdoptedAndRestoredThere_NoOffer', async () => {
+      const { lib, open, seen, bookId, fileId } = await pushed()
+      const s = open()
+      // Not restored yet (Expo `place.reader()`): ADR-019 adopts the newer place, and the restore opens at it.
+      routes({ 'GET /reading/changes': feed(serverState(bookId, fileId, 2, OTHER, NOW)) })
+      await appPass(lib)
+      expect(seen.offers).toEqual([])
+      expect(positionOf(await s.restore())).toMatchObject({ cfi: OTHER })
       await s.close()
     })
 
