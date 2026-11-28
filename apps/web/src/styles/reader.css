@@ -1545,3 +1545,125 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   background: var(--color-bg-secondary);
   color: var(--color-text);
 }
+
+/* ===========================================
+   The phone layout (#1664): a phone-width screen, the Android app too.
+   The panels open in components/Sheet.tsx (ReaderPanel); the bars are compact.
+   =========================================== */
+.reader-sheet {
+  background: var(--reader-bg);
+  color: var(--reader-text);
+}
+
+.reader-sheet .sheet__close {
+  color: var(--reader-secondary);
+}
+
+/* The panel's own rows have their side padding. */
+.reader-sheet__body {
+  margin: 0 -16px;
+}
+
+/* The sheet has the title and the close button. */
+.reader-sheet .reader-toc-drawer__close,
+.reader-sheet .reader-search-drawer__close,
+.reader-sheet .reader-settings-drawer__header,
+.reader-sheet .reader-toc-drawer__header h3,
+.reader-sheet .reader-toc-drawer__header:not(:has([role="tablist"])) {
+  display: none;
+}
+
+/* The chapter under the book's title. */
+.reader-top-bar__chapter {
+  font-size: 12px;
+  color: var(--reader-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The book's progress, along the top of the bottom bar. */
+.reader-footer__progress {
+  height: 4px;
+  background: var(--reader-border);
+}
+
+.reader-footer__progress > div {
+  height: 100%;
+  background: var(--reader-secondary);
+}
+
+.reader-footer__chevron {
+  width: 44px;
+  height: 44px;
+  font-size: 28px;
+  line-height: 1;
+}
+
+/* The chapter over the percent: the text is "percent · chapter", drawn in the other order. */
+.reader-footer__sep {
+  display: none;
+}
+
+.reader-footer__place {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 11px;
+}
+
+.reader-footer__chapter {
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--reader-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .reader-top-bar {
+    padding: 0 8px 0 4px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  }
+
+  .reader-top-bar__left {
+    flex: 1;
+    gap: 4px;
+  }
+
+  .reader-top-bar__back {
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .reader-top-bar__right {
+    gap: 2px;
+  }
+
+  .reader-top-bar__right .reader-top-bar__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .reader-footer__info {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    gap: 4px;
+    padding: 2px 4px;
+  }
+
+  .v2-reader__footer .v2-reader__time-left {
+    font-size: 11px;
+  }
+
+  .v2-reader__sections {
+    font-size: 12px;
+  }
+}

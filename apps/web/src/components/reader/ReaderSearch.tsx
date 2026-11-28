@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useDebounce } from '../../hooks/useDebounce'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
+import { ReaderPanel } from './ReaderPanel'
 import { MAX_QUERY, SEARCH_DEBOUNCE_MS, readQuery, searchStatusKeys, type Search } from '../../../../../packages/reader/src/search.mjs'
 
 /** search.mjs `searchStatusKeys` in the reader's words. */
@@ -19,14 +19,13 @@ interface Props {
 }
 
 /**
- * The V2 reader's in-book search (#1315): the legacy search drawer's dialog (reader.css, `useFocusTrap`). The page
+ * The V2 reader's in-book search (#1315): a `ReaderPanel` (a side drawer; a bottom sheet on a phone). The page
  * searches the whole book and streams its hits (`search-results`, read by the host through `readSearchResults`); each
  * is listed with the text around it and its section's title, React text only (the book is untrusted). A tap jumps
  * there; closing keeps the search, so the drawer opens again on the same results. The host keys it by the open: a new
  * book's drawer starts empty.
  */
 export function SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) {
-  const container = useFocusTrap(open)
   const { t } = useTranslation()
   const input = useRef<HTMLInputElement>(null)
   const [text, setText] = useState(search.query)
@@ -37,29 +36,13 @@ export function SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) {
   useEffect(() => {
     if ((readQuery(typed) ?? '') !== search.query) onQueryRef.current(typed)
   }, [typed])
-  // Opened again on its results: focus goes to the first of them, not the field (the trap's first control), so a
-  // phone's keyboard does not come up over the list. An empty drawer has no result: it keeps the field.
-  useEffect(() => {
-    if (open) container.current?.querySelector<HTMLElement>('.reader-search-drawer__result')?.focus()
-  }, [open])
-  if (!open) return null
   const { status: key, incomplete } = searchStatusKeys(search, text)
   const status = key ? t(STATUS[key], { count: search.results.length }) : ''
   return (
-    <>
-      <div className="reader-drawer-backdrop" onClick={onClose} />
-      <div
-        className="reader-search-drawer"
-        ref={container}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('v2Reader.searchLabel')}
-        // The reader's own keys (arrows, Space, Esc: the bars) stay out of the dialog; Tab goes on to the focus trap.
-        onKeyDown={(e) => {
-          if (e.key !== 'Tab') e.stopPropagation()
-          if (e.key === 'Escape') onClose()
-        }}
-      >
+    // Opened again on its results: focus goes to the first of them, not the field (the trap's first control), so a
+    // phone's keyboard does not come up over the list. An empty drawer has no result: it keeps the field.
+    <ReaderPanel open={open} onClose={onClose} label={t('v2Reader.searchLabel')} className="reader-search-drawer" focus=".reader-search-drawer__result">
+      {() => (<>
         <div className="reader-search-drawer__header">
           {/* The field is the dialog's first control: the focus trap puts focus on it at opening (an empty drawer). */}
           <div className="reader-search-drawer__input-wrapper">
@@ -114,7 +97,7 @@ export function SearchDrawer({ open, search, onQuery, onGo, onClose }: Props) {
             </li>
           ))}
         </ul>
-      </div>
-    </>
+      </>)}
+    </ReaderPanel>
   )
 }
