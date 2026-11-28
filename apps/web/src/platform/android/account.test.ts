@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const secure = new Map<string, string>()
 const steps: string[] = []
 let ownedLoss: { loss: unknown; email: string | null } | null = null
+let signOutLoss: { books: number; writes: number } | Error = { books: 0, writes: 0 }
 
 vi.mock('@aparajita/capacitor-secure-storage', () => ({
   SecureStorage: {
@@ -22,6 +23,7 @@ vi.mock('./deviceLibrary', () => ({
   clearWipePending: async () => {},
   rememberOwnerEmail: async () => {},
   deviceOwnedLoss: async () => ownedLoss,
+  deviceSignOutLoss: async () => { if (signOutLoss instanceof Error) throw signOutLoss; return signOutLoss },
   wipeDeviceLibrary: async () => { steps.push(`wipe (tokens ${secure.has('access_token') ? 'kept' : 'gone'})`) },
 }))
 
@@ -50,6 +52,7 @@ describe('the Android account (bearer session, device library claim)', () => {
     secure.clear()
     steps.length = 0
     ownedLoss = null
+    signOutLoss = { books: 0, writes: 0 }
     setupApi()
   })
 
@@ -62,6 +65,30 @@ describe('the Android account (bearer session, device library claim)', () => {
     expect(JSON.parse(secure.get('user')!).id).toBe('u1')
     expect(cachedAccessToken()).toBe('at-u1')
     expect(steps).toEqual(['claim g1', 'claim u1', 'adopt g1→u1'])
+  })
+
+  it('createGuestSession_ASignInLandsWhileTheMintIsInFlight_MintDroppedAccountKept', async () => {
+    let mint!: () => void
+    server({ '/auth/login': ok(session('u1')), '/auth/guest': () => new Response(JSON.stringify(session('g1', true)), { status: 200 }) })
+    const answer = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/auth/guest')) await new Promise<void>((r) => { mint = r })
+      return answer(url as string, init)
+    })
+    const guest = account.createGuestSession()
+    await vi.waitFor(() => expect(mint).toBeDefined())
+    await account.loginWithEmail('u1@example.com', 'pw')
+    mint()
+    await expect(guest).rejects.toThrow(/session changed/)
+    expect(secure.get('access_token')).toBe('at-u1')
+    expect(steps).toEqual(['claim u1'])
+  })
+
+  it('createGuestSession_AMintStartedAfterASignIn_DroppedTheAccountKept', async () => {
+    server({ '/auth/login': ok(session('u1')), '/auth/guest': ok(session('g1', true)) })
+    await account.loginWithEmail('u1@example.com', 'pw')
+    await expect(account.createGuestSession()).rejects.toThrow(/session changed/)
+    expect(secure.get('access_token')).toBe('at-u1')
   })
 
   it('createGuestSession_DeviceHoldsAnotherAccountsUnsyncedBooks_NoMintNoServerCall', async () => {
@@ -77,7 +104,9 @@ describe('the Android account (bearer session, device library claim)', () => {
     await account.loginWithEmail('u1@example.com', 'pw')
     server({}) // offline: every call fails
     expect((await account.getCurrentUser()).user.id).toBe('u1')
-    expect(calls).toEqual([])
+    // The claim is tried again and the profile asked for, neither awaited: offline, the start still answers.
+    await vi.waitFor(() => expect(steps).toContain('claim u1'))
+    expect(calls).toEqual(['GET /me/profile'])
   })
 
   it('getCurrentUser_NoSession_Rejects401', async () => {
@@ -91,9 +120,28 @@ describe('the Android account (bearer session, device library claim)', () => {
     calls = []
     await account.logout()
     expect(steps).toEqual(['push u1', 'wipe (tokens gone)'])
-    expect(calls).toEqual(['POST /auth/logout'])
+    await vi.waitFor(() => expect(calls).toEqual(['POST /auth/logout']))
     expect(secure.size).toBe(0)
     expect(cachedAccessToken()).toBeNull()
+  })
+
+  it('logout_SomethingOnlyOnThisDevice_RefusedNothingDeleted', async () => {
+    server({ '/auth/login': ok(session('u1')) })
+    await account.loginWithEmail('u1@example.com', 'pw')
+    for (const loss of [{ books: 1, writes: 0 }, { books: 0, writes: 2 }, new Error('disk busy')]) {
+      signOutLoss = loss
+      await expect(account.logout()).rejects.toThrow(/only on this device/)
+      expect(secure.get('access_token')).toBe('at-u1')
+      expect(steps).not.toContain('wipe (tokens gone)')
+    }
+  })
+
+  it('authFailure_TheServerRefusedTheRefresh_UserRowGoneNextStartHasNoSession', async () => {
+    server({ '/auth/login': ok(session('u1')), '/auth/refresh-mobile': () => new Response(null, { status: 401 }) })
+    await account.loginWithEmail('u1@example.com', 'pw')
+    await expect(account.refreshToken()).rejects.toMatchObject({ status: 401 })
+    await vi.waitFor(() => expect(secure.has('user')).toBe(false))
+    await expect(account.getCurrentUser()).rejects.toMatchObject({ status: 401 })
   })
 
   it('logout_Offline_TheSessionStillEndsHere', async () => {
