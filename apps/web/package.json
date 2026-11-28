@@ -21,6 +21,8 @@
     "check:reader-prod-csp": "node --experimental-strip-types ../../packages/reader/src/prodCsp.check.mjs"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "8.1.1",
+    "@capacitor/core": "8.6.3",
     "@sentry/react": "catalog:",
     "cmdk": "^1.1.1",
     "react": "catalog:",
