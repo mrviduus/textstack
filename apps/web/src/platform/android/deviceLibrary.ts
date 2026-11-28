@@ -1,0 +1,141 @@
+// The device's V2 local library over @capacitor-community/sqlite (sqliteDb.ts), and its files under <data>/v2/ over
+// @capacitor/filesystem. A copy of the Expo app's deviceLibrary.ts: the rows part is the same; the file calls are
+// async here (the plugin has no sync calls).
+import { Directory, Filesystem } from '@capacitor/filesystem'
+import { AsyncStorage } from './native'
+import { createLocalLibrary, ownedLoss, wipeLibrary, type Db, type LocalLibrary, type SignOutLoss } from './localLibrary'
+import { deviceDb } from './sqliteDb'
+import { withDeadline } from './deadline'
+
+let device: LocalLibrary | null = null
+
+/** The device's library, opened on first use (a failed open is tried again by the next call: `deviceDb`). */
+export function deviceLocalLibrary(): LocalLibrary {
+  const later = <K extends keyof Db>(k: K) => (async (...args: unknown[]) => ((await deviceDb())[k] as (...a: unknown[]) => unknown)(...args)) as Db[K]
+  return (device ??= createLocalLibrary({
+    execAsync: later('execAsync'),
+    runAsync: later('runAsync'),
+    getFirstAsync: later('getFirstAsync'),
+    getAllAsync: later('getAllAsync'),
+    withTransactionAsync: later('withTransactionAsync'),
+  }))
+}
+
+/** `<data>/v2/`: the host's files (hostStorage.ts). `Directory.Data` is the Expo app's `Paths.document` (`files/`). */
+export const FILES_ROOT = 'v2'
+const at = (path: string) => ({ path, directory: Directory.Data })
+const exists = (path: string) => Filesystem.stat(at(path)).then(() => true, () => false)
+
+/** The host's directories under the root, made when missing. */
+export async function makeFileDirs() {
+  for (const dir of ['books', 'store', 'staging']) {
+    const path = `${FILES_ROOT}/${dir}`
+    // mkdir fails when the directory is there: only a directory still missing after it is a failure.
+    await Filesystem.mkdir({ ...at(path), recursive: true }).catch(async (e: unknown) => { if (!(await exists(path))) throw e })
+  }
+}
+
+/**
+ * When this process started, as far as staging can tell: every staged name (`staging/<ms>.epub`,
+ * `staging/dl-<ms>.epub`) is written by code that imports this module, so its `Date.now()` is never earlier.
+ */
+const STARTED = Date.now()
+
+/**
+ * #1526: what an earlier process left in `staging/` (an open, download or upload it never finished) deleted;
+ * this process's own entries are live (a Download or an upload still writing) and stay. An entry whose name
+ * carries no time is an earlier build's: deleted. ponytail: wall-clock based; a clock set back mid-process
+ * only leaves a stale file for the next start.
+ */
+export async function sweepStaging() {
+  const staging = `${FILES_ROOT}/staging`
+  const list = await Filesystem.readdir(at(staging)).catch(() => null)
+  if (!list) return
+  for (const entry of list.files) {
+    const ms = Number(/\d+/.exec(entry.name)?.[0])
+    if (!(ms >= STARTED)) await Filesystem.deleteFile(at(`${staging}/${entry.name}`))
+  }
+}
+
+/**
+ * Everything under the root deleted, its directories made again whenever this ran (a failure of either
+ * step is retried whole by the next call) so the host's next write finds them: the one place the
+ * files are wiped. A wipe may create the three empty directories; measuring never does.
+ */
+export async function clearDeviceFiles() {
+  try {
+    if (await exists(FILES_ROOT)) await Filesystem.rmdir({ ...at(FILES_ROOT), recursive: true })
+  } finally {
+    await makeFileDirs()
+  }
+}
+
+/** Bytes under `path`, every level down. */
+async function bytesUnder(path: string): Promise<number> {
+  let n = 0
+  for (const f of (await Filesystem.readdir(at(path))).files) n += f.type === 'directory' ? await bytesUnder(`${path}/${f.name}`) : f.size
+  return n
+}
+
+/** Bytes under the root (book files, staging); 0 when it never existed. Creates nothing; never throws. */
+export async function deviceLibraryBytes(): Promise<number> {
+  try {
+    return await bytesUnder(FILES_ROOT)
+  } catch {
+    return 0
+  }
+}
+
+/** What signing out would delete that the server does not hold (#1070). */
+export const deviceSignOutLoss = (): Promise<SignOutLoss> => deviceLocalLibrary().signOutLoss()
+
+/** Every V2 local wipe at a session change is bounded: a hung database open must not hold the auth queue (#1070). */
+export const LIBRARY_WIPE_MS = 5000
+
+/** #1608: set while a sign-out's wipe is owed (written before it, cleared after it or by a session's claim); survives a restart. */
+const WIPE_PENDING = 'textstack_v2_wipe_pending'
+/** #1611: the email of the real account whose session last claimed the library (gone with its wipe): a sign-in as it keeps the books. */
+const OWNER_EMAIL = 'textstack_v2_owner_email'
+
+/** Sign-out (#1070, owner 2026-11-12: V2 books belong to the account): rows, then files (`wipeLibrary`). */
+export async function wipeDeviceLibrary(): Promise<void> {
+  // Best effort: the wipe itself is the privacy step, so a marker that cannot be written never stops it.
+  await AsyncStorage.setItem(WIPE_PENDING, '1').catch(() => {})
+  await wipeLibrary(deviceLocalLibrary(), clearDeviceFiles)
+  await AsyncStorage.removeItem(OWNER_EMAIL).catch(() => {})
+  await AsyncStorage.removeItem(WIPE_PENDING)
+}
+
+/** #1611: what a sign-in to a different account would wipe here, and whose it is (`email`, null when not known). */
+export interface OwnedLoss { loss: SignOutLoss | 'unknown'; email: string | null }
+
+/**
+ * #1611 `ownedLoss` of the device, bounded by `ms` (a timeout is 'unknown'). A sign-out wipe owed (#1608) was
+ * confirmed at that sign-out: nothing to ask again.
+ */
+export async function deviceOwnedLoss(ms = LIBRARY_WIPE_MS): Promise<OwnedLoss | null> {
+  if (await AsyncStorage.getItem(WIPE_PENDING).catch(() => null)) return null
+  const loss = await withDeadline(ownedLoss(deviceLocalLibrary()), ms).catch(() => 'unknown' as const)
+  return loss && { loss, email: await AsyncStorage.getItem(OWNER_EMAIL).catch(() => null) }
+}
+
+/** A session claimed the library (`claimLibraryFor` done): its email is the owner's, a guest's is nobody's. */
+export const rememberOwnerEmail = (email: string | null): Promise<void> =>
+  email ? AsyncStorage.setItem(OWNER_EMAIL, email) : AsyncStorage.removeItem(OWNER_EMAIL)
+
+/** A live session took the library (`claimLibraryFor` done): no sign-out wipe is owed any more. */
+export const clearWipePending = (): Promise<void> => AsyncStorage.removeItem(WIPE_PENDING)
+
+/**
+ * #1608: may the signed-out Library list this device's books? Yes when no sign-out wipe is owed (the server
+ * lost the account): they are still this reader's. When one is owed (a sign-out's wipe failed or ran late,
+ * this process or an earlier one), the rows are the signed-out account's: the wipe is retried under the
+ * same deadline, and only a wipe that worked (an empty library) may list.
+ */
+export async function signedOutMayList(): Promise<boolean> {
+  if (!(await AsyncStorage.getItem(WIPE_PENDING))) return true
+  return withDeadline(wipeDeviceLibrary(), LIBRARY_WIPE_MS).then(() => true, () => false)
+}
+
+/** #1189: books deleted on this device whose removal the server has not taken yet: kept out of the server's list meanwhile. */
+export const deviceRemovals = async (): Promise<Set<string>> => new Set((await deviceLocalLibrary().outbox('removal')).map((i) => i.target))

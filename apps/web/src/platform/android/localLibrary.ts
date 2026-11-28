@@ -1177,9 +1177,9 @@ export function createLocalLibrary(db: Db) {
  * files: rows never name missing files, and the owner left in place keeps every pass of another
  * account refused until the next sign-in wipes again (#1070).
  */
-export async function wipeLibrary(lib: Pick<LocalLibrary, 'wipe'>, clearFiles: () => void): Promise<void> {
+export async function wipeLibrary(lib: Pick<LocalLibrary, 'wipe'>, clearFiles: () => void | Promise<void>): Promise<void> {
   await lib.wipe()
-  clearFiles()
+  await clearFiles()
 }
 
 export type LocalLibrary = ReturnType<typeof createLocalLibrary>
