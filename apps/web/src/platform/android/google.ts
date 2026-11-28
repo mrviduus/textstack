@@ -6,16 +6,21 @@ import type { Platform } from '../index'
 const plugin = () => import('@capgo/capacitor-social-login')
 let onToken: ((idToken: string) => void) | null = null
 
-/** The native sign-in; its id token to `onToken`. A cancel or a failure only warns (the reader taps again). */
-async function signIn() {
+let signingIn: Promise<void> | null = null
+
+/** The native sign-in, one at a time (a double tap joins it); its id token to `onToken`. A cancel or a failure only warns. */
+const signIn = () => (signingIn ??= (async () => {
   try {
     const r = await (await plugin()).SocialLogin.login({ provider: 'google', options: {} })
     const idToken = (r.result as { idToken?: string | null }).idToken
     if (idToken) onToken?.(idToken)
+    else console.warn('[google] sign-in answered without an id token')
   } catch (e) {
     console.warn('[google] sign-in did not finish:', (e as Error | null)?.message)
+  } finally {
+    signingIn = null
   }
-}
+})())
 
 export const google: Platform['google'] = {
   /** False when there is no web client id (`VITE_GOOGLE_CLIENT_ID`, the id the server checks the token against) or the plugin fails. */

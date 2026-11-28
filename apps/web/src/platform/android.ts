@@ -1,6 +1,8 @@
 import type { Platform } from '.'
 import { account } from './android/account'
-import { APP_HEADERS, cachedAccessToken, setupApi } from './android/api'
+import { isTokenExpiring } from '@textstack/shared'
+import { applyMergeMap } from '../lib/mergeMap'
+import { APP_HEADERS, cachedAccessToken, freshAccessToken, getAccessToken, setupApi } from './android/api'
 import { google } from './android/google'
 import { startSyncProbe } from './android/syncClient'
 
@@ -11,28 +13,30 @@ export const notYet = (member: string) => (): never => {
 
 // The shared API client in bearer mode, on load (`web.ts` sets cookie mode the same way).
 setupApi()
-
-/** Bumped when the session's account changes: the reader drops what an earlier account's session started. */
-let accountEpoch = 0
-export const currentAccountEpoch = () => accountEpoch
+// The token cache filled at once, so the first synchronous `fetchInit` of a stored session carries it.
+void getAccessToken().catch(() => {})
 
 /** The Android shell (ADR-035): a local SQLite library, device files, bearer tokens. */
 export const platform: Platform = {
   transport: {
-    // Synchronous (a `pagehide` write uses it), so the token is the cached copy; never throws.
+    // Synchronous (a `pagehide` write uses it), so the token is the cached copy; never throws. A copy close to
+    // expiry is refreshed in the background, so the next call carries a good one (no caller retries a 401).
     fetchInit: () => {
       const token = cachedAccessToken()
+      if (token && isTokenExpiring(token)) void freshAccessToken().catch(() => {})
       return { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
     },
   },
   account,
   session: {
     // The V2 probe once a user is set (the Expo AuthContext's userId effect).
-    userSet: () => void startSyncProbe(),
+    userSet: () => void startSyncProbe().catch((e: unknown) => console.warn('[v2] status probe failed:', e)),
     settled: () => {},
-    accountChanged: () => { accountEpoch++ },
-    // account.ts already claimed the device library and adopted a guest's, before the UI set the user.
-    signedIn: async () => {},
+    // account.ts bumps its session epoch where the tokens change (`sessionEpoch`), before the UI knows.
+    accountChanged: () => {},
+    // account.ts already claimed the device library and adopted a guest's. The web stores in the WebView
+    // (localStorage progress, offlineDb queues) are re-keyed as on the web.
+    signedIn: async (merge) => { if (merge) await applyMergeMap(merge) },
     restored: async () => {},
   },
   siteChrome: false,
