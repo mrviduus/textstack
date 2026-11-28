@@ -240,6 +240,9 @@ importers:
       '@capacitor/network':
         specifier: 8.0.1
         version: 8.0.1(@capacitor/core@8.6.3)
+      '@capgo/capacitor-social-login':
+        specifier: 8.7.13
+        version: 8.7.13(@capacitor/core@8.6.3)
       '@sentry/react':
         specifier: 'catalog:'
         version: 10.75.2(react@19.2.3)
@@ -789,6 +792,11 @@ packages:
 
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
+
+  '@capgo/capacitor-social-login@8.7.13':
+    resolution: {integrity: sha512-0feJa4ceCeJVkUOj6/ke3bfjeqyrg/eV6NrJd6foGO7kF6sV2q/M3yQPUoJZB1roK7rD+zrVIgey2qYHQp85hQ==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
 
   '@csstools/color-helpers@6.1.2':
     resolution: {integrity: sha512-grhRy3OKmniaAEKXMjua5z/EODX0MSqBGjunw8+j/3HQjOnahs2AGhvEOIYVUWcU6ScApbhLhVrQTX8XqrMrow==}
@@ -5592,6 +5600,11 @@ snapshots:
       '@capacitor/core': 8.6.3
 
   '@capacitor/synapse@1.0.4': {}
+
+  '@capgo/capacitor-social-login@8.7.13(@capacitor/core@8.6.3)':
+    dependencies:
+      '@capacitor/core': 8.6.3
+      tslib: 2.8.1
 
   '@csstools/color-helpers@6.1.2': {}
 

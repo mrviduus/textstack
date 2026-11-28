@@ -1,47 +1,42 @@
 import type { Platform } from '.'
+import { account } from './android/account'
+import { APP_HEADERS, cachedAccessToken, setupApi } from './android/api'
+import { google } from './android/google'
+import { startSyncProbe } from './android/syncClient'
 
-/** Every member throws until wave 5 (#1642) ports the offline library here. The stub only proves the build. */
+/** A member still to come in wave 5 (#1642): it throws. */
 export const notYet = (member: string) => (): never => {
   throw new Error(`platform/android: ${member} is not implemented yet (#1642)`)
 }
 
-// Wave 5 calls `initApi` here, in bearer mode, as `web.ts` does in cookie mode.
+// The shared API client in bearer mode, on load (`web.ts` sets cookie mode the same way).
+setupApi()
+
+/** Bumped when the session's account changes: the reader drops what an earlier account's session started. */
+let accountEpoch = 0
+export const currentAccountEpoch = () => accountEpoch
 
 /** The Android shell (ADR-035): a local SQLite library, device files, bearer tokens. */
 export const platform: Platform = {
   transport: {
-    fetchInit: notYet('transport.fetchInit'),
+    // Synchronous (a `pagehide` write uses it), so the token is the cached copy; never throws.
+    fetchInit: () => {
+      const token = cachedAccessToken()
+      return { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
+    },
   },
-  account: {
-    getCurrentUser: notYet('account.getCurrentUser'),
-    refreshToken: notYet('account.refreshToken'),
-    loginWithEmail: notYet('account.loginWithEmail'),
-    registerWithEmail: notYet('account.registerWithEmail'),
-    loginWithGoogle: notYet('account.loginWithGoogle'),
-    logout: notYet('account.logout'),
-    createGuestSession: notYet('account.createGuestSession'),
-    forgotPassword: notYet('account.forgotPassword'),
-    resetPassword: notYet('account.resetPassword'),
-    updateProfile: notYet('account.updateProfile'),
-    uploadAvatar: notYet('account.uploadAvatar'),
-    deleteAvatar: notYet('account.deleteAvatar'),
-    deleteAccount: notYet('account.deleteAccount'),
-    approveDevice: notYet('account.approveDevice'),
-    denyDevice: notYet('account.denyDevice'),
-  },
+  account,
   session: {
-    userSet: notYet('session.userSet'),
-    settled: notYet('session.settled'),
-    accountChanged: notYet('session.accountChanged'),
-    signedIn: notYet('session.signedIn'),
-    restored: notYet('session.restored'),
+    // The V2 probe once a user is set (the Expo AuthContext's userId effect).
+    userSet: () => void startSyncProbe(),
+    settled: () => {},
+    accountChanged: () => { accountEpoch++ },
+    // account.ts already claimed the device library and adopted a guest's, before the UI set the user.
+    signedIn: async () => {},
+    restored: async () => {},
   },
   siteChrome: false,
-  google: {
-    init: notYet('google.init'),
-    renderButton: notYet('google.renderButton'),
-    signOut: notYet('google.signOut'),
-  },
+  google,
   library: {
     getUserBooks: notYet('library.getUserBooks'),
     getUserBook: notYet('library.getUserBook'),

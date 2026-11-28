@@ -50,5 +50,7 @@ Changes in the copies:
 - `account.ts`: the seam's `account` member (the web `AuthContext` calls it). Bearer session as in the Expo app; a
   new session claims the device library and adopts a guest's before the UI sets the user; sign-out pushes, then
   ends the session and wipes the library.
+- `google.ts`: the seam's `google` member over `@capgo/capacitor-social-login` (the native sign-in). The button is
+  a plain one.
 - `sqliteDb.ts`: the `Db` surface of `localLibrary.ts` over `@capacitor-community/sqlite`. Same database name
   as the Expo app (`textstack-v2`).
