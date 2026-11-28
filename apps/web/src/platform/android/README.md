@@ -27,6 +27,7 @@ Changes in the copies:
 - Import paths. The Expo modules come from `native.ts` under the same names.
 - `deviceLibrary.ts`: the database opens through `sqliteDb.ts`, and the file calls go to `@capacitor/filesystem`.
   They are async here, so `wipeLibrary` and `removeLocalBook` wait for them.
+- `localLibrary.ts`: `deviceHighlights` also gives each highlight's time (`at`), for the Highlights list.
 - `librarySync.ts`: the `Platform.OS === 'web'` guards are gone (this code runs only on Android), and two lines
   changed for the web tsconfig (an unused parameter, a switch fallthrough). `downloadBook` waits for `io.intact`.
 - `hostStorage.ts`: `HostFiles.exists`, `size` and `remove` may return a Promise, and every call waits for them.
@@ -54,6 +55,9 @@ Changes in the copies:
 - `library.ts`: the seam's `library` member. Online it is the web's own calls (`api/userBooks`, bearer mode); offline
   or with no session, the books on this device (as the Expo Library screen). Delete is device-first. `syncNow()` is
   one library sync pass for the stored session.
+- `vocabulary.ts`: the seam's `vocabulary` and `highlights` members. Saving a word needs the network, as in the Expo
+  app (owner 2026-11-28). The reader's marks read the device rows, so they show offline. Highlights: the server's list
+  online, this device's offline or with no session.
 - `google.ts`: the seam's `google` member over `@capgo/capacitor-social-login` (the native sign-in). The button is
   a plain one.
 - `sqliteDb.ts`: the `Db` surface of `localLibrary.ts` over `@capacitor-community/sqlite`. Same database name

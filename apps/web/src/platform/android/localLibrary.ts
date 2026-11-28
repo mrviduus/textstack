@@ -733,7 +733,7 @@ export function createLocalLibrary(db: Db) {
         const h = parse<PageHighlight>(r.highlight)
         // Not a bookmark (#1314: the same rows, colour `bookmark`), nor a quotation (#1195: nowhere to open it at).
         // ponytail: filtered after the LIMIT, so bookmarks among the newest rows shorten this dev-only list; filter in SQL if it ships.
-        return h && !isBookmark(h) && !isQuotation(h) ? [{ id: r.id, bookId: r.book_id, bookTitle: r.title, text: h.selectedText ?? h.quote, color: h.color ?? 'yellow', note: r.note }] : []
+        return h && !isBookmark(h) && !isQuotation(h) ? [{ id: r.id, bookId: r.book_id, bookTitle: r.title, text: h.selectedText ?? h.quote, color: h.color ?? 'yellow', note: r.note, at: h.at ?? null }] : []
       })
     }),
 
