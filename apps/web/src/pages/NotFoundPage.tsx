@@ -1,6 +1,5 @@
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 
 export function NotFoundPage() {
   return (
@@ -20,7 +19,6 @@ export function NotFoundPage() {
         </LocalizedLink>
       </div>
     </div>
-    <Footer />
     </>
   )
 }

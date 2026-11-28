@@ -1,0 +1,81 @@
+/* The phone design and the Android app's own rules. Desktop keeps the website's look.
+   - html.has-tab-bar: the tab bar shows (TabBar.tsx: a phone-width screen, or the Android app at any width).
+   - html.app-shell: the Android app (main.tsx, from platform.appShell).
+   No safe-area padding: the Android shell keeps the WebView inside the system bars. */
+
+html { -webkit-tap-highlight-color: transparent; }
+
+/* The Android app: no rubber-band scroll of the whole page, no text selection on the navigation. */
+html.app-shell,
+html.app-shell body { overscroll-behavior: none; }
+html.app-shell .site-header,
+.tab-bar { -webkit-user-select: none; user-select: none; }
+
+.app-main { min-height: calc(100vh - 80px); }
+
+.tab-bar { display: none; }
+
+html.has-tab-bar .tab-bar {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  height: 56px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+}
+.tab-bar__tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+}
+.tab-bar__tab .material-icons-outlined { font-size: 22px; }
+.tab-bar__tab--active { color: var(--color-brand); }
+.tab-bar__label { font-size: 11px; font-weight: 500; }
+.tab-bar__tab:active { opacity: 0.6; }
+
+/* The raised "+" of the Android app. */
+.tab-bar__add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: -18px 8px 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-brand);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+.tab-bar__add .material-icons-outlined { font-size: 28px; }
+.tab-bar__add:active { opacity: 0.8; }
+
+/* Room for the bar. The header keeps the brand, the theme switch and the account menu (it has sign-out until
+   the Profile page, #1664 slice 5); the bar has the rest. */
+html.has-tab-bar body { padding-bottom: 56px; }
+html.has-tab-bar .site-header { height: 56px; padding: 0 16px; }
+html.has-tab-bar .app-main { min-height: calc(100vh - 112px); }
+html.has-tab-bar .site-header__upload-btn,
+html.has-tab-bar .site-header__login-btn,
+html.has-tab-bar .library-fab { display: none; }
+/* What sits at the bottom of the screen sits above the bar. */
+html.has-tab-bar .bulk-action-bar,
+html.has-tab-bar .toast,
+html.has-tab-bar .cookie-banner,
+html.has-tab-bar .android-app-banner { margin-bottom: 56px; }

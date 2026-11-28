@@ -1,5 +1,4 @@
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
 import { useObfuscatedEmail } from '../hooks/useObfuscatedEmail'
 import { PRIVACY_SECTIONS } from '@textstack/shared'
@@ -51,7 +50,6 @@ export function PrivacyPage() {
         </p>
       </section>
       </div>
-      <Footer />
     </>
   )
 }

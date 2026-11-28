@@ -3,7 +3,6 @@ import { HeroSection } from '../components/home/HeroSection'
 import { FeaturesSection } from '../components/home/FeaturesSection'
 import { ComparisonSection } from '../components/home/ComparisonSection'
 import { FaqSection } from '../components/home/FaqSection'
-import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
 import '../styles/home.css'
 
@@ -22,7 +21,6 @@ export function HomePage() {
         <ComparisonSection />
         <FaqSection />
       </div>
-      <Footer />
     </>
   )
 }

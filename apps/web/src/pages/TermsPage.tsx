@@ -1,5 +1,4 @@
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { useTranslation } from '../hooks/useTranslation'
 import { useObfuscatedEmail } from '../hooks/useObfuscatedEmail'
@@ -91,7 +90,6 @@ export function TermsPage() {
         </p>
       </section>
       </div>
-      <Footer />
     </>
   )
 }

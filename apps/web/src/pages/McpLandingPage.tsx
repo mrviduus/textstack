@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { MCP_ENDPOINT } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
 import { ConnectAssistant } from '../components/mcp/ConnectAssistant'
 import { ConnectedApps } from '../components/mcp/ConnectedApps'
@@ -168,7 +167,6 @@ export function McpLandingPage() {
           </a>
         </p>
       </div>
-      <Footer />
     </>
   )
 }

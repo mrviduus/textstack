@@ -25,13 +25,12 @@ const UserBookDetailPage = lazy(() => import('./pages/UserBookDetailPage').then(
 const VocabularyPage = lazy(() => import('./pages/VocabularyPage').then(m => ({ default: m.VocabularyPage })))
 const VocabularyReviewPage = lazy(() => import('./pages/VocabularyReviewPage').then(m => ({ default: m.VocabularyReviewPage })))
 const HighlightsPage = lazy(() => import('./pages/HighlightsPage').then(m => ({ default: m.HighlightsPage })))
-import { Header } from './components/Header'
+import { Layout } from './components/Layout'
 import { AuthModal } from './components/auth/AuthModal'
 import { platform } from './platform'
 import { CookieBanner } from './components/CookieBanner'
 import { AndroidAppBanner } from './components/AndroidAppBanner'
 import { Toast } from './components/Toast'
-import { GlobalDropZone } from './components/library/GlobalDropZone'
 import { CommandPaletteProvider } from './components/CommandPaletteProvider'
 import { useTranslation } from './hooks/useTranslation'
 import './styles/theme.css'
@@ -43,6 +42,7 @@ import './styles/chapter-review.css'
 import './styles/auth.css'
 import './styles/profile.css'
 import './styles/dropzone.css'
+import './styles/app-shell.css'
 
 function AuthSuccessToast() {
   const { authSuccessToast, dismissAuthSuccessToast } = useAuth()
@@ -75,47 +75,45 @@ function GuestMergeSkippedToast() {
 
 function LanguageRoutes() {
   const { lang } = useParams<{ lang: string }>()
-  const location = useLocation()
 
   // Validate language parameter
   if (!isValidLanguage(lang)) {
     return <Navigate to="/en" replace />
   }
 
-  // Hide header on reader pages (have their own top bar)
-  const isUserBookReaderPage = /^\/[a-z]{2}\/library\/my\/[^/]+\/(read(\/[^/]+)?|read-v2\/?)$/.test(location.pathname)
-
   return (
     <LanguageProvider>
-      {!isUserBookReaderPage && <Header />}
       <AuthSuccessToast />
       <GuestMergeSkippedToast />
-      {!isUserBookReaderPage && <GlobalDropZone />}
       <CommandPaletteProvider />
       <Suspense fallback={null}>
         <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/privacy" element={<PrivacyPage />} />
-          <Route path="/terms" element={<TermsPage />} />
-          <Route path="/dmca" element={<DmcaPage />} />
-          <Route path="/delete-account" element={<DeleteAccountPage />} />
-          <Route path="/contact" element={<ContactPage />} />
-          <Route path="/mcp" element={<McpLandingPage />} />
-          {/* OAuth consent (ADR-017): /oauth/authorize 302s here. Not in /ssg/routes, noindex. */}
-          <Route path="/oauth/consent" element={<OAuthConsentPage />} />
-          <Route path="/library" element={<LibraryPage />} />
-          <Route path="/vocabulary" element={<VocabularyPage />} />
-          <Route path="/vocabulary/review" element={<VocabularyReviewPage />} />
-          <Route path="/highlights" element={<HighlightsPage />} />
-          <Route path="/library/my/:id" element={<UserBookDetailPage />} />
-          {/* The V2 reader. The chapter slug (old links) is ignored: the book opens at its synced place. /read-v2: an alias. */}
+          {/* The reader has its own bars: no header, footer or tab bar. The chapter slug (old links) is
+              ignored: the book opens at its synced place. /read-v2: an alias. */}
           <Route path="/library/my/:id/read" element={<ReaderPage />} />
           <Route path="/library/my/:id/read/:chapterSlug" element={<ReaderPage />} />
           <Route path="/library/my/:id/read-v2" element={<ReaderPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/changelog" element={<ChangelogPage />} />
-          <Route path="*" element={<NotFoundPage />} />
+          <Route element={<Layout />}>
+            {/* The Android app has no landing page: it opens on the library. */}
+            <Route index element={platform.appShell ? <Navigate to="library" replace /> : <HomePage />} />
+            <Route path="about" element={<AboutPage />} />
+            <Route path="privacy" element={<PrivacyPage />} />
+            <Route path="terms" element={<TermsPage />} />
+            <Route path="dmca" element={<DmcaPage />} />
+            <Route path="delete-account" element={<DeleteAccountPage />} />
+            <Route path="contact" element={<ContactPage />} />
+            <Route path="mcp" element={<McpLandingPage />} />
+            {/* OAuth consent (ADR-017): /oauth/authorize 302s here. Not in /ssg/routes, noindex. */}
+            <Route path="oauth/consent" element={<OAuthConsentPage />} />
+            <Route path="library" element={<LibraryPage />} />
+            <Route path="vocabulary" element={<VocabularyPage />} />
+            <Route path="vocabulary/review" element={<VocabularyReviewPage />} />
+            <Route path="highlights" element={<HighlightsPage />} />
+            <Route path="library/my/:id" element={<UserBookDetailPage />} />
+            <Route path="reset-password" element={<ResetPasswordPage />} />
+            <Route path="changelog" element={<ChangelogPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Route>
         </Routes>
       </Suspense>
     </LanguageProvider>

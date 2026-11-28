@@ -8,7 +8,6 @@ import { platform } from '../platform'
 import { SeoHead } from '../components/SeoHead'
 import { useOnline } from '../hooks/useOnline'
 import { useCoverRetry } from '../hooks/useCoverRetry'
-import { Footer } from '../components/Footer'
 import { EmptyState } from '../components/EmptyState'
 import { useDataChange } from '../lib/dataEvents'
 import { HighlightQuote } from '../components/HighlightQuote'
@@ -178,7 +177,6 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
             buttonTo="/library"
           />
         </div>
-        <Footer />
       </>
     )
   }
@@ -294,7 +292,6 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   return (
     <>
       {highlightsContent}
-      <Footer />
     </>
   )
 }

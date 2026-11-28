@@ -36,6 +36,7 @@ export const platform: Platform = {
     restored: () => replayAllPendingHighlights(),
   },
   siteChrome: true,
+  appShell: false,
   imageSrc: (url) => url,
   google: {
     init: (onIdToken) => initGoogleSignIn(onIdToken),

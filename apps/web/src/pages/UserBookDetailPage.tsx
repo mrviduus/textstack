@@ -5,7 +5,6 @@ import { useLanguage } from '../context/LanguageContext'
 import type { UserBookDetail } from '../api/userBooks'
 import { platform } from '../platform'
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 import { stringToColor } from '../utils/colors'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
 import { AssistantMenu } from '../components/library/AssistantMenu'
@@ -144,7 +143,6 @@ export function UserBookDetailPage() {
           <p>Sign in to view your uploaded books.</p>
         </div>
       </div>
-      <Footer />
       </>
     )
   }
@@ -156,7 +154,6 @@ export function UserBookDetailPage() {
         <SeoHead title="Loading..." noindex />
         <div className="user-book-detail__loading">Loading...</div>
       </div>
-      <Footer />
       </>
     )
   }
@@ -174,7 +171,6 @@ export function UserBookDetailPage() {
           </Link>
         </div>
       </div>
-      <Footer />
       </>
     )
   }
@@ -345,7 +341,6 @@ export function UserBookDetailPage() {
       )}
 
     </div>
-    <Footer />
     </>
   )
 }

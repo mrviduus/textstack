@@ -5,6 +5,10 @@ import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { clearExpiredCaches } from './lib/offlineDb'
 import { initSentry } from './lib/sentry'
+import { platform } from './platform'
+
+// The Android app's own CSS rules (styles/app-shell.css).
+if (platform.appShell) document.documentElement.classList.add('app-shell')
 
 initSentry()   // no VITE_SENTRY_DSN: a no-op; else @sentry/react loads in its own chunk
 
