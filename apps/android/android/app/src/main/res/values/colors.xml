@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- apps/web theme.css color-bg (light) -->
+    <color name="page_background">#FAFAFA</color>
+    <!-- The Expo app's splash colour -->
+    <color name="splash_background">#FDFDFB</color>
+</resources>

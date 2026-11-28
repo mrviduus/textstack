@@ -8,3 +8,6 @@ vite.config.d.ts
 
 # Written by images.yml at build time (tools/checks/changelog-data.mjs), never committed.
 public/changelog.json
+
+# The Android shell's build (`pnpm build:android`); apps/android copies it into the APK.
+dist-android/

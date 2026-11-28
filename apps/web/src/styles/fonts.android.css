@@ -1,0 +1,23 @@
+/* The interface fonts of the Android shell (ADR-035), from the APK: the app opens offline, so it never asks
+   Google Fonts. The web build loads the same faces from fonts.googleapis.com (index.html). Latin subset only. */
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url(../assets/fonts/SourceSans3-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(../assets/fonts/SourceSans3-Italic-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Material Icons Outlined';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url(../assets/fonts/MaterialIconsOutlined.woff2) format('woff2');
+}

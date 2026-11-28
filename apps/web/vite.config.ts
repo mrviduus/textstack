@@ -43,8 +43,28 @@ const readerFrame = (): Plugin => ({
 const target = process.env.VITE_TARGET || 'web'
 if (target !== 'web' && target !== 'android') throw new Error(`VITE_TARGET must be web or android, not "${target}"`)
 
+/**
+ * The Android shell's page (ADR-035) opens offline and sends no analytics: its index.html loads the interface
+ * fonts from the APK (styles/fonts.android.css) and drops gtag, Google Fonts and the structured data.
+ */
+const androidHtml = (): Plugin => ({
+  name: 'android-html',
+  transformIndexHtml: {
+    order: 'pre',
+    handler: (html) => {
+      const out = html
+        .replace(/\s*<link rel="preconnect" href="https:\/\/fonts\.[^>]*>/g, '')
+        .replace(/<!-- Interface font \+ Material Icons -->\s*<link href="https:\/\/fonts\.googleapis\.com[^>]*>/, '<link rel="stylesheet" href="/src/styles/fonts.android.css" />')
+        .replace(/\s*<!-- Structured Data[^>]*>\s*<script type="application\/ld\+json">[\s\S]*?<\/script>/g, '')
+        .replace(/\s*<!-- Google tag[\s\S]*?<script src="\/gtag-init\.js"><\/script>/, '')
+      if (/googleapis|gstatic|googletagmanager|gtag/.test(out)) throw new Error('android index.html still names Google Fonts or gtag')
+      return out
+    },
+  },
+})
+
 export default defineConfig({
-  plugins: [react(), readerFrame()],
+  plugins: [react(), readerFrame(), ...(target === 'android' ? [androidHtml()] : [])],
   resolve: {
     alias: {
       // Before the bare name: an alias matches by prefix.

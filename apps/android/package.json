@@ -1,0 +1,23 @@
+{
+  "name": "textstack-android",
+  "private": true,
+  "description": "The Android app: a Capacitor shell around the android build of apps/web (ADR-035).",
+  "scripts": {
+    "build:web": "pnpm -C ../web build:android",
+    "sync": "cap sync android",
+    "build:debug": "pnpm build:web && cap sync android && cd android && ./gradlew :app:assembleDebug",
+    "check:permissions": "node scripts/check-android-permissions.mjs"
+  },
+  "dependencies": {
+    "@aparajita/capacitor-secure-storage": "catalog:",
+    "@capacitor-community/sqlite": "catalog:",
+    "@capacitor/android": "catalog:",
+    "@capacitor/core": "catalog:",
+    "@capacitor/filesystem": "catalog:",
+    "@capacitor/network": "catalog:",
+    "@capgo/capacitor-social-login": "catalog:"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "catalog:"
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TextStack</string>
+    <string name="title_activity_main">TextStack</string>
+    <string name="package_name">app.textstack.mobile</string>
+    <string name="custom_url_scheme">app.textstack.mobile</string>
+</resources>
