@@ -6,6 +6,7 @@ import android.webkit.WebView;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
+import com.getcapacitor.Logger;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -19,7 +20,8 @@ import java.util.Map;
  * Serves the reader frame as nginx does on the web (ADR-032, packages/reader/src/frame.mjs): /reader/frame.html
  * from the APK, with a fresh nonce in place of the placeholder on every load, and the frame's headers.
  * scripts/check-reader-frame.mjs holds the path, the placeholder and the headers equal to frame.mjs.
- * If this fails, Capacitor serves the file unfilled, and an unfilled frame runs no script (it fails closed).
+ * If this fails, the answer is an empty 500 with the same headers: the reader stays blank and logcat says why.
+ * The frame always comes from the APK assets (no live update of the web bundle).
  */
 public class ReaderFrameClient extends BridgeWebViewClient {
     static final String FRAME_PATH = "/reader/frame.html";
@@ -54,19 +56,26 @@ public class ReaderFrameClient extends BridgeWebViewClient {
 
     @Override
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-        if (FRAME_PATH.equals(request.getUrl().getPath()) && bridge.getHost().equals(request.getUrl().getHost())) {
-            try (InputStream in = bridge.getContext().getAssets().open("public" + FRAME_PATH)) {
-                // Not InputStream.readAllBytes: Android has it from API 33, the app runs from 24.
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                byte[] chunk = new byte[8192];
-                for (int n; (n = in.read(chunk)) != -1; ) bytes.write(chunk, 0, n);
-                String html = bytes.toString("UTF-8").replace(NONCE_PLACEHOLDER, newNonce());
-                return new WebResourceResponse(
-                    "text/html", "utf-8", 200, "OK", frameHeaders(), new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)));
-            } catch (Exception e) {
-                return super.shouldInterceptRequest(view, request);
-            }
+        if (!FRAME_PATH.equals(request.getUrl().getPath()) || !bridge.getHost().equals(request.getUrl().getHost())) {
+            return super.shouldInterceptRequest(view, request);
         }
-        return super.shouldInterceptRequest(view, request);
+        try (InputStream in = bridge.getContext().getAssets().open("public" + FRAME_PATH)) {
+            // Not InputStream.readAllBytes: Android has it from API 33, the app runs from 24.
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            for (int n; (n = in.read(chunk)) != -1; ) bytes.write(chunk, 0, n);
+            String html = bytes.toString("UTF-8");
+            if (!html.contains(NONCE_PLACEHOLDER)) throw new IllegalStateException("frame.html has no nonce placeholder");
+            return response(200, "OK", html.replace(NONCE_PLACEHOLDER, newNonce()));
+        } catch (Exception e) {
+            // Never Capacitor's own answer for this path: it has no frame headers and can inject a script.
+            Logger.error("ReaderFrameClient", "The reader frame was not served", e);
+            return response(500, "Reader frame error", "");
+        }
+    }
+
+    private static WebResourceResponse response(int status, String reason, String html) {
+        return new WebResourceResponse(
+            "text/html", "utf-8", status, reason, frameHeaders(), new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)));
     }
 }

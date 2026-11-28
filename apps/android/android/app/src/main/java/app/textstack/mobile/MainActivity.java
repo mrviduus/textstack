@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        bridge.setWebViewClient(new ReaderFrameClient(bridge));
+        // No bridge: the device has no WebView and Capacitor shows its own screen for that.
+        if (bridge != null) bridge.setWebViewClient(new ReaderFrameClient(bridge));
     }
 }
