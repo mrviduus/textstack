@@ -3,13 +3,17 @@ import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
+import { platform } from '../platform'
 import { LocalizedLink } from './LocalizedLink'
 import { ProfileModal } from './auth/ProfileModal'
 
+const PHONE = '(max-width: 640px)'
+
 /**
- * The phone's bottom navigation: Library, add a book, Vocabulary, Profile. Hidden above phone width
- * (styles/app-shell.css). While it is mounted, `html.has-tab-bar` lets the CSS make room for it and hide
- * the header's copies of the same actions.
+ * The phone's bottom navigation: Library, add a book, Vocabulary, Profile. It shows on a phone-width screen,
+ * and at every width in the Android app (a tablet has no other way to the pages with no session). While it
+ * shows, `html.has-tab-bar` lets styles/app-shell.css draw it, make room for it and hide the header's copies
+ * of the same actions.
  */
 export function TabBar() {
   const { isAuthenticated, openAuthModal } = useAuth()
@@ -19,8 +23,14 @@ export function TabBar() {
   const [showProfile, setShowProfile] = useState(false)
 
   useEffect(() => {
-    document.documentElement.classList.add('has-tab-bar')
-    return () => document.documentElement.classList.remove('has-tab-bar')
+    const phone = window.matchMedia?.(PHONE)
+    const apply = () => document.documentElement.classList.toggle('has-tab-bar', platform.appShell || !!phone?.matches)
+    apply()
+    phone?.addEventListener('change', apply)
+    return () => {
+      phone?.removeEventListener('change', apply)
+      document.documentElement.classList.remove('has-tab-bar')
+    }
   }, [])
 
   const tab = (to: string, icon: string, label: string) => {

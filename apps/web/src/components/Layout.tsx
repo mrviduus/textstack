@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { platform } from '../platform'
@@ -17,9 +18,12 @@ export function Layout() {
     <>
       <Header />
       <GlobalDropZone />
-      {/* As tall as the screen, so the footer does not jump up while a page's chunk loads. */}
+      {/* A page's chunk loads inside the frame: the header and the tab bar paint at once, and the block is as
+          tall as the screen, so the footer does not jump up. */}
       <div className="app-main">
-        <Outlet />
+        <Suspense fallback={null}>
+          <Outlet />
+        </Suspense>
       </div>
       {!platform.appShell && <Footer />}
       {(platform.appShell || isAuthenticated) && <TabBar />}

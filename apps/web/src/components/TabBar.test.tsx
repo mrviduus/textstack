@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const auth = vi.hoisted(() => ({ isAuthenticated: false, openAuthModal: vi.fn() }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
+const shell = vi.hoisted(() => ({ appShell: false }))
+vi.mock('../platform', () => ({ platform: { get appShell() { return shell.appShell } } }))
 vi.mock('./auth/ProfileModal', () => ({ ProfileModal: () => <div>the profile</div> }))
 
 import { TabBar } from './TabBar'
@@ -11,7 +13,20 @@ import { TabBar } from './TabBar'
 const at = (path: string) => render(<MemoryRouter initialEntries={[path]}><TabBar /></MemoryRouter>)
 
 describe('the phone tab bar', () => {
-  beforeEach(() => { auth.isAuthenticated = false; auth.openAuthModal.mockReset() })
+  beforeEach(() => { auth.isAuthenticated = false; auth.openAuthModal.mockReset(); shell.appShell = false })
+
+  it('shows at every width in the Android app, and leaves with the page', () => {
+    shell.appShell = true
+    const { unmount } = at('/en/library')
+    expect(document.documentElement).toHaveClass('has-tab-bar')
+    unmount()
+    expect(document.documentElement).not.toHaveClass('has-tab-bar')
+  })
+
+  it('stays hidden on a wide website', () => {
+    at('/en/library')
+    expect(document.documentElement).not.toHaveClass('has-tab-bar')
+  })
 
   it('marks the tab of the page the reader is on', () => {
     at('/en/library')
