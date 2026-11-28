@@ -6,7 +6,8 @@
     "build:web": "pnpm -C ../web build:android",
     "sync": "cap sync android",
     "build:debug": "pnpm build:web && cap sync android && cd android && ./gradlew :app:assembleDebug",
-    "check:permissions": "node scripts/check-android-permissions.mjs"
+    "check:permissions": "node scripts/check-android-permissions.mjs",
+    "check:reader-frame": "node --experimental-strip-types scripts/check-reader-frame.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "catalog:",
