@@ -9,11 +9,6 @@ import { NetInfo } from './android/native'
 import { highlights, vocabulary } from './android/vocabulary'
 import { startSyncProbe } from './android/syncClient'
 
-/** A member still to come in wave 5 (#1642): it throws. */
-export const notYet = (member: string) => (): never => {
-  throw new Error(`platform/android: ${member} is not implemented yet (#1642)`)
-}
-
 // The shared API client in bearer mode, on load (`web.ts` sets cookie mode the same way).
 setupApi()
 // The token cache filled at once, so the first synchronous `fetchInit` of a stored session carries it.

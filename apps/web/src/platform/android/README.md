@@ -62,3 +62,36 @@ Changes in the copies:
   a plain one.
 - `sqliteDb.ts`: the `Db` surface of `localLibrary.ts` over `@capacitor-community/sqlite`. Same database name
   as the Expo app (`textstack-v2`).
+- `readerSync.ts` (+ test): `createDeviceReaderSync`, the reader's `createSync`. It keeps the web `ReaderSync` contract
+  (what `ReaderHost.tsx` calls) and saves as the Expo reader does, through `readerStorage()`. No member uses the network.
+  - `restore` gives the stored place only; `loadHighlights` gives the stored highlights and quotations (`onHighlights`).
+    The Expo reader restores the whole entry; the web host draws the highlights after the restore.
+  - No session epoch guard, as in the Expo reader: a guest mint or a sign-in while reading does not stop the saves.
+    The device library is the guard. After a wipe (sign-out, another account) it has no book with these bytes, so
+    every write fails and the status is `unsaved`.
+  - One queue of device writes. A save writes the page's latest `store` first, then the notes still to write. A failed
+    store is `unsaved` and is written again by the next save. A failed removal stays `unsaved` for the rest of the open.
+  - A note is kept in memory until the device takes it. A note on a highlight with no row yet (on pagehide the host
+    writes the note before the last store) is written after the next store that lands; `unsaved` until then.
+  - A note the device never read (`notes().unknown`, or before the first read) is not written over: `setNote` refuses
+    it and the status is `unsaved` (Expo shows the editor loading; the web host has no such state).
+  - `note` and `deleted` read the book's notes (`notes()`), kept in memory. They are read again after each edit and
+    each sync pass.
+  - Each save asks for one sync pass 10 s later (the Expo `SYNC_AFTER_SAVE_MS`). The timer is not cleared on close, so
+    the last saves of an open still go soon.
+  - While open, the book is the mounted reader of every pass (`holdReaderHost` + `openBookHost`); `close` releases it.
+    Until `restore` resolves it is not restored (Expo `place.reader()`), so ADR-019 adopts a pulled place and the
+    restore opens there. After it, it reports a reader who moved, as web does: a pulled place is kept or offered
+    (`onNewerPlace`), never applied. The Expo reader moves a reader who did not move yet.
+  - A reopen of the same bytes reads after the last session still writing (keyed by the sha256: a pass can re-key the id).
+  - `complete`: `finishBook` (set once). It rejects with `NO_PLACE_YET` while this file has no stored place, as web
+    rejects while the server has none. The Expo reader finishes with no place and keeps the write queued.
+  - Not ported: the pass's `upload` of retained bytes (file sync). This app opens only books that the server has.
+- `../android.reader.ts`: `openBook` gives the sync target again: the local file id (`file_id`); with none, the server's
+  only when the server's file is these bytes; else no target. `hasToc` comes from one server look-up beside the open
+  (Expo `openedToc.ts`), set on the target when it lands; only with a session and online. `queueSession` keeps an
+  ended session in localStorage at once (`v2reader:pendingSessions`, the shared `pendingSessions` shape plus the
+  book's bytes): pagehide waits for nothing. Then it goes into the device library (Expo `addSession`, under its client
+  session id) and leaves localStorage only once kept there. `flushSessions` moves what is left, then runs the
+  reader's first pass (failures retried).
+  `accountEpoch` is `sessionEpoch`.
