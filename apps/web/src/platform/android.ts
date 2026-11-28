@@ -6,6 +6,7 @@ import { APP_HEADERS, cachedAccessToken, freshAccessToken, getAccessToken, setup
 import { google } from './android/google'
 import { library, syncSoon } from './android/library'
 import { NetInfo } from './android/native'
+import { highlights, vocabulary } from './android/vocabulary'
 import { startSyncProbe } from './android/syncClient'
 
 /** A member still to come in wave 5 (#1642): it throws. */
@@ -48,19 +49,6 @@ export const platform: Platform = {
   siteChrome: false,
   google,
   library,
-  vocabulary: {
-    saveWord: notYet('vocabulary.saveWord'),
-    getWords: notYet('vocabulary.getWords'),
-    deleteWord: notYet('vocabulary.deleteWord'),
-    deleteAllWords: notYet('vocabulary.deleteAllWords'),
-    updateWord: notYet('vocabulary.updateWord'),
-    restoreWord: notYet('vocabulary.restoreWord'),
-    getReaderVocab: notYet('vocabulary.getReaderVocab'),
-    getReviewQueue: notYet('vocabulary.getReviewQueue'),
-    submitReview: notYet('vocabulary.submitReview'),
-  },
-  highlights: {
-    getAllHighlights: notYet('highlights.getAllHighlights'),
-    coverUrl: notYet('highlights.coverUrl'),
-  },
+  vocabulary,
+  highlights,
 }

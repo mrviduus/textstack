@@ -54,6 +54,9 @@ Changes in the copies:
 - `library.ts`: the seam's `library` member. Online it is the web's own calls (`api/userBooks`, bearer mode); offline
   or with no session, the books on this device (as the Expo Library screen). Delete is device-first. `syncNow()` is
   one library sync pass for the stored session.
+- `vocabulary.ts`: the seam's `vocabulary` and `highlights` members. Saving a word needs the network, as in the Expo
+  app (owner 2026-11-28). The reader's marks read the device rows, so they show offline. Highlights: the server's list
+  online, this device's offline or with no session.
 - `google.ts`: the seam's `google` member over `@capgo/capacitor-social-login` (the native sign-in). The button is
   a plain one.
 - `sqliteDb.ts`: the `Db` surface of `localLibrary.ts` over `@capacitor-community/sqlite`. Same database name
