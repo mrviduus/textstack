@@ -12,7 +12,13 @@ import { downloadBook, removeLocalBook } from './librarySync'
 /** `name` under <data>/v2/ (`FILES_ROOT`, shared with the wipe and the measure), e.g. `books/<sha256>.epub`. */
 const hostFile = (name: string) => ({ path: `${FILES_ROOT}/${name}`, directory: Directory.Data })
 
-const hostFileExists = (name: string) => Filesystem.stat(hostFile(name)).then(() => true, () => false)
+/** The plugin's "does not exist" (FilesystemErrors.kt `doesNotExist`): the one stat error that means absent. */
+const MISSING = 'OS-PLUG-FILE-0008'
+const isMissing = (e: unknown) => (e as { code?: string } | null)?.code === MISSING
+
+/** Whether `name` is there. Any stat error other than "does not exist" is thrown, never read as absent. */
+const hostFileExists = (name: string) =>
+  Filesystem.stat(hostFile(name)).then(() => true, (e: unknown) => { if (isMissing(e)) return false; throw e })
 
 /** `name` under the root deleted, when it is there: the one device file removal (the reader's host, Delete Book, a download). */
 export const removeHostFile = async (name: string) => {
@@ -29,10 +35,26 @@ export const hostFileSize = async (name: string): Promise<number | null> => {
   }
 }
 
-/** Overwrites `to`: the target is deleted first (a missing one is no error), as rename may not overwrite it. */
+const rename = (from: string, to: string) => Filesystem.rename({ from: hostFile(from).path, to: hostFile(to).path, directory: Directory.Data })
+
+/**
+ * Overwrites `to`, and a failure never loses it. The rename is tried first. When it fails and the target is there
+ * (a rename that does not overwrite), the target goes aside, the rename is tried again, and the old copy is deleted;
+ * a second failure puts the old copy back.
+ */
 const moveHostFile = async (from: string, to: string) => {
-  await removeHostFile(to)
-  await Filesystem.rename({ from: hostFile(from).path, to: hostFile(to).path, directory: Directory.Data })
+  await rename(from, to).catch(async (e: unknown) => {
+    if (!(await hostFileExists(to))) throw e
+    const aside = `${to}.old-${Date.now()}`
+    await rename(to, aside)
+    try {
+      await rename(from, to)
+    } catch (again) {
+      await rename(aside, to).catch(() => { /* the old copy stays under its aside name */ })
+      throw again
+    }
+    await removeHostFile(aside).catch(() => { /* only space */ })
+  })
 }
 
 /** The reader host's files under the root (hostStorage.ts `HostFiles`). */
@@ -80,11 +102,13 @@ let lastStaged = 0
 /** Download on demand: into staging, checked against the sha256, then the retained copy (an earlier process's leftovers are swept on start). */
 export const downloadIo = {
   async fetch(url: string, sha256: string) {
+    // A fresh install or a wipe may have no staging/ yet (the reader host makes it async).
+    await makeFileDirs()
     const token = await freshAccessToken()
     const staged = `staging/dl-${(lastStaged = Math.max(Date.now(), lastStaged + 1))}.epub`
     // ponytail: `downloadFile` is deprecated for @capacitor/file-transfer (not installed); move to its
     // `downloadFile` when this plugin drops it.
-    await Filesystem.downloadFile({ url, ...hostFile(staged), headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+    await Filesystem.downloadFile({ url, ...hostFile(staged), recursive: true, headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
       .catch(async (e: unknown) => {
         // A failed download (a full disk) leaves no partial file, like a failed pick.
         await removeHostFile(staged).catch(() => { /* swept on a later start */ })
@@ -99,7 +123,10 @@ export const downloadIo = {
     }
     return staged
   },
-  retain: async (staged: string, sha256: string) => moveHostFile(staged, bookFile(sha256)),
+  retain: async (staged: string, sha256: string) => {
+    await makeFileDirs()
+    await moveHostFile(staged, bookFile(sha256))
+  },
   dropUnheld: (sha256: string) => readerStorage().dropUnheld(sha256),
   intact: bookFileIntact,
 }

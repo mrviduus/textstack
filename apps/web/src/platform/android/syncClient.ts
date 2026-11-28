@@ -373,7 +373,7 @@ export interface UploadStaging {
   /** Copies `uri` in; resolves to the copy's name under `files/v2/` (`staging/<ms>.epub`) and its file URI. */
   copyIn(uri: string): Promise<{ name: string; uri: string }>
   /** Best-effort; a missing file is not an error. */
-  remove(name: string): void
+  remove(name: string): void | Promise<void>
 }
 
 /**
@@ -394,7 +394,7 @@ export async function uploadPicked(
   try {
     return await uploadBook({ uri: copy.uri, name: file.name }, maxPartBytes, { ...io, describe: () => describe(copy.name) }, onProgress)
   } finally {
-    try { staging.remove(copy.name) } catch { /* best effort: staging/ is emptied on the reader's next start */ }
+    try { await staging.remove(copy.name) } catch { /* best effort: staging/ is emptied on the reader's next start */ }
   }
 }
 

@@ -4,6 +4,9 @@ import { createHash } from 'node:crypto'
 // The plugins faked at the module boundary: a memory file system with the filesystem plugin's calls (paths under
 // `doc/`, the app's data directory), the WebView's file read over it, and the session's token.
 const files = new Map<string, Uint8Array<ArrayBuffer>>()
+const dirs = new Set<string>()
+/** A rename out of staging/ fails for good (a disk error). */
+let renameBroken = false
 const downloads: Array<{ url: string; headers: Record<string, string> }> = []
 /** What the next download writes before it ends; `fail`: it then throws (a full disk). */
 let serve: { bytes: Uint8Array<ArrayBuffer>; fail?: boolean } = { bytes: new Uint8Array() }
@@ -15,12 +18,27 @@ vi.mock('@capacitor/filesystem', () => ({
   Encoding: { UTF8: 'utf8' },
   Filesystem: {
     stat: async (o: { path: string }) => {
+      if (dirs.has(doc(o))) return { type: 'directory', size: 0 }
       const f = files.get(doc(o))
       if (!f) throw missing(doc(o))
       return { type: 'file', size: f.length }
     },
     deleteFile: async (o: { path: string }) => {
       if (!files.delete(doc(o))) throw missing(doc(o))
+    },
+    mkdir: async (o: { path: string }) => {
+      if (dirs.has(doc(o))) throw new Error('Directory exists')
+      const segments = doc(o).split('/')
+      for (let i = 2; i <= segments.length; i++) dirs.add(segments.slice(0, i).join('/'))
+    },
+    // Like a rename that does not overwrite: a target that is there is an error.
+    rename: async (o: { from: string; to: string }) => {
+      const from = `doc/${o.from}`
+      const to = `doc/${o.to}`
+      if ((renameBroken && from.includes('/staging/')) || files.has(to)) throw new Error(`rename ${from} failed`)
+      if (!files.has(from)) throw missing(from)
+      files.set(to, files.get(from)!)
+      files.delete(from)
     },
     getUri: async (o: { path: string }) => ({ uri: `file:///${doc(o)}` }),
     downloadFile: async (o: { url: string; path: string; headers: Record<string, string> }) => {
@@ -44,6 +62,8 @@ const staged = () => [...files.keys()].filter((p) => p.startsWith('doc/v2/stagin
 describe('downloadIo.fetch', () => {
   beforeEach(() => {
     files.clear()
+    dirs.clear()
+    renameBroken = false
     downloads.length = 0
     // The WebView's read of a device file: its bytes by its file:// uri.
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -71,5 +91,24 @@ describe('downloadIo.fetch', () => {
     serve = { bytes: book, fail: true }
     await expect(downloadIo.fetch('http://api/c', SHA)).rejects.toThrow('No space left on device')
     expect(staged()).toEqual([])
+  })
+
+  it('retain_ADamagedCopyThere_TheStagedBytesReplaceIt', async () => {
+    serve = { bytes: book }
+    const name = await downloadIo.fetch('http://api/content', SHA)
+    files.set(`doc/v2/books/${SHA}.epub`, new Uint8Array(0))
+    await downloadIo.retain(name, SHA)
+    expect(files.get(`doc/v2/books/${SHA}.epub`)).toEqual(book)
+    expect(staged()).toEqual([])
+  })
+
+  it('retain_RenameFails_TheRetainedCopyIsKept', async () => {
+    serve = { bytes: book }
+    const name = await downloadIo.fetch('http://api/content', SHA)
+    const old = Uint8Array.from([1, 2, 3])
+    files.set(`doc/v2/books/${SHA}.epub`, old)
+    renameBroken = true
+    await expect(downloadIo.retain(name, SHA)).rejects.toThrow(/rename/)
+    expect(files.get(`doc/v2/books/${SHA}.epub`)).toEqual(old)
   })
 })
