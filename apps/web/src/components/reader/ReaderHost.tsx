@@ -1274,10 +1274,10 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
             ? <button className="reader-top-bar__btn reader-footer__chevron" aria-label={t('reader.chrome.prevPage')} onClick={() => hostMove('prev')}>‹</button>
             : <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>}
           {phone ? (
-            // The chapter over the percent.
+            // The same text as on a wide screen; reader.css draws the chapter over the percent.
             <span className="reader-footer__counter reader-footer__place" data-testid="v2-status">
-              {status && currentEntry && <span className="reader-footer__chapter">{currentEntry.label}</span>}{' '}
               <span>{status}</span>
+              {status && currentEntry && <><span className="reader-footer__sep"> · </span><span className="reader-footer__chapter">{currentEntry.label}</span></>}
             </span>
           ) : <span className="reader-footer__counter" data-testid="v2-status">{statusLine}</span>}
           {status && timePlace && <TimeLeft {...timePlace} />}

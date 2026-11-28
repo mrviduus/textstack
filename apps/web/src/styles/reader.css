@@ -1600,10 +1600,14 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   line-height: 1;
 }
 
-/* The chapter over the percent. */
+/* The chapter over the percent: the text is "percent · chapter", drawn in the other order. */
+.reader-footer__sep {
+  display: none;
+}
+
 .reader-footer__place {
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   align-items: center;
   min-width: 0;
   max-width: 100%;
