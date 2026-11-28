@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const secure = new Map<string, string>()
+// A Capacitor plugin is a proxy whose every property is a native method, `then` too: a promise resolved with it throws.
 vi.mock('@aparajita/capacitor-secure-storage', () => ({
-  SecureStorage: {
+  SecureStorage: new Proxy({
     getItem: async (k: string) => secure.get(k) ?? null,
     setItem: async (k: string, v: string) => { secure.set(k, v) },
     removeItem: async (k: string) => { secure.delete(k) },
-  },
+  }, { get: (t, k) => { if (k === 'then') throw new Error('"SecureStorage.then()" is not implemented on web'); return t[k as keyof typeof t] } }),
 }))
 
 const { onUnauthorized, freshAccessToken, resetAuthFailureLatch, cachedAccessToken } = await import('./api')

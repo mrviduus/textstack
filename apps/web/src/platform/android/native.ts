@@ -9,11 +9,12 @@ export const AsyncStorage = {
 }
 
 /** `expo-secure-store`'s calls, over `@aparajita/capacitor-secure-storage` (Android Keystore). Loaded on first use. */
-const secure = () => import('@aparajita/capacitor-secure-storage').then((m) => m.SecureStorage)
+// The module, never the plugin: a promise resolved with a Capacitor plugin proxy calls its `then` (not a method).
+const secureModule = () => import('@aparajita/capacitor-secure-storage')
 export const SecureStore = {
-  getItemAsync: async (key: string): Promise<string | null> => (await secure()).getItem(key),
-  setItemAsync: async (key: string, value: string): Promise<void> => (await secure()).setItem(key, value),
-  deleteItemAsync: async (key: string): Promise<void> => (await secure()).removeItem(key),
+  getItemAsync: async (key: string): Promise<string | null> => (await secureModule()).SecureStorage.getItem(key),
+  setItemAsync: async (key: string, value: string): Promise<void> => (await secureModule()).SecureStorage.setItem(key, value),
+  deleteItemAsync: async (key: string): Promise<void> => (await secureModule()).SecureStorage.removeItem(key),
 }
 
 /** `expo-modules-core`'s `uuid`. */

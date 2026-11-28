@@ -2,13 +2,14 @@
 // goes to the same `onIdToken` as on the web; `account.loginWithGoogle` exchanges it in mobile mode.
 import type { Platform } from '../index'
 
-const plugin = () => import('@capgo/capacitor-social-login').then((m) => m.SocialLogin)
+// The module, never the plugin: a promise resolved with a Capacitor plugin proxy calls its `then` (not a method).
+const plugin = () => import('@capgo/capacitor-social-login')
 let onToken: ((idToken: string) => void) | null = null
 
 /** The native sign-in; its id token to `onToken`. A cancel or a failure only warns (the reader taps again). */
 async function signIn() {
   try {
-    const r = await (await plugin()).login({ provider: 'google', options: {} })
+    const r = await (await plugin()).SocialLogin.login({ provider: 'google', options: {} })
     const idToken = (r.result as { idToken?: string | null }).idToken
     if (idToken) onToken?.(idToken)
   } catch (e) {
@@ -22,7 +23,7 @@ export const google: Platform['google'] = {
     const webClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
     if (!webClientId) return false
     onToken = onIdToken
-    return (await plugin()).initialize({ google: { webClientId } }).then(() => true, () => false)
+    return (await plugin()).SocialLogin.initialize({ google: { webClientId } }).then(() => true, () => false)
   },
   /** A plain button, drawn once into `el` (GIS draws its own on the web). */
   renderButton(el) {
@@ -36,6 +37,6 @@ export const google: Platform['google'] = {
   },
   /** The next sign-in shows the account picker again. */
   signOut() {
-    void plugin().then((p) => p.logout({ provider: 'google' })).catch(() => {})
+    void plugin().then((m) => m.SocialLogin.logout({ provider: 'google' })).catch(() => {})
   },
 }
