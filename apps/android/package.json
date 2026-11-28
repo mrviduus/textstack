@@ -13,6 +13,7 @@
     "@aparajita/capacitor-secure-storage": "catalog:",
     "@capacitor-community/sqlite": "catalog:",
     "@capacitor/android": "catalog:",
+    "@capacitor/app": "catalog:",
     "@capacitor/core": "catalog:",
     "@capacitor/filesystem": "catalog:",
     "@capacitor/network": "catalog:",

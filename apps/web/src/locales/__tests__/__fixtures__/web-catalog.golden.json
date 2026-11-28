@@ -580,6 +580,7 @@
   "upload.button": "Upload book",
   "upload.dropzone.browse": "or click to browse",
   "upload.dropzone.invalid": "Unsupported file. Use EPUB, MOBI, AZW3, FB2, CBZ or PDF.",
+  "upload.dropzone.pick": "Choose a file",
   "upload.dropzone.subtitle": "EPUB, MOBI, AZW3, FB2, CBZ or PDF",
   "upload.dropzone.title": "Drop EPUB, MOBI, AZW3, FB2, CBZ or PDF here",
   "upload.dropzone.truncatedPdf": "This PDF looks incomplete or corrupted. If you just downloaded it, wait for the download to finish and pick it again.",

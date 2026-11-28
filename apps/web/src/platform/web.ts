@@ -38,6 +38,7 @@ export const platform: Platform = {
   siteChrome: true,
   appShell: false,
   imageSrc: (url) => url,
+  onBackButton: () => () => {},
   google: {
     init: (onIdToken) => initGoogleSignIn(onIdToken),
     renderButton: (el) => renderGoogleButton(el),

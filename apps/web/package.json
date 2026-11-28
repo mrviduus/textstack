@@ -24,6 +24,7 @@
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "catalog:",
     "@capacitor-community/sqlite": "catalog:",
+    "@capacitor/app": "catalog:",
     "@capacitor/core": "catalog:",
     "@capacitor/filesystem": "catalog:",
     "@capacitor/network": "catalog:",

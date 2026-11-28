@@ -530,6 +530,7 @@
     "dropzone": {
       "title": "Drop EPUB, MOBI, AZW3, FB2, CBZ or PDF here",
       "browse": "or click to browse",
+      "pick": "Choose a file",
       "subtitle": "EPUB, MOBI, AZW3, FB2, CBZ or PDF",
       "invalid": "Unsupported file. Use EPUB, MOBI, AZW3, FB2, CBZ or PDF.",
       "truncatedPdf": "This PDF looks incomplete or corrupted. If you just downloaded it, wait for the download to finish and pick it again."

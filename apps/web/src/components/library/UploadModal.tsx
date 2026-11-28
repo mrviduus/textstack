@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { Sheet } from '../Sheet'
 import { useLanguage } from '../../context/LanguageContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { UploadForm } from './UploadForm'
@@ -15,7 +14,6 @@ interface UploadModalProps {
 }
 
 export function UploadModal({ open, onClose, initialFile, queue }: UploadModalProps) {
-  const containerRef = useFocusTrap(open)
   const navigate = useNavigate()
   const { getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
@@ -33,24 +31,8 @@ export function UploadModal({ open, onClose, initialFile, queue }: UploadModalPr
     processedRef.current = 0
   }, [open, initialFile, queue])
 
-  // Lock body scroll while modal is open. Pattern from Search/ImageLightbox.
-  useEffect(() => {
-    if (!open) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [open])
-
   // Notify the rest of the app (LibraryPage, shelves, sidebar counts) that the user's books changed.
   const broadcastChange = () => emitDataChanges(['user-books', 'shelves'])
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
 
   if (!open) return null
 
@@ -80,33 +62,13 @@ export function UploadModal({ open, onClose, initialFile, queue }: UploadModalPr
     ? `${processedRef.current + 1} of ${totalRef.current} — next: ${pendingQueue[0]?.name ?? ''}`
     : undefined
 
-  return createPortal(
-    <div className="upload-modal__overlay" onClick={handleClose} role="presentation">
-      <div
-        ref={containerRef}
-        className="upload-modal"
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="upload-modal-title"
-      >
-        <button
-          className="upload-modal__close"
-          onClick={handleClose}
-          aria-label={t('common.close')}
-          type="button"
-        >
-          &times;
-        </button>
-        <h2 id="upload-modal-title" className="upload-modal__title">{t('upload.modal.title')}</h2>
-
-        <UploadForm
-          onUploadComplete={handleUploaded}
-          initialFile={currentFile}
-          queueLabel={queueLabel}
-        />
-      </div>
-    </div>,
-    document.body,
+  return (
+    <Sheet open onClose={handleClose} title={t('upload.modal.title')} className="upload-modal">
+      <UploadForm
+        onUploadComplete={handleUploaded}
+        initialFile={currentFile}
+        queueLabel={queueLabel}
+      />
+    </Sheet>
   )
 }

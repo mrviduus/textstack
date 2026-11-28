@@ -65,6 +65,11 @@ export interface Platform {
    * (undefined when the fetch fails). Runs in render: never throws; the same URL gives the same answer.
    */
   imageSrc(url: string): string | Promise<string | undefined>
+  /**
+   * The system Back key (Android). What is open on top of the page (a sheet) registers a handler while it is
+   * open; Back runs the newest one, and the returned function takes it off. Web: there is no such key, a no-op.
+   */
+  onBackButton(handler: () => void): () => void
   /** Google sign-in. Web: Google Identity Services. Android: the native account chooser. */
   google: {
     /** Sets up the sign-in once. `onIdToken` gets the Google id token of each sign-in. False: not offered. */

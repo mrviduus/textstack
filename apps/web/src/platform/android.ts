@@ -3,6 +3,7 @@ import { account } from './android/account'
 import { isTokenExpiring } from '@textstack/shared'
 import { applyMergeMap } from '../lib/mergeMap'
 import { APP_HEADERS, cachedAccessToken, freshAccessToken, getAccessToken, setupApi } from './android/api'
+import { onBackButton, startBackButton } from './android/backButton'
 import { google } from './android/google'
 import { clearImages, imageSrc } from './android/imageSrc'
 import { library, syncSoon } from './android/library'
@@ -17,6 +18,9 @@ void getAccessToken().catch(() => {})
 // A library pass when the network comes back and when the app is shown again (Expo DownloadContext, #1598).
 NetInfo.addEventListener((s) => { if (s.isConnected) syncSoon() })
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncSoon() })
+
+// Back goes one step back (or leaves the app) from the start, before any sheet opens.
+startBackButton()
 
 /** The Android shell (ADR-035): a local SQLite library, device files, bearer tokens. */
 export const platform: Platform = {
@@ -46,6 +50,7 @@ export const platform: Platform = {
   siteChrome: false,
   appShell: true,
   imageSrc,
+  onBackButton,
   google,
   library,
   vocabulary,

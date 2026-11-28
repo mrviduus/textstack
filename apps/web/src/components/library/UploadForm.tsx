@@ -4,6 +4,7 @@ import { emit } from '../../lib/telemetry/myBooks'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { ACCEPT_ATTR, isUploadableFile } from '../../lib/uploadFileValidation'
 import { useTranslation } from '../../hooks/useTranslation'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import { uploadErrorMessage } from '../../api/sync'
 
 interface UploadFormProps {
@@ -14,6 +15,7 @@ interface UploadFormProps {
 
 export function UploadForm({ onUploadComplete, initialFile, queueLabel }: UploadFormProps) {
   const { t } = useTranslation()
+  const isMobile = useIsMobile()
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -118,8 +120,9 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
-            <p className="upload-section__text">{t('upload.dropzone.title')}</p>
-            <p className="upload-section__subtext">{t('upload.dropzone.browse')}</p>
+            {/* A phone has no drag and drop: the words are the tap's. */}
+            <p className="upload-section__text">{t(isMobile ? 'upload.dropzone.pick' : 'upload.dropzone.title')}</p>
+            <p className="upload-section__subtext">{t(isMobile ? 'upload.dropzone.subtitle' : 'upload.dropzone.browse')}</p>
           </>
         )}
       </div>

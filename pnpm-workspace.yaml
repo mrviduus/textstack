@@ -90,6 +90,7 @@ catalog:
   '@aparajita/capacitor-secure-storage': 8.0.1
   '@capacitor-community/sqlite': 8.1.1
   '@capacitor/android': 8.6.3
+  '@capacitor/app': 8.1.2
   '@capacitor/cli': 8.6.3
   '@capacitor/core': 8.6.3
   '@capacitor/filesystem': 8.1.5
