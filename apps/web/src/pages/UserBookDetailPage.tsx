@@ -24,6 +24,8 @@ export function UserBookDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
+  // Android opens a book of the device with no session.
+  const canView = isAuthenticated || platform.library.withoutSession
   const { language } = useLanguage()
   const [book, setBook] = useState<UserBookDetail | null>(null)
   const [coverHidden, onCoverError, coverSrc] = useCoverRetry(platform.library.getUserBookCoverUrl(book?.coverPath))
@@ -43,11 +45,11 @@ export function UserBookDetailPage() {
   // the Assistant menu had no current chapter.
   const [serverProgress, setServerProgress] = useState<{ chapterSlug: string | null; percent: number | null } | null>(null)
   useEffect(() => {
-    if (!id || !isAuthenticated) return
+    if (!id || !canView) return
     let live = true
     platform.library.getUserBookProgress(id).then(p => { if (live) setServerProgress(p) })
     return () => { live = false }
-  }, [id, isAuthenticated])
+  }, [id, canView, isAuthenticated])
 
   const savedProgress = useMemo((): SavedProgress | null => {
     if (!id) return null
@@ -83,7 +85,7 @@ export function UserBookDetailPage() {
   }, [savedProgress, book?.chapters])
 
   useEffect(() => {
-    if (!id || !isAuthenticated) return
+    if (!id || !canView) return
 
     let cancelled = false
     setLoading(true)
@@ -101,7 +103,7 @@ export function UserBookDetailPage() {
       })
 
     return () => { cancelled = true }
-  }, [id, isAuthenticated])
+  }, [id, canView, isAuthenticated])
 
   const handleDelete = async () => {
     if (!id || deleting) return
@@ -134,7 +136,7 @@ export function UserBookDetailPage() {
     if (pendingTimeoutRef.current) window.clearTimeout(pendingTimeoutRef.current)
   }, [])
 
-  if (!isAuthenticated) {
+  if (!canView) {
     return (
       <>
       <div className="user-book-detail">
@@ -272,8 +274,9 @@ export function UserBookDetailPage() {
               />
             )}
 
-            {/* Completion is written on the reading place, so a book with no chapter yet has none to mark. */}
-            {canRead && !book.completedAt && book.chapters.length > 0 && (
+            {/* Completion is written on the reading place, so a book with no chapter yet has none to mark.
+                It and the file download are the server's: not offered with no session (Android, a book on the device). */}
+            {canRead && isAuthenticated && !book.completedAt && book.chapters.length > 0 && (
               <button
                 onClick={async () => {
                   if ((await platform.library.markUserBookComplete(book.id)) === 'dropped') return
@@ -285,7 +288,7 @@ export function UserBookDetailPage() {
               </button>
             )}
 
-            {canRead && book.completedAt && (
+            {canRead && isAuthenticated && book.completedAt && (
               <button
                 onClick={async () => {
                   if ((await platform.library.unmarkUserBookComplete(book.id)) === 'dropped') return
@@ -299,7 +302,7 @@ export function UserBookDetailPage() {
 
             {/* The file you uploaded, not a link: this page is private, so a shared URL opened a
                 login wall for whoever received it (mobile made the same change). */}
-            {canRead && (
+            {canRead && isAuthenticated && (
               <a
                 className="user-book-detail__reextract-icon"
                 href={platform.library.getUserBookFileUrl(book.id)}

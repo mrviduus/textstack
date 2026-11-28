@@ -11,7 +11,7 @@ import { onAuthFailure } from './authEvents'
 import { SecureStore } from './native'
 import { createWriteQueue, writeUserIfCurrent, USER_KEY } from './sessionWrites'
 import { adoptLocalAccount, claimLibraryFor, pushBeforeSignOut } from './librarySync'
-import { clearWipePending, deviceOwnedLoss, deviceSignOutLoss, LIBRARY_WIPE_MS, rememberOwnerEmail, wipeDeviceLibrary } from './deviceLibrary'
+import { LIBRARY_WIPE_MS, clearWipePending, deviceLocalLibrary, deviceOwnedLoss, deviceSignOutLoss, rememberOwnerEmail, wipeDeviceLibrary } from './deviceLibrary'
 import { forgetSyncAnswer, syncStore } from './syncClient'
 import { withDeadline } from './deadline'
 
@@ -139,6 +139,11 @@ export const account: Platform['account'] = {
     // 'unknown' (unreadable or late) mints: the claim reads the same database, and a claim that cannot read it wipes nothing.
     const owned = await deviceOwnedLoss(OWNED_LOSS_MINT_MS)
     if (owned && owned.loss !== 'unknown') throw new Error("the device library holds another account's unsynced books")
+    // The books the signed-out Library lists are an account's whose session ended (the server refused its token):
+    // a guest's claim would take them off this phone. No mint: the owner signs in again, or deletes them.
+    const lib = deviceLocalLibrary()
+    const owner = await withDeadline(lib.owner(), OWNED_LOSS_MINT_MS).catch(() => null)
+    if (owner && !owner.guest && (await lib.books()).length > 0) throw new Error("the device library holds another account's books")
     return begin(await authApi.createGuestSession(), epochAtStart)
   },
   /**

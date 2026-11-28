@@ -27,7 +27,8 @@ interface AuthContextValue {
   registerWithEmail: (email: string, password: string, name?: string) => Promise<void>
   /** Resolves once the initial session bootstrap has settled (auth, refresh, or guest). Never rejects. */
   waitForSession: () => Promise<void>
-  ensureSession: () => Promise<void>
+  /** Makes a guest session when there is no user. Resolves to whether a user is there now. Never rejects. */
+  ensureSession: () => Promise<boolean>
   logout: () => Promise<void>
   updateProfile: (payload: UpdateProfilePayload) => Promise<void>
   updateAvatar: (file: File) => Promise<void>
@@ -62,7 +63,7 @@ const AuthContext = createContext<AuthContextValue>({
   loginWithEmail: async () => {},
   registerWithEmail: async () => {},
   waitForSession: async () => {},
-  ensureSession: async () => {},
+  ensureSession: async () => false,
   logout: async () => {},
   updateProfile: async () => {},
   updateAvatar: async () => {},
@@ -291,8 +292,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Public: create a guest session if not authenticated. Routes through the single-flight
   // helper so concurrent callers (e.g. HeroSection upload + bootstrap) share one network call.
   const ensureSession = useCallback(async () => {
-    if (user) return
-    await createGuestOnce()
+    if (user) return true
+    return (await createGuestOnce()) !== null
   }, [user, createGuestOnce])
 
   const logout = useCallback(async () => {

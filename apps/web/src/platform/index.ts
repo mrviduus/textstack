@@ -81,7 +81,13 @@ export interface Platform {
   library: Pick<typeof userBooks,
     | 'getUserBooks' | 'getUserBook' | 'getUserBookProgress' | 'getUserTags'
     | 'uploadUserBook' | 'deleteUserBook' | 'markUserBookComplete' | 'unmarkUserBookComplete'
-    | 'bulkFinishUserBooks' | 'bulkDeleteUserBooks' | 'getUserBookCoverUrl' | 'getUserBookFileUrl'>
+    | 'bulkFinishUserBooks' | 'bulkDeleteUserBooks' | 'getUserBookCoverUrl' | 'getUserBookFileUrl'> & {
+    /**
+     * True on Android: the library is on the device, so the list and a book's page answer with no session
+     * (the books stay readable after a sign-out). False on the web: the server needs a session.
+     */
+    withoutSession: boolean
+  }
   /**
    * The saved words: the reader's word popup, the vocabulary page and the review. Web: the server
    * (`api/vocabulary.ts`). Android: the store on the device. The signatures are the ones in `api/vocabulary.ts`.

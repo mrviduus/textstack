@@ -95,7 +95,7 @@ describe('AuthContext bootstrap', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false))
 
     // User taps a word → reader flow fires ensureSession → guest in-flight.
-    let ensureP!: Promise<void>
+    let ensureP!: Promise<boolean>
     act(() => { ensureP = result.current.ensureSession() })
 
     // Meanwhile user hits login on another tab/flow.
@@ -180,7 +180,7 @@ describe('AuthContext bootstrap', () => {
     // Phase 1+2: logout no longer calls createGuestOnce → only ensureSession triggers guest-create.
     logoutMock.mockResolvedValue(undefined)
 
-    let ensureP!: Promise<void>
+    let ensureP!: Promise<boolean>
     act(() => { ensureP = result.current.ensureSession() })
     const logoutP = result.current.logout()
 

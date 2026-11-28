@@ -9,7 +9,8 @@ import type { Platform } from '../index'
 import { storedUser } from './account'
 import { APP_HEADERS, freshAccessToken, getAccessToken, onUnauthorized } from './api'
 import { cachedUserBookDetail, deviceUserBooks } from './cachedUserBookDetail'
-import { deleteBook } from './deviceDownload'
+import { withDeadline } from './deadline'
+import { deleteBook, retainBook } from './deviceDownload'
 import { deviceLocalLibrary, deviceRemovals, signedOutMayList } from './deviceLibrary'
 import { syncLibrary, type SyncResult } from './librarySync'
 import { startSyncProbe } from './syncClient'
@@ -48,6 +49,9 @@ async function sendPart(url: string, part: Blob, onLoaded: (loaded: number) => v
   onLoaded(part.size)
 }
 
+/** How long the upload dialog waits for the new book's file to be on this device. */
+const KEEP_UPLOAD_MS = 15_000
+
 const hasSession = async () => !!(await getAccessToken().catch(() => null))
 
 /** The Library rows of the books on this device (the Expo `cachedUserBook`, with the web row's extra fields). */
@@ -74,6 +78,7 @@ async function orDevice<T>(work: () => Promise<T>, device: () => Promise<T>, any
 const deviceMayAnswer = async () => (await hasSession()) || (await signedOutMayList())
 
 export const library: Platform['library'] = {
+  withoutSession: true,
   async getUserBooks() {
     return orDevice(
       async () => {
@@ -99,11 +104,17 @@ export const library: Platform['library'] = {
     }, true)
   },
   getUserTags: () => orDevice(() => web.getUserTags(), async () => []),
-  // The web upload sequence with a bearer part sender. ponytail: the bytes are not kept on the device; Download does.
+  // The web upload sequence with a bearer part sender. Then the book is kept on this device, as a Download does:
+  // the reader opens the retained file, and the upload dialog goes straight to the reader.
+  // ponytail: the bytes come back from the server; keep the picked file itself if a big book makes that slow.
   async uploadUserBook(file, onProgress) {
     const server = await startSyncProbe()
     if (!server.enabled) throw new ApiError(503, 'Upload failed: the server is unavailable, try again later')
-    return uploadBook(file, server.maxPartBytes, sendPart, onProgress)
+    const result = await uploadBook(file, server.maxPartBytes, sendPart, onProgress)
+    // A failure here is not the upload's, and a slow one does not hold the dialog: the reader's open tries again.
+    await withDeadline(retainBook(result.userBookId, () => syncNow()), KEEP_UPLOAD_MS)
+      .catch((e: unknown) => console.warn('[v2] upload not kept on the device yet:', e))
+    return result
   },
   // Off this device too (rows, queued writes, the retained file), offline and with no account; the pass pushes the removal.
   deleteUserBook: (id) => deleteBook(id, async () => {}, () => syncSoon()),

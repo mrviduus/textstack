@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { OPENED_AT_KEY, parseOpenedAt, type ReadingProgressDto } from '@textstack/shared'
+import { OPENED_AT_KEY, capabilitiesFor, parseOpenedAt, type ReadingProgressDto } from '@textstack/shared'
 import { readItem } from '../lib/safeLocalStorage'
 import { useHighlightedBook } from '../hooks/useHighlightedBook'
 import { useLanguage } from '../context/LanguageContext'
@@ -34,7 +34,9 @@ const NO_SAVED: never[] = []
 const NO_PROGRESS: Record<string, ReadingProgressDto> = {}
 
 export function LibraryPage() {
-  const { isAuthenticated, isLoading: authLoading, user } = useAuth()
+  const { isAuthenticated, isLoading: authLoading, user, openAuthModal } = useAuth()
+  // Android lists the books on the device with no session.
+  const canList = isAuthenticated || platform.library.withoutSession
   const { language } = useLanguage()
   const { t } = useTranslation()
   const librarySource = useLibrarySource()
@@ -64,7 +66,7 @@ export function LibraryPage() {
 
   // Fetch user books
   const fetchUserBooks = useCallback(async () => {
-    if (!isAuthenticated) return
+    if (!canList) return
     setUserBooksLoading(true)
     try {
       const books = await platform.library.getUserBooks()
@@ -74,7 +76,7 @@ export function LibraryPage() {
     } finally {
       setUserBooksLoading(false)
     }
-  }, [isAuthenticated])
+  }, [canList, isAuthenticated])
 
   useEffect(() => {
     fetchUserBooks()
@@ -142,7 +144,7 @@ export function LibraryPage() {
     )
   }
 
-  if (!isAuthenticated) {
+  if (!canList) {
     return (
       <>
       <div className="library-page">
@@ -196,7 +198,8 @@ export function LibraryPage() {
             {t('library.sidebar.open')}
           </button>
           <h1 className="library-header__title">{t('library.title')}</h1>
-          {user && <p className="library-header__email">{user.email}</p>}
+          {/* A guest's address is the server's placeholder, not the reader's. */}
+          {user && !capabilitiesFor(user).isGuest && <p className="library-header__email">{user.email}</p>}
         </header>
 
         {(() => {
@@ -210,13 +213,23 @@ export function LibraryPage() {
               <LibraryToolbar
                 sort={sort}
                 onSortChange={setSort}
-                showSelectButton={userBooks.length > 0}
+                // Bulk finish and delete are the server's: not offered with no session.
+                showSelectButton={isAuthenticated && userBooks.length > 0}
                 selectionActive={selection.active}
                 onToggleSelection={() => selection.active ? selection.exit() : selection.enter()}
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
                 t={t}
               />
+
+              {!isAuthenticated && totalRaw > 0 && (
+                <div className="library-signed-out" role="status">
+                  <span>{t('library.signedOut.banner')}</span>
+                  <button type="button" className="library-signed-out__action" onClick={() => openAuthModal()}>
+                    {t('library.signedOut.signIn')}
+                  </button>
+                </div>
+              )}
 
               {totalRaw > 0 && (
                 <>

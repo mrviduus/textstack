@@ -1,52 +1,38 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useLanguage } from '../../context/LanguageContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useGlobalUploadShortcut } from '../../hooks/useGlobalUploadShortcut'
+import { useUploadSession } from '../../hooks/useUploadSession'
 import { emit } from '../../lib/telemetry/myBooks'
 import { UploadModal } from './UploadModal'
 
+/**
+ * The header's upload button, and the owner of the upload dialog: the tab bar's "+", the library's floating
+ * button and Cmd/Ctrl+U open it through here. A reader with no session gets one first (hooks/useUploadSession),
+ * so a first book needs no account.
+ */
 export function UploadButton() {
-  const { isAuthenticated, isLoading } = useAuth()
-  const { getLocalizedPath } = useLanguage()
+  const { isLoading } = useAuth()
+  const withSession = useUploadSession()
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
 
   const openModal = useCallback(() => {
     emit('upload_button.clicked')
     emit('upload_modal.opened')
-    setOpen(true)
-  }, [])
+    withSession(() => setOpen(true))
+  }, [withSession])
 
   const closeModal = useCallback(() => setOpen(false), [])
 
-  useGlobalUploadShortcut(isAuthenticated, openModal)
+  useGlobalUploadShortcut(!isLoading, openModal)
 
   useEffect(() => {
-    if (!isAuthenticated) return
-    const handler = () => openModal()
-    window.addEventListener('textstack:open-upload', handler)
-    return () => window.removeEventListener('textstack:open-upload', handler)
-  }, [isAuthenticated, openModal])
+    window.addEventListener('textstack:open-upload', openModal)
+    return () => window.removeEventListener('textstack:open-upload', openModal)
+  }, [openModal])
 
   if (isLoading) return null
-
-  if (!isAuthenticated) {
-    return (
-      <button
-        className="site-header__upload-btn site-header__upload-btn--signin"
-        onClick={() => navigate(getLocalizedPath('/login?next=/library'))}
-        title={t('upload.modal.signin')}
-        aria-label={t('upload.modal.signin')}
-        type="button"
-      >
-        <span className="material-icons-outlined">upload</span>
-        <span className="site-header__upload-btn-label">{t('upload.modal.signin')}</span>
-      </button>
-    )
-  }
 
   // Direct-action button: clicking it opens the upload modal immediately.
   // We intentionally do NOT show a dropdown of unimplemented sources here —
