@@ -4,6 +4,8 @@ import { isTokenExpiring } from '@textstack/shared'
 import { applyMergeMap } from '../lib/mergeMap'
 import { APP_HEADERS, cachedAccessToken, freshAccessToken, getAccessToken, setupApi } from './android/api'
 import { google } from './android/google'
+import { library, syncSoon } from './android/library'
+import { NetInfo } from './android/native'
 import { startSyncProbe } from './android/syncClient'
 
 /** A member still to come in wave 5 (#1642): it throws. */
@@ -15,6 +17,9 @@ export const notYet = (member: string) => (): never => {
 setupApi()
 // The token cache filled at once, so the first synchronous `fetchInit` of a stored session carries it.
 void getAccessToken().catch(() => {})
+// A library pass when the network comes back and when the app is shown again (Expo DownloadContext, #1598).
+NetInfo.addEventListener((s) => { if (s.isConnected) syncSoon() })
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncSoon() })
 
 /** The Android shell (ADR-035): a local SQLite library, device files, bearer tokens. */
 export const platform: Platform = {
@@ -29,32 +34,20 @@ export const platform: Platform = {
   },
   account,
   session: {
-    // The V2 probe once a user is set (the Expo AuthContext's userId effect).
-    userSet: () => void startSyncProbe().catch((e: unknown) => console.warn('[v2] status probe failed:', e)),
+    // The V2 probe once a user is set (the Expo AuthContext's userId effect), then a library pass.
+    // A session's first pass retries what an earlier one stopped (`retryFailed`).
+    userSet: () => void startSyncProbe().then(() => syncSoon(true), (e: unknown) => console.warn('[v2] status probe failed:', e)),
     settled: () => {},
     // account.ts bumps its session epoch where the tokens change (`sessionEpoch`), before the UI knows.
     accountChanged: () => {},
     // account.ts already claimed the device library and adopted a guest's. The web stores in the WebView
     // (localStorage progress, offlineDb queues) are re-keyed as on the web.
     signedIn: async (merge) => { if (merge) await applyMergeMap(merge) },
-    restored: async () => {},
+    restored: async () => syncSoon(true),
   },
   siteChrome: false,
   google,
-  library: {
-    getUserBooks: notYet('library.getUserBooks'),
-    getUserBook: notYet('library.getUserBook'),
-    getUserBookProgress: notYet('library.getUserBookProgress'),
-    getUserTags: notYet('library.getUserTags'),
-    uploadUserBook: notYet('library.uploadUserBook'),
-    deleteUserBook: notYet('library.deleteUserBook'),
-    markUserBookComplete: notYet('library.markUserBookComplete'),
-    unmarkUserBookComplete: notYet('library.unmarkUserBookComplete'),
-    bulkFinishUserBooks: notYet('library.bulkFinishUserBooks'),
-    bulkDeleteUserBooks: notYet('library.bulkDeleteUserBooks'),
-    getUserBookCoverUrl: notYet('library.getUserBookCoverUrl'),
-    getUserBookFileUrl: notYet('library.getUserBookFileUrl'),
-  },
+  library,
   vocabulary: {
     saveWord: notYet('vocabulary.saveWord'),
     getWords: notYet('vocabulary.getWords'),

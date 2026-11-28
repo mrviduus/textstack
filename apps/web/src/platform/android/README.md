@@ -19,6 +19,7 @@ production app until #1644, and #1645 deletes the originals. Until then, a fix i
 | `deviceDownload.ts` | `reader/deviceDownload.ts` |
 | `deviceLibrary.ts` (+ test) | `reader/deviceLibrary.ts` |
 | `deadline.ts`, `singleFlight.ts` (+ tests) | the same names |
+| `cachedUserBookDetail.ts` (+ test) | `cachedUserBookDetail.ts` |
 | `api.ts` | `api.ts`, without `deleteAccount` (the web one is used) |
 | `authEvents.ts` | `authEvents.ts` |
 
@@ -50,6 +51,9 @@ Changes in the copies:
 - `account.ts`: the seam's `account` member (the web `AuthContext` calls it). Bearer session as in the Expo app; a
   new session claims the device library and adopts a guest's before the UI sets the user; sign-out pushes, then
   ends the session and wipes the library.
+- `library.ts`: the seam's `library` member. Online it is the web's own calls (`api/userBooks`, bearer mode); offline
+  or with no session, the books on this device (as the Expo Library screen). Delete is device-first. `syncNow()` is
+  one library sync pass for the stored session.
 - `google.ts`: the seam's `google` member over `@capgo/capacitor-social-login` (the native sign-in). The button is
   a plain one.
 - `sqliteDb.ts`: the `Db` surface of `localLibrary.ts` over `@capacitor-community/sqlite`. Same database name
