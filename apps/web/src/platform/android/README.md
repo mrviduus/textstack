@@ -62,3 +62,24 @@ Changes in the copies:
   a plain one.
 - `sqliteDb.ts`: the `Db` surface of `localLibrary.ts` over `@capacitor-community/sqlite`. Same database name
   as the Expo app (`textstack-v2`).
+- `readerSync.ts` (+ test): `createDeviceReaderSync`, the reader's `createSync`. It keeps the web `ReaderSync` contract
+  (what `ReaderHost.tsx` calls) and saves as the Expo reader does, through `readerStorage()`. No member uses the network.
+  - `restore` gives the stored place only; `loadHighlights` gives the stored highlights and quotations (`onHighlights`).
+    The Expo reader restores the whole entry; the web host draws the highlights after the restore.
+  - `store`: one device write at a time, the latest payload wins. A failed write is `unsaved` and is written again by
+    the next `store` or flush. A note or removal that fails stays `unsaved` for the rest of the open (Expo: an error).
+  - `note` and `deleted` read the book's notes (`notes()`), kept in memory. An edit changes them at once; they are
+    read again after each edit and each sync pass.
+  - Each save asks for one sync pass 10 s later (the Expo `SYNC_AFTER_SAVE_MS`). The timer is not cleared on close, so
+    the last saves of an open still go soon.
+  - While open, the book is the mounted reader of every pass (`holdReaderHost` + `openBookHost`); `close` releases it.
+    It reports a reader who moved, as web does, so a pulled place is kept or offered (`onNewerPlace`), never applied.
+    The Expo reader moves a reader who did not move yet; the web contract never moves the reader.
+  - `complete`: `finishBook` (set once). It rejects with `NO_PLACE_YET` while this file has no stored place, as web
+    rejects while the server has none. The Expo reader finishes with no place and keeps the write queued.
+  - Not ported: the pass's `upload` of retained bytes (file sync). This app opens only books that the server has.
+- `../android.reader.ts`: `openBook` gives the sync target again: the local file id (`file_id`); with none, the server's
+  only when the server's file is these bytes; else no target. `hasToc` comes from one server look-up beside the open
+  (Expo `openedToc.ts`), set on the target when it lands. `queueSession` keeps a session in the device library by the
+  book's bytes (Expo `addSession`), then asks for a pass. `flushSessions` is the reader's first pass (failures retried).
+  `accountEpoch` is `sessionEpoch`.
