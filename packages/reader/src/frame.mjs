@@ -7,7 +7,9 @@
 //     opening a book does not download 3.75 MB again (ADR-029 Decision 4 as amended 2026-11-11).
 // `serveReaderFrame` is the one place that serves both: the Vite dev and preview servers use it and the check
 // tests it; the production build writes the same two files (`readerFrameFiles`) for nginx.
-// Android does not use this module: it keeps the inline page (`readerAndroidPageHtml(nonce)`).
+// The Expo app does not use this module: it keeps the inline page (`readerAndroidPageHtml(nonce)`). The Android
+// shell (apps/android) ships the two files and serves the shell itself, as nginx does: ReaderFrameClient.java,
+// held equal to the path, the placeholder and READER_FRAME_HEADERS here by apps/android check-reader-frame.mjs.
 import { createHash, randomBytes } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
