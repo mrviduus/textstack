@@ -65,6 +65,15 @@ describe('a sheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('does not close when the system cancels a long drag', () => {
+    open()
+    fireEvent.pointerDown(handle(), { clientY: 100, pointerId: 1 })
+    fireEvent.pointerMove(handle(), { clientY: 260, pointerId: 1 })
+    fireEvent.pointerCancel(handle(), { pointerId: 1 })
+    expect(onClose).not.toHaveBeenCalled()
+    expect((screen.getByRole('dialog') as HTMLElement).style.transform).toBe('')
+  })
+
   it('stops the page behind it from scrolling, until it closes', () => {
     document.body.style.overflow = 'auto'
     const { unmount } = open()

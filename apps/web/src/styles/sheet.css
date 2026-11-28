@@ -75,7 +75,7 @@
     animation: sheet-rise 0.22s ease-out;
     overscroll-behavior: contain;
   }
-  /* A 44 px strip to take hold of, with the 36 px bar drawn in it. */
+  /* The strip to take hold of, as wide as the sheet, with the bar drawn in its middle. */
   .sheet__handle {
     display: block;
     height: 28px;

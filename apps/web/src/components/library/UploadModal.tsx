@@ -21,6 +21,8 @@ export function UploadModal({ open, onClose, initialFile, queue }: UploadModalPr
   const [pendingQueue, setPendingQueue] = useState<File[]>(queue ?? [])
   const totalRef = useRef<number>(0)
   const processedRef = useRef<number>(0)
+  const openRef = useRef(open)
+  openRef.current = open
 
   // Reset state when modal opens.
   useEffect(() => {
@@ -34,12 +36,13 @@ export function UploadModal({ open, onClose, initialFile, queue }: UploadModalPr
   // Notify the rest of the app (LibraryPage, shelves, sidebar counts) that the user's books changed.
   const broadcastChange = () => emitDataChanges(['user-books', 'shelves'])
 
-  if (!open) return null
-
   // File uploaded. If queue: kick the next file into the form. Otherwise the book is readable now
   // (the reader parses its file, ADR-033): drop straight into it.
   const handleUploaded = (newBookId?: string) => {
     processedRef.current += 1
+    // The dialog was closed while the file went up (Escape, the Back key, a drag): the book is in the library,
+    // and the reader stays where they are.
+    if (!openRef.current) { broadcastChange(); return }
 
     if (pendingQueue.length > 0) {
       const [next, ...rest] = pendingQueue
@@ -63,7 +66,7 @@ export function UploadModal({ open, onClose, initialFile, queue }: UploadModalPr
     : undefined
 
   return (
-    <Sheet open onClose={handleClose} title={t('upload.modal.title')} className="upload-modal">
+    <Sheet open={open} onClose={handleClose} title={t('upload.modal.title')} className="upload-modal">
       <UploadForm
         onUploadComplete={handleUploaded}
         initialFile={currentFile}

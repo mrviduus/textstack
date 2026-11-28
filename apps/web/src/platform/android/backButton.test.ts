@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const app = vi.hoisted(() => ({ listener: null as null | ((e: { canGoBack: boolean }) => void), exitApp: vi.fn() }))
+const app = vi.hoisted(() => ({ listener: null as null | ((e: { canGoBack: boolean }) => void), minimizeApp: vi.fn() }))
 vi.mock('@capacitor/app', () => ({
   App: {
     addListener: async (_: string, l: (e: { canGoBack: boolean }) => void) => { app.listener = l },
-    exitApp: app.exitApp,
+    minimizeApp: app.minimizeApp,
   },
 }))
 
@@ -14,7 +14,7 @@ const press = (canGoBack = true) => app.listener!({ canGoBack })
 
 describe('the Android Back key', () => {
   beforeEach(async () => {
-    app.exitApp.mockReset()
+    app.minimizeApp.mockReset()
     startBackButton()
     await vi.waitFor(() => expect(app.listener).not.toBeNull())
   })
@@ -26,9 +26,9 @@ describe('the Android Back key', () => {
     back.mockRestore()
   })
 
-  it('leaves the app when there is no step back', () => {
+  it('sends the app to the background when there is no step back', () => {
     press(false)
-    expect(app.exitApp).toHaveBeenCalledTimes(1)
+    expect(app.minimizeApp).toHaveBeenCalledTimes(1)
   })
 
   it('closes what is on top first: the newest, then the one under it, then the page goes back', () => {

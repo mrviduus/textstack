@@ -45,21 +45,24 @@ export function Sheet({ open, onClose, title, className, children }: SheetProps)
 
   if (!open) return null
 
-  const move = (dy: number) => { if (panelRef.current) panelRef.current.style.transform = dy ? `translateY(${dy}px)` : '' }
+  const panel = () => panelRef.current
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     drag.current = { startY: e.clientY, dy: 0 }
     e.currentTarget.setPointerCapture?.(e.pointerId)
+    // The panel follows the finger from here: the rise animation and the ease of an earlier spring-back stop.
+    if (panel()) Object.assign(panel()!.style, { animation: 'none', transition: '' })
   }
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (!drag.current) return
+    if (!drag.current || !panel()) return
     drag.current.dy = Math.max(0, e.clientY - drag.current.startY)
-    move(drag.current.dy)
+    panel()!.style.transform = `translateY(${drag.current.dy}px)`
   }
-  const onPointerEnd = () => {
+  /** The drag ends: far enough down closes; else the panel eases back. A cancelled drag (`close: false`) never closes. */
+  const endDrag = (mayClose: boolean) => {
     const dy = drag.current?.dy ?? 0
     drag.current = null
-    if (dy > DISMISS_PX) close.current()
-    else move(0)
+    if (mayClose && dy > DISMISS_PX) return close.current()
+    if (panel()) Object.assign(panel()!.style, { transition: 'transform 0.15s ease-out', transform: '' })
   }
 
   return createPortal(
@@ -77,8 +80,8 @@ export function Sheet({ open, onClose, title, className, children }: SheetProps)
           aria-hidden="true"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerEnd}
-          onPointerCancel={onPointerEnd}
+          onPointerUp={() => endDrag(true)}
+          onPointerCancel={() => endDrag(false)}
         />
         <button className="sheet__close" onClick={() => close.current()} aria-label={t('common.close')} type="button">
           &times;

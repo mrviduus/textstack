@@ -1,7 +1,8 @@
 /**
- * The Android Back key. One native listener; what is open on top (a sheet, the reader's panel) registers a
- * handler, and Back runs the newest one. With none: one step back in the app's history, or out of the app when
- * there is no step. A listener replaces Capacitor's own handling of the key, so this does both parts.
+ * The Android Back key. One native listener; what is open on top (`Sheet`, the sign-in dialog) registers a
+ * handler, and Back runs the newest one. With none: one step back in the app's history, or the app goes to
+ * the background when there is no step (not closed: a sync or an upload goes on). A listener replaces
+ * Capacitor's own handling of the key, so this does both parts.
  */
 const handlers: (() => void)[] = []
 let listening = false
@@ -14,7 +15,7 @@ function listen() {
       const top = handlers[handlers.length - 1]
       if (top) top()
       else if (canGoBack) window.history.back()
-      else void App.exitApp()
+      else void App.minimizeApp()
     }),
   ).catch((e: unknown) => {
     listening = false
