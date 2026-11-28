@@ -4,7 +4,7 @@ import { isTokenExpiring } from '@textstack/shared'
 import { applyMergeMap } from '../lib/mergeMap'
 import { APP_HEADERS, cachedAccessToken, freshAccessToken, getAccessToken, setupApi } from './android/api'
 import { google } from './android/google'
-import { imageSrc } from './android/imageSrc'
+import { clearImages, imageSrc } from './android/imageSrc'
 import { library, syncSoon } from './android/library'
 import { NetInfo } from './android/native'
 import { highlights, vocabulary } from './android/vocabulary'
@@ -36,7 +36,8 @@ export const platform: Platform = {
     userSet: () => void startSyncProbe().then(() => syncSoon(true), (e: unknown) => console.warn('[v2] status probe failed:', e)),
     settled: () => {},
     // account.ts bumps its session epoch where the tokens change (`sessionEpoch`), before the UI knows.
-    accountChanged: () => {},
+    // The covers held in memory are the previous account's.
+    accountChanged: clearImages,
     // account.ts already claimed the device library and adopted a guest's. The web stores in the WebView
     // (localStorage progress, offlineDb queues) are re-keyed as on the web.
     signedIn: async (merge) => { if (merge) await applyMergeMap(merge) },

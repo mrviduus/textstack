@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NETWORK_RETRY_MS } from '@textstack/shared'
 import { platform } from '../platform'
 import { useOnline } from './useOnline'
@@ -28,20 +28,19 @@ export function useCoverRetry(url: string | null | undefined): [hidden: boolean,
     const id = setTimeout(() => setFailed(null), NETWORK_RETRY_MS)
     return () => clearTimeout(id)
   }, [failed])
-  // The platform's answer for this URL. A promise (Android) lands in state; a retry asks again.
-  const answer = url && url !== failed ? platform.imageSrc(url) : undefined
-  const [fetched, setFetched] = useState<{ url: string; src: string | undefined } | null>(null)
-  const pending = typeof answer === 'object'
+  // The platform's answer for this URL, asked once per try. A promise (Android) lands in state.
+  const answer = useMemo(() => (url && url !== failed ? platform.imageSrc(url) : undefined), [url, failed])
+  const [fetched, setFetched] = useState<{ url: string; src: string } | null>(null)
   useEffect(() => {
-    if (!url || !pending) return
+    if (!url || typeof answer !== 'object') return
     let live = true
-    Promise.resolve(platform.imageSrc(url)).then((src) => {
+    void answer.then((src) => {
       if (!live) return
       if (src) setFetched({ url, src })
       else setFailed(url)
     })
     return () => { live = false }
-  }, [url, pending])
-  const src = typeof answer === 'string' ? answer : fetched?.url === url ? fetched?.src : undefined
+  }, [url, answer])
+  const src = typeof answer === 'string' ? answer : answer && fetched && fetched.url === url ? fetched.src : undefined
   return [!src, () => setFailed(url ?? null), src]
 }

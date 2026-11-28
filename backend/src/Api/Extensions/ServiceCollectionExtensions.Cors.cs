@@ -14,7 +14,8 @@ public static partial class ServiceCollectionExtensions
                 "http://localhost:81", "http://admin.localhost", "http://admin.localhost:81",
                 "https://textstack.app", "https://textstack.dev",
                 // The Android shell's WebView (apps/android, ADR-035): its page runs at https://localhost and
-                // calls the API with a bearer. A browser cannot reach a page at that origin on another machine.
+                // calls the API with a bearer. In a browser that origin is a server on the reader's own machine, and
+                // the session cookies are SameSite=Lax, so a cross-site fetch from it carries none.
                 "https://localhost"
             ];
         services.AddCors(options =>
