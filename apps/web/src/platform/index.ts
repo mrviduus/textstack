@@ -70,6 +70,8 @@ export interface Platform {
    * open; Back runs the newest one, and the returned function takes it off. Web: there is no such key, a no-op.
    */
   onBackButton(handler: () => void): () => void
+  /** The screen stays on (a book is open) until the returned function is called. Never throws. */
+  keepAwake(): () => void
   /** Google sign-in. Web: Google Identity Services. Android: the native account chooser. */
   google: {
     /** Sets up the sign-in once. `onIdToken` gets the Google id token of each sign-in. False: not offered. */

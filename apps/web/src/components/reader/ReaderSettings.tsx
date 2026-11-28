@@ -5,11 +5,11 @@ import {
   type FontFamily, type Settings, type TextAlign, type Theme,
 } from '../../../../../packages/reader/src/settings.mjs'
 import { TTS_SPEEDS, TTS_SPEED_KEY, readSpeed } from '../../../../../packages/reader/src/listen.mjs'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { readItem, writeItem } from '../../lib/safeLocalStorage'
 import { readGlosses, withGlosses } from '../../../../../packages/reader/src/wordMarks.mjs'
 import { STORAGE_KEY as LEGACY_SETTINGS_KEY } from '../../hooks/useReaderSettings'
+import { ReaderPanel } from './ReaderPanel'
 
 /**
  * The V2 reader's settings on this device (#1260): the reader's choices in localStorage (settings.mjs reads them:
@@ -67,26 +67,16 @@ interface Props {
   onTtsSpeed: (v: number) => void
   /** #1271: saved words' translations shown, and its switch; absent where nothing is marked (an image or PDF book). */
   glosses?: { on: boolean; onChange: (on: boolean) => void }
+  /** Paginated or scrolled, and its change: on a phone, where the top bar has no room for the switch. */
+  flow?: { value: 'paginated' | 'scrolled'; onChange: (flow: 'paginated' | 'scrolled') => void }
 }
 
 /** The settings panel: the legacy reader's drawer (reader.css) with the five V2 settings. */
-export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typography, ttsSpeed, onTtsSpeed, glosses }: Props) {
+export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typography, ttsSpeed, onTtsSpeed, glosses, flow }: Props) {
   const { t } = useTranslation()
-  const container = useFocusTrap(open)
-  if (!open) return null
   return (
-    <>
-      <div className="reader-drawer-backdrop" onClick={onClose} />
-      <div
-        className="reader-settings-drawer"
-        ref={container}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('v2Reader.settings')}
-        data-testid="v2-settings"
-        // Escape closes the panel and goes no further (the host's own Escape shows the bars).
-        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}
-      >
+    <ReaderPanel open={open} onClose={onClose} label={t('v2Reader.settings')} className="reader-settings-drawer" testId="v2-settings">
+      {() => (<>
         <div className="reader-settings-drawer__header">
           <h3>{t('v2Reader.settings')}</h3>
           <button onClick={onClose} className="reader-settings-drawer__close" aria-label={t('v2Reader.settingsClose')}>
@@ -161,6 +151,19 @@ export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typogr
           </div>
         </fieldset>
 
+        {flow && (
+          <div className="reader-settings-drawer__section">
+            <label>{t('reader.v2Settings.readingMode')}</label>
+            <div className="reader-settings-drawer__options">
+              {(['paginated', 'scrolled'] as const).map((mode) => (
+                <button key={mode} className={flow.value === mode ? 'active' : ''} aria-pressed={flow.value === mode} disabled={!typography} onClick={() => flow.onChange(mode)}>
+                  {t(mode === 'paginated' ? 'v2Reader.paginated' : 'v2Reader.scrolled')}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="reader-settings-drawer__section">
           <label>{t('v2Reader.speechSpeed')}</label>
           <div className="reader-settings-drawer__options">
@@ -191,7 +194,7 @@ export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose, typogr
             </div>
           </div>
         )}
-      </div>
-    </>
+      </>)}
+    </ReaderPanel>
   )
 }

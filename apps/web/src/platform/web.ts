@@ -8,6 +8,7 @@ import { applyMergeMap } from '../lib/mergeMap'
 import { initGoogleSignIn, renderGoogleButton, signOutOfGoogle } from '../lib/googleSignIn'
 import * as userBooks from '../api/userBooks'
 import * as vocabulary from '../api/vocabulary'
+import { keepAwake } from './keepAwake'
 
 // The shared API client in cookie mode: no bearer token. A 401 refreshes the cookie (single-flight in
 // `refreshToken`), then the client retries once. `''` means "retry with the cookie only".
@@ -39,6 +40,7 @@ export const platform: Platform = {
   appShell: false,
   imageSrc: (url) => url,
   onBackButton: () => () => {},
+  keepAwake,
   google: {
     init: (onIdToken) => initGoogleSignIn(onIdToken),
     renderButton: (el) => renderGoogleButton(el),

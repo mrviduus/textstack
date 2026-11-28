@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useState } from 'react'
 import { useTranslation } from '../../hooks/useTranslation'
 import { tocAround, type TocEntry } from '../../../../../packages/reader/src/toc.mjs'
 import type { HighlightItem } from '../../../../../packages/reader/src/highlights.mjs'
 import type { BookmarkItem } from '../../../../../packages/reader/src/bookmarks.mjs'
 import { COLOR_MAP } from './decorationColors'
+import { ReaderPanel } from './ReaderPanel'
 
 /** `toc` through `readToc`, `tocIndex` through `readRelocate` (toc.mjs: the book is untrusted); `onGo`: the entry the reader chose. */
 interface Props {
@@ -36,40 +36,23 @@ interface BookmarksTab {
 }
 
 /**
- * The V2 reader's table of contents (#1261): the legacy drawer's dialog (reader.css, `useFocusTrap`), the entries
+ * The V2 reader's table of contents (#1261): a `ReaderPanel` (a side drawer; a bottom sheet on a phone), the entries
  * indented by depth, the current one marked and focused on open (which scrolls it into view). Closing gives focus back.
  * With `highlights` (#1312) a Highlights tab beside Contents, the legacy drawer's (a book with no contents opens on
  * it): each highlight's text and note as text, in book order; a tap jumps there. With `bookmarks` (#1314) a Bookmarks
  * tab too: each bookmark's first words as text, in book order; a tap jumps there.
  */
 export function TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights, bookmarks }: Props & { open: boolean; onClose: () => void; highlights?: HighlightsTab | null; bookmarks?: BookmarksTab | null }) {
-  const container = useFocusTrap(open)
   const { t } = useTranslation()
   const [chosenTab, setTab] = useState<'contents' | 'highlights' | 'bookmarks'>('contents')
   // The tab chosen while it is offered; else Contents when the book has any, else the first list offered.
   const offered = { contents: toc.length > 0, highlights: !!highlights, bookmarks: !!bookmarks }
   const tab = offered[chosenTab] ? chosenTab : offered.contents || (!highlights && !bookmarks) ? 'contents' : highlights ? 'highlights' : 'bookmarks'
-  // After the trap's own focus (the close button).
-  useEffect(() => {
-    if (open) container.current?.querySelector<HTMLElement>('[aria-current]')?.focus()
-  }, [open])
-  if (!open) return null
   const { current } = tocAround(toc, tocIndex)
   return (
-    <>
-      <div className="reader-drawer-backdrop" onClick={onClose} />
-      <div
-        className="reader-toc-drawer"
-        ref={container}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('v2Reader.contents')}
-        // The reader's own keys (arrows, Space, Esc: the bars) stay out of the dialog; Tab goes on to the focus trap.
-        onKeyDown={(e) => {
-          if (e.key !== 'Tab') e.stopPropagation()
-          if (e.key === 'Escape') onClose()
-        }}
-      >
+    // Focus goes to the current entry (which scrolls it into view).
+    <ReaderPanel open={open} onClose={onClose} label={t('v2Reader.contents')} className="reader-toc-drawer" focus="[aria-current]">
+      {() => (<>
         <div className="reader-toc-drawer__header">
           {highlights || bookmarks ? (
             <div className="reader-toc-drawer__tabs" role="tablist">
@@ -161,8 +144,8 @@ export function TocDrawer({ open, toc, tocIndex, onGo, onClose, highlights, book
             </li>
           ))}
         </ul>}
-      </div>
-    </>
+      </>)}
+    </ReaderPanel>
   )
 }
 

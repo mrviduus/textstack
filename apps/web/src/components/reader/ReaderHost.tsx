@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { CHAPTER_TEXT_MS, createDiscussLocks, createDiscuss, fillBookMeta, runDiscuss, syncTocIfMissing, syncApi, type PagePosition, type FileDetails } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
@@ -28,6 +28,8 @@ import { useAuth } from '../../context/AuthContext'
 import { trackReadingSessionEnd } from '../../lib/analytics'
 import { SectionNav, TocDrawer } from './ReaderToc'
 import { SearchDrawer } from './ReaderSearch'
+import { usePhone } from '../../hooks/usePhone'
+import { platform } from '../../platform'
 import { NO_SEARCH, createSearchRenders, readSearchResults, searchOpened, searchReset, searchStart, searchTake, type Search } from '../../../../../packages/reader/src/search.mjs'
 import { useImmersiveMode } from '../../hooks/useImmersiveMode'
 import { TimeLeft, percentText, type TimePlace } from './TimeLeft'
@@ -100,6 +102,22 @@ export { READY_DEADLINE_MS }
  * answer is dropped. `bytes` until the page has been handed them (it may not be `ready` yet).
  */
 type Opening = { name: string; originalName: string; bytes?: ArrayBuffer; sync?: SyncTarget }
+
+/**
+ * The back arrow leaves the reader as the Back key does: one step back in the app's history, so the reader is not
+ * left in it (Back on the next page would open the book again). Opened by its address (no step back): the link itself.
+ */
+function BackLink({ to, label }: { to: string; label: string }) {
+  const navigate = useNavigate()
+  const cameFromApp = useLocation().key !== 'default'
+  return (
+    <Link to={to} className="reader-top-bar__back" aria-label={label} onClick={(e) => { if (cameFromApp) { e.preventDefault(); navigate(-1) } }}>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path d="M19 12H5M12 19l-7-7 7-7" />
+      </svg>
+    </Link>
+  )
+}
 
 type HostKeyEvent = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'altKey' | 'metaKey' | 'repeat' | 'target'>
 /**
@@ -1105,13 +1123,31 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
   const currentEntry = tocAround(toc, tocIndex).current
   const statusLine = status && currentEntry ? `${status} · ${currentEntry.label}` : status
 
-  const toggleFlow = () => {
-    const next: Flow = flow === 'paginated' ? 'scrolled' : 'paginated'
+  const chooseFlow = (next: Flow) => {
+    if (next === flow) return
     setFlow(next)
     flowRef.current = next
     writeItem(FLOW_KEY, next)
     if (ready.current) call('flow', [next])
   }
+  const toggleFlow = () => chooseFlow(flow === 'paginated' ? 'scrolled' : 'paginated')
+
+  /**
+   * The phone layout (#1664): icons only in the top bar (the flow switch is in the settings; a selection has its own
+   * Highlight), the chapter under the book's title, and a bottom bar with a progress line and two chevrons.
+   */
+  const phone = usePhone()
+  // The screen stays on while a book is open.
+  useEffect(() => (reading ? platform.keepAwake() : undefined), [reading])
+  // The Android Back key closes what is open over the book first (an open panel is a sheet: it takes Back itself).
+  const overBook = lightboxOpen || !!popup
+  useEffect(() => {
+    if (!overBook) return
+    return platform.onBackButton(() => {
+      if (lightboxRef.current) call('closeLightbox')
+      else if (popupRef.current) closePopup(popupRef.current.kind === 'selection')
+    })
+  }, [overBook])
 
   return (
     <main ref={main} tabIndex={-1} className={`reader-page v2-reader${barsHidden ? ' immersive-mode' : ''}`} data-bars={barsHidden ? 'hidden' : 'shown'} onMouseMove={onMouseMove}>
@@ -1121,19 +1157,24 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
       <header ref={header} className="reader-top-bar" onFocus={showBars} inert={lightboxOpen}>
         <div className="reader-top-bar__left">
           {backUrl && (
-            <Link to={backUrl} className="reader-top-bar__back" aria-label={t('v2Reader.back')}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M19 12H5M12 19l-7-7 7-7" />
-              </svg>
-            </Link>
+            <BackLink to={backUrl} label={t('v2Reader.back')} />
           )}
           <div className="reader-top-bar__title">
             <span className="reader-top-bar__book-title" data-testid="v2-heading">{heading ?? idleHeading}</span>
+            {phone && reading && currentEntry && <span className="reader-top-bar__chapter">{currentEntry.label}</span>}
           </div>
         </div>
         <div className="reader-top-bar__right">
           {toolbar}
-          {reading && (toc.length > 0 || offersHighlights || !!bookmarksTab) && <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)}>{t('v2Reader.contents')}</button>}
+          {reading && (toc.length > 0 || offersHighlights || !!bookmarksTab) && (
+            <button className="reader-top-bar__btn" onClick={() => setTocOpen(true)} aria-label={phone ? t('v2Reader.contents') : undefined}>
+              {phone ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+                </svg>
+              ) : t('v2Reader.contents')}
+            </button>
+          )}
           {reading && search.searchable && (
             <button className="reader-top-bar__btn" onClick={() => setSearchOpen(true)} aria-label={t('v2Reader.search')} title={t('v2Reader.search')}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -1142,7 +1183,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
               </svg>
             </button>
           )}
-          {offersHighlights && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
+          {offersHighlights && !phone && <button className="reader-top-bar__btn" onClick={() => call('highlightSelection')}>{t('v2Reader.highlight')}</button>}
           {offersBookmark && (
             // One name, its state in aria-pressed (#1314 review): a toggle's label never changes with its state.
             <button className="reader-top-bar__btn" data-testid="v2-bookmark" aria-pressed={!!bookmarkHere} aria-label={t('reader.chrome.bookmark')} title={t('reader.chrome.bookmark')} disabled={!bookmarkEnabled} onClick={toggleBookmark}>
@@ -1152,7 +1193,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
               </svg>
             </button>
           )}
-          <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>
+          {!phone && <button className="reader-top-bar__btn" onClick={toggleFlow} disabled={!reflowable}>{flow === 'paginated' ? t('v2Reader.scrolled') : t('v2Reader.paginated')}</button>}
           <button className="reader-top-bar__btn" onClick={() => setSettingsOpen(true)} aria-label={t('v2Reader.settings')} title={t('v2Reader.settings')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M4 6h16M4 12h16M4 18h16" />
@@ -1219,12 +1260,23 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
         </>
       )}
       <footer ref={footer} className="reader-footer" onFocus={showBars} inert={lightboxOpen}>
+        {phone && <div className="reader-footer__progress" aria-hidden="true"><div style={{ width: `${Math.round((timePlace?.fraction ?? 0) * 100)}%` }} /></div>}
         {reading && <SectionNav toc={toc} tocIndex={tocIndex} onGo={goToc} />}
         <div className="reader-footer__info v2-reader__footer">
-          <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>
-          <span className="reader-footer__counter" data-testid="v2-status">{statusLine}</span>
+          {phone
+            ? <button className="reader-top-bar__btn reader-footer__chevron" aria-label={t('reader.chrome.prevPage')} onClick={() => hostMove('prev')}>‹</button>
+            : <button className="reader-top-bar__btn" onClick={() => hostMove('prev')}>{t('v2Reader.prev')}</button>}
+          {phone ? (
+            // The chapter over the percent.
+            <span className="reader-footer__counter reader-footer__place" data-testid="v2-status">
+              {status && currentEntry && <span className="reader-footer__chapter">{currentEntry.label}</span>}
+              <span>{status}</span>
+            </span>
+          ) : <span className="reader-footer__counter" data-testid="v2-status">{statusLine}</span>}
           {status && timePlace && <TimeLeft {...timePlace} />}
-          <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>
+          {phone
+            ? <button className="reader-top-bar__btn reader-footer__chevron" aria-label={t('reader.chrome.nextPage')} onClick={() => hostMove('next')}>›</button>
+            : <button className="reader-top-bar__btn" onClick={() => hostMove('next')}>{t('v2Reader.next')}</button>}
         </div>
       </footer>
       {/* Over the frame, above the bottom bar (or the screen's edge with the bars hidden), out of flow: showing it
@@ -1263,7 +1315,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
         />
       )}
       <ReaderSettingsDrawer open={settingsOpen} settings={settings} onUpdate={updateSettings} onClose={() => setSettingsOpen(false)} typography={reflowable} ttsSpeed={ttsSpeed} onTtsSpeed={updateTtsSpeed}
-        glosses={annotatable ? { on: glosses, onChange: setGlosses } : undefined} />
+        glosses={annotatable ? { on: glosses, onChange: setGlosses } : undefined} flow={phone ? { value: flow, onChange: chooseFlow } : undefined} />
       <TocDrawer
         open={tocOpen && reading}
         toc={toc}

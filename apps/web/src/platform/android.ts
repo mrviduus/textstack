@@ -10,6 +10,7 @@ import { library, syncSoon } from './android/library'
 import { NetInfo } from './android/native'
 import { highlights, vocabulary } from './android/vocabulary'
 import { startSyncProbe } from './android/syncClient'
+import { keepAwake } from './keepAwake'
 
 // The shared API client in bearer mode, on load (`web.ts` sets cookie mode the same way).
 setupApi()
@@ -51,6 +52,7 @@ export const platform: Platform = {
   appShell: true,
   imageSrc,
   onBackButton,
+  keepAwake,
   google,
   library,
   vocabulary,
