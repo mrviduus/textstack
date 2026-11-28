@@ -16,6 +16,8 @@ pnpm check:permissions        # after ./gradlew :app:processReleaseMainManifest
 - The reader frame: `ReaderFrameClient.java` serves `/reader/frame.html` from the APK with a fresh nonce per load and
   the headers of `packages/reader/src/frame.mjs` (nginx does this on the web). `pnpm check:reader-frame` holds the
   two equal.
+- The Back key: `@capacitor/app`, handled in `apps/web/src/platform/android/backButton.ts` (what is open on top closes
+  first, then one step back, then out of the app).
 - `versionCode` in `android/app/build.gradle` starts at 100, above the Expo app's last Play code (44).
 - Social login is Google only (`capacitor.config.json`): the other providers add the Facebook SDK and ad-ID
   permissions.

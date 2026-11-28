@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { platform } from '../../platform'
@@ -20,6 +20,10 @@ export function AuthModal() {
   useEffect(() => {
     if (showAuthModal) setView(authModalView)
   }, [showAuthModal, authModalView])
+
+  // The Android Back key closes the dialog; it does not leave the page under it. Before the early return: a hook.
+  const closeOnBack = useRef(() => {})
+  useEffect(() => (showAuthModal ? platform.onBackButton(() => closeOnBack.current()) : undefined), [showAuthModal])
 
   if (!showAuthModal) return null
 
@@ -50,6 +54,7 @@ export function AuthModal() {
   }
 
   const handleClose = () => { reset(); setView('login'); closeAuthModal() }
+  closeOnBack.current = handleClose
 
   return (
     <div className="auth-overlay" onClick={handleClose}>

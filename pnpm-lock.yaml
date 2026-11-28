@@ -15,6 +15,9 @@ catalogs:
     '@capacitor/android':
       specifier: 8.6.3
       version: 8.6.3
+    '@capacitor/app':
+      specifier: 8.1.2
+      version: 8.1.2
     '@capacitor/cli':
       specifier: 8.6.3
       version: 8.6.3
@@ -119,6 +122,9 @@ importers:
       '@capacitor/android':
         specifier: 'catalog:'
         version: 8.6.3(@capacitor/core@8.6.3)
+      '@capacitor/app':
+        specifier: 'catalog:'
+        version: 8.1.2(@capacitor/core@8.6.3)
       '@capacitor/core':
         specifier: 'catalog:'
         version: 8.6.3
@@ -283,6 +289,9 @@ importers:
       '@capacitor-community/sqlite':
         specifier: 'catalog:'
         version: 8.1.1(@capacitor/core@8.6.3)
+      '@capacitor/app':
+        specifier: 'catalog:'
+        version: 8.1.2(@capacitor/core@8.6.3)
       '@capacitor/core':
         specifier: 'catalog:'
         version: 8.6.3

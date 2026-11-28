@@ -14,6 +14,8 @@ interface UploadFormProps {
 
 export function UploadForm({ onUploadComplete, initialFile, queueLabel }: UploadFormProps) {
   const { t } = useTranslation()
+  // A touch screen has no drag and drop: the words are the tap's.
+  const touch = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -118,8 +120,8 @@ export function UploadForm({ onUploadComplete, initialFile, queueLabel }: Upload
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
-            <p className="upload-section__text">{t('upload.dropzone.title')}</p>
-            <p className="upload-section__subtext">{t('upload.dropzone.browse')}</p>
+            <p className="upload-section__text">{t(touch ? 'upload.dropzone.pick' : 'upload.dropzone.title')}</p>
+            <p className="upload-section__subtext">{t(touch ? 'upload.dropzone.subtitle' : 'upload.dropzone.browse')}</p>
           </>
         )}
       </div>
