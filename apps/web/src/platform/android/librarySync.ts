@@ -629,7 +629,7 @@ export async function downloadBook(lib: LocalLibrary, bookId: string, io: {
   /** #1596: the retained file of these bytes deleted unless a book holds them (`HostStorage.dropUnheld`); true: deleted. Absent: kept. */
   dropUnheld?(sha256: string): Promise<boolean>
   /** Whether the retained file of these bytes can be opened (`intactBook`); absent: it can. */
-  intact?(sha256: string): boolean
+  intact?(sha256: string): boolean | Promise<boolean>
 }): Promise<boolean> {
   const reset = resetSince()
   const b = await lib.book(bookId)
@@ -637,7 +637,7 @@ export async function downloadBook(lib: LocalLibrary, bookId: string, io: {
   const sha = b.server_sha256
   // Imported here: only a damaged copy of the server's same bytes is fetched again, over it (#1602).
   const repair = b.imported_at != null
-  if (repair && (b.sha256 !== sha || (io.intact?.(sha) ?? true))) return false
+  if (repair && (b.sha256 !== sha || ((await io.intact?.(sha)) ?? true))) return false
   // Bytes another book here already holds: never a second local copy (books_sha256 is UNIQUE).
   if (!repair && (await lib.hasLocalBytes(sha))) return false
   // #1596: a book deleted (or a session ended) while it downloaded: no book holds these bytes now, so the file the

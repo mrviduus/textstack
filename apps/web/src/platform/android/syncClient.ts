@@ -6,7 +6,7 @@
  * sequence are shared too (`createBooks`, `uploadFile`, #1121): this file keeps the probe, the
  * DTOs and the device IO.
  */
-import { AsyncStorage, NetInfo, uuid } from './native'
+import { AsyncStorage, NetInfo, deviceFileBlob, uuid } from './native'
 import {
   syncApi, ApiError, isOfflineError, SYNC_OFF, createSha256,
   shelfFileSummary, isShelfBook, resumeChapterOf, createBooks, uploadFile, FileUploadError,
@@ -285,15 +285,15 @@ export async function readProgress(bookId: string): Promise<UserBookProgressDto>
 
 // ---- Upload -------------------------------------------------------------------------------------
 
-/** The picked file's bytes, read a range at a time (expo-file-system `FileHandle` on the device). */
+/** The picked file's bytes, read a range at a time (a `Blob` read through the WebView on the device). */
 export interface ByteSource {
   size: number
-  read(offset: number, length: number): Uint8Array
+  read(offset: number, length: number): Uint8Array | Promise<Uint8Array>
   close(): void
 }
 
 export interface UploadIo {
-  open(uri: string): ByteSource
+  open(uri: string): ByteSource | Promise<ByteSource>
   /** One part's bytes to its route. */
   sendPart(bookId: string, fileId: string, index: number, bytes: Uint8Array): Promise<unknown>
   /** Hands the JS thread back between chunks: hashing 80 MB in one go freezes the screen. Throws `aborted` once cancelled. */
@@ -309,7 +309,7 @@ export const MAX_DEVICE_PART_BYTES = 8 * 1024 * 1024
 export async function sha256Of(source: ByteSource, yieldNow: () => Promise<void>): Promise<string> {
   const hash = createSha256()
   for (let at = 0; at < source.size; at += HASH_CHUNK) {
-    hash.update(source.read(at, Math.min(HASH_CHUNK, source.size - at)))
+    hash.update(await source.read(at, Math.min(HASH_CHUNK, source.size - at)))
     await yieldNow()
   }
   return hash.hex()
@@ -332,7 +332,7 @@ export async function uploadBook(
    */
   target?: { bookId: string; fileId: string; sha256: string },
 ): Promise<{ bookId: string; existing: boolean }> {
-  const source = io.open(file.uri)
+  const source = await io.open(file.uri)
   try {
     // RN fetch sends a typed-array body as base64 over the bridge: an 80 MB part would peak near
     // 200 MB of JS memory on Hermes, so a part is at most 8 MB whatever the server takes.
@@ -341,7 +341,7 @@ export async function uploadBook(
       newId: () => uuid.v4(),
       hash: () => (target ? Promise.resolve(target.sha256) : sha256Of(source, io.yieldNow)),
       sendPart: async ({ bookId, fileId, index, partCount, start, end }) => {
-        await io.sendPart(bookId, fileId, index, source.read(start, end - start))
+        await io.sendPart(bookId, fileId, index, await source.read(start, end - start))
         onProgress?.(((index + 1) / partCount) * 100)
       },
       // A cancel while the last part was in flight: never complete it (the cancel point throws `aborted`).
@@ -373,7 +373,7 @@ export interface UploadStaging {
   /** Copies `uri` in; resolves to the copy's name under `files/v2/` (`staging/<ms>.epub`) and its file URI. */
   copyIn(uri: string): Promise<{ name: string; uri: string }>
   /** Best-effort; a missing file is not an error. */
-  remove(name: string): void
+  remove(name: string): void | Promise<void>
 }
 
 /**
@@ -394,6 +394,36 @@ export async function uploadPicked(
   try {
     return await uploadBook({ uri: copy.uri, name: file.name }, maxPartBytes, { ...io, describe: () => describe(copy.name) }, onProgress)
   } finally {
-    try { staging.remove(copy.name) } catch { /* best effort: staging/ is emptied on the reader's next start */ }
+    try { await staging.remove(copy.name) } catch { /* best effort: staging/ is emptied on the reader's next start */ }
   }
 }
+
+/**
+ * The device's bytes: the file read through the WebView as a `Blob` (`deviceFileBlob`), a range sliced at a time,
+ * each part a `Uint8Array` body through `fetch` (PDD "File sync upload protocol").
+ * `isCancelled` stops before the next part, and before the next hash chunk.
+ */
+export function deviceUploadIo(isCancelled: () => boolean): UploadIo {
+  return {
+    async open(uri) {
+      // Read only: a fetch never creates a missing file (#1610: a 0-byte book).
+      const blob = await deviceFileBlob(uri)
+      return {
+        size: blob.size,
+        read: async (offset, length) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer()),
+        close: () => {},
+      }
+    },
+    async sendPart(bookId, fileId, index, bytes) {
+      if (isCancelled()) throw cancelled()
+      return syncApi.putPart(bookId, fileId, index, bytes)
+    },
+    // Also the hash loop's cancel point (#1143): Cancel stops within one chunk, not after the whole hash.
+    yieldNow: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (isCancelled()) throw cancelled()
+    },
+  }
+}
+
+const cancelled = () => Object.assign(new Error('Upload cancelled'), { aborted: true })
