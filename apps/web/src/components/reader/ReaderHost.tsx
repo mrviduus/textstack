@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { CHAPTER_TEXT_MS, createDiscussLocks, createDiscuss, fillBookMeta, runDiscuss, syncTocIfMissing, syncApi, type PagePosition, type FileDetails } from '@textstack/shared'
 // ponytail: deep imports of apps/mobile source. The page and its helpers live there until the engine's home
 // is settled (#1128, ADR-032); moving them on the mobile side breaks this file's tsc, visibly, not silently.
@@ -105,13 +105,19 @@ type Opening = { name: string; originalName: string; bytes?: ArrayBuffer; sync?:
 
 /**
  * The back arrow leaves the reader as the Back key does: one step back in the app's history, so the reader is not
- * left in it (Back on the next page would open the book again). Opened by its address (no step back): the link itself.
+ * left in it (Back on the next page would open the book again). Opened by its address (no step back in the app: the
+ * router's index in `history.state` is 0), or a click that opens a new tab: the link itself.
  */
 function BackLink({ to, label }: { to: string; label: string }) {
   const navigate = useNavigate()
-  const cameFromApp = useLocation().key !== 'default'
+  const stepBack = (e: MouseEvent) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    if (!((window.history.state as { idx?: number } | null)?.idx)) return
+    e.preventDefault()
+    navigate(-1)
+  }
   return (
-    <Link to={to} className="reader-top-bar__back" aria-label={label} onClick={(e) => { if (cameFromApp) { e.preventDefault(); navigate(-1) } }}>
+    <Link to={to} className="reader-top-bar__back" aria-label={label} onClick={stepBack}>
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M19 12H5M12 19l-7-7 7-7" />
       </svg>
@@ -1269,7 +1275,7 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
           {phone ? (
             // The chapter over the percent.
             <span className="reader-footer__counter reader-footer__place" data-testid="v2-status">
-              {status && currentEntry && <span className="reader-footer__chapter">{currentEntry.label}</span>}
+              {status && currentEntry && <span className="reader-footer__chapter">{currentEntry.label}</span>}{' '}
               <span>{status}</span>
             </span>
           ) : <span className="reader-footer__counter" data-testid="v2-status">{statusLine}</span>}

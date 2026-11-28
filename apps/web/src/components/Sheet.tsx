@@ -31,7 +31,12 @@ export function Sheet({ open, onClose, title, className, children }: SheetProps)
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current() }
+    // The key goes no further: what is behind the sheet (the reader) has its own Escape.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      close.current()
+    }
     document.addEventListener('keydown', onKey)
     const offBack = platform.onBackButton(() => close.current())
     const overflow = document.body.style.overflow

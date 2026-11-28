@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const back = vi.hoisted(() => ({ handlers: [] as (() => void)[] }))
@@ -32,6 +32,14 @@ describe('a reader panel', () => {
     expect(screen.getByRole('dialog', { name: 'Contents' })).toHaveClass('sheet', 'reader-sheet')
     expect(document.querySelector('.reader-toc-drawer')).toBeNull()
     expect(screen.getByText('Two')).toHaveFocus()
+    // Escape closes it and goes no further (the reader behind has its own Escape).
+    const behind = vi.fn()
+    window.addEventListener('keydown', behind)
+    fireEvent.keyDown(screen.getByText('Two'), { key: 'Escape' })
+    window.removeEventListener('keydown', behind)
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(behind).not.toHaveBeenCalled()
+    onClose.mockReset()
     back.handlers[back.handlers.length - 1]()
     expect(onClose).toHaveBeenCalledOnce()
   })
@@ -42,6 +50,16 @@ describe('a reader panel', () => {
     expect(screen.getByRole('dialog', { name: 'Contents' })).toHaveClass('reader-toc-drawer')
     expect(screen.getByText('Two')).toHaveFocus()
     expect(back.handlers).toHaveLength(0)
+  })
+
+  it('on a phone with nothing to choose, the focus is on the first control of the panel, not the close button', () => {
+    screenIs(true)
+    render(
+      <ReaderPanel open onClose={onClose} label="Search" className="reader-search-drawer" focus=".result">
+        {() => <input aria-label="Query" />}
+      </ReaderPanel>,
+    )
+    expect(screen.getByLabelText('Query')).toHaveFocus()
   })
 
   it('closed, shows nothing and gives the focus back', () => {

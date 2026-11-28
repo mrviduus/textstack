@@ -10,7 +10,10 @@ interface Props {
   label: string
   /** The side drawer's class (reader.css). */
   className: string
-  /** After the trap's own focus (the first control), focus goes to the first match of this selector, if any. */
+  /**
+   * After the trap's own focus (the first control), focus goes to the first match of this selector, if any.
+   * On a phone with no match: to the panel's first control (the sheet's trap chose its close button).
+   */
   focus?: string
   testId?: string
   /** A function: nothing is built while the panel is closed. */
@@ -27,7 +30,10 @@ export function ReaderPanel({ open, onClose, label, className, focus, testId, ch
   // On a phone the sheet holds the focus; `container` is then only where `focus` is looked for.
   const container = useFocusTrap(open && !phone)
   useEffect(() => {
-    if (open && focus) container.current?.querySelector<HTMLElement>(focus)?.focus()
+    if (!open) return
+    const c = container.current
+    const to = (focus && c?.querySelector<HTMLElement>(focus)) || (phone ? c?.querySelector<HTMLElement>('input, button') : null)
+    to?.focus()
   }, [open])
   if (phone) {
     return (

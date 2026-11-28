@@ -7,13 +7,17 @@
 // FLAG_KEEP_SCREEN_ON plugin in apps/android is the upgrade if such devices matter.
 export function keepAwake(): () => void {
   let lock: WakeLockSentinel | null = null
+  let asking = false
   let off = false
   const take = () => {
-    if (off || document.visibilityState !== 'visible') return
-    navigator.wakeLock?.request('screen').then((l) => {
-      if (off) void l.release()
+    // One lock at a time: none is asked for while a request is open or a lock is held.
+    if (!navigator.wakeLock || off || asking || (lock && !lock.released) || document.visibilityState !== 'visible') return
+    asking = true
+    navigator.wakeLock.request('screen').then((l) => {
+      asking = false
+      if (off) void l.release().catch(() => {})
       else lock = l
-    }, () => {})
+    }, () => { asking = false })
   }
   take()
   document.addEventListener('visibilitychange', take)
