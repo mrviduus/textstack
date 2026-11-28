@@ -2478,7 +2478,7 @@ describe('V2 local library sync (R6)', () => {
     it('deviceHighlights_ABookmarkIsNotAHighlight', async () => {
       const { lib, bookId } = await seeded()
       await lib.writeEntry(SHA, entry(pos, [highlight, bookmark]), newId)
-      expect(await lib.deviceHighlights()).toEqual([{ id: HL, bookId, bookTitle: 'T', text: 'bright cold', color: 'yellow', note: null }])
+      expect(await lib.deviceHighlights()).toEqual([{ id: HL, bookId, bookTitle: 'T', text: 'bright cold', color: 'yellow', note: null, at: expect.anything() }])
     })
   })
 
@@ -2844,7 +2844,7 @@ describe('V2 local library sync (R6)', () => {
     it('deviceHighlights_LiveOnesOfBooksHereWithTheirNotes_ARemovedOneGone', async () => {
       const { lib, bookId } = await seeded()
       await lib.setNote(HL, 'n')
-      expect(await lib.deviceHighlights()).toEqual([{ id: HL, bookId, bookTitle: 'T', text: 'bright cold', color: 'yellow', note: 'n' }])
+      expect(await lib.deviceHighlights()).toEqual([{ id: HL, bookId, bookTitle: 'T', text: 'bright cold', color: 'yellow', note: 'n', at: expect.anything() }])
       expect(await lib.removeHighlight(HL)).toBe(true)
       expect(await lib.removeHighlight(HL)).toBe(false)
       expect(await lib.deviceHighlights()).toEqual([])

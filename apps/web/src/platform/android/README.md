@@ -27,6 +27,7 @@ Changes in the copies:
 - Import paths. The Expo modules come from `native.ts` under the same names.
 - `deviceLibrary.ts`: the database opens through `sqliteDb.ts`, and the file calls go to `@capacitor/filesystem`.
   They are async here, so `wipeLibrary` and `removeLocalBook` wait for them.
+- `localLibrary.ts`: `deviceHighlights` also gives each highlight's time (`at`), for the Highlights list.
 - `librarySync.ts`: the `Platform.OS === 'web'` guards are gone (this code runs only on Android), and two lines
   changed for the web tsconfig (an unused parameter, a switch fallthrough). `downloadBook` waits for `io.intact`.
 - `hostStorage.ts`: `HostFiles.exists`, `size` and `remove` may return a Promise, and every call waits for them.

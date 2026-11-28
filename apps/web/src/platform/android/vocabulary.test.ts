@@ -15,7 +15,17 @@ vi.mock('./api', () => ({ getAccessToken: async () => token }))
 vi.mock('./account', () => ({ storedUser: async () => ({ id: 'u1' }) }))
 vi.mock('./syncClient', () => ({ resetSince: () => () => false }))
 vi.mock('./deviceLibrary', () => ({ deviceLocalLibrary: () => lib }))
-vi.mock('../../api/vocabulary', () => ({ saveWord: async () => ({ outcome: 'saved', word: card }) }))
+let saveAnswer: unknown = { outcome: 'saved', word: card }
+const syncSoon = vi.fn()
+vi.mock('./library', () => ({ syncSoon: () => syncSoon() }))
+vi.mock('../../api/vocabulary', () => ({
+  saveWord: async () => saveAnswer,
+  updateWord: async () => ({ ...card, translation: 'набережная' }),
+  restoreWord: async () => card,
+  deleteWord: async () => {},
+  // The server cannot answer: the marks are the device rows.
+  getReaderVocab: async () => { throw offline() },
+}))
 vi.mock('@textstack/shared', async (orig) => ({
   ...(await orig<typeof import('@textstack/shared')>()),
   highlightsApi: { getAllHighlights: () => serverHighlights() },
@@ -27,6 +37,8 @@ describe('the Android vocabulary and highlights', () => {
   beforeEach(() => {
     lib = createLocalLibrary(memoryDb())
     token = 'at'
+    saveAnswer = { outcome: 'saved', word: card }
+    syncSoon.mockClear()
   })
 
   it('saveWord_TheServerAnswersACard_ItIsMarkedFromTheDeviceWithNoNetwork', async () => {
@@ -35,6 +47,23 @@ describe('the Android vocabulary and highlights', () => {
     expect(await vocabulary.getReaderVocab()).toEqual([{ id: 'w1', word: 'quay', stage: 0, translation: 'причал', language: 'en' }])
     expect(fetch).not.toHaveBeenCalled()
     vi.unstubAllGlobals()
+  })
+
+  it('saveWord_DeletedEarlier_TheTombstoneMarksNothing', async () => {
+    saveAnswer = { outcome: 'deleted', word: card }
+    await vocabulary.saveWord({ word: 'quay', language: 'en' } as never)
+    expect(await vocabulary.getReaderVocab()).toEqual([])
+  })
+
+  it('updateWord_ANewTranslation_TheMarkCarriesIt_RestoreMarksAgain', async () => {
+    await vocabulary.restoreWord('w1')
+    await vocabulary.updateWord('w1', { translation: 'набережная' })
+    expect((await vocabulary.getReaderVocab())[0].translation).toBe('набережная')
+  })
+
+  it('deleteWord_Done_APassPullsTheTombstone', async () => {
+    await vocabulary.deleteWord('w1')
+    expect(syncSoon).toHaveBeenCalledTimes(1)
   })
 
   it('getReaderVocab_AnotherAccountsLibrary_NoMarks', async () => {
@@ -54,6 +83,11 @@ describe('the Android vocabulary and highlights', () => {
     serverHighlights = async () => { throw offline() }
     const offlineList = await highlights.getAllHighlights()
     expect(offlineList.items).toMatchObject([{ id: hl.id, selectedText: 'bright cold', userBookTitle: 'Dune', color: 'yellow' }])
+    expect(offlineList.items[0].createdAt).toBe(new Date(1).toISOString())
+    expect((await highlights.getAllHighlights({ search: 'COLD' })).totalCount).toBe(1)
+    expect((await highlights.getAllHighlights({ search: 'warm' })).totalCount).toBe(0)
+    expect((await highlights.getAllHighlights({ color: 'blue' })).totalCount).toBe(0)
+    expect((await highlights.getAllHighlights({ offset: 1 })).items).toEqual([])
     token = null
     expect((await highlights.getAllHighlights()).totalCount).toBe(1)
   })
