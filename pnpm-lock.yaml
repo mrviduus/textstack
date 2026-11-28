@@ -234,6 +234,9 @@ importers:
       '@capacitor/filesystem':
         specifier: 8.1.5
         version: 8.1.5(@capacitor/core@8.6.3)
+      '@capacitor/network':
+        specifier: 8.0.1
+        version: 8.0.1(@capacitor/core@8.6.3)
       '@sentry/react':
         specifier: 'catalog:'
         version: 10.75.2(react@19.2.3)
@@ -749,6 +752,11 @@ packages:
 
   '@capacitor/filesystem@8.1.5':
     resolution: {integrity: sha512-m1RkI8L83NJeppEKyRWioK3MDp2vjlA+QfUQcF8/xRlcXNC2HYxqoyYJ+K4M0EcVovy+g+4F24S05+bhK4Vgdg==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+
+  '@capacitor/network@8.0.1':
+    resolution: {integrity: sha512-9xK/FHFmzKGanB6BdoSZOzXk8vF0OFVQSQ4PAsIrzAzLuXHryO317qy8dcHVpgxYeuZq2noI0My9z1DvVDi/9w==}
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
@@ -5527,6 +5535,10 @@ snapshots:
     dependencies:
       '@capacitor/core': 8.6.3
       '@capacitor/synapse': 1.0.4
+
+  '@capacitor/network@8.0.1(@capacitor/core@8.6.3)':
+    dependencies:
+      '@capacitor/core': 8.6.3
 
   '@capacitor/synapse@1.0.4': {}
 

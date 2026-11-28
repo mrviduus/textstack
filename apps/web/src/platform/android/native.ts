@@ -1,5 +1,5 @@
-// The Expo modules the copied code calls, with the same names and shapes, over WebView APIs. So a copy changes only
-// its import line. Tests use the real ones under jsdom (localStorage, crypto, window events).
+// The Expo modules the copied code calls, with the same names and shapes, over WebView and Capacitor APIs. So a copy
+// changes only its import line.
 
 /** `@react-native-async-storage/async-storage`'s calls, over the WebView's localStorage (kept with the app's data). */
 export const AsyncStorage = {
@@ -12,12 +12,25 @@ export const AsyncStorage = {
 export const uuid = { v4: (): string => crypto.randomUUID() }
 
 type NetState = { isConnected: boolean | null; isInternetReachable: boolean | null }
+const netState = (connected: boolean): NetState => ({ isConnected: connected, isInternetReachable: connected })
 
-/** `@react-native-community/netinfo`'s listener, over the WebView's `online` event (it fires only when the network is back). */
+/**
+ * `@react-native-community/netinfo`'s listener, over `@capacitor/network` (the WebView's own `online` event needs a
+ * permission the shell may not have). As NetInfo does, the listener is called once with the current state on subscribe.
+ */
 export const NetInfo = {
   addEventListener(listener: (s: NetState) => void): () => void {
-    const online = () => listener({ isConnected: true, isInternetReachable: true })
-    window.addEventListener('online', online)
-    return () => window.removeEventListener('online', online)
+    let removed = false
+    const handle = import('@capacitor/network').then(async ({ Network }) => {
+      const h = await Network.addListener('networkStatusChange', (s) => listener(netState(s.connected)))
+      const now = await Network.getStatus()
+      if (!removed) listener(netState(now.connected))
+      return h
+    })
+    handle.catch(() => {})
+    return () => {
+      removed = true
+      void handle.then((h) => h.remove(), () => {})
+    }
   },
 }

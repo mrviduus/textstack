@@ -40,7 +40,7 @@ vi.mock('@capacitor/filesystem', () => ({
     mkdir: async (o: { path: string }) => {
       const p = doc(o)
       if (failCreate > 0) { failCreate--; throw new Error('create failed') }
-      if (dirs.has(p)) throw new Error('Directory exists')
+      if (dirs.has(p) || files.has(p)) throw new Error('Directory exists')
       const segments = p.split('/')
       for (let i = 2; i <= segments.length; i++) dirs.add(segments.slice(0, i).join('/'))
     },
@@ -140,6 +140,20 @@ describe('device V2 local library', () => {
     expect([...files.keys()]).toEqual([])
   })
 
+  it('makeFileDirs_DirectoriesThere_NoErrorSameDirectories', async () => {
+    const m = await fresh()
+    await m.makeFileDirs()
+    await m.makeFileDirs()
+    expect([...dirs].sort()).toEqual([...HOST_DIRS].sort())
+  })
+
+  it('makeFileDirs_AFileInADirectorysPlace_Throws', async () => {
+    const m = await fresh()
+    dirs.add('doc/v2')
+    files.set('doc/v2/books', 1)
+    await expect(m.makeFileDirs()).rejects.toThrow()
+  })
+
   it('sweepStaging_LeftoversOfAnEarlierProcessAndALiveDownload_OnlyTheLeftoversGo', async () => {
     const m = await fresh()
     await m.makeFileDirs()
@@ -147,8 +161,11 @@ describe('device V2 local library', () => {
     files.set(`doc/v2/staging/${Date.now() - 60_000}.epub`, 1) // an open that never finished before a restart
     files.set('doc/v2/staging/picked.epub', 1) // no time in its name: an earlier build's
     files.set(live, 1) // the book page's Download, still writing when the reader starts (#1526)
+    dirs.add('doc/v2/staging/unpacked') // a directory an earlier build left
+    files.set('doc/v2/staging/unpacked/a.xhtml', 1)
     await m.sweepStaging()
     expect([...files.keys()]).toEqual([live])
+    expect(dirs.has('doc/v2/staging/unpacked')).toBe(false)
   })
 
   it('measure_BooksAndStaging_CountedUnderV2Only', async () => {

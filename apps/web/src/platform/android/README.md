@@ -28,7 +28,7 @@ Changes in the copies:
 - Tests: a `@vitest-environment node` line where they need it, and plugin fakes in place of the Expo mocks.
 
 ## New here
-- `native.ts`: `AsyncStorage` (over localStorage), `uuid` and `NetInfo` (over the `online` event), with the Expo
-  modules' names and shapes.
+- `native.ts`: `AsyncStorage` (over localStorage), `uuid` and `NetInfo` (over `@capacitor/network`), with the Expo
+  modules' names and shapes. The keys are not the Expo app's storage: #1643 carries them over on an existing install.
 - `sqliteDb.ts`: the `Db` surface of `localLibrary.ts` over `@capacitor-community/sqlite`. Same database name
   as the Expo app (`textstack-v2`).

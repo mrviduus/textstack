@@ -24,6 +24,7 @@
     "@capacitor-community/sqlite": "8.1.1",
     "@capacitor/core": "8.6.3",
     "@capacitor/filesystem": "8.1.5",
+    "@capacitor/network": "8.0.1",
     "@sentry/react": "catalog:",
     "cmdk": "^1.1.1",
     "react": "catalog:",

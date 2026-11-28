@@ -24,6 +24,7 @@ export function deviceLocalLibrary(): LocalLibrary {
 /** `<data>/v2/`: the host's files (hostStorage.ts). `Directory.Data` is the Expo app's `Paths.document` (`files/`). */
 export const FILES_ROOT = 'v2'
 const at = (path: string) => ({ path, directory: Directory.Data })
+const isDir = (path: string) => Filesystem.stat(at(path)).then((s) => s.type === 'directory', () => false)
 const exists = (path: string) => Filesystem.stat(at(path)).then(() => true, () => false)
 
 /** The host's directories under the root, made when missing. */
@@ -31,7 +32,7 @@ export async function makeFileDirs() {
   for (const dir of ['books', 'store', 'staging']) {
     const path = `${FILES_ROOT}/${dir}`
     // mkdir fails when the directory is there: only a directory still missing after it is a failure.
-    await Filesystem.mkdir({ ...at(path), recursive: true }).catch(async (e: unknown) => { if (!(await exists(path))) throw e })
+    await Filesystem.mkdir({ ...at(path), recursive: true }).catch(async (e: unknown) => { if (!(await isDir(path))) throw e })
   }
 }
 
@@ -53,7 +54,11 @@ export async function sweepStaging() {
   if (!list) return
   for (const entry of list.files) {
     const ms = Number(/\d+/.exec(entry.name)?.[0])
-    if (!(ms >= STARTED)) await Filesystem.deleteFile(at(`${staging}/${entry.name}`))
+    if (ms >= STARTED) continue
+    const path = `${staging}/${entry.name}`
+    // Best effort per entry: one that cannot go stays for the next start, and the rest still go.
+    await (entry.type === 'directory' ? Filesystem.rmdir({ ...at(path), recursive: true }) : Filesystem.deleteFile(at(path)))
+      .catch((e: unknown) => console.warn('[v2] staging entry not removed:', (e as Error | null)?.name))
   }
 }
 
@@ -64,7 +69,8 @@ export async function sweepStaging() {
  */
 export async function clearDeviceFiles() {
   try {
-    if (await exists(FILES_ROOT)) await Filesystem.rmdir({ ...at(FILES_ROOT), recursive: true })
+    // Always asked: a failed rmdir is a failure only while the root is still there (a stat error is no "absent").
+    await Filesystem.rmdir({ ...at(FILES_ROOT), recursive: true }).catch(async (e: unknown) => { if (await exists(FILES_ROOT)) throw e })
   } finally {
     await makeFileDirs()
   }
