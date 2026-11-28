@@ -5,11 +5,12 @@
 // Block an unwanted one in android/app/src/main/AndroidManifest.xml with tools:node="remove";
 // adopt a new one here with the reason, and update the Play listing and Data safety form to match.
 import { existsSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
-const MERGED = new URL(
+const MERGED = fileURLToPath(new URL(
   '../android/app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml',
   import.meta.url,
-).pathname
+))
 
 const ALLOWED = new Map([
   ['android.permission.INTERNET', 'the app syncs with textstack.app'],
@@ -24,6 +25,11 @@ if (!existsSync(MERGED)) {
   process.exit(1)
 }
 const requested = [...readFileSync(MERGED, 'utf8').matchAll(/<uses-permission\b[^>]*android:name="([^"]+)"/g)].map((m) => m[1])
+// The app cannot work without INTERNET: its absence means the manifest was not parsed, not that it is clean.
+if (!requested.includes('android.permission.INTERNET')) {
+  console.error('✗ INTERNET is not in the merged manifest: the check read nothing')
+  process.exit(1)
+}
 const unexpected = requested.filter((p) => !ALLOWED.has(p))
 for (const p of requested.filter((p) => ALLOWED.has(p))) console.log(`  ok  ${p}  (${ALLOWED.get(p)})`)
 if (unexpected.length) {

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && node scripts/assert-no-dev-reader.mjs",
-    "build:android": "tsc && set -a && . ./android.env && set +a && VITE_TARGET=android vite build --outDir dist-android && node scripts/assert-no-dev-reader.mjs dist-android",
+    "build:android": "tsc && set -a && . ./production.env && . ./android.env && set +a && VITE_TARGET=android vite build --outDir dist-android && node scripts/assert-no-dev-reader.mjs dist-android",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
