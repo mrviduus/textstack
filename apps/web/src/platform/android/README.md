@@ -18,6 +18,8 @@ production app until #1644, and #1645 deletes the originals. Until then, a fix i
 | `syncClient.ts` | `sync.ts`, without `deviceUploadIo` (it comes with the upload) |
 | `deviceLibrary.ts` (+ test) | `reader/deviceLibrary.ts` |
 | `deadline.ts`, `singleFlight.ts` (+ tests) | the same names |
+| `api.ts` | `api.ts`, without `deleteAccount` (the web one is used) |
+| `authEvents.ts` | `authEvents.ts` |
 
 Changes in the copies:
 - Import paths. The Expo modules come from `native.ts` under the same names.
@@ -25,10 +27,15 @@ Changes in the copies:
   They are async here, so `wipeLibrary` and `removeLocalBook` wait for them.
 - `librarySync.ts`: the `Platform.OS === 'web'` guards are gone (this code runs only on Android), and two lines
   changed for the web tsconfig (an unused parameter, a switch fallthrough).
+- `api.ts`: the tokens go through `writeTokens` / `clearTokens`, which keep a copy of the access token for calls
+  that cannot wait. `APP_HEADERS` is empty until the shell gives the app version.
 - Tests: a `@vitest-environment node` line where they need it, and plugin fakes in place of the Expo mocks.
 
 ## New here
-- `native.ts`: `AsyncStorage` (over localStorage), `uuid` and `NetInfo` (over `@capacitor/network`), with the Expo
-  modules' names and shapes. The keys are not the Expo app's storage: #1643 carries them over on an existing install.
+- `native.ts`: `AsyncStorage` (over localStorage), `SecureStore` (over `@aparajita/capacitor-secure-storage`), `uuid`
+  and `NetInfo` (over `@capacitor/network`), with the Expo modules' names and shapes. The keys are not the Expo app's storage: #1643 carries them over on an existing install.
+- `account.ts`: the seam's `account` member (the web `AuthContext` calls it). Bearer session as in the Expo app; a
+  new session claims the device library and adopts a guest's before the UI sets the user; sign-out pushes, then
+  ends the session and wipes the library.
 - `sqliteDb.ts`: the `Db` surface of `localLibrary.ts` over `@capacitor-community/sqlite`. Same database name
   as the Expo app (`textstack-v2`).

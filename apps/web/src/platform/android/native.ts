@@ -8,6 +8,14 @@ export const AsyncStorage = {
   removeItem: async (key: string): Promise<void> => localStorage.removeItem(key),
 }
 
+/** `expo-secure-store`'s calls, over `@aparajita/capacitor-secure-storage` (Android Keystore). Loaded on first use. */
+const secure = () => import('@aparajita/capacitor-secure-storage').then((m) => m.SecureStorage)
+export const SecureStore = {
+  getItemAsync: async (key: string): Promise<string | null> => (await secure()).getItem(key),
+  setItemAsync: async (key: string, value: string): Promise<void> => (await secure()).setItem(key, value),
+  deleteItemAsync: async (key: string): Promise<void> => (await secure()).removeItem(key),
+}
+
 /** `expo-modules-core`'s `uuid`. */
 export const uuid = { v4: (): string => crypto.randomUUID() }
 
