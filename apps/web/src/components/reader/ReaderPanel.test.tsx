@@ -44,19 +44,21 @@ describe('a reader panel', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it('on a wide screen is the side drawer, and takes no Back key', () => {
+  it('on a wide screen is the side drawer, and the Back key closes it', () => {
     screenIs(false)
     render(panel())
     expect(screen.getByRole('dialog', { name: 'Contents' })).toHaveClass('reader-toc-drawer')
     expect(screen.getByText('Two')).toHaveFocus()
-    expect(back.handlers).toHaveLength(0)
+    expect(back.handlers).toHaveLength(1)
+    back.handlers[0]()
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it('on a phone with nothing to choose, the focus is on the first control of the panel, not the close button', () => {
     screenIs(true)
     render(
       <ReaderPanel open onClose={onClose} label="Search" className="reader-search-drawer" focus=".result">
-        {() => <input aria-label="Query" />}
+        {() => (<><button className="reader-search-drawer__close">Close</button><input aria-label="Query" /></>)}
       </ReaderPanel>,
     )
     expect(screen.getByLabelText('Query')).toHaveFocus()

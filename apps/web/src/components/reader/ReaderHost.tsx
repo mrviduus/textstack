@@ -104,9 +104,10 @@ export { READY_DEADLINE_MS }
 type Opening = { name: string; originalName: string; bytes?: ArrayBuffer; sync?: SyncTarget }
 
 /**
- * The back arrow leaves the reader as the Back key does: one step back in the app's history, so the reader is not
- * left in it (Back on the next page would open the book again). Opened by its address (no step back in the app: the
- * router's index in `history.state` is 0), or a click that opens a new tab: the link itself.
+ * The back arrow leaves the reader as the Back key does: one step back in the app's history. So the reader is not
+ * left in the history, and Back on the next page does not open the book again. A reader opened by its address has
+ * no step back (the router's index in `history.state` is 0): the arrow is then the link itself. A click that opens
+ * a new tab is the link too.
  */
 function BackLink({ to, label }: { to: string; label: string }) {
   const navigate = useNavigate()
@@ -1139,13 +1140,13 @@ export function ReaderHost({ book, onOpened, toolbar, children, idleHeading = ''
   const toggleFlow = () => chooseFlow(flow === 'paginated' ? 'scrolled' : 'paginated')
 
   /**
-   * The phone layout (#1664): icons only in the top bar (the flow switch is in the settings; a selection has its own
-   * Highlight), the chapter under the book's title, and a bottom bar with a progress line and two chevrons.
+   * The phone layout (#1664). The top bar has icons only, and the chapter under the book's title. The flow switch is
+   * in the settings; a selection has its own Highlight. The bottom bar has a progress line and two chevrons.
    */
   const phone = usePhone()
   // The screen stays on while a book is open.
   useEffect(() => (reading ? platform.keepAwake() : undefined), [reading])
-  // The Android Back key closes what is open over the book first (an open panel is a sheet: it takes Back itself).
+  // The Android Back key closes what is open over the book first. An open panel takes Back itself (ReaderPanel).
   const overBook = lightboxOpen || !!popup
   useEffect(() => {
     if (!overBook) return
