@@ -1,39 +1,10 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto'
-import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { createLocalLibrary } from './localLibrary'
-import { toDb, type Connection } from './sqliteDb'
+import { toDb } from './sqliteDb'
+import { memoryConnection as pluginConnection } from './sqliteShim'
 
-/**
- * The plugin's connection over node:sqlite, with its rules: each call opens its own transaction unless told
- * `transaction: false`, and a transaction inside an open one fails (as SQLite does). `execute` splits as the
- * Android plugin does (`UtilsSQLite.getStatementsArray`): on ";\n", `--` cut per line, one statement run per part.
- */
-function pluginConnection() {
-  const d = new DatabaseSync(':memory:')
-  const own = <T>(transaction: boolean | undefined, fn: () => T): T => {
-    if (transaction === false) return fn()
-    d.exec('BEGIN')
-    try { const out = fn(); d.exec('COMMIT'); return out } catch (e) { d.exec('ROLLBACK'); throw e }
-  }
-  const changes = { changes: { changes: 0 } }
-  const c: Connection = {
-    execute: async (sql, transaction) => own(transaction, () => {
-      for (const part of sql.split(';\n')) {
-        const one = part.split('\n').map((l) => l.trim().split('--')[0]).filter(Boolean).join(' ')
-        if (one) d.prepare(one).run()
-      }
-      return changes
-    }),
-    run: async (sql, values = [], transaction) => own(transaction, () => { d.prepare(sql).run(...values); return changes }),
-    query: async (sql, values = []) => ({ values: d.prepare(sql).all(...values) }),
-    beginTransaction: async () => { d.exec('BEGIN'); return changes },
-    commitTransaction: async () => { d.exec('COMMIT'); return changes },
-    rollbackTransaction: async () => { d.exec('ROLLBACK'); return changes },
-  }
-  return c
-}
 
 const book = { sha256: 'ab'.repeat(32), size: 10, title: 'T', author: '', originalName: 'b.epub', format: 'epub' }
 
