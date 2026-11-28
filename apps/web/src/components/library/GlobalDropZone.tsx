@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useLanguage } from '../../context/LanguageContext'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useDragFileTracker } from '../../hooks/useDragFileTracker'
 import { partitionFiles } from '../../lib/uploadFileValidation'
@@ -10,13 +8,11 @@ import { emit } from '../../lib/telemetry/myBooks'
 import { Toast } from '../Toast'
 import { UploadModal } from './UploadModal'
 
-type ToastState = { kind: 'invalid' | 'signin'; key: number } | null
+type ToastState = { kind: 'invalid'; key: number } | null
 
 export function GlobalDropZone() {
-  const { isAuthenticated, isLoading } = useAuth()
-  const { getLocalizedPath } = useLanguage()
+  const { isLoading, ensureSession } = useAuth()
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const [modalOpen, setModalOpen] = useState(false)
   const [initialFile, setInitialFile] = useState<File | undefined>(undefined)
   const [queue, setQueue] = useState<File[]>([])
@@ -24,11 +20,6 @@ export function GlobalDropZone() {
 
   const handleDrop = useCallback((files: File[]) => {
     emit('dropzone.dropped', { count: files.length })
-    if (!isAuthenticated) {
-      emit('dropzone.invalid_file', { reason: 'unauthenticated' })
-      setToast({ kind: 'signin', key: Date.now() })
-      return
-    }
     const { valid, invalid } = partitionFiles(files)
     if (invalid.length > 0 && valid.length === 0) {
       emit('dropzone.invalid_file', { reason: 'extension', count: invalid.length })
@@ -36,10 +27,13 @@ export function GlobalDropZone() {
       return
     }
     if (valid.length === 0) return
-    setInitialFile(valid[0])
-    setQueue(valid.slice(1))
-    setModalOpen(true)
-  }, [isAuthenticated])
+    // A reader with no session gets a guest one first, as the upload button does.
+    void ensureSession().catch(() => {}).then(() => {
+      setInitialFile(valid[0])
+      setQueue(valid.slice(1))
+      setModalOpen(true)
+    })
+  }, [ensureSession])
 
   const { isDragging } = useDragFileTracker({
     enabled: !modalOpen && !isLoading,
@@ -57,11 +51,6 @@ export function GlobalDropZone() {
   }, [])
 
   const dismissToast = useCallback(() => setToast(null), [])
-
-  const onSigninClick = useCallback(() => {
-    setToast(null)
-    navigate(getLocalizedPath('/login?next=/library'))
-  }, [navigate, getLocalizedPath])
 
   return (
     <>
@@ -84,15 +73,6 @@ export function GlobalDropZone() {
       <UploadModal open={modalOpen} onClose={closeModal} initialFile={initialFile} queue={queue} />
       {toast?.kind === 'invalid' && (
         <Toast key={toast.key} message={t('upload.dropzone.invalid')} duration={3500} onClose={dismissToast} />
-      )}
-      {toast?.kind === 'signin' && (
-        <Toast
-          key={toast.key}
-          message={`${t('upload.dropzone.signinRequired')} — ${t('upload.dropzone.signinAction')}`}
-          duration={5000}
-          onClose={dismissToast}
-          onClick={onSigninClick}
-        />
       )}
     </>
   )

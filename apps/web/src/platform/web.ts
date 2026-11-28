@@ -43,7 +43,7 @@ export const platform: Platform = {
     renderButton: (el) => renderGoogleButton(el),
     signOut: () => signOutOfGoogle(),
   },
-  library: userBooks,
+  library: { ...userBooks, withoutSession: false },
   vocabulary,
   highlights: {
     getAllHighlights: (q) => highlightsApi.getAllHighlights(q),

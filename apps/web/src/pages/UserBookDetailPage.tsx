@@ -24,6 +24,8 @@ export function UserBookDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
+  // Android opens a book of the device with no session.
+  const canView = isAuthenticated || platform.library.withoutSession
   const { language } = useLanguage()
   const [book, setBook] = useState<UserBookDetail | null>(null)
   const [coverHidden, onCoverError, coverSrc] = useCoverRetry(platform.library.getUserBookCoverUrl(book?.coverPath))
@@ -43,11 +45,11 @@ export function UserBookDetailPage() {
   // the Assistant menu had no current chapter.
   const [serverProgress, setServerProgress] = useState<{ chapterSlug: string | null; percent: number | null } | null>(null)
   useEffect(() => {
-    if (!id || !isAuthenticated) return
+    if (!id || !canView) return
     let live = true
     platform.library.getUserBookProgress(id).then(p => { if (live) setServerProgress(p) })
     return () => { live = false }
-  }, [id, isAuthenticated])
+  }, [id, canView, isAuthenticated])
 
   const savedProgress = useMemo((): SavedProgress | null => {
     if (!id) return null
@@ -83,7 +85,7 @@ export function UserBookDetailPage() {
   }, [savedProgress, book?.chapters])
 
   useEffect(() => {
-    if (!id || !isAuthenticated) return
+    if (!id || !canView) return
 
     let cancelled = false
     setLoading(true)
@@ -101,7 +103,7 @@ export function UserBookDetailPage() {
       })
 
     return () => { cancelled = true }
-  }, [id, isAuthenticated])
+  }, [id, canView, isAuthenticated])
 
   const handleDelete = async () => {
     if (!id || deleting) return
@@ -134,7 +136,7 @@ export function UserBookDetailPage() {
     if (pendingTimeoutRef.current) window.clearTimeout(pendingTimeoutRef.current)
   }, [])
 
-  if (!isAuthenticated) {
+  if (!canView) {
     return (
       <>
       <div className="user-book-detail">

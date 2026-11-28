@@ -28,7 +28,7 @@ vi.mock('../../api/sync', () => ({
   },
 }))
 vi.mock('./account', () => ({ storedUser: async () => null }))
-vi.mock('./deviceDownload', () => ({ deleteBook: vi.fn(async () => {}) }))
+vi.mock('./deviceDownload', () => ({ deleteBook: vi.fn(async () => {}), retainBook: vi.fn(async () => true) }))
 vi.mock('./deviceLibrary', () => ({
   deviceLocalLibrary: () => lib,
   deviceRemovals: async () => new Set((await lib.outbox('removal')).map((i) => i.target)),
@@ -42,7 +42,7 @@ vi.mock('../../api/userBooks', () => ({
 }))
 
 const { library } = await import('./library')
-const { deleteBook } = await import('./deviceDownload')
+const { deleteBook, retainBook } = await import('./deviceDownload')
 
 const SHA = 'ab'.repeat(32)
 async function bookOnDevice() {
@@ -110,6 +110,14 @@ describe('the Android library (server online, the device offline)', () => {
     }))
     await library.uploadUserBook(new File([new Uint8Array(3)], 'b.epub'))
     expect(sent.map((s) => s.auth)).toEqual(['Bearer at', 'Bearer at-2'])
+    vi.unstubAllGlobals()
+  })
+
+  it('uploadUserBook_Done_TheBookIsKeptOnThisDeviceForTheReader_AFailureIsNotTheUploads', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 200 })))
+    vi.mocked(retainBook).mockClear().mockRejectedValueOnce(new Error('disk full'))
+    const result = await library.uploadUserBook(new File([new Uint8Array(3)], 'b.epub'))
+    expect(vi.mocked(retainBook)).toHaveBeenCalledWith(result.userBookId, expect.any(Function))
     vi.unstubAllGlobals()
   })
 

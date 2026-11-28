@@ -52,8 +52,8 @@ export function TabBar() {
           type="button"
           className="tab-bar__add"
           aria-label={t('upload.button')}
-          // The header's UploadButton owns the upload dialog and listens for this event.
-          onClick={() => (isAuthenticated ? window.dispatchEvent(new Event('textstack:open-upload')) : openAuthModal())}
+          // The header's UploadButton owns the upload dialog and listens for this event (no session: a guest one first).
+          onClick={() => window.dispatchEvent(new Event('textstack:open-upload'))}
         >
           <span className="material-icons-outlined" aria-hidden="true">add</span>
         </button>

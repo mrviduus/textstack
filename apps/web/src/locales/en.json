@@ -522,8 +522,7 @@
   "upload": {
     "button": "Upload book",
     "modal": {
-      "title": "Upload a book",
-      "signin": "Sign in to upload"
+      "title": "Upload a book"
     },
     "shortcut": {
       "hint": "Upload book (⌘U)"
@@ -533,9 +532,7 @@
       "browse": "or click to browse",
       "subtitle": "EPUB, MOBI, AZW3, FB2, CBZ or PDF",
       "invalid": "Unsupported file. Use EPUB, MOBI, AZW3, FB2, CBZ or PDF.",
-      "truncatedPdf": "This PDF looks incomplete or corrupted. If you just downloaded it, wait for the download to finish and pick it again.",
-      "signinRequired": "Sign in to upload books",
-      "signinAction": "Sign in"
+      "truncatedPdf": "This PDF looks incomplete or corrupted. If you just downloaded it, wait for the download to finish and pick it again."
     },
     "status": {
       "uploading": "uploading…"

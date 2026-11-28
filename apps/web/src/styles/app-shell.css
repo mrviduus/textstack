@@ -79,3 +79,29 @@ html.has-tab-bar .bulk-action-bar,
 html.has-tab-bar .toast,
 html.has-tab-bar .cookie-banner,
 html.has-tab-bar .android-app-banner { margin-bottom: 56px; }
+
+/* The library with no session (Android): the books are on the device only. */
+.library-signed-out {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-brand);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-brand) 10%, transparent);
+  color: var(--color-brand);
+  font-size: 14px;
+}
+.library-signed-out span { flex: 1; }
+.library-signed-out__action {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 4px 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

@@ -39,11 +39,15 @@ describe('the phone tab bar', () => {
     expect(screen.getByRole('link', { name: /library/i })).toHaveAttribute('aria-current', 'page')
   })
 
-  it('asks a reader with no session to sign in for "+" and Profile', () => {
+  it('opens the upload dialog for "+" with no session, and asks to sign in for Profile', () => {
+    const opened = vi.fn()
+    window.addEventListener('textstack:open-upload', opened)
     at('/en/library')
     fireEvent.click(screen.getByRole('button', { name: /upload/i }))
     fireEvent.click(screen.getByRole('button', { name: /profile/i }))
-    expect(auth.openAuthModal).toHaveBeenCalledTimes(2)
+    window.removeEventListener('textstack:open-upload', opened)
+    expect(opened).toHaveBeenCalledTimes(1)
+    expect(auth.openAuthModal).toHaveBeenCalledTimes(1)
   })
 
   it('opens the upload dialog and the profile for a reader with a session', () => {
