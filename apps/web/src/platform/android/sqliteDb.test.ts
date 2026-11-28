@@ -7,7 +7,8 @@ import { toDb, type Connection } from './sqliteDb'
 
 /**
  * The plugin's connection over node:sqlite, with its rules: each call opens its own transaction unless told
- * `transaction: false`, and a transaction inside an open one fails (as SQLite does).
+ * `transaction: false`, and a transaction inside an open one fails (as SQLite does). `execute` splits as the
+ * Android plugin does (`UtilsSQLite.getStatementsArray`): on ";\n", `--` cut per line, one statement run per part.
  */
 function pluginConnection() {
   const d = new DatabaseSync(':memory:')
@@ -18,7 +19,13 @@ function pluginConnection() {
   }
   const changes = { changes: { changes: 0 } }
   const c: Connection = {
-    execute: async (sql, transaction) => own(transaction, () => { d.exec(sql); return changes }),
+    execute: async (sql, transaction) => own(transaction, () => {
+      for (const part of sql.split(';\n')) {
+        const one = part.split('\n').map((l) => l.trim().split('--')[0]).filter(Boolean).join(' ')
+        if (one) d.prepare(one).run()
+      }
+      return changes
+    }),
     run: async (sql, values = [], transaction) => own(transaction, () => { d.prepare(sql).run(...values); return changes }),
     query: async (sql, values = []) => ({ values: d.prepare(sql).all(...values) }),
     beginTransaction: async () => { d.exec('BEGIN'); return changes },
@@ -50,11 +57,23 @@ describe('the local library over the Capacitor SQLite connection', () => {
     expect(await db.getAllAsync('SELECT * FROM t')).toEqual([])
   })
 
-  it('getFirstAsync_NoRow_Null_UndefinedParamBoundAsNull', async () => {
+  it('migrate_FirstOpen_EveryTableOfTheSchemaExists', async () => {
+    const c = pluginConnection()
+    await createLocalLibrary(toDb(c)).books()
+    const tables = (await c.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")).values!.map((r) => r.name)
+    expect(tables).toEqual(['annotations', 'books', 'meta', 'outbox', 'reading_sessions', 'reading_state', 'vocabulary'])
+  })
+
+  it('getFirstAsync_NoRow_Null', async () => {
+    const db = toDb(pluginConnection())
+    await db.execAsync('CREATE TABLE t (v TEXT)')
+    expect(await db.getFirstAsync('SELECT * FROM t')).toBeNull()
+  })
+
+  it('runAsync_UndefinedParam_BoundAsNull', async () => {
     const db = toDb(pluginConnection())
     await db.execAsync('CREATE TABLE t (v TEXT)')
     await db.runAsync('INSERT INTO t (v) VALUES (?)', [undefined])
-    expect(await db.getFirstAsync('SELECT * FROM t WHERE v IS NOT NULL')).toBeNull()
     expect(await db.getAllAsync('SELECT * FROM t')).toEqual([{ v: null }])
   })
 })

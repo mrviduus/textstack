@@ -1,5 +1,6 @@
-// The local library's `Db` (localLibrary.ts) over @capacitor-community/sqlite. Same database name as the Expo app:
-// `textstack-v2` (the plugin keeps it as `databases/textstack-v2SQLite.db`).
+// The local library's `Db` (localLibrary.ts) over @capacitor-community/sqlite. The database name is the Expo app's
+// (`textstack-v2`), but the file is not: the plugin keeps `databases/textstack-v2SQLite.db`, expo-sqlite kept
+// `files/SQLite/textstack-v2`. Moving an existing install's file is #1643's job.
 import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { Db } from './localLibrary'
 
@@ -11,12 +12,20 @@ export type Connection = Pick<SQLiteDBConnection, 'execute' | 'run' | 'query' | 
 const bind = (params: unknown[] = []) => params.map((p) => (p === undefined ? null : p))
 
 /**
+ * One statement per item, `--` comments removed. The plugin splits only on ";\n" and runs one statement per part,
+ * so a comment after a ";" would silently drop the next statement. ponytail: a plain split, so no string literal in
+ * `execAsync` SQL may hold ";" or "--" (none does: it runs the fixed schema and upgrade SQL only).
+ */
+export const statements = (sql: string) =>
+  sql.replace(/--[^\n]*/g, '').split(';').map((s) => s.trim()).filter(Boolean)
+
+/**
  * `Db` over one connection. Every call passes `transaction: false`: the plugin wraps each call in its own
  * transaction by default, and `withTransactionAsync` already holds one around them.
  */
 export function toDb(c: Connection): Db {
   return {
-    execAsync: async (sql) => { await c.execute(sql, false) },
+    execAsync: async (sql) => { for (const s of statements(sql)) await c.execute(s, false) },
     runAsync: (sql, params) => c.run(sql, bind(params), false),
     getFirstAsync: async <T>(sql: string, params?: unknown[]) => ((await c.query(sql, bind(params))).values?.[0] ?? null) as T | null,
     getAllAsync: async <T>(sql: string, params?: unknown[]) => ((await c.query(sql, bind(params))).values ?? []) as T[],
