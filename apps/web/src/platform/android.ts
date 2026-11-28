@@ -4,6 +4,7 @@ import { isTokenExpiring } from '@textstack/shared'
 import { applyMergeMap } from '../lib/mergeMap'
 import { APP_HEADERS, cachedAccessToken, freshAccessToken, getAccessToken, setupApi } from './android/api'
 import { google } from './android/google'
+import { imageSrc } from './android/imageSrc'
 import { library, syncSoon } from './android/library'
 import { NetInfo } from './android/native'
 import { highlights, vocabulary } from './android/vocabulary'
@@ -42,6 +43,7 @@ export const platform: Platform = {
     restored: async () => syncSoon(true),
   },
   siteChrome: false,
+  imageSrc,
   google,
   library,
   vocabulary,

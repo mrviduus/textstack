@@ -55,7 +55,7 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
   const readable = book.status === 'Ready'
   const hasOriginalPdf = !!book.hasOriginalPdf
   const coverUrl = platform.library.getUserBookCoverUrl(book.coverPath)
-  const [coverHidden, onCoverError] = useCoverRetry(coverUrl)
+  const [coverHidden, onCoverError, coverSrc] = useCoverRetry(coverUrl)
 
   const targetSlug = progress?.chapterSlug
   const readerBase = `/${language}/library/my/${book.id}`
@@ -107,7 +107,7 @@ export function UserBookCard({ book, onDelete, onUpdate, progress, highlighted, 
         >
           {!coverHidden ? (
             <img
-              src={coverUrl}
+              src={coverSrc}
               alt={book.title}
               loading="lazy"
               onError={onCoverError}

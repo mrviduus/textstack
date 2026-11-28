@@ -308,7 +308,7 @@ export function highlightReaderPath(h: HighlightListItem): string | null {
 
 /** A book's cover; a failed one hides and is retried (useCoverRetry). */
 function BookCover({ url }: { url: string | null }) {
-  const [hidden, onError] = useCoverRetry(url)
+  const [hidden, onError, src] = useCoverRetry(url)
   if (hidden) return null
-  return <img className="highlights-page__book-cover" src={url!} alt="" onError={onError} />
+  return <img className="highlights-page__book-cover" src={src} alt="" onError={onError} />
 }

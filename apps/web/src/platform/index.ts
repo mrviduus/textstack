@@ -54,6 +54,12 @@ export interface Platform {
    * and account links. The analytics script in `index.html` is not covered: the shell build drops it (#1643).
    */
   siteChrome: boolean
+  /**
+   * The `src` for an image the API serves to its owner (a book's cover). Web: the URL itself, the cookie goes
+   * with it. Android: an `<img>` sends no bearer, so the image is fetched with it and the answer is a blob: URL
+   * (undefined when the fetch fails). Runs in render: never throws; the same URL gives the same answer.
+   */
+  imageSrc(url: string): string | Promise<string | undefined>
   /** Google sign-in. Web: Google Identity Services. Android: the native account chooser. */
   google: {
     /** Sets up the sign-in once. `onIdToken` gets the Google id token of each sign-in. False: not offered. */

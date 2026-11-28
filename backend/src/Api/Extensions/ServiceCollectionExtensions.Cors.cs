@@ -12,7 +12,10 @@ public static partial class ServiceCollectionExtensions
             ?? [
                 "http://localhost:5173", "http://general.localhost", "http://general.localhost:5173",
                 "http://localhost:81", "http://admin.localhost", "http://admin.localhost:81",
-                "https://textstack.app", "https://textstack.dev"
+                "https://textstack.app", "https://textstack.dev",
+                // The Android shell's WebView (apps/android, ADR-035): its page runs at https://localhost and
+                // calls the API with a bearer. A browser cannot reach a page at that origin on another machine.
+                "https://localhost"
             ];
         services.AddCors(options =>
         {
