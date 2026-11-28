@@ -7,7 +7,6 @@ import { useVocabulary } from '../hooks/useVocabulary'
 import { useTts } from '../hooks/useTts'
 import { REVIEW_BATCH_SIZES, DEFAULT_BATCH_SIZE } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 import { SpeakButton } from '../components/vocabulary/SpeakButton'
 import { EmptyState } from '../components/EmptyState'
 
@@ -83,7 +82,6 @@ export function VocabularyPage() {
           <h1>{t('vocabulary.title')}</h1>
           <div className="vocab-loading">{t('common.loading')}</div>
         </div>
-        <Footer />
       </div>
     )
   }
@@ -103,7 +101,6 @@ export function VocabularyPage() {
             buttonTo="/library"
           />
         </div>
-        <Footer />
       </div>
     )
   }
@@ -391,7 +388,6 @@ export function VocabularyPage() {
           </button>
         )}
       </div>
-      <Footer />
     </div>
   )
 }

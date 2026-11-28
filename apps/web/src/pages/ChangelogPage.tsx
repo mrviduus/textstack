@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
 import { AREAS, MOVE_OPEN, MOVE_STEPS, MOVE_UPDATED, areaOf, byWeek, moveProgress, readerEntries, type Area, type ChangelogData } from '../lib/changelog'
 import './ChangelogPage.css'
@@ -157,7 +156,6 @@ export function ChangelogPage() {
           <a href={FROZEN_URL} target="_blank" rel="noopener noreferrer">CHANGELOG.md</a>.
         </p>
       </div>
-      <Footer />
     </>
   )
 }

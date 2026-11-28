@@ -44,6 +44,7 @@ export const platform: Platform = {
     restored: async () => syncSoon(true),
   },
   siteChrome: false,
+  appShell: true,
   imageSrc,
   google,
   library,

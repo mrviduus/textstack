@@ -1,5 +1,4 @@
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
 import { useObfuscatedEmail } from '../hooks/useObfuscatedEmail'
 import './LegalPage.css'
@@ -67,7 +66,6 @@ export function DmcaPage() {
           <p>{t('dmca.misuseBody')}</p>
         </section>
       </div>
-      <Footer />
     </>
   )
 }

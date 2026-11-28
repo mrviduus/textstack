@@ -6,7 +6,6 @@ import { useHighlightedBook } from '../hooks/useHighlightedBook'
 import { useLanguage } from '../context/LanguageContext'
 import { useTranslation } from '../hooks/useTranslation'
 import { SeoHead } from '../components/SeoHead'
-import { Footer } from '../components/Footer'
 import { UploadDropZone } from '../components/library/UploadDropZone'
 import { LibrarySidebar } from '../components/library/LibrarySidebar'
 import { useLibrarySource } from '../hooks/useLibrarySource'
@@ -139,7 +138,6 @@ export function LibraryPage() {
         <SeoHead title={t('library.title')} noindex />
         <div className="library-page__loading">{t('library.loading')}</div>
       </div>
-      <Footer />
       </>
     )
   }
@@ -151,7 +149,6 @@ export function LibraryPage() {
         <SeoHead title={t('library.title')} noindex />
         <EmptyState icon="📚" title={t('library.title')} subtitle={t('library.signInPrompt')} />
       </div>
-      <Footer />
       </>
     )
   }
@@ -302,7 +299,6 @@ export function LibraryPage() {
         />
       )}
     </div>
-    <Footer />
     </>
   )
 }

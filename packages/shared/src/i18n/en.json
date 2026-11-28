@@ -18,7 +18,8 @@
     "library": "Library",
     "vocabulary": "Vocabulary",
     "about": "About",
-    "profile": "Profile"
+    "profile": "Profile",
+    "tabs": "Main"
   },
   "onboarding": {
     "nativeLanguageTitle": "What language do you know best?",

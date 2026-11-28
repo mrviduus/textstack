@@ -55,6 +55,11 @@ export interface Platform {
    */
   siteChrome: boolean
   /**
+   * True in the Android app: it opens on the library (no landing page), has no site footer and always shows
+   * the tab bar. False on the website, where a phone-width screen gets the same layout from CSS alone.
+   */
+  appShell: boolean
+  /**
    * The `src` for an image the API serves to its owner (a book's cover). Web: the URL itself, the cookie goes
    * with it. Android: an `<img>` sends no bearer, so the image is fetched with it and the answer is a blob: URL
    * (undefined when the fetch fails). Runs in render: never throws; the same URL gives the same answer.
