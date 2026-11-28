@@ -6,7 +6,7 @@ import { authApi, capabilitiesFor, type MergeMap } from '@textstack/shared'
 import * as web from '../../api/auth'
 import type { AuthResponse, User } from '../../api/auth'
 import type { Platform } from '../index'
-import { clearTokens, getAccessToken, onUnauthorized, resetAuthFailureLatch, writeTokens } from './api'
+import { clearTokens, freshAccessToken, getAccessToken, onUnauthorized, resetAuthFailureLatch, writeTokens } from './api'
 import { onAuthFailure } from './authEvents'
 import { SecureStore } from './native'
 import { createWriteQueue, writeUserIfCurrent, USER_KEY } from './sessionWrites'
@@ -17,6 +17,8 @@ import { withDeadline } from './deadline'
 
 /** One queue and epoch for every session write (sessionWrites.ts): a guest mint that loses to a sign-in writes nothing. */
 const queue = createWriteQueue()
+/** The session's generation, bumped where the tokens change: work started under an earlier one is dropped (reader). */
+export const sessionEpoch = () => queue.epoch
 
 /** #1611: the guest mint's look at the device library (Expo `OWNED_LOSS_MINT_MS`). */
 const OWNED_LOSS_MINT_MS = 1000
@@ -165,6 +167,7 @@ export const account: Platform['account'] = {
     await web.deleteAccount()
     await end()
   },
-  approveDevice: (userCode) => web.approveDevice(userCode),
-  denyDevice: (userCode) => web.denyDevice(userCode),
+  // These go through `fetchInit` (the cached token, no retry on a 401): a fresh token first.
+  approveDevice: async (userCode) => { await freshAccessToken(); return web.approveDevice(userCode) },
+  denyDevice: async (userCode) => { await freshAccessToken(); return web.denyDevice(userCode) },
 }

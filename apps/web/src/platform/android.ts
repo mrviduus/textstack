@@ -1,47 +1,46 @@
 import type { Platform } from '.'
+import { account } from './android/account'
+import { isTokenExpiring } from '@textstack/shared'
+import { applyMergeMap } from '../lib/mergeMap'
+import { APP_HEADERS, cachedAccessToken, freshAccessToken, getAccessToken, setupApi } from './android/api'
+import { google } from './android/google'
+import { startSyncProbe } from './android/syncClient'
 
-/** Every member throws until wave 5 (#1642) ports the offline library here. The stub only proves the build. */
+/** A member still to come in wave 5 (#1642): it throws. */
 export const notYet = (member: string) => (): never => {
   throw new Error(`platform/android: ${member} is not implemented yet (#1642)`)
 }
 
-// Wave 5 calls `initApi` here, in bearer mode, as `web.ts` does in cookie mode.
+// The shared API client in bearer mode, on load (`web.ts` sets cookie mode the same way).
+setupApi()
+// The token cache filled at once, so the first synchronous `fetchInit` of a stored session carries it.
+void getAccessToken().catch(() => {})
 
 /** The Android shell (ADR-035): a local SQLite library, device files, bearer tokens. */
 export const platform: Platform = {
   transport: {
-    fetchInit: notYet('transport.fetchInit'),
+    // Synchronous (a `pagehide` write uses it), so the token is the cached copy; never throws. A copy close to
+    // expiry is refreshed in the background, so the next call carries a good one (no caller retries a 401).
+    fetchInit: () => {
+      const token = cachedAccessToken()
+      if (token && isTokenExpiring(token)) void freshAccessToken().catch(() => {})
+      return { headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
+    },
   },
-  account: {
-    getCurrentUser: notYet('account.getCurrentUser'),
-    refreshToken: notYet('account.refreshToken'),
-    loginWithEmail: notYet('account.loginWithEmail'),
-    registerWithEmail: notYet('account.registerWithEmail'),
-    loginWithGoogle: notYet('account.loginWithGoogle'),
-    logout: notYet('account.logout'),
-    createGuestSession: notYet('account.createGuestSession'),
-    forgotPassword: notYet('account.forgotPassword'),
-    resetPassword: notYet('account.resetPassword'),
-    updateProfile: notYet('account.updateProfile'),
-    uploadAvatar: notYet('account.uploadAvatar'),
-    deleteAvatar: notYet('account.deleteAvatar'),
-    deleteAccount: notYet('account.deleteAccount'),
-    approveDevice: notYet('account.approveDevice'),
-    denyDevice: notYet('account.denyDevice'),
-  },
+  account,
   session: {
-    userSet: notYet('session.userSet'),
-    settled: notYet('session.settled'),
-    accountChanged: notYet('session.accountChanged'),
-    signedIn: notYet('session.signedIn'),
-    restored: notYet('session.restored'),
+    // The V2 probe once a user is set (the Expo AuthContext's userId effect).
+    userSet: () => void startSyncProbe().catch((e: unknown) => console.warn('[v2] status probe failed:', e)),
+    settled: () => {},
+    // account.ts bumps its session epoch where the tokens change (`sessionEpoch`), before the UI knows.
+    accountChanged: () => {},
+    // account.ts already claimed the device library and adopted a guest's. The web stores in the WebView
+    // (localStorage progress, offlineDb queues) are re-keyed as on the web.
+    signedIn: async (merge) => { if (merge) await applyMergeMap(merge) },
+    restored: async () => {},
   },
   siteChrome: false,
-  google: {
-    init: notYet('google.init'),
-    renderButton: notYet('google.renderButton'),
-    signOut: notYet('google.signOut'),
-  },
+  google,
   library: {
     getUserBooks: notYet('library.getUserBooks'),
     getUserBook: notYet('library.getUserBook'),
