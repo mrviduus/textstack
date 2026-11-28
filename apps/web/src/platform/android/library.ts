@@ -122,8 +122,7 @@ export const library: Platform['library'] = {
     syncSoon()
     return result
   },
-  // Runs in render: never throws. ponytail: the server's cover URL; an <img> sends no bearer, so covers need
-  // the shell's answer (wave 6, #1643: CORS + auth for images).
+  // Runs in render: never throws. The server's cover URL; `platform.imageSrc` turns it into an <img> src.
   getUserBookCoverUrl: (coverPath) => web.getUserBookCoverUrl(coverPath),
   getUserBookFileUrl: (id) => web.getUserBookFileUrl(id),
 }

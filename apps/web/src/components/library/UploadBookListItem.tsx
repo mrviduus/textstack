@@ -34,14 +34,14 @@ export function UploadBookListItem({
       : null
   const showContinue = readable && !!continueHref && !book.completedAt
   const coverUrl = platform.library.getUserBookCoverUrl(book.coverPath)
-  const [coverHidden, onCoverError] = useCoverRetry(coverUrl)
+  const [coverHidden, onCoverError, coverSrc] = useCoverRetry(coverUrl)
   return (
     <article data-book-id={book.id} className={`library-list-item${highlighted ? ' library-list-item--highlighted' : ''}`}>
       {readable ? (
         <Link to={destination} className="library-list-item__cover">
           {!coverHidden ? (
             <img
-              src={coverUrl}
+              src={coverSrc}
               alt={book.title}
               onError={onCoverError}
             />
@@ -57,7 +57,7 @@ export function UploadBookListItem({
         <div className="library-list-item__cover library-list-item__cover--disabled">
           {!coverHidden ? (
             <img
-              src={coverUrl}
+              src={coverSrc}
               alt={book.title}
               onError={onCoverError}
             />

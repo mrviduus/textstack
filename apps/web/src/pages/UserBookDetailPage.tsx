@@ -12,6 +12,7 @@ import { AssistantMenu } from '../components/library/AssistantMenu'
 import { currentReviewChapter, bookPages, plural } from '@textstack/shared'
 import { useBookReviews } from '../hooks/useBookReviews'
 import { emitDataChanges } from '../lib/dataEvents'
+import { useCoverRetry } from '../hooks/useCoverRetry'
 
 interface SavedProgress {
   chapterSlug?: string
@@ -26,6 +27,7 @@ export function UserBookDetailPage() {
   const { isAuthenticated } = useAuth()
   const { language } = useLanguage()
   const [book, setBook] = useState<UserBookDetail | null>(null)
+  const [coverHidden, onCoverError, coverSrc] = useCoverRetry(platform.library.getUserBookCoverUrl(book?.coverPath))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -203,8 +205,8 @@ export function UserBookDetailPage() {
 
       <div className="user-book-detail__content">
         <div className="user-book-detail__cover">
-          {book.coverPath ? (
-            <img src={platform.library.getUserBookCoverUrl(book.coverPath)} alt={book.title} />
+          {!coverHidden ? (
+            <img src={coverSrc} alt={book.title} onError={onCoverError} />
           ) : (
             <div
               className="user-book-detail__cover-placeholder"
