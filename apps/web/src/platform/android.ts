@@ -4,6 +4,7 @@ import { isTokenExpiring } from '@textstack/shared'
 import { applyMergeMap } from '../lib/mergeMap'
 import { APP_HEADERS, cachedAccessToken, freshAccessToken, getAccessToken, setupApi } from './android/api'
 import { google } from './android/google'
+import { library, syncNow } from './android/library'
 import { startSyncProbe } from './android/syncClient'
 
 /** A member still to come in wave 5 (#1642): it throws. */
@@ -29,32 +30,19 @@ export const platform: Platform = {
   },
   account,
   session: {
-    // The V2 probe once a user is set (the Expo AuthContext's userId effect).
-    userSet: () => void startSyncProbe().catch((e: unknown) => console.warn('[v2] status probe failed:', e)),
+    // The V2 probe once a user is set (the Expo AuthContext's userId effect), then a library pass.
+    userSet: () => void startSyncProbe().then(() => syncNow()).catch((e: unknown) => console.warn('[v2] status probe or sync failed:', e)),
     settled: () => {},
     // account.ts bumps its session epoch where the tokens change (`sessionEpoch`), before the UI knows.
     accountChanged: () => {},
     // account.ts already claimed the device library and adopted a guest's. The web stores in the WebView
     // (localStorage progress, offlineDb queues) are re-keyed as on the web.
     signedIn: async (merge) => { if (merge) await applyMergeMap(merge) },
-    restored: async () => {},
+    restored: async () => { void syncNow().catch((e: unknown) => console.warn('[v2] sync failed:', e)) },
   },
   siteChrome: false,
   google,
-  library: {
-    getUserBooks: notYet('library.getUserBooks'),
-    getUserBook: notYet('library.getUserBook'),
-    getUserBookProgress: notYet('library.getUserBookProgress'),
-    getUserTags: notYet('library.getUserTags'),
-    uploadUserBook: notYet('library.uploadUserBook'),
-    deleteUserBook: notYet('library.deleteUserBook'),
-    markUserBookComplete: notYet('library.markUserBookComplete'),
-    unmarkUserBookComplete: notYet('library.unmarkUserBookComplete'),
-    bulkFinishUserBooks: notYet('library.bulkFinishUserBooks'),
-    bulkDeleteUserBooks: notYet('library.bulkDeleteUserBooks'),
-    getUserBookCoverUrl: notYet('library.getUserBookCoverUrl'),
-    getUserBookFileUrl: notYet('library.getUserBookFileUrl'),
-  },
+  library,
   vocabulary: {
     saveWord: notYet('vocabulary.saveWord'),
     getWords: notYet('vocabulary.getWords'),

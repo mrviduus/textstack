@@ -25,7 +25,8 @@ const OWNED_LOSS_MINT_MS = 1000
 
 const noSession = (message: string) => Object.assign(new Error(message), { status: 401 })
 
-async function storedUser(): Promise<User | null> {
+/** The session's user as stored on the device (null: none, or unreadable). */
+export async function storedUser(): Promise<User | null> {
   try {
     const v = await SecureStore.getItemAsync(USER_KEY)
     return v ? (JSON.parse(v) as User) : null
