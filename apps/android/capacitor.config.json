@@ -1,0 +1,11 @@
+{
+  "appId": "app.textstack.mobile",
+  "appName": "TextStack",
+  "webDir": "../web/dist-android",
+  "android": { "path": "android" },
+  "plugins": {
+    "SocialLogin": {
+      "providers": { "google": true, "facebook": false, "apple": false, "twitter": false }
+    }
+  }
+}

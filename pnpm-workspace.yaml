@@ -56,6 +56,7 @@ packages:
   - apps/web
   - apps/admin
   - apps/mobile
+  - apps/android
   - packages/*
 
 # Postinstall scripts pnpm is allowed to run. pnpm 10 made these opt-in, and the
@@ -84,6 +85,16 @@ allowBuilds:
 # patch level. Re-verified with a full Metro bundle, which is the check that
 # actually exercises it.
 catalog:
+  # Capacitor (ADR-035): apps/web imports the JS halves; apps/android lists the same packages so `cap sync`
+  # links their native halves into the shell. One version for both, so the two halves cannot drift.
+  '@aparajita/capacitor-secure-storage': 8.0.1
+  '@capacitor-community/sqlite': 8.1.1
+  '@capacitor/android': 8.6.3
+  '@capacitor/cli': 8.6.3
+  '@capacitor/core': 8.6.3
+  '@capacitor/filesystem': 8.1.5
+  '@capacitor/network': 8.0.1
+  '@capgo/capacitor-social-login': 8.7.13
   '@playwright/test': ^1.63.0
   # @sentry/react for the web SPA (apps/web/src/lib/sentry.ts: lazy, off without VITE_SENTRY_DSN).
   #

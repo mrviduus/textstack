@@ -12,7 +12,9 @@ import { READER_DIR, READER_FRAME_PATH, READER_SCRIPT_PATH } from '../../../pack
 const PLACEHOLDER = '%READER_FRAME_NONCE%' // frame.mjs FRAME_NONCE_PLACEHOLDER (not imported: it loads the page)
 // The page's own nonce placeholder and its format readers (page code); the dev page (its file input, its route).
 const LEAK = /__READER_NONCE__|__TS_FORMATS|ReaderDevPage|Pick EPUB|\\?\/dev\\?\/reader\b/
-const dist = new URL('../dist', import.meta.url).pathname
+// The folder to check: dist/ (web), or the one given (`dist-android`, the shell's build).
+const distName = process.argv[2] ?? 'dist'
+const dist = new URL(`../${distName}`, import.meta.url).pathname
 const readerDir = READER_DIR.slice(1, -1) // 'reader'
 const problems = []
 
@@ -38,7 +40,7 @@ else {
 }
 
 if (problems.length) {
-  console.error(`[assert-no-dev-reader] the V2 reader in dist/ is not what the production route ships:\n  ${problems.join('\n  ')}`)
+  console.error(`[assert-no-dev-reader] the V2 reader in ${distName}/ is not what the production route ships:\n  ${problems.join('\n  ')}`)
   process.exit(1)
 }
-console.log(`[assert-no-dev-reader] dist/ has no dev route; ${readerDir}/ = frame.html + ${scripts[0]}.`)
+console.log(`[assert-no-dev-reader] ${distName}/ has no dev route; ${readerDir}/ = frame.html + ${scripts[0]}.`)

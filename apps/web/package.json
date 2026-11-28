@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && node scripts/assert-no-dev-reader.mjs",
+    "build:android": "tsc && set -a && . ./production.env && . ./android.env && set +a && VITE_TARGET=android vite build --outDir dist-android && node scripts/assert-no-dev-reader.mjs dist-android",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,12 +22,12 @@
     "check:reader-prod-csp": "node --experimental-strip-types ../../packages/reader/src/prodCsp.check.mjs"
   },
   "dependencies": {
-    "@aparajita/capacitor-secure-storage": "8.0.1",
-    "@capacitor-community/sqlite": "8.1.1",
-    "@capacitor/core": "8.6.3",
-    "@capacitor/filesystem": "8.1.5",
-    "@capacitor/network": "8.0.1",
-    "@capgo/capacitor-social-login": "8.7.13",
+    "@aparajita/capacitor-secure-storage": "catalog:",
+    "@capacitor-community/sqlite": "catalog:",
+    "@capacitor/core": "catalog:",
+    "@capacitor/filesystem": "catalog:",
+    "@capacitor/network": "catalog:",
+    "@capgo/capacitor-social-login": "catalog:",
     "@sentry/react": "catalog:",
     "cmdk": "^1.1.1",
     "react": "catalog:",

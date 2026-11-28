@@ -99,6 +99,7 @@ jobs:
       backend: ${{ steps.areas.outputs.backend }}
       web: ${{ steps.areas.outputs.web }}
       mobile: ${{ steps.areas.outputs.mobile }}
+      android: ${{ steps.areas.outputs.android }}
       extension: ${{ steps.areas.outputs.extension }}
       reader: ${{ steps.areas.outputs.reader }}
       docs: ${{ steps.areas.outputs.docs }}
@@ -115,8 +116,8 @@ jobs:
           set -euo pipefail
           files=$(git diff --name-only HEAD^1 HEAD)
           echo "$files"
-          backend=false web=false mobile=false extension=false reader=false docs=false
-          everything() { backend=true web=true mobile=true extension=true reader=true docs=true; }
+          backend=false web=false mobile=false android=false extension=false reader=false docs=false
+          everything() { backend=true web=true mobile=true android=true extension=true reader=true docs=true; }
           [ -n "$files" ] || everything
           while IFS= read -r f; do
             # Not an area of its own: the `reader` gates' inputs inside an area (everything() covers the
@@ -138,6 +139,7 @@ jobs:
               backend/*|database/*|tests/*|*.sln|Directory.*.props|NuGet.Config|global.json|docker-compose*.yml) backend=true ;;
               apps/web/*|apps/admin/*) web=true ;;
               apps/mobile/*) mobile=true ;;
+              apps/android/*) android=true ;;
               apps/browser-extension/*) extension=true ;;
               */*) everything ;;
               *.md) ;;
@@ -148,6 +150,7 @@ jobs:
             echo "backend=$backend"
             echo "web=$web"
             echo "mobile=$mobile"
+            echo "android=$android"
             echo "extension=$extension"
             echo "reader=$reader"
             echo "docs=$docs"
@@ -375,12 +378,6 @@ jobs:
       - name: Build web
         run: pnpm --filter textstack-web build
 
-      # The Android target (ADR-035) must build too. Its `platform/android.ts` is a stub until #1642.
-      # A separate output folder: the web dist stays the one that ships.
-      - name: Build web (android target)
-        working-directory: apps/web
-        run: VITE_TARGET=android npx vite build --outDir "$RUNNER_TEMP/dist-android"
-
       # Vitest was never wired into CI — the job built the app and stopped, so a
       # failing web unit test merged to main unnoticed.
       - name: Web unit tests
@@ -509,6 +506,50 @@ jobs:
       - name: V2 reader prod CSP — gates the PR
         working-directory: apps/web
         run: pnpm check:reader-prod-csp
+
+  # The Android shell (apps/android, ADR-035): the android build of apps/web inside a Capacitor project.
+  # Builds a debug APK (no signing, no upload) and checks the merged manifest's permissions. A web change
+  # runs it too: the shell ships apps/web.
+  android:
+    needs: changes
+    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true' || needs.changes.outputs.android == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+
+      # tsc, `VITE_TARGET=android vite build` into apps/web/dist-android, then the dist check on it.
+      - name: Build web (android target)
+        run: pnpm --filter textstack-android build:web
+
+      - name: Sync the Capacitor project
+        working-directory: apps/android
+        run: pnpm exec cap sync android
+
+      - name: Build debug APK and the merged release manifest
+        working-directory: apps/android/android
+        run: ./gradlew --no-daemon :app:assembleDebug :app:processReleaseMainManifest
+
+      - name: Permissions check
+        working-directory: apps/android
+        run: pnpm check:permissions
 
   # apps/mobile gets its own job rather than another step in `frontend` because it
   # installs and checks a different app, not because it uses a different package
