@@ -42,3 +42,14 @@ export const NetInfo = {
     }
   },
 }
+
+/**
+ * A device file (`file://`) as a `Blob`, read through the WebView (`Capacitor.convertFileSrc`): the stand-in for
+ * expo-file-system's `FileHandle`. A missing or unreadable file is an error.
+ */
+export async function deviceFileBlob(uri: string): Promise<Blob> {
+  const { Capacitor } = await import('@capacitor/core')
+  const res = await fetch(Capacitor.convertFileSrc(uri))
+  if (!res.ok) throw new Error(`device file not readable (${res.status})`)
+  return res.blob()
+}

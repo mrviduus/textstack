@@ -3034,7 +3034,7 @@ describe('V2 local library sync (R6)', () => {
     it('removeLocalBook_RetainedFileDeletedListRefreshedThenAPass', async () => {
       const { lib, bookId } = await synced()
       const order: string[] = []
-      await removeLocalBook(lib, { remove: (name) => order.push(`remove ${name}`) }, bookId, async () => order.push('refresh'), () => order.push('sync'))
+      await removeLocalBook(lib, { remove: (name) => { order.push(`remove ${name}`) } }, bookId, async () => order.push('refresh'), () => order.push('sync'))
       expect(order).toEqual([`remove books/${SHA}.epub`, 'refresh', 'sync'])
     })
   })

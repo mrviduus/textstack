@@ -59,15 +59,15 @@ export interface LocalLibrary {
   importLegacy(books: LibraryEntry[], storeOf: Map<string, string>, newId: () => string): Promise<string[]>
 }
 
-/** The file operations this needs, by name relative to the v2 root: expo-file-system on a device. */
+/** The file operations this needs, by name relative to the v2 root: `@capacitor/filesystem` on a device (async there). */
 export interface HostFiles {
   read(name: string): Promise<string | null>
   /** Overwrites `to`. */
   move(from: string, to: string): Promise<void>
-  exists(name: string): boolean
+  exists(name: string): boolean | Promise<boolean>
   /** Bytes of the file; null when not known (not there, or unreadable). Absent: `exists` alone is trusted. */
-  size?(name: string): number | null
-  remove(name: string): void
+  size?(name: string): number | null | Promise<number | null>
+  remove(name: string): void | Promise<void>
   /** Copies the file at `uri` (a picker's `content://`) to `to`. */
   copyIn(uri: string, to: string): Promise<void>
 }
@@ -107,7 +107,8 @@ export async function readRecovering(files: HostFiles, name: string, ok: (text: 
 async function readOrKeepAside(files: HostFiles, name: string, ok: (text: string) => boolean): Promise<string | null> {
   const text = await readRecovering(files, name, ok)
   if (text !== null) return text
-  const aside = [name, `${name}.tmp`].filter((n) => files.exists(n)).map((n) => [n, `${n}.corrupt-${Date.now()}`])
+  const aside: string[][] = []
+  for (const n of [name, `${name}.tmp`]) if (await files.exists(n)) aside.push([n, `${n}.corrupt-${Date.now()}`])
   for (const [from, to] of aside) await files.move(from, to)
   if (aside.length) console.warn(`[v2] R2 ${name} unreadable, not imported; kept aside as ${aside.map(([, to]) => to).join(', ')}`)
   return null
@@ -121,9 +122,9 @@ export const bookFile = (sha256: string) => `books/${sha256}.epub`
  * absent, so an import or a Download of those bytes puts a good one in its place.
  * ponytail: emptiness only, not the book's size (a row's size can be stale); hash it if a truncated copy shows up.
  */
-export function intactBook(files: Pick<HostFiles, 'exists' | 'size'>, sha256: string): boolean {
+export async function intactBook(files: Pick<HostFiles, 'exists' | 'size'>, sha256: string): Promise<boolean> {
   const name = bookFile(sha256)
-  const n = files.size?.(name) ?? null
+  const n = (await files.size?.(name)) ?? null
   // An unreadable size is not a damaged file: the reading path never goes to the network for it.
   return n === null ? files.exists(name) : n > 0
 }
@@ -167,16 +168,16 @@ export function createHostStorage(files: HostFiles, newId: () => string, lib: Lo
       return afterMigration(() => queue.run(async () => {
         const sha256 = sha256Key(book.sha256)
         const retained = bookFile(sha256)
-        const moved = staged !== null && !intactBook(files, sha256)
+        const moved = staged !== null && !(await intactBook(files, sha256))
         if (moved) await files.move(staged, retained)
-        else if (staged) files.remove(staged)
+        else if (staged) await files.remove(staged)
         try {
           if (over()) throw new Error('the session ended during the open: not added')
           await lib.addOpened({ ...book, sha256, format: book.format ?? null }, newId)
           return { retained, books: await lib.books() }
         } catch (e) {
           const listed = moved && (await lib.hasLocalBytes(sha256).catch(() => true))
-          if (moved && !listed) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
+          if (moved && !listed) try { await files.remove(retained) } catch { /* best effort; rethrow the real error */ }
           throw e
         }
       }))
@@ -191,7 +192,7 @@ export function createHostStorage(files: HostFiles, newId: () => string, lib: Lo
       try {
         await files.copyIn(uri, staged)
       } catch (e) {
-        try { files.remove(staged) } catch { /* best effort; staging/ is cleared on start; rethrow the real error */ }
+        try { await files.remove(staged) } catch { /* best effort; staging/ is cleared on start; rethrow the real error */ }
         throw e
       }
       return staged
@@ -222,7 +223,7 @@ export function createHostStorage(files: HostFiles, newId: () => string, lib: Lo
      */
     dropUnheld: (sha256: string) => afterMigration(() => queue.run(async () => {
       if (await lib.hasLocalBytes(sha256)) return false
-      try { files.remove(bookFile(sha256)) } catch (e) { console.warn('[v2] deleted book file not removed:', (e as Error | null)?.name) }
+      try { await files.remove(bookFile(sha256)) } catch (e) { console.warn('[v2] deleted book file not removed:', (e as Error | null)?.name) }
       return true
     })),
 
@@ -256,7 +257,7 @@ async function importJsonLibrary(files: HostFiles, lib: LocalLibrary, newId: () 
   const held = await lib.importLegacy(books, stores, newId)
   // An unreadable entry is no longer under its name (kept aside above): nothing of it is deleted here.
   for (const name of [...held.map((sha) => `store/${sha}.json`), 'library.json']) {
-    for (const f of [name, `${name}.tmp`]) try { files.remove(f) } catch { /* best effort */ }
+    for (const f of [name, `${name}.tmp`]) try { await files.remove(f) } catch { /* best effort */ }
   }
 }
 
