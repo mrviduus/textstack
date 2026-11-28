@@ -31,11 +31,8 @@ export const reader: ReaderPlatform = {
     if (!row?.sha256 || o.signal.aborted) throw o.signal.aborted ? aborted() : new Error('the book is not in the device library')
     const bytes = await (await deviceFileBlob(file.uri)).arrayBuffer()
     o.onActivity()
-    const name = row.original_name
-    const fileId = row.file_id ?? row.server_file_id
-    // The reader's data of this file goes to the device library (createSync); the pass sends it on.
-    const sync = fileId ? { bookId: id, fileId, format: row.format ?? row.server_format ?? file.format ?? 'epub', sha256: row.sha256, size: row.size ?? bytes.byteLength, name } : undefined
-    return { bytes, name, sync }
+    // No sync target until `createSync` is real (slice e2b): the reader opens and reads, and saves nothing yet.
+    return { bytes, name: row.original_name }
   },
   createSync: notYet('reader.createSync'),
   queueSession: notYet('reader.queueSession'),

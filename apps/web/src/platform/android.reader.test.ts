@@ -15,11 +15,12 @@ const { reader } = await import('./android.reader')
 const open = () => reader.openBook('b1', { signal: new AbortController().signal, onActivity: () => {}, onPercent: () => {} })
 
 describe('the Android reader (the retained file)', () => {
-  it('openBook_FileOnTheDevice_ItsBytesAndTheSyncTarget_NoDownload', async () => {
+  it('openBook_FileOnTheDevice_ItsBytes_NoDownload_NoSyncTargetYet', async () => {
     retained = { uri: 'file:///v2/books/x.epub', format: 'epub' }
     const book = await open()
     expect(new Uint8Array(book!.bytes)).toEqual(new Uint8Array([1, 2, 3]))
-    expect(book!.sync).toEqual({ bookId: 'b1', fileId: 'f1', format: 'epub', sha256: row.sha256, size: 3, name: 'dune.epub' })
+    expect(book).toMatchObject({ name: 'dune.epub' })
+    expect(book!.sync).toBeUndefined()
     expect(retainBook).not.toHaveBeenCalled()
   })
 

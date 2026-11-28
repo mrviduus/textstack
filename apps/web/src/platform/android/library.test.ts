@@ -12,7 +12,21 @@ let server: { books: () => Promise<unknown[]> } = { books: async () => [] }
 /** What the shared client throws when the request never reached the server. */
 const offline = () => Object.assign(new ApiError(0, 'Failed to fetch'), { isNetworkError: true })
 
-vi.mock('./api', () => ({ getAccessToken: async () => token }))
+vi.mock('./api', () => ({
+  APP_HEADERS: {},
+  getAccessToken: async () => token,
+  freshAccessToken: async () => token,
+  onUnauthorized: async () => (token = 'at-2'),
+}))
+vi.mock('./syncClient', () => ({ startSyncProbe: async () => ({ enabled: true, maxPartBytes: 1000 }) }))
+let sent: { url: string; auth: string | null }[] = []
+vi.mock('../../api/sync', () => ({
+  // The web upload sequence, reduced to one part: the sender is what this tests.
+  uploadBook: async (file: File, _max: number, sendPart: (url: string, part: Blob, onLoaded: (n: number) => void) => Promise<void>) => {
+    await sendPart('http://api/me/v2/books/b/files/f/parts/0', file, () => {})
+    return { userBookId: 'b', jobId: '', status: 'Ready' }
+  },
+}))
 vi.mock('./account', () => ({ storedUser: async () => null }))
 vi.mock('./deviceDownload', () => ({ deleteBook: vi.fn(async () => {}) }))
 vi.mock('./deviceLibrary', () => ({
@@ -28,6 +42,7 @@ vi.mock('../../api/userBooks', () => ({
 }))
 
 const { library } = await import('./library')
+const { deleteBook } = await import('./deviceDownload')
 
 const SHA = 'ab'.repeat(32)
 async function bookOnDevice() {
@@ -75,6 +90,33 @@ describe('the Android library (server online, the device offline)', () => {
     const id = await bookOnDevice()
     expect(await library.getUserBook(id)).toMatchObject({ id, title: 'Dune', status: 'Ready', hasFile: true })
     await expect(library.getUserBook('elsewhere')).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('getUserBook_ServerError_TheDeviceCopy_SignedOutWithAWipeOwed404', async () => {
+    const id = await bookOnDevice()
+    expect(await library.getUserBook(id)).toMatchObject({ id })
+    token = null
+    mayList = false
+    await expect(library.getUserBook(id)).rejects.toMatchObject({ status: 404 })
+    expect(await library.getUserBookProgress(id)).toBeNull()
+  })
+
+  it('uploadUserBook_APartRefused401_RefreshedAndSentAgainWithTheBearer', async () => {
+    sent = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string>).Authorization ?? null
+      sent.push({ url, auth })
+      return new Response(null, { status: auth === 'Bearer at-2' ? 200 : 401 })
+    }))
+    await library.uploadUserBook(new File([new Uint8Array(3)], 'b.epub'))
+    expect(sent.map((s) => s.auth)).toEqual(['Bearer at', 'Bearer at-2'])
+    vi.unstubAllGlobals()
+  })
+
+  it('bulkDeleteUserBooks_EachOffTheDeviceFirst_OneFailsTheRestGo', async () => {
+    vi.mocked(deleteBook).mockClear().mockImplementation(async (id: string) => { if (id === 'b2') throw new Error('disk busy') })
+    expect(await library.bulkDeleteUserBooks(['b1', 'b2', 'b3'])).toEqual({ succeeded: ['b1', 'b3'], failed: [{ id: 'b2', reason: 'disk busy' }] })
+    expect(vi.mocked(deleteBook)).toHaveBeenCalledTimes(3)
   })
 
   it('getUserTags_Offline_None', async () => {
